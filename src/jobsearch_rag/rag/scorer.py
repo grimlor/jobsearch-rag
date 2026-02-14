@@ -18,7 +18,9 @@ class ScoreResult:
     @property
     def is_valid(self) -> bool:
         """All component scores are in [0.0, 1.0]."""
-        return all(0.0 <= s <= 1.0 for s in (self.fit_score, self.archetype_score, self.history_score))
+        return all(
+            0.0 <= s <= 1.0 for s in (self.fit_score, self.archetype_score, self.history_score)
+        )
 
 
 class Scorer:

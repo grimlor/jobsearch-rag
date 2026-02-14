@@ -12,10 +12,9 @@ See: actionable-error-philosophy.md and actionable-error-handling-patterns.md
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Error classification
@@ -96,9 +95,7 @@ class ActionableError(Exception):
     ai_guidance: AIGuidance | None = None
     troubleshooting: Troubleshooting | None = None
     context: dict[str, Any] | None = None
-    timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     # Make it work as a real exception
     def __post_init__(self) -> None:
@@ -217,7 +214,7 @@ class ActionableError(Exception):
                 steps=[
                     f"1. Verify {service} is running",
                     f"2. Test connectivity: curl -s {url}",
-                    f"3. Check the URL in config/settings.toml matches the running service",
+                    "3. Check the URL in config/settings.toml matches the running service",
                     "4. Re-run the command",
                 ]
             ),
@@ -268,7 +265,8 @@ class ActionableError(Exception):
             error=f"Collection '{collection}' is empty or missing — run indexing first",
             error_type=ErrorType.INDEX,
             service="ChromaDB",
-            suggestion=suggestion or f"Run 'python -m jobsearch_rag index' to populate '{collection}'",
+            suggestion=suggestion
+            or f"Run 'python -m jobsearch_rag index' to populate '{collection}'",
             ai_guidance=AIGuidance(
                 action_required=f"Index the '{collection}' collection before scoring",
                 command="python -m jobsearch_rag index",
@@ -300,7 +298,8 @@ class ActionableError(Exception):
             error=f"Parse failure on {board} — selector '{selector}': {raw_error}",
             error_type=ErrorType.PARSE,
             service=board,
-            suggestion=suggestion or f"The {board} page structure may have changed; update the selector",
+            suggestion=suggestion
+            or f"The {board} page structure may have changed; update the selector",
             ai_guidance=AIGuidance(
                 action_required=f"Inspect {board} page and update selector '{selector}'",
                 checks=[

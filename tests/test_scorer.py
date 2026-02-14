@@ -6,7 +6,6 @@ TestScoreFusion, TestCrossBoardDeduplication
 
 from __future__ import annotations
 
-
 # ---------------------------------------------------------------------------
 # TestSemanticScoring
 # ---------------------------------------------------------------------------

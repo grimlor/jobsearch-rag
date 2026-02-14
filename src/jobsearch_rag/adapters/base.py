@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from playwright.async_api import Page
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from playwright.async_api import Page
 
 
 @dataclass

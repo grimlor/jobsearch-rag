@@ -6,7 +6,6 @@ TestPageExtractionFailures, TestLinkedInDetectionResponse
 
 from __future__ import annotations
 
-
 # ---------------------------------------------------------------------------
 # TestAuthenticationFailures
 # ---------------------------------------------------------------------------

@@ -5,7 +5,6 @@ Maps to BDD specs: TestOllamaConnectivity, TestResumeIndexing, TestArchetypeInde
 
 from __future__ import annotations
 
-
 # ---------------------------------------------------------------------------
 # TestOllamaConnectivity
 # ---------------------------------------------------------------------------

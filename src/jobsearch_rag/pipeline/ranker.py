@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from jobsearch_rag.adapters.base import JobListing
-from jobsearch_rag.rag.scorer import ScoreResult
+if TYPE_CHECKING:
+    from jobsearch_rag.adapters.base import JobListing
+    from jobsearch_rag.rag.scorer import ScoreResult
 
 
 @dataclass

@@ -27,19 +27,19 @@ uv run python -m jobsearch_rag search
 
 ```bash
 # Lint
-uv run task lint
+task lint
 
 # Format
-uv run task format
+task format
 
 # Type check
-uv run task type
+task type
 
 # Test
-uv run task test
+task test
 
 # All checks
-uv run task check
+task check
 ```
 
 ## Architecture

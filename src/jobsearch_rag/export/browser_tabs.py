@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from jobsearch_rag.pipeline.ranker import RankedListing
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from jobsearch_rag.pipeline.ranker import RankedListing
 
 
 class BrowserTabOpener:

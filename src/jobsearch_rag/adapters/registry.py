@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import type_check_only
+from typing import TYPE_CHECKING, ClassVar
 
-from jobsearch_rag.adapters.base import JobBoardAdapter
+if TYPE_CHECKING:
+    from jobsearch_rag.adapters.base import JobBoardAdapter
 
 
 class AdapterRegistry:
@@ -20,7 +21,7 @@ class AdapterRegistry:
             ...
     """
 
-    _registry: dict[str, type[JobBoardAdapter]] = {}
+    _registry: ClassVar[dict[str, type[JobBoardAdapter]]] = {}
 
     @classmethod
     def register(cls, adapter_class: type[JobBoardAdapter]) -> type[JobBoardAdapter]:

@@ -1,11 +1,9 @@
-"""Export tests — Markdown and CSV.
+"""Export tests — Markdown, CSV, and browser tab opener.
 
-Maps to BDD specs: TestMarkdownExport, TestCSVExport
-(Specs to be completed — placeholder structure)
+Maps to BDD specs: TestMarkdownExport, TestCSVExport, TestBrowserTabOpener
 """
 
 from __future__ import annotations
-
 
 # ---------------------------------------------------------------------------
 # TestMarkdownExport
@@ -55,3 +53,33 @@ class TestCSVExport:
     def test_company_names_with_commas_are_properly_quoted(self) -> None: ...
     def test_empty_result_set_produces_header_only_csv(self) -> None: ...
     def test_csv_row_count_matches_scored_listing_count(self) -> None: ...
+
+
+# ---------------------------------------------------------------------------
+# TestBrowserTabOpener
+# ---------------------------------------------------------------------------
+
+
+class TestBrowserTabOpener:
+    """REQUIREMENT: Top-ranked results open as browser tabs in score order.
+
+    WHO: The operator who wants to review shortlisted roles without manually
+         clicking through the ranked output
+    WHAT: Tabs open in descending score order; the count respects --open-top N
+          or the settings.toml default; fewer available results than N opens
+          only what exists without error; disqualified roles are never opened;
+          a failed tab open logs the URL and continues to the next
+    WHY: The tab opener is the last mile of the workflow — an error here
+         that aborts remaining tabs wastes the entire run's value;
+         opening in wrong order defeats the purpose of ranking
+    """
+
+    def test_tabs_open_in_descending_score_order(self) -> None: ...
+    def test_tab_count_respects_open_top_n_from_cli(self) -> None: ...
+    def test_tab_count_respects_open_top_n_from_settings_when_cli_not_provided(self) -> None: ...
+    def test_fewer_results_than_n_opens_all_available_without_error(self) -> None: ...
+    def test_disqualified_roles_are_never_opened_as_tabs(self) -> None: ...
+    def test_failed_tab_open_logs_url_and_continues_to_next(self) -> None: ...
+    def test_zero_scored_results_opens_no_tabs_and_logs_advisory(self) -> None: ...
+    def test_tabs_use_default_system_browser_not_playwright_session(self) -> None: ...
+    def test_open_top_zero_opens_no_tabs_without_error(self) -> None: ...

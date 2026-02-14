@@ -5,10 +5,6 @@ Maps to BDD specs: TestAdapterRegistration, TestAdapterContract
 
 from __future__ import annotations
 
-from jobsearch_rag.adapters.base import JobBoardAdapter
-from jobsearch_rag.adapters.registry import AdapterRegistry
-
-
 # ---------------------------------------------------------------------------
 # TestAdapterRegistration
 # ---------------------------------------------------------------------------
