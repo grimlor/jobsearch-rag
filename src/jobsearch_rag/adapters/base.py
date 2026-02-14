@@ -1,0 +1,82 @@
+"""Shared data contract and abstract base class for job board adapters."""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from playwright.async_api import Page
+
+
+@dataclass
+class JobListing:
+    """Board-agnostic data contract consumed by the RAG scorer, ranker, and exporter.
+
+    Required fields are always populated after adapter extraction.
+    Optional fields degrade gracefully when absent.
+    """
+
+    board: str
+    external_id: str
+    title: str
+    company: str
+    location: str
+    url: str
+    full_text: str
+    posted_at: datetime | None = None
+    raw_html: str | None = None
+    metadata: dict[str, str] = field(default_factory=dict)
+
+
+class JobBoardAdapter(ABC):
+    """Strategy interface for job board integration.
+
+    Each adapter owns: authentication, search result pagination,
+    and full JD extraction. Nothing else.
+    """
+
+    @property
+    @abstractmethod
+    def board_name(self) -> str:
+        """Unique identifier string for this board."""
+        ...
+
+    @abstractmethod
+    async def authenticate(self, page: Page) -> None:
+        """Establish an authenticated session.
+
+        Uses Playwright ``storage_state`` for cookie persistence
+        so this is a no-op on subsequent runs.
+        """
+        ...
+
+    @abstractmethod
+    async def search(
+        self,
+        page: Page,
+        query: str,
+        max_pages: int = 3,
+    ) -> list[JobListing]:
+        """Navigate search results and return shallow listings.
+
+        Full text is fetched separately via :meth:`extract_detail`.
+        """
+        ...
+
+    @abstractmethod
+    async def extract_detail(
+        self,
+        page: Page,
+        listing: JobListing,
+    ) -> JobListing:
+        """Navigate to ``listing.url`` and populate ``full_text``."""
+        ...
+
+    @property
+    def rate_limit_seconds(self) -> tuple[float, float]:
+        """(min, max) seconds to sleep between page loads.
+
+        Override in board-specific adapters. Defaults to human-like range.
+        """
+        return (1.5, 3.5)

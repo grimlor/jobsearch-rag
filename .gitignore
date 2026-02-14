@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Data (user-specific, not committed)
+data/chroma_db/*
+!data/chroma_db/.gitkeep
+data/decisions/*
+!data/decisions/.gitkeep
+data/resume.md
+
+# Playwright session cookies (sensitive)
+data/*_session.json
+
+# Output
+output/
+
+# uv
+uv.lock
+
+# direnv
+.direnv/
+.envrc.local
+
+# OS
+.DS_Store
+Thumbs.db

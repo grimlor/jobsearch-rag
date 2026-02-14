@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# Role Archetypes — descriptions of your ideal role types
+# ---------------------------------------------------------------------------
+# Each archetype produces one ChromaDB document for archetype_score computation.
+
+[[archetypes]]
+name = "Staff Platform Architect"
+description = """
+Defines technical strategy and architecture for distributed systems platforms.
+Cross-team influence and alignment. Roadmap ownership. Cloud-native infrastructure.
+API design and governance. Scalability and reliability patterns. Not primarily
+an individual contributor coding role.
+"""
+
+[[archetypes]]
+name = "Principal Data Platform Engineer"
+description = """
+Leads architecture of data pipelines, data quality frameworks, and platform governance.
+Works across data engineering, analytics, and product teams. Mentors engineers.
+Deep experience with cloud data stacks, stream processing, and observability.
+"""
+
+[[archetypes]]
+name = "Developer Relations / Technical Evangelist"
+description = """
+Technical writing, conference speaking, developer community engagement.
+Builds SDKs, examples, and documentation. Bridges product and developer audience.
+Strong communication and content creation alongside engineering depth.
+"""
