@@ -45,7 +45,7 @@ jobs:
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
-          gistID: REPLACE_WITH_YOUR_GIST_ID
+          gistID: b6bda813bb4ef28ff592b6c81a09c791
           filename: jobsearch-rag-coverage.json
           label: coverage
           message: ${{ env.COVERAGE_PCT }}%
