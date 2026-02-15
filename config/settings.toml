@@ -15,6 +15,14 @@ searches = [
 max_pages = 3
 headless = true
 
+[boards.indeed]
+searches = [
+    "https://www.indeed.com/jobs?q=staff+platform+architect&l=Remote&sc=0kf%3Aattr%28DSQF7%29%3B",
+    "https://www.indeed.com/jobs?q=principal+engineer+data+platform&l=Remote&sc=0kf%3Aattr%28DSQF7%29%3B",
+]
+max_pages = 3
+headless = true
+
 [boards.weworkremotely]
 searches = [
     "https://weworkremotely.com/remote-jobs/search?term=staff+engineer",
