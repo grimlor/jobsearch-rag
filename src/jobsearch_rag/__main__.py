@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 
+from jobsearch_rag.adapters import AdapterRegistry
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -61,12 +63,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _handle_boards() -> None:
+    """List all registered adapter board names."""
+    boards = AdapterRegistry.list_registered()
+    if not boards:
+        print("No adapters registered.")
+        return
+    print("Registered adapters:")
+    for name in sorted(boards):
+        print(f"  - {name}")
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    # Dispatch will be wired to PipelineRunner once implemented.
-    # For now, print the parsed command so the CLI is exercisable.
+    if args.command == "boards":
+        _handle_boards()
+        return
+
+    # Other commands are stubs for now
     print(f"Command: {args.command}")
     print(f"Args: {vars(args)}")
 
