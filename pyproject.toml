@@ -16,7 +16,7 @@ dependencies = [
     "httpx>=0.27,<1",
     "ollama>=0.4,<1",
     "playwright>=1.49,<2",
-    "playwright-stealth>=1.0,<2",
+    "playwright-stealth>=2.0,<3",
     "tomli>=2.0; python_version < '3.11'",
 ]
 

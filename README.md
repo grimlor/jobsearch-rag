@@ -152,12 +152,13 @@ testing philosophy, and PR process.
 This project is under active development. Current state:
 
 - **Phase 1 (Core Adapter Infrastructure)** — Complete. Adapter registry,
-  session manager, ZipRecruiter adapter, error hierarchy, and CLI scaffolding
-  with 163 passing tests.
-- **Phase 2 (RAG Foundation)** — Not started. Ollama embeddings, ChromaDB
-  collections, resume/archetype indexing and scoring.
-- **Phases 3–6** — Planned. Scoring pipeline, additional board adapters,
-  export/UX, and portfolio polish.
+  session manager, ZipRecruiter adapter, error hierarchy, and CLI scaffolding.
+- **Phase 2 (RAG Foundation)** — Complete. Ollama embeddings, ChromaDB
+  vector store, resume/archetype indexing, semantic scoring with LLM
+  disqualifier, and integration tests against live Ollama. 248 total tests
+  (232 unit + 16 integration), all Phase 2 modules at 100% coverage.
+- **Phases 3–6** — Planned. Score fusion & ranking, additional board
+  adapters, export/UX, and portfolio polish.
 
 ## Responsible Use
 

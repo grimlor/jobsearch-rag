@@ -115,11 +115,9 @@ class SessionManager:
         # Apply stealth patches if requested (LinkedIn)
         if self.config.stealth:
             try:
-                from playwright_stealth import stealth_async
+                from playwright_stealth import Stealth
 
-                page = await self._context.new_page()
-                await stealth_async(page)
-                await page.close()
+                await Stealth().apply_stealth_async(self._context)
                 logger.info("Stealth patches applied for %s", self.config.board_name)
             except ImportError:
                 logger.warning("playwright-stealth not installed — stealth mode unavailable")
