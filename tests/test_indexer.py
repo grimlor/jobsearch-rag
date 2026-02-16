@@ -174,9 +174,7 @@ class TestResumeChunking:
         """Chunk IDs are slugified from the heading for stable, readable identifiers."""
         await indexer.index_resume(str(resume_path))
         # Should be able to retrieve by predictable IDs
-        result = store.get_documents(
-            "resume", ids=["resume-summary", "resume-core-strengths"]
-        )
+        result = store.get_documents("resume", ids=["resume-summary", "resume-core-strengths"])
         assert len(result["documents"]) == 2
 
     async def test_chunks_contain_at_least_one_complete_sentence(
@@ -197,6 +195,15 @@ class TestResumeChunking:
         count = await indexer.index_resume(str(resume_path))
         # 4 sections, not 5 (title excluded)
         assert count == 4
+
+    async def test_resume_with_no_section_headings_returns_zero_chunks(
+        self, indexer: Indexer, store: VectorStore, tmp_path: Path
+    ) -> None:
+        """A resume with no ## headings produces zero chunks — _chunk_resume returns []."""
+        flat_resume = tmp_path / "flat.md"
+        flat_resume.write_text("# Just a Title\n\nSome text without section headings.\n")
+        count = await indexer.index_resume(str(flat_resume))
+        assert count == 0
 
 
 # ---------------------------------------------------------------------------
@@ -231,9 +238,7 @@ class TestResumeIndexing:
         await indexer.index_resume(str(resume_path))
         assert store.collection_count("resume") == 4
 
-    async def test_index_returns_chunk_count(
-        self, indexer: Indexer, resume_path: Path
-    ) -> None:
+    async def test_index_returns_chunk_count(self, indexer: Indexer, resume_path: Path) -> None:
         """The index method returns the number of chunks created for operator feedback."""
         count = await indexer.index_resume(str(resume_path))
         assert isinstance(count, int)
@@ -247,9 +252,7 @@ class TestResumeIndexing:
         result = store.get_documents("resume", ids=["resume-summary"])
         assert result["metadatas"][0]["source"] == "resume"
 
-    async def test_missing_resume_file_raises_config_error(
-        self, indexer: Indexer
-    ) -> None:
+    async def test_missing_resume_file_raises_config_error(self, indexer: Indexer) -> None:
         """A nonexistent resume file raises a CONFIG error with the path."""
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_resume("/nonexistent/resume.md")
@@ -285,9 +288,7 @@ class TestArchetypeIndexing:
     ) -> None:
         """The archetype name is stored in document metadata for score explanation and debugging."""
         await indexer.index_archetypes(str(archetypes_path))
-        result = store.get_documents(
-            "role_archetypes", ids=["archetype-staff-platform-architect"]
-        )
+        result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
         assert result["metadatas"][0]["name"] == "Staff Platform Architect"
 
     async def test_archetype_description_is_the_document_text(
@@ -295,9 +296,7 @@ class TestArchetypeIndexing:
     ) -> None:
         """The archetype description (normalized) is stored as the document text."""
         await indexer.index_archetypes(str(archetypes_path))
-        result = store.get_documents(
-            "role_archetypes", ids=["archetype-staff-platform-architect"]
-        )
+        result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
         doc = result["documents"][0]
         assert "distributed systems" in doc
         assert "Cloud-native" in doc
@@ -335,9 +334,7 @@ class TestArchetypeIndexing:
             await indexer.index_archetypes(str(empty))
         assert exc_info.value.error_type == ErrorType.VALIDATION
 
-    async def test_missing_archetypes_file_raises_config_error(
-        self, indexer: Indexer
-    ) -> None:
+    async def test_missing_archetypes_file_raises_config_error(self, indexer: Indexer) -> None:
         """A nonexistent archetypes file raises a CONFIG error."""
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_archetypes("/nonexistent/archetypes.toml")

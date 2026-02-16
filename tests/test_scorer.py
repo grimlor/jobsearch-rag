@@ -187,6 +187,150 @@ class TestSemanticScoring:
                 await scorer.score("Any JD text")
             assert exc_info.value.error_type == ErrorType.INDEX
 
+    async def test_existing_but_empty_resume_collection_raises_index_error(
+        self, mock_embedder: Embedder
+    ) -> None:
+        """A resume collection that exists but has 0 documents raises INDEX error."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VectorStore(persist_dir=tmpdir)
+            # Create the collection but don't add documents
+            store.reset_collection("resume")
+            scorer = Scorer(store=store, embedder=mock_embedder)
+            with pytest.raises(ActionableError) as exc_info:
+                await scorer.score("Any JD text")
+            assert exc_info.value.error_type == ErrorType.INDEX
+
+    async def test_existing_but_empty_decisions_returns_zero_history(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """A decisions collection that exists but is empty returns history_score=0.0."""
+        # Create an empty decisions collection
+        populated_store.reset_collection("decisions")
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        result = await scorer.score("Staff architect")
+        assert result.history_score == 0.0
+
+    async def test_history_score_uses_decisions_when_populated(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """When a decisions collection has documents, history_score > 0.0."""
+        # Add a decision that looks like the architect JD embedding
+        populated_store.add_documents(
+            collection_name="decisions",
+            ids=["decision-001"],
+            documents=["Applied to Staff Architect role — strong match."],
+            embeddings=[EMBED_ARCHITECT],
+            metadatas=[{"decision": "applied", "source": "decisions"}],
+        )
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        result = await scorer.score("Staff architect for distributed systems")
+        assert result.history_score > 0.0
+
+    async def test_disqualify_on_llm_flag_false_skips_disqualifier(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """When disqualify_on_llm_flag=False, score() skips the LLM disqualifier."""
+        mock_embedder.classify = AsyncMock(  # type: ignore[method-assign]
+            return_value='{"disqualified": true, "reason": "should be skipped"}'
+        )
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+        )
+        result = await scorer.score("Any JD")
+        assert result.disqualified is False
+        assert result.disqualifier_reason is None
+        mock_embedder.classify.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TestDistanceToScore
+# ---------------------------------------------------------------------------
+
+
+class TestDistanceToScore:
+    """REQUIREMENT: Cosine distance conversion produces valid similarity scores.
+
+    WHO: The Scorer internals converting ChromaDB distances
+    WHAT: Empty distance lists return 0.0; distances clamp to [0.0, 1.0];
+          the best (smallest) distance maps to the highest score
+    WHY: Invalid distance-to-score conversion would silently corrupt all
+         ranking decisions downstream
+    """
+
+    def test_empty_distances_return_zero(self) -> None:
+        """An empty distances list returns 0.0 — the defensive guard."""
+        from jobsearch_rag.rag.scorer import _distance_to_score
+
+        assert _distance_to_score([]) == 0.0
+
+    def test_zero_distance_returns_perfect_score(self) -> None:
+        """A cosine distance of 0.0 (identical vectors) returns 1.0."""
+        from jobsearch_rag.rag.scorer import _distance_to_score
+
+        assert _distance_to_score([0.0]) == 1.0
+
+    def test_distance_one_returns_zero_score(self) -> None:
+        """A cosine distance of 1.0 (orthogonal vectors) returns 0.0."""
+        from jobsearch_rag.rag.scorer import _distance_to_score
+
+        assert _distance_to_score([1.0]) == 0.0
+
+    def test_best_distance_is_used_when_multiple(self) -> None:
+        """The minimum distance (closest match) determines the score."""
+        from jobsearch_rag.rag.scorer import _distance_to_score
+
+        assert _distance_to_score([0.8, 0.2, 0.5]) == pytest.approx(0.8)
+
+    def test_negative_distance_clamps_to_one(self) -> None:
+        """Distances below 0.0 clamp the score to 1.0 (max)."""
+        from jobsearch_rag.rag.scorer import _distance_to_score
+
+        assert _distance_to_score([-0.5]) == 1.0
+
+    def test_distance_greater_than_one_clamps_to_zero(self) -> None:
+        """Distances above 1.0 clamp the score to 0.0 (min)."""
+        from jobsearch_rag.rag.scorer import _distance_to_score
+
+        assert _distance_to_score([1.5]) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# TestParseDisqualifierResponse
+# ---------------------------------------------------------------------------
+
+
+class TestParseDisqualifierResponse:
+    """REQUIREMENT: Disqualifier JSON parsing handles all LLM response variants.
+
+    WHO: The Scorer parsing raw LLM text
+    WHAT: Valid JSON is parsed correctly; string "null" reason is normalised
+          to None; non-JSON falls back to (False, None)
+    WHY: LLMs produce varied outputs — brittle parsing would cause
+         false positives or crash the scoring pipeline
+    """
+
+    def test_string_null_reason_is_normalised_to_none(self) -> None:
+        """LLM returning reason as the string 'null' is normalised to None."""
+        result = Scorer._parse_disqualifier_response('{"disqualified": false, "reason": "null"}')
+        assert result == (False, None)
+
+    def test_reason_none_json_returns_none(self) -> None:
+        """JSON ``null`` for reason is parsed as None."""
+        result = Scorer._parse_disqualifier_response('{"disqualified": false, "reason": null}')
+        assert result == (False, None)
+
+    def test_numeric_reason_is_stringified(self) -> None:
+        """A numeric reason is coerced to string."""
+        result = Scorer._parse_disqualifier_response('{"disqualified": true, "reason": 42}')
+        assert result == (True, "42")
+
+    def test_missing_disqualified_key_defaults_to_false(self) -> None:
+        """If the 'disqualified' key is missing, defaults to False."""
+        result = Scorer._parse_disqualifier_response('{"reason": "something"}')
+        assert result == (False, "something")
+
 
 # ---------------------------------------------------------------------------
 # TestDisqualifierClassification
