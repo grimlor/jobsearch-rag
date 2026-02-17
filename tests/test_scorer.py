@@ -6,8 +6,7 @@ TestScoreFusion, TestCrossBoardDeduplication
 The Scorer orchestrates VectorStore (similarity queries) and Embedder
 (embedding + LLM classification).  VectorStore is tested with a real
 temp-directory instance; Embedder is mocked since it requires live Ollama.
-ScoreFusion and CrossBoardDeduplication specs test the Ranker (Phase 3)
-and are left as stubs here.
+ScoreFusion and CrossBoardDeduplication specs test the Ranker (Phase 3).
 """
 
 from __future__ import annotations
@@ -18,9 +17,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.errors import ActionableError, ErrorType
+from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
 from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.scorer import Scorer
+from jobsearch_rag.rag.scorer import Scorer, ScoreResult
 from jobsearch_rag.rag.store import VectorStore
 
 if TYPE_CHECKING:
@@ -425,29 +426,125 @@ class TestScoreFusion:
          reflect configured priorities — a silent correctness failure
     """
 
+    def _make_listing(self, board: str = "test", external_id: str = "1") -> JobListing:
+        return JobListing(
+            board=board,
+            external_id=external_id,
+            title="Test Role",
+            company="Test Co",
+            location="Remote",
+            url=f"https://example.org/{external_id}",
+            full_text="A test job description.",
+        )
+
     def test_final_score_matches_weighted_sum_formula(self) -> None:
         """The final score equals the weighted sum of fit, archetype, and history scores."""
-        ...
+        ranker = Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.2,
+            min_score_threshold=0.0,
+        )
+        scores = ScoreResult(
+            fit_score=0.8,
+            archetype_score=0.6,
+            history_score=0.4,
+            disqualified=False,
+        )
+        expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4  # 0.30 + 0.24 + 0.08 = 0.62
+        assert ranker.compute_final_score(scores) == pytest.approx(expected)
 
     def test_weights_are_read_from_settings_not_hardcoded(self) -> None:
         """Scoring weights come from settings.toml, allowing operator tuning without code changes."""
-        ...
+        # Custom weights that differ from defaults
+        ranker = Ranker(
+            archetype_weight=0.1,
+            fit_weight=0.8,
+            history_weight=0.1,
+            min_score_threshold=0.0,
+        )
+        scores = ScoreResult(
+            fit_score=1.0,
+            archetype_score=0.0,
+            history_score=0.0,
+            disqualified=False,
+        )
+        # With these weights, only fit matters — score should be 0.8
+        assert ranker.compute_final_score(scores) == pytest.approx(0.8)
 
     def test_disqualified_role_scores_zero_regardless_of_weights(self) -> None:
         """Disqualification zeroes the final score regardless of weight configuration."""
-        ...
+        ranker = Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.2,
+            min_score_threshold=0.0,
+        )
+        scores = ScoreResult(
+            fit_score=1.0,
+            archetype_score=1.0,
+            history_score=1.0,
+            disqualified=True,
+            disqualifier_reason="IC role disguised as architect",
+        )
+        assert ranker.compute_final_score(scores) == 0.0
 
     def test_role_below_threshold_is_excluded_from_output(self) -> None:
         """Roles scoring below min_score_threshold are omitted entirely from the ranked output."""
-        ...
+        ranker = Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.2,
+            min_score_threshold=0.5,
+        )
+        listing = self._make_listing()
+        low_scores = ScoreResult(
+            fit_score=0.1,
+            archetype_score=0.1,
+            history_score=0.1,
+            disqualified=False,
+        )
+        ranked, summary = ranker.rank([(listing, low_scores)])
+        assert len(ranked) == 0
+        assert summary.total_excluded == 1
 
     def test_role_at_exactly_threshold_is_included_in_output(self) -> None:
         """A role scoring exactly at the threshold is included — the boundary is inclusive."""
-        ...
+        ranker = Ranker(
+            archetype_weight=1.0,
+            fit_weight=0.0,
+            history_weight=0.0,
+            min_score_threshold=0.5,
+        )
+        listing = self._make_listing()
+        scores = ScoreResult(
+            fit_score=0.0,
+            archetype_score=0.5,
+            history_score=0.0,
+            disqualified=False,
+        )
+        ranked, _summary = ranker.rank([(listing, scores)])
+        assert len(ranked) == 1
+        assert ranked[0].final_score == pytest.approx(0.5)
 
     def test_score_explanation_includes_all_three_component_values(self) -> None:
         """The explanation string shows fit, archetype, and history scores for transparency."""
-        ...
+        scores = ScoreResult(
+            fit_score=0.75,
+            archetype_score=0.80,
+            history_score=0.60,
+            disqualified=False,
+        )
+        ranked = RankedListing(
+            listing=self._make_listing(),
+            scores=scores,
+            final_score=0.75,
+        )
+        explanation = ranked.score_explanation()
+        assert "Archetype: 0.80" in explanation
+        assert "Fit: 0.75" in explanation
+        assert "History: 0.60" in explanation
+        assert "Not disqualified" in explanation
 
 
 # ---------------------------------------------------------------------------
@@ -467,26 +564,143 @@ class TestCrossBoardDeduplication:
          and inflates apparent result counts
     """
 
+    def _make_listing(
+        self, board: str = "test", external_id: str = "1", title: str = "Role"
+    ) -> JobListing:
+        return JobListing(
+            board=board,
+            external_id=external_id,
+            title=title,
+            company="Test Co",
+            location="Remote",
+            url=f"https://{board}.com/{external_id}",
+            full_text=f"Job description for {title} on {board}.",
+        )
+
+    def _make_ranker(self, threshold: float = 0.0) -> Ranker:
+        return Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.2,
+            min_score_threshold=threshold,
+        )
+
     def test_near_duplicate_listings_are_collapsed_to_one(self) -> None:
         """Listings with cosine similarity > 0.95 on full_text are collapsed into a single entry."""
-        ...
+        ranker = self._make_ranker()
+        listing_a = self._make_listing(board="ziprecruiter", external_id="1")
+        listing_b = self._make_listing(board="indeed", external_id="2")
+
+        scores = ScoreResult(
+            fit_score=0.8, archetype_score=0.7, history_score=0.5, disqualified=False
+        )
+        # Use nearly identical embeddings (similarity > 0.95)
+        embed_a = [0.9, 0.1, 0.2, 0.3, 0.4]
+        embed_b = [0.89, 0.11, 0.21, 0.29, 0.41]  # very close
+
+        embeddings = {listing_a.url: embed_a, listing_b.url: embed_b}
+        ranked, summary = ranker.rank(
+            [(listing_a, scores), (listing_b, scores)],
+            embeddings=embeddings,
+        )
+        assert len(ranked) == 1
+        assert summary.total_deduplicated == 1
 
     def test_highest_scored_duplicate_is_retained(self) -> None:
         """Among near-duplicates, the instance with the highest final score survives."""
-        ...
+        ranker = self._make_ranker()
+        listing_low = self._make_listing(board="indeed", external_id="1")
+        listing_high = self._make_listing(board="ziprecruiter", external_id="2")
+
+        low_scores = ScoreResult(
+            fit_score=0.3, archetype_score=0.3, history_score=0.3, disqualified=False
+        )
+        high_scores = ScoreResult(
+            fit_score=0.9, archetype_score=0.9, history_score=0.9, disqualified=False
+        )
+
+        embed = [0.9, 0.1, 0.2, 0.3, 0.4]
+        embeddings = {listing_low.url: embed, listing_high.url: embed}
+
+        ranked, _ = ranker.rank(
+            [(listing_low, low_scores), (listing_high, high_scores)],
+            embeddings=embeddings,
+        )
+        assert len(ranked) == 1
+        assert ranked[0].listing.board == "ziprecruiter"
 
     def test_output_notes_all_boards_that_carried_duplicate(self) -> None:
         """The retained listing's metadata records which other boards carried the same role."""
-        ...
+        ranker = self._make_ranker()
+        listing_a = self._make_listing(board="ziprecruiter", external_id="1")
+        listing_b = self._make_listing(board="indeed", external_id="2")
+
+        scores = ScoreResult(
+            fit_score=0.8, archetype_score=0.7, history_score=0.5, disqualified=False
+        )
+        embed = [0.9, 0.1, 0.2, 0.3, 0.4]
+        embeddings = {listing_a.url: embed, listing_b.url: embed}
+
+        ranked, _ = ranker.rank(
+            [(listing_a, scores), (listing_b, scores)],
+            embeddings=embeddings,
+        )
+        assert len(ranked) == 1
+        # The duplicate board should be noted
+        survivor = ranked[0]
+        other_board = "indeed" if survivor.listing.board == "ziprecruiter" else "ziprecruiter"
+        assert other_board in survivor.duplicate_boards
 
     def test_same_external_id_same_board_is_deduplicated_unconditionally(self) -> None:
         """Exact-match external_id on the same board is deduplicated without similarity computation."""
-        ...
+        ranker = self._make_ranker()
+        listing_a = self._make_listing(board="ziprecruiter", external_id="abc123")
+        listing_b = self._make_listing(board="ziprecruiter", external_id="abc123")
+
+        scores = ScoreResult(
+            fit_score=0.8, archetype_score=0.7, history_score=0.5, disqualified=False
+        )
+
+        # No embeddings needed — exact match dedup is ID-based
+        ranked, summary = ranker.rank(
+            [(listing_a, scores), (listing_b, scores)],
+        )
+        assert len(ranked) == 1
+        assert summary.total_deduplicated == 1
 
     def test_distinct_roles_with_similar_titles_are_not_collapsed(self) -> None:
         """Roles with similar titles but different JD content remain as separate listings."""
-        ...
+        ranker = self._make_ranker()
+        listing_a = self._make_listing(board="ziprecruiter", external_id="1", title="Staff Architect")
+        listing_b = self._make_listing(board="indeed", external_id="2", title="Staff Architect")
+
+        scores = ScoreResult(
+            fit_score=0.8, archetype_score=0.7, history_score=0.5, disqualified=False
+        )
+        # Use very different embeddings (low similarity)
+        embed_a = [0.9, 0.1, 0.0, 0.0, 0.0]
+        embed_b = [0.0, 0.0, 0.1, 0.9, 0.0]  # orthogonal
+
+        embeddings = {listing_a.url: embed_a, listing_b.url: embed_b}
+        ranked, _ = ranker.rank(
+            [(listing_a, scores), (listing_b, scores)],
+            embeddings=embeddings,
+        )
+        assert len(ranked) == 2
 
     def test_deduplication_count_appears_in_run_summary(self) -> None:
         """The run summary reports how many listings were removed by deduplication."""
-        ...
+        ranker = self._make_ranker()
+        listing_a = self._make_listing(board="ziprecruiter", external_id="same")
+        listing_b = self._make_listing(board="ziprecruiter", external_id="same")
+        listing_c = self._make_listing(board="ziprecruiter", external_id="different")
+
+        scores = ScoreResult(
+            fit_score=0.8, archetype_score=0.7, history_score=0.5, disqualified=False
+        )
+
+        ranked, summary = ranker.rank(
+            [(listing_a, scores), (listing_b, scores), (listing_c, scores)],
+        )
+        assert summary.total_deduplicated == 1
+        assert len(ranked) == 2

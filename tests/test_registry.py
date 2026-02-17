@@ -64,7 +64,7 @@ def _make_listing(
         title="Staff Platform Architect",
         company="Acme Corp",
         location="Remote (USA)",
-        url="https://example.com/job/test-001",
+        url="https://example.org/job/test-001",
         full_text=full_text,
     )
 

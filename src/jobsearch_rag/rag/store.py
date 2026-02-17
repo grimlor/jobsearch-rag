@@ -21,7 +21,6 @@ from __future__ import annotations
 from typing import Any
 
 import chromadb
-from chromadb.api.types import IncludeEnum
 
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.logging import logger
@@ -76,7 +75,7 @@ class VectorStore:
         try:
             self._client.delete_collection(name)
             logger.info("Collection '%s' deleted", name)
-        except (ValueError, chromadb.errors.InvalidCollectionException):
+        except chromadb.errors.NotFoundError:
             logger.debug("Collection '%s' does not exist — nothing to reset", name)
         # Recreate empty so callers can immediately use the collection
         self.get_or_create_collection(name)
@@ -147,7 +146,7 @@ class VectorStore:
         if the collection does not exist.
         """
         collection = self._get_existing_collection(collection_name)
-        result = collection.get(ids=ids, include=[IncludeEnum.documents, IncludeEnum.metadatas])
+        result = collection.get(ids=ids, include=["documents", "metadatas"])
         return dict(result)
 
     # -- Similarity query ----------------------------------------------------
@@ -179,7 +178,7 @@ class VectorStore:
         result = collection.query(
             query_embeddings=[query_embedding],  # type: ignore[arg-type]
             n_results=effective_n,
-            include=[IncludeEnum.documents, IncludeEnum.metadatas, IncludeEnum.distances],
+            include=["documents", "metadatas", "distances"],
         )
         return dict(result)
 
@@ -193,5 +192,5 @@ class VectorStore:
         """
         try:
             return self._client.get_collection(name)
-        except (ValueError, chromadb.errors.InvalidCollectionException):
+        except chromadb.errors.NotFoundError:
             raise ActionableError.index(name) from None
