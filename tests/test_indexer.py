@@ -252,11 +252,15 @@ class TestResumeIndexing:
         result = store.get_documents("resume", ids=["resume-summary"])
         assert result["metadatas"][0]["source"] == "resume"
 
-    async def test_missing_resume_file_raises_config_error(self, indexer: Indexer) -> None:
-        """A nonexistent resume file raises a CONFIG error with the path."""
+    async def test_missing_resume_file_tells_operator_to_create_it(self, indexer: Indexer) -> None:
+        """A nonexistent resume file tells the operator to create it with actionable guidance."""
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_resume("/nonexistent/resume.md")
-        assert exc_info.value.error_type == ErrorType.CONFIG
+        err = exc_info.value
+        assert err.error_type == ErrorType.CONFIG
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -314,31 +318,40 @@ class TestArchetypeIndexing:
             assert "  " not in text  # no double spaces
             assert "\n\n" not in text  # no double newlines
 
-    async def test_malformed_toml_raises_parse_error(
+    async def test_malformed_toml_identifies_syntax_error_and_file_path(
         self, indexer: Indexer, tmp_path: Path
     ) -> None:
-        """Invalid TOML syntax raises a PARSE error during indexing."""
+        """Invalid TOML syntax names the error and file path so the operator can fix the syntax."""
         bad_toml = tmp_path / "bad.toml"
         bad_toml.write_text("[[archetypes]\nname = broken")  # missing closing bracket
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_archetypes(str(bad_toml))
-        assert exc_info.value.error_type == ErrorType.PARSE
+        err = exc_info.value
+        assert err.error_type == ErrorType.PARSE
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    async def test_empty_archetypes_file_raises_validation_error(
+    async def test_empty_archetypes_tells_operator_to_add_entries(
         self, indexer: Indexer, tmp_path: Path
     ) -> None:
-        """An empty archetypes file raises a VALIDATION error."""
+        """An empty archetypes file tells the operator to add archetype entries before searching."""
         empty = tmp_path / "empty.toml"
         empty.write_text("")
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_archetypes(str(empty))
-        assert exc_info.value.error_type == ErrorType.VALIDATION
+        err = exc_info.value
+        assert err.error_type == ErrorType.VALIDATION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    async def test_missing_archetypes_file_raises_config_error(self, indexer: Indexer) -> None:
-        """A nonexistent archetypes file raises a CONFIG error."""
+    async def test_missing_archetypes_file_tells_operator_to_create_it(self, indexer: Indexer) -> None:
+        """A nonexistent archetypes file tells the operator to create it with actionable guidance."""
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_archetypes("/nonexistent/archetypes.toml")
-        assert exc_info.value.error_type == ErrorType.CONFIG
+        err = exc_info.value
+        assert err.error_type == ErrorType.CONFIG
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     async def test_reindex_replaces_previous_archetypes(
         self, indexer: Indexer, store: VectorStore, archetypes_path: Path

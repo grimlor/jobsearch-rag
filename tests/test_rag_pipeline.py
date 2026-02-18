@@ -52,19 +52,21 @@ def indexer(store: VectorStore, mock_embedder: Embedder) -> Indexer:
 
 
 class TestOllamaConnectivity:
-    """REQUIREMENT: Ollama unavailability is detected before processing begins.
+    """REQUIREMENT: Ollama unavailability is detected before processing begins
+    with guidance the operator can act on immediately.
 
     WHO: The pipeline runner; the operator who may have forgotten to start Ollama
     WHAT: An unreachable Ollama endpoint raises a clear startup error naming
-          the configured URL; the error distinguishes between "not running" and
-          "wrong URL"; the run does not proceed to browser automation if
-          Ollama is required and unavailable
+          the configured URL with connectivity troubleshooting steps;
+          the error distinguishes between "not running" and "wrong model"
+          with different recovery guidance for each; the run does not proceed
+          to browser automation if Ollama is required and unavailable
     WHY: Completing a full browser session only to fail at scoring wastes
          time and risks rate limiting; fail fast at startup
     """
 
-    async def test_unreachable_ollama_raises_startup_error_with_url(self) -> None:
-        """An unreachable Ollama endpoint raises a CONNECTION error naming the configured URL."""
+    async def test_unreachable_ollama_provides_url_and_connectivity_steps(self) -> None:
+        """An unreachable Ollama provides the URL and step-by-step connectivity troubleshooting."""
         embedder = Embedder(
             base_url="http://localhost:59999",
             embed_model="nomic-embed-text",
@@ -72,13 +74,15 @@ class TestOllamaConnectivity:
         )
         with pytest.raises(ActionableError) as exc_info:
             await embedder.health_check()
-        assert exc_info.value.error_type == ErrorType.CONNECTION
-        assert "localhost:59999" in exc_info.value.error
+        err = exc_info.value
+        assert err.error_type == ErrorType.CONNECTION
+        assert "localhost:59999" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
     async def test_startup_check_runs_before_browser_session_opens(self) -> None:
-        """Ollama reachability is verified at startup so a slow browser session isn't wasted."""
-        # This is a design test — the PipelineRunner calls health_check() first.
-        # We verify by checking that health_check raises before search would run.
+        """Ollama reachability is verified at startup with actionable guidance if unreachable."""
         embedder = Embedder(
             base_url="http://localhost:59999",
             embed_model="nomic-embed-text",
@@ -86,18 +90,20 @@ class TestOllamaConnectivity:
         )
         with pytest.raises(ActionableError) as exc_info:
             await embedder.health_check()
-        assert exc_info.value.error_type == ErrorType.CONNECTION
+        err = exc_info.value
+        assert err.error_type == ErrorType.CONNECTION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    async def test_wrong_model_name_raises_error_distinguishable_from_connectivity(
+    async def test_wrong_model_name_suggests_ollama_pull_command(
         self,
     ) -> None:
-        """A wrong model name produces a different error type than 'Ollama not running' for clear diagnosis."""
+        """A wrong model name suggests 'ollama pull' so the operator knows exactly how to fix it."""
         embedder = Embedder(
             base_url="http://localhost:11434",
             embed_model="nonexistent-model-xyz",
             llm_model="also-nonexistent",
         )
-        # Mock the list call to succeed (Ollama is reachable) but return no models
         from unittest.mock import MagicMock
 
         mock_response = MagicMock()
@@ -105,8 +111,11 @@ class TestOllamaConnectivity:
         with patch.object(embedder._client, "list", AsyncMock(return_value=mock_response)):
             with pytest.raises(ActionableError) as exc_info:
                 await embedder.health_check()
-            # Should be EMBEDDING error (model not found), not CONNECTION
-            assert exc_info.value.error_type == ErrorType.EMBEDDING
+            err = exc_info.value
+            assert err.error_type == ErrorType.EMBEDDING
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
+            assert len(err.troubleshooting.steps) > 0
 
     async def test_ollama_timeout_on_embedding_retries_with_backoff(self) -> None:
         """A transient Ollama timeout triggers exponential backoff retries before giving up."""
@@ -137,8 +146,8 @@ class TestOllamaConnectivity:
             assert call_count == 3
             assert result == EMBED_FAKE
 
-    async def test_ollama_timeout_after_max_retries_raises_embedding_error(self) -> None:
-        """After exhausting retries, a persistent timeout raises an EMBEDDING error with retry count."""
+    async def test_ollama_timeout_after_retries_advises_checking_system_resources(self) -> None:
+        """After exhausting retries, the error advises checking system resources."""
         import ollama as ollama_sdk
 
         embedder = Embedder(
@@ -155,8 +164,11 @@ class TestOllamaConnectivity:
         with patch.object(embedder._client, "embed", _always_fail):
             with pytest.raises(ActionableError) as exc_info:
                 await embedder.embed("test text")
-            assert exc_info.value.error_type == ErrorType.EMBEDDING
-            assert "2" in exc_info.value.error  # mentions retry count
+            err = exc_info.value
+            assert err.error_type == ErrorType.EMBEDDING
+            assert "2" in err.error
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
 
 
 # ---------------------------------------------------------------------------
@@ -175,27 +187,35 @@ class TestResumeIndexing:
          roles — a harder bug to catch than an explicit missing-index error
     """
 
-    async def test_scoring_raises_index_error_when_resume_collection_is_empty(
+    async def test_empty_resume_collection_tells_operator_to_run_index_command(
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
-        """Scoring against an empty resume collection raises INDEX error rather than returning zero scores silently."""
+        """Scoring against an empty resume collection tells the operator to run the index command."""
         from jobsearch_rag.rag.scorer import Scorer
 
         scorer = Scorer(store=store, embedder=mock_embedder)
         with pytest.raises(ActionableError) as exc_info:
             await scorer.score("Any JD text")
-        assert exc_info.value.error_type == ErrorType.INDEX
+        err = exc_info.value
+        assert err.error_type == ErrorType.INDEX
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
-    async def test_index_error_message_names_the_missing_collection(
+    async def test_missing_collection_error_provides_step_by_step_setup_guidance(
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
-        """The INDEX error message names the missing collection so the operator knows which 'index' command to run."""
+        """The INDEX error provides step-by-step setup guidance naming the missing collection."""
         from jobsearch_rag.rag.scorer import Scorer
 
         scorer = Scorer(store=store, embedder=mock_embedder)
         with pytest.raises(ActionableError) as exc_info:
             await scorer.score("Any JD text")
-        assert "resume" in exc_info.value.error.lower()
+        err = exc_info.value
+        assert "resume" in err.error.lower()
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
     async def test_resume_is_chunked_by_section_heading(
         self, indexer: Indexer, store: VectorStore
@@ -360,10 +380,10 @@ description = "Defines tech strategy."
         )
         assert docs["metadatas"][0]["name"] == "Staff Architect"
 
-    async def test_malformed_toml_raises_parse_error_at_index_time(
+    async def test_malformed_toml_identifies_syntax_error_and_file_path(
         self, indexer: Indexer
     ) -> None:
-        """Invalid TOML syntax raises a PARSE error during indexing, not later during scoring."""
+        """Invalid TOML syntax identifies the syntax error so the operator can fix the file."""
         bad_toml = "this is [not valid {{ toml"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
             f.write(bad_toml)
@@ -371,12 +391,15 @@ description = "Defines tech strategy."
 
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_archetypes(path)
-        assert exc_info.value.error_type == ErrorType.PARSE
+        err = exc_info.value
+        assert err.error_type == ErrorType.PARSE
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    async def test_empty_archetypes_file_raises_error_before_browser_session(
+    async def test_empty_archetypes_tells_operator_to_add_entries_before_search(
         self, indexer: Indexer
     ) -> None:
-        """An empty archetypes file raises early so a full browser crawl isn't wasted on unscoreable results."""
+        """An empty archetypes file tells the operator to add entries before searching."""
         empty_toml = "# No archetypes defined\n"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
             f.write(empty_toml)
@@ -384,7 +407,10 @@ description = "Defines tech strategy."
 
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_archetypes(path)
-        assert exc_info.value.error_type == ErrorType.VALIDATION
+        err = exc_info.value
+        assert err.error_type == ErrorType.VALIDATION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     async def test_archetype_description_whitespace_is_normalized_before_embedding(
         self, indexer: Indexer, store: VectorStore

@@ -16,7 +16,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from jobsearch_rag.errors import ActionableError, ErrorType
+from jobsearch_rag.errors import ActionableError
 
 # ---------------------------------------------------------------------------
 # Config dataclasses
@@ -204,26 +204,23 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
     for weight_name in ("archetype_weight", "fit_weight", "history_weight", "comp_weight"):
         value = getattr(scoring, weight_name)
         if value < 0.0:
-            raise ActionableError(
-                error=f"Scoring weight '{weight_name}' is {value} — must be >= 0.0",
-                error_type=ErrorType.VALIDATION,
-                service="settings",
+            raise ActionableError.validation(
+                field_name=f"scoring.{weight_name}",
+                reason=f"is {value} — must be >= 0.0",
                 suggestion=f"Set [scoring].{weight_name} to a value between 0.0 and 1.0",
             )
         if value > 1.0:
-            raise ActionableError(
-                error=f"Scoring weight '{weight_name}' is {value} — must be <= 1.0",
-                error_type=ErrorType.VALIDATION,
-                service="settings",
+            raise ActionableError.validation(
+                field_name=f"scoring.{weight_name}",
+                reason=f"is {value} — must be <= 1.0",
                 suggestion=f"Set [scoring].{weight_name} to a value between 0.0 and 1.0",
             )
 
     # Validate base_salary
     if scoring.base_salary <= 0:
-        raise ActionableError(
-            error=f"Scoring 'base_salary' is {scoring.base_salary} — must be > 0",
-            error_type=ErrorType.VALIDATION,
-            service="settings",
+        raise ActionableError.validation(
+            field_name="scoring.base_salary",
+            reason=f"is {scoring.base_salary} — must be > 0",
             suggestion="Set [scoring].base_salary to a positive number",
         )
 
@@ -234,10 +231,9 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
 
     base_url = str(ollama_data.get("base_url", "http://localhost:11434"))
     if not base_url.startswith(("http://", "https://")):
-        raise ActionableError(
-            error=f"Ollama base_url '{base_url}' is missing a scheme (http:// or https://)",
-            error_type=ErrorType.VALIDATION,
-            service="settings",
+        raise ActionableError.validation(
+            field_name="ollama.base_url",
+            reason=f"'{base_url}' is missing a scheme (http:// or https://)",
             suggestion="Set [ollama].base_url to a URL starting with http:// or https://",
         )
 

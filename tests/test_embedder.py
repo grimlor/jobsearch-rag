@@ -95,17 +95,23 @@ class TestEmbedding:
             await embedder.embed("  padded text  ")
             mock_client.embed.assert_called_once_with(model=EMBED_MODEL, input="padded text")
 
-    async def test_embed_empty_string_raises_validation_error(self, embedder: Embedder) -> None:
-        """Embedding an empty string raises a VALIDATION error — no point calling Ollama."""
+    async def test_embed_empty_string_tells_caller_to_provide_content(self, embedder: Embedder) -> None:
+        """Embedding an empty string produces a VALIDATION error with guidance to provide content."""
         with pytest.raises(ActionableError) as exc_info:
             await embedder.embed("")
-        assert exc_info.value.error_type == ErrorType.VALIDATION
+        err = exc_info.value
+        assert err.error_type == ErrorType.VALIDATION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    async def test_embed_whitespace_only_raises_validation_error(self, embedder: Embedder) -> None:
-        """Embedding whitespace-only text raises a VALIDATION error after stripping."""
+    async def test_embed_whitespace_only_tells_caller_to_provide_content(self, embedder: Embedder) -> None:
+        """Embedding whitespace-only text produces a VALIDATION error with guidance to provide content."""
         with pytest.raises(ActionableError) as exc_info:
             await embedder.embed("   \n\t  ")
-        assert exc_info.value.error_type == ErrorType.VALIDATION
+        err = exc_info.value
+        assert err.error_type == ErrorType.VALIDATION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     async def test_embed_truncates_text_exceeding_context_window(
         self, embedder: Embedder
@@ -252,36 +258,48 @@ class TestHealthCheck:
             )
             await embedder.health_check()  # Should not raise
 
-    async def test_unreachable_ollama_raises_connection_error(self, embedder: Embedder) -> None:
-        """An unreachable Ollama endpoint raises a CONNECTION error naming the URL."""
+    async def test_unreachable_ollama_provides_url_and_connectivity_steps(self, embedder: Embedder) -> None:
+        """An unreachable Ollama provides the URL and connectivity troubleshooting steps."""
         with patch.object(embedder, "_client") as mock_client:
             mock_client.list = AsyncMock(side_effect=ConnectionError("could not connect"))
             with pytest.raises(ActionableError) as exc_info:
                 await embedder.health_check()
-            assert exc_info.value.error_type == ErrorType.CONNECTION
-            assert BASE_URL in exc_info.value.error
+            err = exc_info.value
+            assert err.error_type == ErrorType.CONNECTION
+            assert BASE_URL in err.error
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
+            assert len(err.troubleshooting.steps) > 0
 
-    async def test_missing_embed_model_raises_embedding_error(self, embedder: Embedder) -> None:
-        """A missing embed model raises an EMBEDDING error naming the model."""
+    async def test_missing_embed_model_suggests_ollama_pull(self, embedder: Embedder) -> None:
+        """A missing embed model names the model and suggests 'ollama pull' to fix it."""
         with patch.object(embedder, "_client") as mock_client:
             mock_client.list = AsyncMock(
                 return_value=_mock_list_response([LLM_MODEL])  # embed model missing
             )
             with pytest.raises(ActionableError) as exc_info:
                 await embedder.health_check()
-            assert exc_info.value.error_type == ErrorType.EMBEDDING
-            assert EMBED_MODEL in exc_info.value.error
+            err = exc_info.value
+            assert err.error_type == ErrorType.EMBEDDING
+            assert EMBED_MODEL in err.error
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
+            assert len(err.troubleshooting.steps) > 0
 
-    async def test_missing_llm_model_raises_embedding_error(self, embedder: Embedder) -> None:
-        """A missing LLM model raises an EMBEDDING error naming the model."""
+    async def test_missing_llm_model_suggests_ollama_pull(self, embedder: Embedder) -> None:
+        """A missing LLM model names the model and suggests 'ollama pull' to fix it."""
         with patch.object(embedder, "_client") as mock_client:
             mock_client.list = AsyncMock(
                 return_value=_mock_list_response([EMBED_MODEL])  # LLM model missing
             )
             with pytest.raises(ActionableError) as exc_info:
                 await embedder.health_check()
-            assert exc_info.value.error_type == ErrorType.EMBEDDING
-            assert LLM_MODEL in exc_info.value.error
+            err = exc_info.value
+            assert err.error_type == ErrorType.EMBEDDING
+            assert LLM_MODEL in err.error
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
+            assert len(err.troubleshooting.steps) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -315,8 +333,8 @@ class TestRetryLogic:
             assert result == FAKE_EMBEDDING
             assert mock_client.embed.call_count == 2
 
-    async def test_max_retries_exhausted_raises_embedding_error(self, embedder: Embedder) -> None:
-        """After exhausting retries, a persistent error raises an EMBEDDING error."""
+    async def test_max_retries_exhausted_advises_checking_system_resources(self, embedder: Embedder) -> None:
+        """After exhausting retries, the error advises checking Ollama system resources."""
         from ollama import ResponseError
 
         with patch.object(embedder, "_client") as mock_client:
@@ -325,10 +343,13 @@ class TestRetryLogic:
             )
             with pytest.raises(ActionableError) as exc_info:
                 await embedder.embed("fail forever")
-            assert exc_info.value.error_type == ErrorType.EMBEDDING
+            err = exc_info.value
+            assert err.error_type == ErrorType.EMBEDDING
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
 
-    async def test_non_retryable_error_fails_immediately(self, embedder: Embedder) -> None:
-        """A non-retryable error (e.g., model not found) fails without retrying."""
+    async def test_non_retryable_error_provides_model_guidance(self, embedder: Embedder) -> None:
+        """A non-retryable error (e.g., model not found) provides model guidance without retrying."""
         from ollama import ResponseError
 
         with patch.object(embedder, "_client") as mock_client:
@@ -337,8 +358,11 @@ class TestRetryLogic:
             )
             with pytest.raises(ActionableError) as exc_info:
                 await embedder.embed("bad model")
-            assert exc_info.value.error_type == ErrorType.EMBEDDING
+            err = exc_info.value
+            assert err.error_type == ErrorType.EMBEDDING
             assert mock_client.embed.call_count == 1
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
 
     async def test_classify_retries_on_transient_error(self, embedder: Embedder) -> None:
         """Classification also retries on transient errors."""
@@ -368,11 +392,14 @@ class TestRetryLogic:
             assert result == FAKE_EMBEDDING
             assert mock_client.embed.call_count == 2
 
-    async def test_connection_error_exhausts_retries(self, embedder: Embedder) -> None:
-        """Persistent ConnectionError exhausts retries and raises EMBEDDING error."""
+    async def test_connection_error_exhaustion_advises_checking_ollama(self, embedder: Embedder) -> None:
+        """Persistent ConnectionError exhausts retries and advises checking Ollama status."""
         with patch.object(embedder, "_client") as mock_client:
             mock_client.embed = AsyncMock(side_effect=ConnectionError("Connection refused"))
             with pytest.raises(ActionableError) as exc_info:
                 await embedder.embed("fail forever")
-            assert exc_info.value.error_type == ErrorType.EMBEDDING
-            assert "3 attempts" in exc_info.value.error
+            err = exc_info.value
+            assert err.error_type == ErrorType.EMBEDDING
+            assert "3 attempts" in err.error
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None

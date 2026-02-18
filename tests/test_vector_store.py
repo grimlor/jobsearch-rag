@@ -160,10 +160,10 @@ class TestDocumentOperations:
         result = populated_store.get_documents("test_collection", ids=["doc-1"])
         assert "Updated" in result["documents"][0]
 
-    def test_add_documents_with_mismatched_lengths_raises(
+    def test_add_documents_with_mismatched_lengths_names_the_mismatch(
         self, store: VectorStore
     ) -> None:
-        """Mismatched lengths between ids, documents, and embeddings raise a VALIDATION error."""
+        """Mismatched lengths produce a VALIDATION error naming the mismatch so the caller can fix it."""
         with pytest.raises(ActionableError) as exc_info:
             store.add_documents(
                 collection_name="test_collection",
@@ -171,7 +171,10 @@ class TestDocumentOperations:
                 documents=["one", "two"],  # 2 docs but only 1 id
                 embeddings=[EMBED_1, EMBED_2],
             )
-        assert exc_info.value.error_type == ErrorType.VALIDATION
+        err = exc_info.value
+        assert err.error_type == ErrorType.VALIDATION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
 
 # ---------------------------------------------------------------------------
@@ -268,42 +271,55 @@ class TestStoreErrors:
          actionable errors tell them exactly what to fix
     """
 
-    def test_query_nonexistent_collection_raises_index_error(
+    def test_query_nonexistent_collection_tells_operator_to_run_index(
         self, store: VectorStore
     ) -> None:
-        """Querying a collection that doesn't exist raises an INDEX error."""
+        """Querying a nonexistent collection tells the operator to run the index command."""
         with pytest.raises(ActionableError) as exc_info:
             store.query(
                 collection_name="nonexistent",
                 query_embedding=EMBED_1,
                 n_results=5,
             )
-        assert exc_info.value.error_type == ErrorType.INDEX
+        err = exc_info.value
+        assert err.error_type == ErrorType.INDEX
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
-    def test_index_error_names_the_missing_collection(
+    def test_index_error_names_collection_and_provides_guidance(
         self, store: VectorStore
     ) -> None:
-        """The INDEX error message includes the name of the missing collection."""
+        """The INDEX error names the collection and provides step-by-step guidance."""
         with pytest.raises(ActionableError) as exc_info:
             store.query(
                 collection_name="nonexistent",
                 query_embedding=EMBED_1,
                 n_results=5,
             )
-        assert "nonexistent" in exc_info.value.error
+        err = exc_info.value
+        assert "nonexistent" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    def test_get_documents_nonexistent_collection_raises_index_error(
+    def test_get_documents_nonexistent_collection_provides_guidance(
         self, store: VectorStore
     ) -> None:
-        """Getting documents from a nonexistent collection raises an INDEX error."""
+        """Getting documents from a nonexistent collection provides actionable guidance."""
         with pytest.raises(ActionableError) as exc_info:
             store.get_documents("nonexistent", ids=["doc-1"])
-        assert exc_info.value.error_type == ErrorType.INDEX
+        err = exc_info.value
+        assert err.error_type == ErrorType.INDEX
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    def test_collection_count_nonexistent_raises_index_error(
+    def test_collection_count_nonexistent_provides_guidance(
         self, store: VectorStore
     ) -> None:
-        """Checking count of a nonexistent collection raises an INDEX error."""
+        """Checking count of a nonexistent collection provides actionable guidance."""
         with pytest.raises(ActionableError) as exc_info:
             store.collection_count("nonexistent")
-        assert exc_info.value.error_type == ErrorType.INDEX
+        err = exc_info.value
+        assert err.error_type == ErrorType.INDEX
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None

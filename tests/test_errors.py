@@ -19,41 +19,62 @@ class TestErrorFactoryMethods:
          its own recovery path
     """
 
-    def test_authentication_error_has_correct_type(self) -> None:
-        """authentication() produces an error typed AUTHENTICATION so retry logic can classify it."""
+    def test_authentication_factory_provides_recovery_guidance(self) -> None:
+        """authentication() produces a suggestion and troubleshooting so the operator can re-authenticate."""
         err = ActionableError.authentication("ziprecruiter", "session expired")
         assert err.error_type == ErrorType.AUTHENTICATION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
-    def test_config_error_names_the_field(self) -> None:
-        """config() embeds the offending field name so the operator knows which setting to fix."""
+    def test_config_error_names_the_field_with_recovery_steps(self) -> None:
+        """config() names the field AND provides recovery steps so the operator knows how to fix it."""
         err = ActionableError.config("scoring.archetype_weight", "must be between 0.0 and 1.0")
         assert "archetype_weight" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
-    def test_connection_error_includes_url(self) -> None:
-        """connection() embeds the target URL so the operator can verify reachability."""
+    def test_connection_error_includes_url_and_connectivity_steps(self) -> None:
+        """connection() includes the URL AND connectivity troubleshooting so the operator can verify reachability."""
         err = ActionableError.connection("Ollama", "http://localhost:11434", "refused")
         assert "http://localhost:11434" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
-    def test_embedding_error_names_model(self) -> None:
-        """embedding() includes the model name so the operator can verify it is pulled and available."""
+    def test_embedding_error_names_model_with_pull_guidance(self) -> None:
+        """embedding() includes the model name AND pull/check guidance for the operator."""
         err = ActionableError.embedding("nomic-embed-text", "timeout after 3 retries")
         assert "nomic-embed-text" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
-    def test_index_error_names_collection(self) -> None:
-        """index() names the missing ChromaDB collection so the operator knows which index to rebuild."""
+    def test_index_error_names_collection_with_rebuild_guidance(self) -> None:
+        """index() names the collection AND provides rebuild guidance so the operator knows how to fix it."""
         err = ActionableError.index("resume")
         assert "resume" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
-    def test_parse_error_names_board_and_selector(self) -> None:
-        """parse() includes both board name and CSS selector so the developer can pinpoint the broken scraper."""
+    def test_parse_error_names_board_and_selector_with_inspection_steps(self) -> None:
+        """parse() names board + selector AND provides inspection steps for the developer."""
         err = ActionableError.parse("ziprecruiter", ".job-title", "element not found")
         assert "ziprecruiter" in err.error
         assert ".job-title" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
-    def test_decision_error_names_job_id(self) -> None:
-        """decision() names the unknown job_id so the operator can verify the listing exists."""
+    def test_decision_error_names_job_id_with_lookup_guidance(self) -> None:
+        """decision() names the job_id AND provides lookup guidance so the operator can find the listing."""
         err = ActionableError.decision("abc-123")
         assert "abc-123" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
     def test_to_dict_excludes_none_values(self) -> None:
         """to_dict() omits None-valued keys so serialized output is clean for logging and API responses."""
@@ -184,12 +205,14 @@ class TestValidationFactory:
     WHY: Validation errors need distinct routing from config or connection errors
     """
 
-    def test_validation_factory_produces_validation_type(self) -> None:
-        """validation() produces an error typed VALIDATION."""
+    def test_validation_factory_provides_field_and_recovery_guidance(self) -> None:
+        """validation() names the field AND provides suggestion and troubleshooting."""
         err = ActionableError.validation("email", "must contain @")
         assert err.error_type == ErrorType.VALIDATION
         assert "email" in err.error
         assert "must contain @" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
 
 class TestFromExceptionClassifier:
@@ -202,47 +225,57 @@ class TestFromExceptionClassifier:
          exceptions that weren't explicitly caught
     """
 
-    def test_timeout_keyword_produces_connection_error(self) -> None:
-        """An exception containing 'timeout' is classified as CONNECTION."""
+    def test_timeout_classified_as_connection_with_recovery_guidance(self) -> None:
+        """An exception containing 'timeout' is classified CONNECTION with suggestion and troubleshooting."""
         err = ActionableError.from_exception(
             RuntimeError("request timeout after 30s"),
             "ollama",
             "embed",
         )
         assert err.error_type == ErrorType.CONNECTION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    def test_timed_out_keyword_produces_connection_error(self) -> None:
-        """An exception containing 'timed out' is classified as CONNECTION."""
+    def test_timed_out_classified_as_connection_with_recovery_guidance(self) -> None:
+        """An exception containing 'timed out' is classified CONNECTION with actionable guidance."""
         err = ActionableError.from_exception(
             RuntimeError("connection timed out"),
             "chromadb",
             "query",
         )
         assert err.error_type == ErrorType.CONNECTION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    def test_connection_refused_keyword_produces_connection_error(self) -> None:
-        """An exception containing 'connection refused' is classified as CONNECTION."""
+    def test_connection_refused_classified_with_recovery_guidance(self) -> None:
+        """An exception containing 'connection refused' is classified CONNECTION with actionable guidance."""
         err = ActionableError.from_exception(
             OSError("connection refused on port 11434"),
             "ollama",
             "health_check",
         )
         assert err.error_type == ErrorType.CONNECTION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    def test_not_found_keyword_produces_unexpected_error(self) -> None:
-        """An exception containing 'not found' is classified as UNEXPECTED."""
+    def test_not_found_classified_as_unexpected_with_guidance(self) -> None:
+        """An exception containing 'not found' is classified UNEXPECTED with actionable guidance."""
         err = ActionableError.from_exception(
             FileNotFoundError("model not found"),
             "ollama",
             "pull",
         )
         assert err.error_type == ErrorType.UNEXPECTED
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    def test_unmatched_keyword_produces_unexpected_error(self) -> None:
-        """An exception with no matching keywords falls through to UNEXPECTED."""
+    def test_unmatched_keyword_classified_unexpected_with_guidance(self) -> None:
+        """An unmatched exception is classified UNEXPECTED but still provides actionable guidance."""
         err = ActionableError.from_exception(
             ValueError("some random error"),
             "test",
             "op",
         )
         assert err.error_type == ErrorType.UNEXPECTED
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None

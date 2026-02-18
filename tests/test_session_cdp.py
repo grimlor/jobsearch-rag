@@ -270,10 +270,10 @@ class TestSessionManagerCDP:
 
             await manager.__aexit__(None, None, None)
 
-    async def test_cdp_raises_when_binary_not_found(
+    async def test_cdp_missing_binary_tells_operator_which_browser_to_install(
         self, cdp_config: SessionConfig
     ) -> None:
-        """ActionableError raised when browser binary can't be found."""
+        """A missing browser binary tells the operator which browser to install."""
         from jobsearch_rag.errors import ActionableError
 
         mock_pw = _mock_playwright()
@@ -284,8 +284,12 @@ class TestSessionManagerCDP:
             _patch_playwright(mock_pw),
         ):
             manager = SessionManager(cdp_config)
-            with pytest.raises(ActionableError, match="Could not find"):
+            with pytest.raises(ActionableError) as exc_info:
                 await manager.__aenter__()
+            err = exc_info.value
+            assert "Could not find" in err.error
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
 
     async def test_cdp_cleanup_terminates_subprocess(
         self, tmp_path: Path

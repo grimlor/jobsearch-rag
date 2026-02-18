@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 import ollama as ollama_sdk
 
-from jobsearch_rag.errors import ActionableError, ErrorType
+from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
 
 _T = TypeVar("_T")
@@ -92,10 +92,9 @@ class Embedder:
         """
         cleaned = text.strip()
         if not cleaned:
-            raise ActionableError(
-                error="Cannot embed empty text",
-                error_type=ErrorType.VALIDATION,
-                service="Ollama",
+            raise ActionableError.validation(
+                field_name="text",
+                reason="Cannot embed empty text",
                 suggestion="Provide non-empty text to embed",
             )
 

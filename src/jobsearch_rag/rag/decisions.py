@@ -100,18 +100,30 @@ class DecisionRecorder:
             ActionableError (VALIDATION): if jd_text is empty.
         """
         if verdict not in VALID_VERDICTS:
+            from jobsearch_rag.errors import AIGuidance, Troubleshooting
+
             raise ActionableError(
                 error=f"Invalid verdict '{verdict}' for job '{job_id}'",
                 error_type=ErrorType.DECISION,
                 service="decisions",
                 suggestion=f"Use one of: {', '.join(sorted(VALID_VERDICTS))}",
+                ai_guidance=AIGuidance(
+                    action_required=f"Replace '{verdict}' with a valid verdict",
+                    checks=[f"Valid verdicts are: {', '.join(sorted(VALID_VERDICTS))}"],
+                ),
+                troubleshooting=Troubleshooting(
+                    steps=[
+                        f"1. You used verdict '{verdict}' which is not recognized",
+                        f"2. Valid verdicts are: {', '.join(sorted(VALID_VERDICTS))}",
+                        "3. Re-run the decide command with a valid verdict",
+                    ]
+                ),
             )
 
         if not jd_text.strip():
-            raise ActionableError(
-                error=f"Cannot record decision for job '{job_id}' — empty JD text",
-                error_type=ErrorType.VALIDATION,
-                service="decisions",
+            raise ActionableError.validation(
+                field_name="jd_text",
+                reason=f"empty JD text for job '{job_id}'",
                 suggestion="Ensure the job listing has full_text before recording a decision",
             )
 

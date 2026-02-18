@@ -396,6 +396,13 @@ class ActionableError(Exception):
                     f"Is {service} in a known-good state?",
                 ],
             ),
+            troubleshooting=Troubleshooting(
+                steps=[
+                    f"1. Check logs for full traceback of the {operation} failure",
+                    f"2. Verify {service} is running and in a known-good state",
+                    "3. If the error persists, report it with the full traceback",
+                ]
+            ),
         )
 
     @classmethod

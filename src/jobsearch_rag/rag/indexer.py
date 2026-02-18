@@ -23,7 +23,7 @@ import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from jobsearch_rag.errors import ActionableError, ErrorType
+from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
 
 if TYPE_CHECKING:
@@ -173,10 +173,9 @@ class Indexer:
 
         archetypes = data.get("archetypes", [])
         if not archetypes:
-            raise ActionableError(
-                error=f"No archetypes found in {archetypes_path}",
-                error_type=ErrorType.VALIDATION,
-                service="role_archetypes",
+            raise ActionableError.validation(
+                field_name="archetypes",
+                reason=f"No archetypes found in {archetypes_path}",
                 suggestion="Add at least one [[archetypes]] entry",
             )
 

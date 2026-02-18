@@ -171,8 +171,8 @@ class TestOllamaContract:
         # Should not raise
         await embedder.health_check()
 
-    async def test_health_check_fails_for_nonexistent_model(self) -> None:
-        """health_check() raises EMBEDDING error for a model that isn't pulled."""
+    async def test_health_check_nonexistent_model_suggests_ollama_pull(self) -> None:
+        """health_check() for a missing model suggests 'ollama pull' to fix it."""
         embedder = Embedder(
             base_url=OLLAMA_BASE_URL,
             embed_model="does-not-exist-model-xyz",
@@ -180,11 +180,15 @@ class TestOllamaContract:
         )
         with pytest.raises(ActionableError) as exc_info:
             await embedder.health_check()
-        assert exc_info.value.error_type == ErrorType.EMBEDDING
-        assert "does-not-exist-model-xyz" in exc_info.value.error
+        err = exc_info.value
+        assert err.error_type == ErrorType.EMBEDDING
+        assert "does-not-exist-model-xyz" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
-    async def test_embed_nonexistent_model_raises_embedding_error(self) -> None:
-        """Trying to embed with a pulled model that doesn't exist raises EMBEDDING."""
+    async def test_embed_nonexistent_model_provides_recovery_guidance(self) -> None:
+        """Embedding with a nonexistent model provides recovery guidance."""
         embedder = Embedder(
             base_url=OLLAMA_BASE_URL,
             embed_model="nonexistent-model-abc",
@@ -194,7 +198,10 @@ class TestOllamaContract:
         )
         with pytest.raises(ActionableError) as exc_info:
             await embedder.embed("test")
-        assert exc_info.value.error_type == ErrorType.EMBEDDING
+        err = exc_info.value
+        assert err.error_type == ErrorType.EMBEDDING
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     async def test_similar_texts_produce_closer_embeddings(self, embedder: Embedder) -> None:
         """Semantically similar texts have smaller cosine distance than dissimilar ones.

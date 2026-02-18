@@ -69,29 +69,37 @@ class _FakeAdapter(JobBoardAdapter):
 
 
 class TestAuthenticationFailures:
-    """REQUIREMENT: Authentication failures are detected early and reported clearly.
+    """REQUIREMENT: Authentication failures tell the operator exactly how to recover.
 
     WHO: The operator running the tool; the pipeline runner
-    WHAT: Expired sessions are detected before search begins; CAPTCHA
-          encounters halt the run gracefully; login failures surface the
-          board name and reason; the run does not proceed with unauthenticated state
+    WHAT: Expired sessions produce an AUTHENTICATION error with step-by-step
+          recovery guidance (which session file to delete, how to re-authenticate);
+          CAPTCHA encounters halt the run with headed-mode instructions;
+          every auth error names the board so the operator knows which
+          credential to fix
     WHY: An unauthenticated scrape returns login-page HTML silently,
          producing zero valid listings with no error — the worst failure mode
     """
 
-    def test_expired_session_raises_authentication_error_before_search(self) -> None:
-        """An expired session produces an AUTHENTICATION error so the pipeline halts before wasting scrape cycles."""
+    def test_expired_session_tells_operator_to_reauthenticate_with_board(self) -> None:
+        """An expired session tells the operator which board to re-authenticate with."""
         err = ActionableError.authentication("ziprecruiter", "session expired")
 
         assert err.error_type == ErrorType.AUTHENTICATION
         assert "ziprecruiter" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
-    def test_authentication_error_includes_board_name_in_message(self) -> None:
-        """The error message names the board so the operator knows which session file to regenerate."""
+    def test_authentication_error_provides_login_recovery_steps(self) -> None:
+        """The error provides login recovery steps so the operator knows which session to regenerate."""
         err = ActionableError.authentication("linkedin", "cookies invalid")
 
         assert "linkedin" in err.error
         assert err.service == "linkedin"
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
     def test_captcha_encountered_halts_run_and_logs_board(self) -> None:
         """CAPTCHA detection raises an AUTHENTICATION error naming the board, advising manual resolution."""
@@ -236,10 +244,12 @@ class TestPageExtractionFailures:
     """
 
     def test_404_on_detail_page_skips_listing_and_continues(self) -> None:
-        """A 404 on a detail page produces a PARSE error; the runner catches and skips that listing."""
+        """A 404 on a detail page produces a PARSE error with actionable guidance; the runner catches and skips."""
         err = ActionableError.parse("ziprecruiter", ".job-detail", "404 Not Found")
         # A 404 produces a parse error; the runner should catch and skip
         assert err.error_type == ErrorType.PARSE
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     def test_empty_extracted_text_excludes_listing_from_scoring(self) -> None:
         """A listing with empty full_text is detectable so the scorer can exclude it rather than embed nothing."""
@@ -258,8 +268,8 @@ class TestPageExtractionFailures:
         assert listing.url != ""
         assert listing.full_text == ""
 
-    def test_selector_miss_raises_parse_error_with_board_and_selector_name(self) -> None:
-        """A selector miss names both the board and CSS selector so the maintainer knows exactly what broke."""
+    def test_selector_miss_names_board_and_selector_and_suggests_inspection(self) -> None:
+        """A selector miss names the board and CSS selector and suggests page inspection."""
         err = ActionableError.parse(
             "ziprecruiter",
             ".job-description-content",
@@ -269,9 +279,12 @@ class TestPageExtractionFailures:
         assert err.error_type == ErrorType.PARSE
         assert "ziprecruiter" in err.error
         assert ".job-description-content" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
     def test_network_timeout_retries_once_before_skipping(self) -> None:
-        """A connection timeout produces a CONNECTION error that the runner can retry once before skipping."""
+        """A connection timeout produces a CONNECTION error with recovery guidance; runner can retry then skip."""
         err = ActionableError.connection(
             "ziprecruiter",
             "https://www.ziprecruiter.com/jobs/test-001",
@@ -280,6 +293,8 @@ class TestPageExtractionFailures:
 
         assert err.error_type == ErrorType.CONNECTION
         assert "timed out" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     def test_failed_listings_are_counted_in_run_summary(self) -> None:
         """Failed listings are tracked separately so the run summary reports success vs. failure counts."""
@@ -320,8 +335,8 @@ class TestLinkedInDetectionResponse:
          the correct response is always stop, log, and wait
     """
 
-    def test_authwall_redirect_is_recognized_as_detection_event(self) -> None:
-        """A redirect to /authwall signals LinkedIn bot detection — must raise AUTHENTICATION error."""
+    def test_authwall_redirect_tells_operator_to_wait_before_retrying(self) -> None:
+        """A redirect to /authwall tells the operator to wait before retrying."""
         page = MagicMock()
         page.url = "https://www.linkedin.com/authwall?trk=something"
         page.title = AsyncMock(return_value="LinkedIn")
@@ -329,11 +344,15 @@ class TestLinkedInDetectionResponse:
         with pytest.raises(ActionableError) as exc_info:
             asyncio.run(check_linkedin_detection(page))
 
-        assert exc_info.value.error_type == ErrorType.AUTHENTICATION
-        assert "authwall" in exc_info.value.error.lower()
+        err = exc_info.value
+        assert err.error_type == ErrorType.AUTHENTICATION
+        assert "authwall" in err.error.lower()
+        assert err.suggestion is not None
+        assert "wait" in err.suggestion.lower()
+        assert err.troubleshooting is not None
 
-    def test_challenge_interstitial_is_recognized_as_detection_event(self) -> None:
-        """A /checkpoint/challenge page is a security interstitial — must raise AUTHENTICATION error."""
+    def test_challenge_interstitial_tells_operator_to_wait_before_retrying(self) -> None:
+        """A /checkpoint/challenge page tells the operator to wait before retrying."""
         page = MagicMock()
         page.url = "https://www.linkedin.com/checkpoint/challenge"
         page.title = AsyncMock(return_value="Security Challenge")
@@ -341,8 +360,12 @@ class TestLinkedInDetectionResponse:
         with pytest.raises(ActionableError) as exc_info:
             asyncio.run(check_linkedin_detection(page))
 
-        assert exc_info.value.error_type == ErrorType.AUTHENTICATION
-        assert "challenge" in exc_info.value.error.lower()
+        err = exc_info.value
+        assert err.error_type == ErrorType.AUTHENTICATION
+        assert "challenge" in err.error.lower()
+        assert err.suggestion is not None
+        assert "wait" in err.suggestion.lower()
+        assert err.troubleshooting is not None
 
     def test_detection_halts_run_without_retry(self) -> None:
         """After detection, the error advises waiting — retrying would escalate from temporary to permanent ban."""
@@ -358,8 +381,8 @@ class TestLinkedInDetectionResponse:
         assert err.error_type == ErrorType.AUTHENTICATION
         assert "wait" in (err.suggestion or "").lower()
 
-    def test_detection_logs_advisory_to_wait_before_next_run(self) -> None:
-        """The error's suggestion explicitly tells the operator to wait, preventing premature re-runs."""
+    def test_detection_error_includes_wait_duration_and_ban_risk_guidance(self) -> None:
+        """The error includes wait duration and ban-risk guidance so the operator can schedule the next run."""
         page = MagicMock()
         page.url = "https://www.linkedin.com/authwall"
         page.title = AsyncMock(return_value="LinkedIn")
@@ -367,7 +390,10 @@ class TestLinkedInDetectionResponse:
         with pytest.raises(ActionableError) as exc_info:
             asyncio.run(check_linkedin_detection(page))
 
-        assert "wait" in (exc_info.value.suggestion or "").lower()
+        err = exc_info.value
+        assert "wait" in (err.suggestion or "").lower()
+        assert err.troubleshooting is not None
+        assert len(err.troubleshooting.steps) > 0
 
     def test_no_requests_are_made_after_detection_event(self) -> None:
         """Once detection is raised, no further page.goto() calls are made — the session is effectively frozen."""

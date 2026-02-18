@@ -208,29 +208,36 @@ class TestSemanticScoring:
         score_result = await scorer.score("Any JD text")
         assert score_result.fit_score == 0.0
 
-    async def test_missing_resume_collection_raises_index_error(
+    async def test_missing_resume_collection_tells_operator_to_run_index(
         self, mock_embedder: Embedder
     ) -> None:
-        """Scoring against an empty/missing resume collection raises INDEX error."""
+        """Scoring against a missing resume collection tells the operator to run the index command."""
         with tempfile.TemporaryDirectory() as tmpdir:
             empty_store = VectorStore(persist_dir=tmpdir)
             scorer = Scorer(store=empty_store, embedder=mock_embedder)
             with pytest.raises(ActionableError) as exc_info:
                 await scorer.score("Any JD text")
-            assert exc_info.value.error_type == ErrorType.INDEX
+            err = exc_info.value
+            assert err.error_type == ErrorType.INDEX
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
+            assert len(err.troubleshooting.steps) > 0
 
-    async def test_existing_but_empty_resume_collection_raises_index_error(
+    async def test_empty_resume_collection_tells_operator_to_run_index(
         self, mock_embedder: Embedder
     ) -> None:
-        """A resume collection that exists but has 0 documents raises INDEX error."""
+        """A resume collection with 0 documents tells the operator to run the index command."""
         with tempfile.TemporaryDirectory() as tmpdir:
             store = VectorStore(persist_dir=tmpdir)
-            # Create the collection but don't add documents
             store.reset_collection("resume")
             scorer = Scorer(store=store, embedder=mock_embedder)
             with pytest.raises(ActionableError) as exc_info:
                 await scorer.score("Any JD text")
-            assert exc_info.value.error_type == ErrorType.INDEX
+            err = exc_info.value
+            assert err.error_type == ErrorType.INDEX
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
+            assert len(err.troubleshooting.steps) > 0
 
     async def test_existing_but_empty_decisions_returns_zero_history(
         self, populated_store: VectorStore, mock_embedder: Embedder

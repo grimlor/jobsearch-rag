@@ -72,23 +72,29 @@ class TestZipRecruiterJsonExtraction:
         assert "hydrateJobCardsResponse" in js_vars
         assert js_vars.get("isLoggedIn") is False
 
-    def test_extract_js_variables_raises_on_missing_script_tag(self) -> None:
-        """A page without the js_variables script tag raises a descriptive ParseError."""
+    def test_extract_js_variables_missing_script_tag_names_the_selector(self) -> None:
+        """A page without the js_variables script tag names the missing selector."""
         html = "<html><body><p>No JSON here</p></body></html>"
 
         with pytest.raises(ActionableError) as exc_info:
             extract_js_variables(html)
 
-        assert "js_variables" in exc_info.value.error
+        err = exc_info.value
+        assert "js_variables" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
-    def test_extract_js_variables_raises_on_malformed_json(self) -> None:
-        """Malformed JSON inside the script tag raises a ParseError with decode details."""
+    def test_extract_js_variables_malformed_json_identifies_parse_problem(self) -> None:
+        """Malformed JSON inside the script tag identifies the parse problem with guidance."""
         html = '<script id="js_variables" type="application/json">{not valid json</script>'
 
         with pytest.raises(ActionableError) as exc_info:
             extract_js_variables(html)
 
-        assert "Failed to parse" in exc_info.value.error
+        err = exc_info.value
+        assert "Failed to parse" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     def test_parse_job_cards_returns_correct_count_from_synthetic(self) -> None:
         """The synthetic fixture contains exactly 3 job cards."""
@@ -502,41 +508,50 @@ class TestAuthenticate:
         page.goto.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_authenticate_raises_on_captcha(self) -> None:
-        """A CAPTCHA element on the page raises with manual-solve suggestion."""
+    async def test_authenticate_captcha_suggests_manual_solve(self) -> None:
+        """A CAPTCHA element suggests manual-solve in headed mode."""
         adapter = ZipRecruiterAdapter()
         page = _make_mock_page(captcha=True)
 
         with pytest.raises(ActionableError) as exc_info:
             await adapter.authenticate(page)
 
-        assert "CAPTCHA" in exc_info.value.error
+        err = exc_info.value
+        assert "CAPTCHA" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     @pytest.mark.asyncio
-    async def test_authenticate_raises_on_login_redirect(self) -> None:
-        """Being redirected to /login raises a session-expired error."""
+    async def test_authenticate_login_redirect_tells_operator_to_reauthenticate(self) -> None:
+        """Being redirected to /login tells the operator to re-authenticate."""
         adapter = ZipRecruiterAdapter()
         page = _make_mock_page(url="https://www.ziprecruiter.com/login")
 
         with pytest.raises(ActionableError) as exc_info:
             await adapter.authenticate(page)
 
-        assert "Session expired" in exc_info.value.error
+        err = exc_info.value
+        assert "Session expired" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     @pytest.mark.asyncio
-    async def test_authenticate_raises_on_sign_in_redirect(self) -> None:
-        """Being redirected to /sign-in also raises a session-expired error."""
+    async def test_authenticate_sign_in_redirect_tells_operator_to_reauthenticate(self) -> None:
+        """Being redirected to /sign-in tells the operator to re-authenticate."""
         adapter = ZipRecruiterAdapter()
         page = _make_mock_page(url="https://www.ziprecruiter.com/sign-in")
 
         with pytest.raises(ActionableError) as exc_info:
             await adapter.authenticate(page)
 
-        assert "Session expired" in exc_info.value.error
+        err = exc_info.value
+        assert "Session expired" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     @pytest.mark.asyncio
-    async def test_authenticate_raises_on_cloudflare_timeout(self) -> None:
-        """A Cloudflare challenge that never resolves raises with headless suggestion."""
+    async def test_authenticate_cloudflare_timeout_suggests_headed_mode(self) -> None:
+        """A Cloudflare challenge that never resolves suggests headed mode."""
         adapter = ZipRecruiterAdapter()
         page = _make_mock_page(title="Just a moment...")
 
@@ -553,7 +568,10 @@ class TestAuthenticate:
         ):
             await adapter.authenticate(page)
 
-        assert "Cloudflare" in exc_info.value.error
+        err = exc_info.value
+        assert "Cloudflare" in err.error
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
 
 # ---------------------------------------------------------------------------

@@ -114,11 +114,10 @@ class TestDecisionRecording:
         assert decision["verdict"] == "maybe"
         assert decision["scoring_signal"] == "false"
 
-    async def test_unknown_job_id_raises_decision_error_with_job_id(
+    async def test_unknown_job_id_names_the_id_and_suggests_checking_latest_output(
         self, recorder: DecisionRecorder
     ) -> None:
-        """Recording a decision for a job_id not in the results raises a DECISION error naming the ID."""
-        # Invalid verdict should raise a DECISION error
+        """An invalid verdict names the ID and suggests checking the latest output."""
         with pytest.raises(ActionableError) as exc_info:
             await recorder.record(
                 job_id="zr-000",
@@ -126,7 +125,10 @@ class TestDecisionRecording:
                 jd_text="Some text.",
                 board="test",
             )
-        assert exc_info.value.error_type == ErrorType.DECISION
+        err = exc_info.value
+        assert err.error_type == ErrorType.DECISION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     async def test_history_collection_count_increases_after_each_decision(
         self, recorder: DecisionRecorder
@@ -174,13 +176,10 @@ class TestDecisionRecording:
         assert decision is not None
         assert decision["verdict"] == "yes"
 
-    async def test_empty_jd_text_raises_validation_error(
+    async def test_empty_jd_text_tells_operator_to_provide_content(
         self, recorder: DecisionRecorder
     ) -> None:
-        """GIVEN an attempt to record a decision with empty JD text
-        WHEN record() is called
-        THEN a VALIDATION error is raised naming the issue.
-        """
+        """Empty JD text produces a VALIDATION error telling the operator to provide content."""
         with pytest.raises(ActionableError) as exc_info:
             await recorder.record(
                 job_id="zr-empty",
@@ -188,7 +187,10 @@ class TestDecisionRecording:
                 jd_text="   ",
                 board="ziprecruiter",
             )
-        assert exc_info.value.error_type == ErrorType.VALIDATION
+        err = exc_info.value
+        assert err.error_type == ErrorType.VALIDATION
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
 
     def test_get_decision_returns_none_when_collection_missing(
         self, mock_embedder: Embedder

@@ -22,7 +22,7 @@ from typing import Any
 
 import chromadb
 
-from jobsearch_rag.errors import ActionableError, ErrorType
+from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
 
 
@@ -110,10 +110,9 @@ class VectorStore:
             lengths["metadatas"] = len(metadatas)
         unique_lengths = set(lengths.values())
         if len(unique_lengths) > 1:
-            raise ActionableError(
-                error=f"Mismatched input lengths: {lengths}",
-                error_type=ErrorType.VALIDATION,
-                service="ChromaDB",
+            raise ActionableError.validation(
+                field_name="input_lengths",
+                reason=f"Mismatched input lengths: {lengths}",
                 suggestion="Ensure ids, documents, embeddings, and metadatas all have the same length",
             )
 
