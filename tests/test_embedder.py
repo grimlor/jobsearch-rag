@@ -107,6 +107,80 @@ class TestEmbedding:
             await embedder.embed("   \n\t  ")
         assert exc_info.value.error_type == ErrorType.VALIDATION
 
+    async def test_embed_truncates_text_exceeding_context_window(
+        self, embedder: Embedder
+    ) -> None:
+        """Text longer than the model context window is truncated before embedding.
+
+        Real-world JDs from ZipRecruiter can exceed nomic-embed-text's 8192-token
+        window.  Truncated text must stay within the budget.
+        """
+        from jobsearch_rag.rag.embedder import _MAX_EMBED_CHARS
+
+        long_text = "x" * (_MAX_EMBED_CHARS + 5000)
+
+        with patch.object(embedder, "_client") as mock_client:
+            mock_client.embed = AsyncMock(return_value=_mock_embed_response([FAKE_EMBEDDING]))
+            await embedder.embed(long_text)
+
+            call_args = mock_client.embed.call_args
+            sent_text = call_args.kwargs.get("input") or call_args[1].get("input")
+            assert len(sent_text) == _MAX_EMBED_CHARS
+
+    async def test_embed_truncation_preserves_head_and_tail(
+        self, embedder: Embedder
+    ) -> None:
+        """Truncation keeps head (title/overview) AND tail (hands-on work, comp).
+
+        Real-world JDs put comp ranges and actual responsibilities in the
+        last third.  Naive head-only truncation would discard those signals.
+        """
+        from jobsearch_rag.rag.embedder import (
+            _HEAD_RATIO,
+            _MAX_EMBED_CHARS,
+            _TRUNCATION_MARKER,
+        )
+
+        head_content = "HEAD_SIGNAL_" * 3000  # distinctive head text
+        middle_content = "M" * _MAX_EMBED_CHARS  # expendable middle
+        tail_content = "TAIL_SIGNAL_" * 3000  # distinctive tail text
+        long_text = head_content + middle_content + tail_content
+
+        with patch.object(embedder, "_client") as mock_client:
+            mock_client.embed = AsyncMock(return_value=_mock_embed_response([FAKE_EMBEDDING]))
+            await embedder.embed(long_text)
+
+            call_args = mock_client.embed.call_args
+            sent_text = call_args.kwargs.get("input") or call_args[1].get("input")
+
+            # Head is preserved
+            assert sent_text.startswith("HEAD_SIGNAL_")
+            # Tail is preserved
+            assert sent_text.endswith("TAIL_SIGNAL_")
+            # Marker separates head and tail
+            assert _TRUNCATION_MARKER in sent_text
+            # Budget is respected
+            assert len(sent_text) == _MAX_EMBED_CHARS
+            # Head/tail ratio is approximately correct
+            marker_pos = sent_text.index(_TRUNCATION_MARKER)
+            budget = _MAX_EMBED_CHARS - len(_TRUNCATION_MARKER)
+            expected_head = int(budget * _HEAD_RATIO)
+            assert marker_pos == expected_head
+
+    async def test_embed_text_within_limit_is_not_truncated(
+        self, embedder: Embedder
+    ) -> None:
+        """Text within the context window limit is passed through unchanged."""
+        normal_text = "Staff Platform Architect for distributed systems"
+
+        with patch.object(embedder, "_client") as mock_client:
+            mock_client.embed = AsyncMock(return_value=_mock_embed_response([FAKE_EMBEDDING]))
+            await embedder.embed(normal_text)
+
+            call_args = mock_client.embed.call_args
+            sent_text = call_args.kwargs.get("input") or call_args[1].get("input")
+            assert sent_text == normal_text
+
 
 # ---------------------------------------------------------------------------
 # TestClassification

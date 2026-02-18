@@ -30,6 +30,19 @@ _T = TypeVar("_T")
 # Status codes that warrant a retry (server overloaded / temporary failure)
 _RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
+# nomic-embed-text context window is 8192 tokens.  Real-world JDs contain
+# newlines, bullet points, dollar signs, and Unicode chars that tokenise at
+# ~1 char/token rather than the ~4 average for clean English prose.  Empirical
+# testing shows formatted JD text breaks at ~9 200 chars; 8 000 gives safe
+# headroom.  The scorer chunks long JDs at this size so no content is lost.
+_MAX_EMBED_CHARS = 8_000
+
+# When truncation is needed, keep head (title, company, overview) and tail
+# (hands-on work, comp range, specific tech) — the middle is typically "about
+# us", values statements, and repeated boilerplate.  60/40 split.
+_HEAD_RATIO = 0.6
+_TRUNCATION_MARKER = "\n[…]\n"
+
 
 class Embedder:
     """Wraps Ollama embedding and LLM calls with backoff and error handling.
@@ -69,6 +82,13 @@ class Embedder:
 
         Strips whitespace before embedding. Raises VALIDATION for empty
         input; retries transient Ollama errors with exponential backoff.
+
+        Text longer than ``_MAX_EMBED_CHARS`` is truncated using a
+        **head + tail** strategy to avoid exceeding the model's context
+        window.  The head captures title, company, and overview.  The
+        tail preserves hands-on work details and compensation ranges —
+        signals that real-world JDs place in the last third.  The dropped
+        middle is typically "about us" boilerplate.
         """
         cleaned = text.strip()
         if not cleaned:
@@ -77,6 +97,19 @@ class Embedder:
                 error_type=ErrorType.VALIDATION,
                 service="Ollama",
                 suggestion="Provide non-empty text to embed",
+            )
+
+        if len(cleaned) > _MAX_EMBED_CHARS:
+            logger.debug(
+                "Truncating embed input from %d to %d chars (head+tail)",
+                len(cleaned),
+                _MAX_EMBED_CHARS,
+            )
+            budget = _MAX_EMBED_CHARS - len(_TRUNCATION_MARKER)
+            head_len = int(budget * _HEAD_RATIO)
+            tail_len = budget - head_len
+            cleaned = (
+                cleaned[:head_len] + _TRUNCATION_MARKER + cleaned[-tail_len:]
             )
 
         async def _call() -> list[float]:

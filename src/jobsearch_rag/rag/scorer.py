@@ -15,6 +15,12 @@ The Scorer bridges two RAG concerns:
 ChromaDB returns *distances* (cosine distance = 1 - cosine_similarity).
 The ``_distance_to_score`` helper converts the closest distance to a
 similarity score clamped to [0.0, 1.0].
+
+Long JDs are **chunked** before embedding so that no information is lost.
+Real-world JDs frequently place comp ranges and hands-on responsibilities
+in the last third, while the title and overview are at the top.  Chunking
+with overlap ensures every section contributes to the similarity score.
+The *best* score across all chunks is used (max-similarity strategy).
 """
 
 from __future__ import annotations
@@ -25,12 +31,40 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from jobsearch_rag.errors import ActionableError
+from jobsearch_rag.rag.embedder import _MAX_EMBED_CHARS
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.embedder import Embedder
     from jobsearch_rag.rag.store import VectorStore
 
 logger = logging.getLogger(__name__)
+
+# -- Chunking constants -----------------------------------------------------
+# Target chunk size kept well within the embedding model's context window.
+# Overlap ensures no signal is lost at chunk boundaries (e.g. a comp range
+# straddling two chunks).
+_CHUNK_SIZE = _MAX_EMBED_CHARS
+_CHUNK_OVERLAP = 2_000
+
+
+def _chunk_text(text: str, chunk_size: int = _CHUNK_SIZE, overlap: int = _CHUNK_OVERLAP) -> list[str]:
+    """Split *text* into overlapping chunks of at most *chunk_size* chars.
+
+    Short texts (≤ chunk_size) are returned as-is in a single-element list.
+    Overlap ensures signals near chunk boundaries are not lost.
+    """
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        # Advance by (chunk_size - overlap), but at least 1 char to avoid infinite loop
+        step = max(chunk_size - overlap, 1)
+        start += step
+    return chunks
 
 # The disqualifier prompt sent as a *system* message.  The JD text is sent
 # as the *user* message.
@@ -59,12 +93,14 @@ class ScoreResult:
     history_score: float
     disqualified: bool
     disqualifier_reason: str | None = None
+    comp_score: float = 0.5
 
     @property
     def is_valid(self) -> bool:
         """All component scores are in [0.0, 1.0]."""
         return all(
-            0.0 <= s <= 1.0 for s in (self.fit_score, self.archetype_score, self.history_score)
+            0.0 <= s <= 1.0
+            for s in (self.fit_score, self.archetype_score, self.history_score, self.comp_score)
         )
 
 
@@ -117,20 +153,50 @@ class Scorer:
     async def score(self, jd_text: str) -> ScoreResult:
         """Score a job description against resume, archetypes, and decision history.
 
-        1. Embed ``jd_text``.
+        For short JDs a single embedding is used.  Long JDs are split into
+        overlapping chunks; each chunk is embedded and queried independently,
+        and the **best** score across chunks is kept (max-similarity).  This
+        ensures comp ranges and hands-on requirements buried in the tail of
+        a JD contribute to the final score.
+
+        Steps per chunk:
+
+        1. Embed the chunk.
         2. Query the ``resume`` collection — best-match distance → ``fit_score``.
         3. Query the ``role_archetypes`` collection — → ``archetype_score``.
         4. Query the ``decisions`` collection (if present) — → ``history_score``.
-        5. Optionally run the LLM disqualifier.
+
+        After all chunks:
+
+        5. Optionally run the LLM disqualifier (on the full JD text).
 
         Raises ``ActionableError`` (INDEX) if the ``resume`` collection is
         empty or missing — the pipeline *must* index a resume before scoring.
         """
-        embedding = await self._embedder.embed(jd_text)
+        chunks = _chunk_text(jd_text)
+        if len(chunks) > 1:
+            logger.debug(
+                "JD text (%d chars) split into %d overlapping chunks for scoring",
+                len(jd_text),
+                len(chunks),
+            )
 
-        fit_score = self._query_collection("resume", embedding)
-        archetype_score = self._query_collection("role_archetypes", embedding)
-        history_score = self._query_collection_optional("decisions", embedding)
+        # Score each chunk and keep the best per-collection score.
+        fit_score = 0.0
+        archetype_score = 0.0
+        history_score = 0.0
+
+        for chunk in chunks:
+            embedding = await self._embedder.embed(chunk)
+            fit_score = max(fit_score, self._query_collection("resume", embedding))
+            archetype_score = max(
+                archetype_score,
+                self._query_collection("role_archetypes", embedding),
+            )
+            history_score = max(
+                history_score,
+                self._query_collection_optional("decisions", embedding),
+            )
 
         disqualified = False
         reason: str | None = None
