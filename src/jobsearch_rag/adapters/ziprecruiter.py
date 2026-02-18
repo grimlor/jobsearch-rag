@@ -65,6 +65,29 @@ _CF_WAIT_TIMEOUT = 15
 # Click-through timing (seconds) — human-like pause between card clicks
 _CLICK_DELAY = (0.5, 1.5)
 
+# Throttle detection — ZR returns this error message when rate-limited
+_THROTTLE_PHRASES = [
+    "we encountered an error while loading this job",
+]
+
+# Throttle backoff parameters
+_THROTTLE_MAX_RETRIES = 3
+_THROTTLE_BASE_DELAY = 2.0  # seconds; doubles each retry
+
+
+def is_throttle_response(text: str) -> bool:
+    """Return True if *text* matches a known ZipRecruiter throttle response.
+
+    Checks for known error phrases that ZR displays in the detail panel
+    when rate-limiting a session.  The check is case-insensitive and
+    only triggers on short text (< 200 chars) to avoid false positives
+    when a legitimate JD mentions 'error'.
+    """
+    if not text or len(text.strip()) > 200:
+        return False
+    lower = text.strip().lower()
+    return any(phrase in lower for phrase in _THROTTLE_PHRASES)
+
 
 # ---------------------------------------------------------------------------
 # HTML → plain-text helper
@@ -379,6 +402,9 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         Skips listings that already have ``full_text`` populated (e.g. the
         first card extracted from ``js_variables``).  Falls back to
         ``shortDescription`` from metadata when the panel text is too short.
+
+        Detects ZipRecruiter throttle responses (error messages instead of
+        real JD text) and retries with exponential backoff before skipping.
         """
         card_locator = page.locator(_SELECTORS["card_articles"])
         panel_locator = page.locator(_SELECTORS["detail_panel"])
@@ -387,6 +413,8 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         if card_count == 0:
             logger.warning("No card articles found on SERP — cannot click-through")
             return
+
+        consecutive_throttles = 0
 
         for i, listing in enumerate(listings):
             # Skip if already populated (first card from js_variables)
@@ -397,43 +425,74 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                 logger.debug("Card index %d exceeds DOM card count %d", i, card_count)
                 break
 
-            try:
-                # Click the card article
-                card = card_locator.nth(i)
-                await card.click()
+            for retry in range(_THROTTLE_MAX_RETRIES + 1):
+                try:
+                    # Click the card article
+                    card = card_locator.nth(i)
+                    await card.click()
 
-                # Human-like delay
-                delay = random.uniform(*_CLICK_DELAY)
-                await asyncio.sleep(delay)
+                    # Human-like delay
+                    delay = random.uniform(*_CLICK_DELAY)
+                    await asyncio.sleep(delay)
 
-                # Wait for panel to be visible and read text
-                await panel_locator.wait_for(state="visible", timeout=5000)
-                panel_text = await panel_locator.inner_text()
+                    # Wait for panel to be visible and read text
+                    await panel_locator.wait_for(state="visible", timeout=5000)
+                    panel_text = await panel_locator.inner_text()
 
-                if panel_text and len(panel_text.strip()) > 100:
-                    listing.full_text = panel_text.strip()
-                    logger.debug(
-                        "Card %d/%d: %d chars from detail panel",
+                    # Check for throttle response
+                    if is_throttle_response(panel_text):
+                        consecutive_throttles += 1
+                        backoff = _THROTTLE_BASE_DELAY * (2 ** (consecutive_throttles - 1))
+                        logger.warning(
+                            "Throttle detected for %s (retry %d/%d, "
+                            "backoff %.1fs): %s",
+                            listing.external_id,
+                            retry + 1,
+                            _THROTTLE_MAX_RETRIES,
+                            backoff,
+                            listing.url,
+                        )
+                        if retry < _THROTTLE_MAX_RETRIES:
+                            await asyncio.sleep(backoff)
+                            continue
+                        else:
+                            # Max retries exhausted — skip this listing
+                            logger.warning(
+                                "Max retries exhausted for %s — skipping",
+                                listing.external_id,
+                            )
+                            self._apply_short_description_fallback(listing)
+                            break
+
+                    # Real content — accept it
+                    if panel_text and len(panel_text.strip()) > 100:
+                        listing.full_text = panel_text.strip()
+                        logger.debug(
+                            "Card %d/%d: %d chars from detail panel",
+                            i + 1,
+                            len(listings),
+                            len(listing.full_text),
+                        )
+                        break
+                    else:
+                        # Too short — not throttle, just sparse content
+                        self._apply_short_description_fallback(listing)
+                        logger.debug(
+                            "Card %d/%d: panel text too short, used fallback",
+                            i + 1,
+                            len(listings),
+                        )
+                        break
+
+                except Exception as exc:
+                    logger.warning(
+                        "Click-through failed for card %d (%s): %s",
                         i + 1,
-                        len(listings),
-                        len(listing.full_text),
+                        listing.external_id,
+                        exc,
                     )
-                else:
-                    # Fall back to short description
                     self._apply_short_description_fallback(listing)
-                    logger.debug(
-                        "Card %d/%d: panel text too short, used fallback",
-                        i + 1,
-                        len(listings),
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "Click-through failed for card %d (%s): %s",
-                    i + 1,
-                    listing.external_id,
-                    exc,
-                )
-                self._apply_short_description_fallback(listing)
+                    break
 
     @staticmethod
     def _apply_short_description_fallback(listing: JobListing) -> None:

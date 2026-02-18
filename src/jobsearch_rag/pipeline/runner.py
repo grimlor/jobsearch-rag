@@ -26,6 +26,7 @@ from jobsearch_rag.adapters.session import SessionConfig, SessionManager, thrott
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker, RankSummary
 from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
+from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
@@ -46,6 +47,7 @@ class RunResult:
     ranked_listings: list[RankedListing] = field(default_factory=list)
     summary: RankSummary = field(default_factory=RankSummary)
     failed_listings: int = 0
+    skipped_decisions: int = 0
     boards_searched: list[str] = field(default_factory=list)
 
 
@@ -75,12 +77,16 @@ class PipelineRunner:
             min_score_threshold=settings.scoring.min_score_threshold,
         )
         self._base_salary = settings.scoring.base_salary
+        self._decision_recorder = DecisionRecorder(
+            store=self._store, embedder=self._embedder
+        )
 
     async def run(
         self,
         boards: list[str] | None = None,
         *,
         overnight: bool = False,
+        force_rescore: bool = False,
     ) -> RunResult:
         """Execute a full search-score-rank pipeline.
 
@@ -146,11 +152,27 @@ class PipelineRunner:
                 failed_listings=failed_count,
             )
 
-        # Step 4: Score each listing
+        # Step 4: Score each listing (skip already-decided unless forced)
         scored: list[tuple[JobListing, ScoreResult]] = []
         embeddings: dict[str, list[float]] = {}
+        skipped_decisions = 0
 
         for listing in all_listings:
+            # Cross-run dedup: skip listings with existing decisions
+            if not force_rescore:
+                decision = self._decision_recorder.get_decision(
+                    listing.external_id
+                )
+                if decision is not None:
+                    logger.info(
+                        "Skipping %s (%s) — already decided: %s",
+                        listing.title,
+                        listing.external_id,
+                        decision.get("verdict", "unknown"),
+                    )
+                    skipped_decisions += 1
+                    continue
+
             try:
                 score_result = await self._scorer.score(listing.full_text)
 
@@ -185,6 +207,7 @@ class PipelineRunner:
             ranked_listings=ranked,
             summary=summary,
             failed_listings=failed_count,
+            skipped_decisions=skipped_decisions,
             boards_searched=board_names,
         )
 

@@ -106,6 +106,7 @@ def _make_runner_with_mocks(
         patch("jobsearch_rag.pipeline.runner.Embedder", return_value=mock_embedder),
         patch("jobsearch_rag.pipeline.runner.VectorStore", return_value=mock_store),
         patch("jobsearch_rag.pipeline.runner.Scorer", return_value=mock_scorer),
+        patch("jobsearch_rag.pipeline.runner.DecisionRecorder"),
     ):
         runner = PipelineRunner(settings)
 
@@ -113,6 +114,10 @@ def _make_runner_with_mocks(
     runner._embedder = mock_embedder
     runner._scorer = mock_scorer
     runner._store = mock_store
+    # Decision recorder mock: no prior decisions by default
+    mock_decision_recorder = MagicMock()
+    mock_decision_recorder.get_decision = MagicMock(return_value=None)
+    runner._decision_recorder = mock_decision_recorder
 
     return runner, mock_embedder, mock_scorer, mock_store
 

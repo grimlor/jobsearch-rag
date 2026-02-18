@@ -120,7 +120,11 @@ def handle_search(args: argparse.Namespace) -> None:
     boards = [args.board] if args.board else None
 
     async def _run() -> None:
-        result = await runner.run(boards=boards, overnight=args.overnight)
+        result = await runner.run(
+            boards=boards,
+            overnight=args.overnight,
+            force_rescore=args.force_rescore,
+        )
 
         # Print summary
         print(f"\n{'=' * 60}")
@@ -131,6 +135,7 @@ def handle_search(args: argparse.Namespace) -> None:
         print(f" Scored:          {result.summary.total_scored}")
         print(f" Deduplicated:    {result.summary.total_deduplicated}")
         print(f" Excluded:        {result.summary.total_excluded}")
+        print(f" Prior decisions: {result.skipped_decisions}")
         print(f" Failed:          {result.failed_listings}")
         print(f" Final results:   {len(result.ranked_listings)}")
         print(f"{'=' * 60}\n")
@@ -239,6 +244,116 @@ def handle_decide(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def handle_review(args: argparse.Namespace) -> None:
+    """Interactively review undecided listings from the latest search.
+
+    Walks through each undecided listing in ranked order, displaying
+    scores and compensation.  The operator enters y/n/m to record a
+    verdict, s to skip, o to open the JD, or q to quit.
+    """
+    import csv as csv_mod
+    from pathlib import Path
+
+    from jobsearch_rag.adapters.base import JobListing
+    from jobsearch_rag.config import load_settings
+    from jobsearch_rag.pipeline.ranker import RankedListing
+    from jobsearch_rag.pipeline.review import ReviewSession
+    from jobsearch_rag.rag.decisions import DecisionRecorder
+    from jobsearch_rag.rag.embedder import Embedder
+    from jobsearch_rag.rag.scorer import ScoreResult
+    from jobsearch_rag.rag.store import VectorStore
+
+    settings = load_settings()
+    embedder = Embedder(
+        base_url=settings.ollama.base_url,
+        embed_model=settings.ollama.embed_model,
+        llm_model=settings.ollama.llm_model,
+    )
+    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    recorder = DecisionRecorder(store=store, embedder=embedder)
+
+    # Load latest results from CSV
+    out_dir = Path(settings.output.output_dir)
+    csv_path = out_dir / "results.csv"
+    if not csv_path.exists():
+        print("No results found. Run 'search' first.")
+        return
+
+    ranked_listings: list[RankedListing] = []
+    with open(csv_path) as f:
+        reader = csv_mod.DictReader(f)
+        for _i, row in enumerate(reader, 1):
+            listing = JobListing(
+                board=row.get("board", "unknown"),
+                external_id=row.get("url", "").rstrip("/").rsplit("/", 1)[-1],
+                title=row.get("title", ""),
+                company=row.get("company", ""),
+                location=row.get("location", ""),
+                url=row.get("url", ""),
+                full_text="",
+                comp_min=float(row["comp_min"]) if row.get("comp_min") else None,
+                comp_max=float(row["comp_max"]) if row.get("comp_max") else None,
+            )
+            scores = ScoreResult(
+                fit_score=float(row.get("fit_score", 0)),
+                archetype_score=float(row.get("archetype_score", 0)),
+                history_score=float(row.get("history_score", 0)),
+                disqualified=row.get("disqualified", "").lower() == "true",
+                disqualifier_reason=row.get("disqualifier_reason") or None,
+                comp_score=float(row.get("comp_score", 0)),
+            )
+            ranked = RankedListing(
+                listing=listing,
+                scores=scores,
+                final_score=float(row.get("final_score", 0)),
+            )
+            ranked_listings.append(ranked)
+
+    jd_dir = str(out_dir / "jds")
+    session = ReviewSession(
+        ranked_listings=ranked_listings,
+        recorder=recorder,
+        jd_dir=jd_dir,
+    )
+
+    undecided = session.undecided_listings()
+    if not undecided:
+        print("All listings have been decided — nothing to review.")
+        return
+
+    print(f"\n{len(undecided)} undecided listing(s) to review.\n")
+    print("Commands: y=yes  n=no  m=maybe  s=skip  o=open  q=quit\n")
+
+    async def _run() -> None:
+        for idx, ranked in enumerate(undecided, 1):
+            print(session.format_listing(ranked, rank=idx, total=len(undecided)))
+
+            while True:
+                try:
+                    key = input("  > ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    key = "q"
+
+                if key == "q":
+                    print(f"\nReview stopped. {idx - 1} listing(s) reviewed.")
+                    return
+                elif key == "o":
+                    session.open_listing(ranked)
+                    continue  # re-prompt after opening
+                elif key == "s":
+                    break  # skip — advance to next listing
+                elif session.should_record(key):
+                    await session.record_verdict(ranked, key)
+                    print(f"  Recorded: {key}")
+                    break
+                else:
+                    print("  Invalid input. Use y/n/m/s/o/q")
+
+        print(f"\nReview complete. All {len(undecided)} listing(s) reviewed.")
+
+    asyncio.run(_run())
+
+
 def handle_export(args: argparse.Namespace) -> None:
     """Re-export last results in a specific format.
 
@@ -332,6 +447,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="Open top N results in browser tabs",
     )
+    search_p.add_argument(
+        "--force-rescore",
+        action="store_true",
+        help="Re-score all listings even if they have prior decisions",
+    )
 
     # -- export --------------------------------------------------------------
     export_p = sub.add_parser("export", help="Export last results")
@@ -350,6 +470,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["yes", "no", "maybe"],
         required=True,
         help="Your verdict on this role",
+    )
+
+    # -- review --------------------------------------------------------------
+    sub.add_parser(
+        "review",
+        help="Interactively review and decide on undecided listings",
     )
 
     # -- boards --------------------------------------------------------------

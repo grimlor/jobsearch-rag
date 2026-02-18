@@ -398,7 +398,7 @@ class TestSearchCommand:
             patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
             patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
         ):
-            args = argparse.Namespace(board=None, overnight=False, open_top=None)
+            args = argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
             handle_search(args)
 
         output = capsys.readouterr().out
@@ -431,7 +431,7 @@ class TestSearchCommand:
             patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
             patch("webbrowser.open"),
         ):
-            args = argparse.Namespace(board=None, overnight=False, open_top=None)
+            args = argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
             handle_search(args)
 
         output = capsys.readouterr().out
@@ -458,7 +458,7 @@ class TestSearchCommand:
             patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
             patch("webbrowser.open"),
         ):
-            args = argparse.Namespace(board=None, overnight=False, open_top=None)
+            args = argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
             handle_search(args)
 
         output = capsys.readouterr().out
@@ -481,7 +481,7 @@ class TestSearchCommand:
             patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
             patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
         ):
-            args = argparse.Namespace(board="indeed", overnight=False, open_top=None)
+            args = argparse.Namespace(board="indeed", overnight=False, open_top=None, force_rescore=False)
             handle_search(args)
 
         # Verify the runner was called with boards=["indeed"]
@@ -506,7 +506,7 @@ class TestSearchCommand:
             patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
             patch("webbrowser.open") as mock_open,
         ):
-            args = argparse.Namespace(board=None, overnight=False, open_top=1)
+            args = argparse.Namespace(board=None, overnight=False, open_top=1, force_rescore=False)
             handle_search(args)
 
         mock_open.assert_called_once()
@@ -539,7 +539,7 @@ class TestSearchCommand:
             patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
             patch("webbrowser.open") as mock_open,
         ):
-            args = argparse.Namespace(board=None, overnight=False, open_top=None)
+            args = argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
             handle_search(args)
 
         mock_open.assert_not_called()
@@ -898,7 +898,7 @@ class TestSearchBrowserFailure:
             patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
             patch("webbrowser.open", side_effect=OSError("no browser")),
         ):
-            args = argparse.Namespace(board=None, overnight=False, open_top=1)
+            args = argparse.Namespace(board=None, overnight=False, open_top=1, force_rescore=False)
             handle_search(args)
 
         output = capsys.readouterr().out

@@ -15,6 +15,7 @@ from jobsearch_rag.cli import (
     handle_index,
     handle_login,
     handle_reset,
+    handle_review,
     handle_search,
 )
 
@@ -32,6 +33,8 @@ def main() -> None:
             handle_search(args)
         elif args.command == "decide":
             handle_decide(args)
+        elif args.command == "review":
+            handle_review(args)
         elif args.command == "export":
             handle_export(args)
         elif args.command == "login":
