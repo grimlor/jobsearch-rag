@@ -13,7 +13,8 @@ searches = [
     "https://www.ziprecruiter.com/jobs-search?search=developer+relations+engineer&location=Remote+(USA)",
 ]
 max_pages = 3
-headless = true
+headless = false  # Cloudflare blocks headless; must be headed
+browser_channel = "msedge"  # Chromium detected by Cloudflare; Edge passes
 
 [boards.indeed]
 searches = [
@@ -42,6 +43,8 @@ headless = false  # Must be headed; LinkedIn detects headless
 archetype_weight = 0.5
 fit_weight = 0.3
 history_weight = 0.2
+comp_weight = 0.15
+base_salary = 220000
 disqualify_on_llm_flag = true
 min_score_threshold = 0.45
 

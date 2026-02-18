@@ -29,6 +29,10 @@ class JobListing:
     full_text: str
     posted_at: datetime | None = None
     raw_html: str | None = None
+    comp_min: float | None = None
+    comp_max: float | None = None
+    comp_source: str | None = None
+    comp_text: str | None = None
     metadata: dict[str, str] = field(default_factory=dict)
 
 

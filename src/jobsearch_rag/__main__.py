@@ -13,6 +13,8 @@ from jobsearch_rag.cli import (
     handle_decide,
     handle_export,
     handle_index,
+    handle_login,
+    handle_reset,
     handle_search,
 )
 
@@ -32,6 +34,10 @@ def main() -> None:
             handle_decide(args)
         elif args.command == "export":
             handle_export(args)
+        elif args.command == "login":
+            handle_login(args)
+        elif args.command == "reset":
+            handle_reset(args)
     except Exception as exc:
         # ActionableError instances have rich context
         from jobsearch_rag.errors import ActionableError

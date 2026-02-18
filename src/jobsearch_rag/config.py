@@ -31,6 +31,7 @@ class BoardConfig:
     searches: list[str]
     max_pages: int = 3
     headless: bool = True
+    browser_channel: str | None = None
 
 
 @dataclass
@@ -40,6 +41,8 @@ class ScoringConfig:
     archetype_weight: float = 0.5
     fit_weight: float = 0.3
     history_weight: float = 0.2
+    comp_weight: float = 0.15
+    base_salary: float = 220_000
     disqualify_on_llm_flag: bool = True
     min_score_threshold: float = 0.45
 
@@ -165,6 +168,7 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
             searches=list(searches),
             max_pages=int(board_data.get("max_pages", 3)),
             headless=bool(board_data.get("headless", True)),
+            browser_channel=board_data.get("browser_channel") or None,
         )
 
     # Also parse overnight board configs if they have sections
@@ -178,6 +182,7 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
                     searches=list(searches),
                     max_pages=int(board_data.get("max_pages", 2)),
                     headless=bool(board_data.get("headless", False)),
+                    browser_channel=board_data.get("browser_channel") or None,
                 )
 
     # -- scoring section -----------------------------------------------------
@@ -189,12 +194,14 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
         archetype_weight=float(scoring_data.get("archetype_weight", 0.5)),
         fit_weight=float(scoring_data.get("fit_weight", 0.3)),
         history_weight=float(scoring_data.get("history_weight", 0.2)),
+        comp_weight=float(scoring_data.get("comp_weight", 0.15)),
+        base_salary=float(scoring_data.get("base_salary", 220_000)),
         disqualify_on_llm_flag=bool(scoring_data.get("disqualify_on_llm_flag", True)),
         min_score_threshold=float(scoring_data.get("min_score_threshold", 0.45)),
     )
 
     # Validate weight ranges
-    for weight_name in ("archetype_weight", "fit_weight", "history_weight"):
+    for weight_name in ("archetype_weight", "fit_weight", "history_weight", "comp_weight"):
         value = getattr(scoring, weight_name)
         if value < 0.0:
             raise ActionableError(
@@ -210,6 +217,15 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
                 service="settings",
                 suggestion=f"Set [scoring].{weight_name} to a value between 0.0 and 1.0",
             )
+
+    # Validate base_salary
+    if scoring.base_salary <= 0:
+        raise ActionableError(
+            error=f"Scoring 'base_salary' is {scoring.base_salary} — must be > 0",
+            error_type=ErrorType.VALIDATION,
+            service="settings",
+            suggestion="Set [scoring].base_salary to a positive number",
+        )
 
     # -- ollama section ------------------------------------------------------
     ollama_data = data.get("ollama", {})

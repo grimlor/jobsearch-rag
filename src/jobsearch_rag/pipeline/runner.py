@@ -25,7 +25,9 @@ from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.session import SessionConfig, SessionManager, throttle
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker, RankSummary
+from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
 from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
 from jobsearch_rag.rag.store import VectorStore
 
@@ -69,8 +71,10 @@ class PipelineRunner:
             archetype_weight=settings.scoring.archetype_weight,
             fit_weight=settings.scoring.fit_weight,
             history_weight=settings.scoring.history_weight,
+            comp_weight=settings.scoring.comp_weight,
             min_score_threshold=settings.scoring.min_score_threshold,
         )
+        self._base_salary = settings.scoring.base_salary
 
     async def run(
         self,
@@ -90,6 +94,9 @@ class PipelineRunner:
         # Step 1: Health check Ollama before any browser work
         await self._embedder.health_check()
         logger.info("Ollama health check passed")
+
+        # Step 1b: Auto-index if collections are empty (first run or post-reset)
+        await self._ensure_indexed()
 
         # Step 2: Determine which boards to search
         board_names = boards or list(self._settings.enabled_boards)
@@ -146,6 +153,18 @@ class PipelineRunner:
         for listing in all_listings:
             try:
                 score_result = await self._scorer.score(listing.full_text)
+
+                # Parse compensation from JD text and compute comp_score
+                comp = parse_compensation(listing.full_text)
+                if comp is not None:
+                    listing.comp_min = comp.comp_min
+                    listing.comp_max = comp.comp_max
+                    listing.comp_source = comp.comp_source
+                    listing.comp_text = comp.comp_text
+                score_result.comp_score = compute_comp_score(
+                    listing.comp_max, self._base_salary
+                )
+
                 scored.append((listing, score_result))
                 # Cache the embedding for deduplication
                 embedding = await self._embedder.embed(listing.full_text)
@@ -168,6 +187,38 @@ class PipelineRunner:
             failed_listings=failed_count,
             boards_searched=board_names,
         )
+
+    async def _ensure_indexed(self) -> None:
+        """Auto-index resume and archetypes if collections are empty.
+
+        After a ``reset`` or on first run, the ``resume`` and
+        ``role_archetypes`` collections will be empty.  Rather than
+        failing every scoring call, detect this and run the indexer
+        automatically — it's the only sensible recovery.
+        """
+        needs_resume = self._collection_empty("resume")
+        needs_archetypes = self._collection_empty("role_archetypes")
+
+        if not needs_resume and not needs_archetypes:
+            return
+
+        logger.info("Empty collections detected — auto-indexing before scoring")
+        indexer = Indexer(store=self._store, embedder=self._embedder)
+
+        if needs_archetypes:
+            n = await indexer.index_archetypes(self._settings.archetypes_path)
+            logger.info("Auto-indexed %d archetypes", n)
+
+        if needs_resume:
+            n = await indexer.index_resume(self._settings.resume_path)
+            logger.info("Auto-indexed %d resume chunks", n)
+
+    def _collection_empty(self, name: str) -> bool:
+        """Return True if the named collection is missing or has zero documents."""
+        try:
+            return self._store.collection_count(name) == 0
+        except ActionableError:
+            return True
 
     async def _search_board(
         self,
@@ -192,6 +243,7 @@ class PipelineRunner:
             headless=board_cfg.headless,
             stealth=board_name == "linkedin",
             overnight=is_overnight,
+            browser_channel=board_cfg.browser_channel,
         )
 
         listings: list[JobListing] = []
@@ -220,8 +272,13 @@ class PipelineRunner:
                     )
                     continue
 
-                # Extract details for each listing
+                # Extract details for each listing (skip if already enriched)
                 for listing in results:
+                    if listing.full_text.strip():
+                        # Already enriched during search (e.g. click-through)
+                        listings.append(listing)
+                        continue
+
                     await throttle(adapter)
                     try:
                         enriched = await adapter.extract_detail(page, listing)

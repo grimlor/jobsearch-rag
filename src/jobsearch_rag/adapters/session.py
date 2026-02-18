@@ -2,6 +2,12 @@
 
 Owns browser lifecycle, cookie persistence, and human-like rate limiting.
 Adapters receive a ``Page`` — they never launch browsers themselves.
+
+When ``browser_channel`` is set (e.g. ``msedge``), the session manager
+launches the real system browser as a subprocess and connects to it via
+the Chrome DevTools Protocol (CDP).  This avoids Playwright's automation
+flags (``--enable-automation``, ``navigator.webdriver``) that Cloudflare
+bot detection uses to block automated browsers.
 """
 
 from __future__ import annotations
@@ -9,6 +15,11 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import shutil
+import signal
+import socket
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -27,6 +38,19 @@ if TYPE_CHECKING:
 
 _STORAGE_DIR = Path("data")
 
+# Known browser binary paths on macOS
+_BROWSER_PATHS: dict[str, list[str]] = {
+    "msedge": [
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    ],
+    "chrome": [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    ],
+    "chromium": [
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ],
+}
+
 
 @dataclass
 class SessionConfig:
@@ -39,11 +63,79 @@ class SessionConfig:
     viewport_height: int = 900
     stealth: bool = False
     overnight: bool = False
+    browser_channel: str | None = None
 
     @property
     def storage_state_path(self) -> Path:
         """Path to the cookie/session JSON for this board."""
         return _STORAGE_DIR / f"{self.board_name}_session.json"
+
+
+# ---------------------------------------------------------------------------
+# CDP helpers
+# ---------------------------------------------------------------------------
+
+
+def _find_browser_binary(channel: str) -> str | None:
+    """Resolve a browser channel name to an executable path.
+
+    First checks the known paths in ``_BROWSER_PATHS``, then falls back
+    to ``shutil.which()`` for PATH-based lookup.
+    """
+    for path in _BROWSER_PATHS.get(channel, []):
+        if Path(path).exists():
+            return path
+
+    # Fallback: try finding the binary on $PATH
+    which = shutil.which(channel)
+    if which:
+        return which
+
+    return None
+
+
+def _find_free_port() -> int:
+    """Ask the OS for a free TCP port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port: int = s.getsockname()[1]
+        return port
+
+
+async def _wait_for_cdp(
+    cdp_url: str,
+    *,
+    timeout: float = 15.0,
+    poll_interval: float = 0.3,
+) -> None:
+    """Poll until the CDP ``/json/version`` endpoint responds."""
+    import urllib.request
+
+    deadline = asyncio.get_event_loop().time() + timeout
+    while True:
+        try:
+            urllib.request.urlopen(f"{cdp_url}/json/version", timeout=2)
+            logger.debug("CDP endpoint ready at %s", cdp_url)
+            return
+        except OSError:
+            if asyncio.get_event_loop().time() > deadline:
+                raise TimeoutError(
+                    f"CDP endpoint at {cdp_url} did not start within {timeout}s"
+                ) from None
+            await asyncio.sleep(poll_interval)
+
+
+def _terminate_process(proc: subprocess.Popen[bytes]) -> None:
+    """Gracefully stop the CDP browser subprocess."""
+    if proc.poll() is not None:
+        return  # already exited
+    try:
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        logger.warning("Browser subprocess did not exit cleanly — killing")
+        proc.kill()
+        proc.wait(timeout=3)
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +163,20 @@ async def throttle(adapter: JobBoardAdapter) -> float:
 class SessionManager:
     """Manages Playwright browser sessions with storage_state persistence.
 
+    Two launch modes:
+
+    **Playwright-managed** (default):
+      ``playwright.chromium.launch()`` — Playwright starts its bundled
+      Chromium.  Simple and fast, but Cloudflare detects the injected
+      automation flags.
+
+    **CDP mode** (when ``browser_channel`` is set):
+      The real system browser (e.g. Edge) is launched as a subprocess
+      with ``--remote-debugging-port``.  Playwright then connects via
+      ``connect_over_cdp()``.  Because the browser was *not* launched
+      by Playwright, it has no automation flags—Cloudflare sees it as
+      a normal browser.
+
     Usage::
 
         async with SessionManager(config) as session:
@@ -85,14 +191,18 @@ class SessionManager:
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
+        self._cdp_process: subprocess.Popen[bytes] | None = None
+        self._cdp_tmpdir: str | None = None
 
     async def __aenter__(self) -> SessionManager:
         from playwright.async_api import async_playwright
 
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(
-            headless=self.config.headless,
-        )
+
+        if self.config.browser_channel:
+            await self._launch_cdp()
+        else:
+            await self._launch_playwright()
 
         # Load existing session cookies if available
         storage_path = self.config.storage_state_path
@@ -106,7 +216,7 @@ class SessionManager:
                 self.config.board_name,
             )
 
-        self._context = await self._browser.new_context(
+        self._context = await self._browser.new_context(  # type: ignore[union-attr]
             viewport={"width": self.config.viewport_width, "height": self.config.viewport_height},
             user_agent=self.config.user_agent if self.config.user_agent else None,
             storage_state=storage_state,
@@ -124,6 +234,72 @@ class SessionManager:
 
         return self
 
+    async def _launch_playwright(self) -> None:
+        """Launch browser via Playwright (standard mode)."""
+        assert self._playwright is not None
+        self._browser = await self._playwright.chromium.launch(
+            headless=self.config.headless,
+        )
+
+    async def _launch_cdp(self) -> None:
+        """Launch system browser as subprocess and connect via CDP.
+
+        This avoids Playwright's automation detection flags, allowing
+        the browser to pass Cloudflare bot protection.
+        """
+        assert self._playwright is not None
+        channel = self.config.browser_channel or "msedge"
+
+        # Find the browser binary
+        binary = _find_browser_binary(channel)
+        if not binary:
+            from jobsearch_rag.errors import ActionableError
+
+            raise ActionableError.config(
+                field_name="browser_channel",
+                reason=f"Could not find '{channel}' browser binary",
+                suggestion=(
+                    f"Install {channel} or set browser_channel to an installed browser "
+                    "(msedge, chrome, chromium)"
+                ),
+            )
+
+        # Find a free port for CDP
+        port = _find_free_port()
+
+        # Use a temp dir for the browser profile to avoid conflicts
+        # with the user's running browser
+        self._cdp_tmpdir = tempfile.mkdtemp(prefix=f"jobsearch-{channel}-")
+
+        cmd = [
+            binary,
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={self._cdp_tmpdir}",
+            "--no-first-run",
+            "--no-default-browser-check",
+        ]
+
+        if self.config.headless:
+            cmd.append("--headless=new")
+
+        logger.info(
+            "Launching %s via CDP on port %d for %s",
+            channel,
+            port,
+            self.config.board_name,
+        )
+        self._cdp_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # Wait for the CDP endpoint to become available
+        cdp_url = f"http://localhost:{port}"
+        await _wait_for_cdp(cdp_url)
+
+        self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
+
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
@@ -136,6 +312,14 @@ class SessionManager:
             await self._browser.close()
         if self._playwright:
             await self._playwright.stop()
+
+        # Clean up CDP subprocess and temp dir
+        if self._cdp_process:
+            _terminate_process(self._cdp_process)
+            self._cdp_process = None
+        if self._cdp_tmpdir:
+            shutil.rmtree(self._cdp_tmpdir, ignore_errors=True)
+            self._cdp_tmpdir = None
 
     async def new_page(self) -> Page:
         """Create a new page in the managed browser context."""

@@ -45,6 +45,7 @@ class RankedListing:
             f"Archetype: {self.scores.archetype_score:.2f}",
             f"Fit: {self.scores.fit_score:.2f}",
             f"History: {self.scores.history_score:.2f}",
+            f"Comp: {self.scores.comp_score:.2f}",
         ]
         if self.scores.disqualified:
             parts.append(f"DISQUALIFIED: {self.scores.disqualifier_reason}")
@@ -73,11 +74,13 @@ class Ranker:
         archetype_weight: float,
         fit_weight: float,
         history_weight: float,
-        min_score_threshold: float,
+        comp_weight: float = 0.0,
+        min_score_threshold: float = 0.45,
     ) -> None:
         self.archetype_weight = archetype_weight
         self.fit_weight = fit_weight
         self.history_weight = history_weight
+        self.comp_weight = comp_weight
         self.min_score_threshold = min_score_threshold
 
     def rank(
@@ -143,6 +146,7 @@ class Ranker:
             self.archetype_weight * scores.archetype_score
             + self.fit_weight * scores.fit_score
             + self.history_weight * scores.history_score
+            + self.comp_weight * scores.comp_score
         )
 
     # ------------------------------------------------------------------

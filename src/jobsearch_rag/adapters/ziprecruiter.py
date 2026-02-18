@@ -6,22 +6,33 @@ JSON inside a ``<script id="js_variables" type="application/json">`` tag.
 
 Extraction strategy:
   1. Navigate to the search URL and wait for DOM content.
-  2. Read the ``js_variables`` script tag and ``JSON.parse`` it.
-  3. Job cards live at ``hydrateJobCardsResponse.jobCards[]``.
-  4. Full JD HTML for the initially-selected card is at
+  2. Wait for any Cloudflare challenge to resolve (important: Cloudflare
+     presents a "Just a moment..." interstitial on first visit).
+  3. Read the ``js_variables`` script tag and ``JSON.parse`` it.
+  4. Job cards live at ``hydrateJobCardsResponse.jobCards[]``.
+  5. Full JD HTML for the initially-selected card is at
      ``getJobDetailsResponse.jobDetails.htmlFullDescription``.
-  5. For remaining cards, navigate to the canonical detail URL
-     (``rawCanonicalZipJobPageUrl``) and extract from that page's
-     ``js_variables`` blob.
+  6. For remaining cards, **click each card article** on the SERP to
+     update the detail panel (``[data-testid='job-details-scroll-container']``)
+     and read the full JD text via ``inner_text()``.
 
-The adapter does **not** use CSS selectors against rendered DOM for job data
-because ZipRecruiter hydrates from JSON → React; the DOM is empty in the
-initial HTML response used for parse-mode extraction.
+The adapter stays on the SERP page and uses click-through extraction
+rather than navigating to individual detail URLs, which avoids triggering
+fresh Cloudflare challenges per listing.
+
+.. important::
+
+   ZipRecruiter uses Cloudflare bot protection.  Headless Chromium is
+   typically blocked.  Set ``headless = false`` in ``settings.toml``
+   for reliable operation.  Use ``jobsearch-rag login --board ziprecruiter``
+   to establish a session interactively before running headless searches.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import random
 import re
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any
@@ -41,10 +52,18 @@ if TYPE_CHECKING:
 _SELECTORS = {
     "js_variables": "script#js_variables",
     "captcha_indicator": "iframe[src*='captcha'], div.g-recaptcha",
+    "card_articles": "[class*='job_result'] article",
+    "detail_panel": "[data-testid='job-details-scroll-container']",
 }
 
 # Base URL for relative canonical paths
 _BASE_URL = "https://www.ziprecruiter.com"
+
+# Maximum seconds to wait for Cloudflare challenge to resolve
+_CF_WAIT_TIMEOUT = 15
+
+# Click-through timing (seconds) — human-like pause between card clicks
+_CLICK_DELAY = (0.5, 1.5)
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +85,7 @@ class _HTMLTextExtractor(HTMLParser):
         return " ".join(self._parts)
 
 
-def _html_to_text(html: str) -> str:
+def html_to_text(html: str) -> str:
     """Strip HTML tags and return plain text."""
     extractor = _HTMLTextExtractor()
     extractor.feed(html)
@@ -116,7 +135,12 @@ def parse_job_cards(js_vars: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def card_to_listing(card: dict[str, Any]) -> JobListing:
-    """Convert a single job card dict to a ``JobListing``."""
+    """Convert a single job card dict to a ``JobListing``.
+
+    The ``shortDescription`` snippet from the card is stored in
+    ``metadata["short_description"]`` for fallback use when full
+    JD extraction from the detail page is blocked.
+    """
     listing_key = card.get("listingKey", "")
     title = card.get("title", "")
     company = card.get("company", {}).get("name", "Unknown")
@@ -140,6 +164,11 @@ def card_to_listing(card: dict[str, Any]) -> JobListing:
     if salary_min is not None and salary_max is not None:
         metadata["salary_range"] = f"${salary_min:,.0f} - ${salary_max:,.0f}"
 
+    # Capture short description for fallback scoring
+    short_desc = card.get("shortDescription", "")
+    if short_desc:
+        metadata["short_description"] = short_desc
+
     return JobListing(
         board="ziprecruiter",
         external_id=listing_key,
@@ -158,7 +187,38 @@ def extract_jd_text(js_vars: dict[str, Any]) -> str:
     html_desc = details.get("htmlFullDescription", "")
     if not html_desc:
         return ""
-    return _html_to_text(html_desc)
+    return html_to_text(html_desc)
+
+
+# ---------------------------------------------------------------------------
+# Cloudflare challenge helper
+# ---------------------------------------------------------------------------
+
+
+async def _wait_for_cloudflare(page: Page, *, timeout: int = _CF_WAIT_TIMEOUT) -> None:
+    """Wait for a Cloudflare "Just a moment..." challenge to resolve.
+
+    Cloudflare inserts an interstitial page that runs a JS challenge.
+    In headed mode it resolves in < 1 s.  In headless mode it usually
+    blocks indefinitely (headless = false is recommended).
+
+    This function polls the page title and returns as soon as the
+    challenge clears, or raises :class:`ActionableError` on timeout.
+    """
+    for _ in range(timeout):
+        title = await page.title()
+        if "just a moment" not in title.lower():
+            return
+        await asyncio.sleep(1)
+
+    raise ActionableError.authentication(
+        "ziprecruiter",
+        f"Cloudflare challenge did not resolve within {timeout}s",
+        suggestion=(
+            "Set headless = false in settings.toml for ziprecruiter. "
+            "Cloudflare blocks headless browsers."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +231,9 @@ class ZipRecruiterAdapter(JobBoardAdapter):
     """Browser automation adapter for ZipRecruiter.
 
     Extracts job data from the ``js_variables`` JSON blob embedded in
-    ZipRecruiter's React SPA pages rather than from rendered DOM elements.
+    ZipRecruiter's React SPA pages.  Full JD text is obtained via
+    SERP click-through: clicking each card article updates the detail
+    panel, avoiding per-URL navigation and Cloudflare challenges.
     """
 
     @property
@@ -191,6 +253,9 @@ class ZipRecruiterAdapter(JobBoardAdapter):
             "https://www.ziprecruiter.com/jobs-search",
             wait_until="domcontentloaded",
         )
+
+        # Wait for Cloudflare challenge if present
+        await _wait_for_cloudflare(page)
 
         # Check for CAPTCHA first — it takes priority
         captcha = await page.query_selector(_SELECTORS["captcha_indicator"])
@@ -221,12 +286,12 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         query: str,
         max_pages: int = 3,
     ) -> list[JobListing]:
-        """Navigate search results and return shallow listings.
+        """Navigate search results, click through cards, and return enriched listings.
 
-        Extracts job cards from the ``js_variables`` JSON blob on each
-        search results page.  Pagination appends ``&page=N`` to the URL
-        rather than clicking a "next" button, since the page data is
-        in the initial HTML, not injected by client-side React navigation.
+        Extracts job card metadata from the ``js_variables`` JSON blob, then
+        clicks through each card article on the SERP to read full JD text
+        from the detail panel.  This avoids navigating to individual detail
+        URLs, which would trigger fresh Cloudflare challenges per listing.
 
         Args:
             page: Playwright page with an active session.
@@ -234,8 +299,8 @@ class ZipRecruiterAdapter(JobBoardAdapter):
             max_pages: Maximum number of result pages to paginate through.
 
         Returns:
-            List of ``JobListing`` with title/company/url populated but
-            ``full_text`` empty — call :meth:`extract_detail` next.
+            List of ``JobListing`` with ``full_text`` already populated
+            via click-through.  ``extract_detail`` will be a no-op.
         """
         listings: list[JobListing] = []
 
@@ -246,6 +311,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
             sep = "&" if "?" in query else "?"
             page_url = f"{query}{sep}page={page_num}" if page_num > 1 else query
             await page.goto(page_url, wait_until="domcontentloaded")
+            await _wait_for_cloudflare(page)
 
             logger.info("Processing search results page %d", page_num)
 
@@ -264,12 +330,29 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                 logger.info("No job cards on page %d — stopping", page_num)
                 break
 
+            # Parse card metadata into listings
+            page_listings: list[JobListing] = []
             for card in cards:
                 try:
                     listing = card_to_listing(card)
-                    listings.append(listing)
+                    page_listings.append(listing)
                 except Exception as exc:
                     logger.warning("Failed to parse a job card: %s", exc)
+
+            # --- Click-through extraction ---
+            # The first card's JD may already be in js_variables
+            first_jd = extract_jd_text(js_vars)
+            if first_jd and page_listings:
+                page_listings[0].full_text = first_jd
+                logger.debug(
+                    "First card JD from js_variables (%d chars)",
+                    len(first_jd),
+                )
+
+            # Click remaining cards to extract full JD from detail panel
+            await self._click_through_cards(page, page_listings)
+
+            listings.extend(page_listings)
 
             # Check if there are more pages
             site_max_pages = js_vars.get("maxPages", 1)
@@ -277,48 +360,111 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                 logger.info("Reached last page (%d)", page_num)
                 break
 
-        logger.info("Found %d listings across %d page(s)", len(listings), page_num)
+        enriched = sum(1 for ls in listings if ls.full_text.strip())
+        logger.info(
+            "Found %d listings across %d page(s) (%d with full JD)",
+            len(listings),
+            page_num,
+            enriched,
+        )
         return listings
+
+    async def _click_through_cards(
+        self,
+        page: Page,
+        listings: list[JobListing],
+    ) -> None:
+        """Click each card article on the SERP and read JD from the detail panel.
+
+        Skips listings that already have ``full_text`` populated (e.g. the
+        first card extracted from ``js_variables``).  Falls back to
+        ``shortDescription`` from metadata when the panel text is too short.
+        """
+        card_locator = page.locator(_SELECTORS["card_articles"])
+        panel_locator = page.locator(_SELECTORS["detail_panel"])
+
+        card_count = await card_locator.count()
+        if card_count == 0:
+            logger.warning("No card articles found on SERP — cannot click-through")
+            return
+
+        for i, listing in enumerate(listings):
+            # Skip if already populated (first card from js_variables)
+            if listing.full_text.strip():
+                continue
+
+            if i >= card_count:
+                logger.debug("Card index %d exceeds DOM card count %d", i, card_count)
+                break
+
+            try:
+                # Click the card article
+                card = card_locator.nth(i)
+                await card.click()
+
+                # Human-like delay
+                delay = random.uniform(*_CLICK_DELAY)
+                await asyncio.sleep(delay)
+
+                # Wait for panel to be visible and read text
+                await panel_locator.wait_for(state="visible", timeout=5000)
+                panel_text = await panel_locator.inner_text()
+
+                if panel_text and len(panel_text.strip()) > 100:
+                    listing.full_text = panel_text.strip()
+                    logger.debug(
+                        "Card %d/%d: %d chars from detail panel",
+                        i + 1,
+                        len(listings),
+                        len(listing.full_text),
+                    )
+                else:
+                    # Fall back to short description
+                    self._apply_short_description_fallback(listing)
+                    logger.debug(
+                        "Card %d/%d: panel text too short, used fallback",
+                        i + 1,
+                        len(listings),
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Click-through failed for card %d (%s): %s",
+                    i + 1,
+                    listing.external_id,
+                    exc,
+                )
+                self._apply_short_description_fallback(listing)
+
+    @staticmethod
+    def _apply_short_description_fallback(listing: JobListing) -> None:
+        """Populate full_text from the SERP card's shortDescription snippet."""
+        short_desc = listing.metadata.get("short_description", "")
+        if short_desc:
+            listing.full_text = f"{listing.title} at {listing.company}. {short_desc}"
+        else:
+            listing.full_text = ""
 
     async def extract_detail(
         self,
         page: Page,
         listing: JobListing,
     ) -> JobListing:
-        """Navigate to the listing URL and extract full JD text.
+        """Return the listing — full JD is already populated by click-through.
 
-        Reads the ``js_variables`` JSON on the detail page and extracts
-        ``htmlFullDescription``, converting it to plain text.
+        The ``search()`` method populates ``full_text`` during SERP
+        click-through, so this method is a passthrough.  If ``full_text``
+        is somehow still empty (e.g. click-through was skipped), falls
+        back to the ``shortDescription`` captured from the SERP card.
 
-        Returns the same listing object with ``full_text`` populated.
-        Empty text is not silently accepted — it logs a warning.
+        Returns the same listing object, unchanged or with fallback text.
         """
-        logger.debug("Extracting detail for %s: %s", listing.external_id, listing.url)
-
-        try:
-            await page.goto(listing.url, wait_until="domcontentloaded")
-        except Exception as exc:
-            raise ActionableError.parse(
-                self.board_name,
-                _SELECTORS["js_variables"],
-                f"Failed to navigate to {listing.url}: {exc}",
-            ) from exc
-
-        html = await page.content()
-        try:
-            js_vars = extract_js_variables(html)
-        except ActionableError:
-            logger.warning(
-                "No js_variables on detail page %s — selector may have changed",
-                listing.url,
-            )
-            listing.full_text = ""
+        if listing.full_text.strip():
             return listing
 
-        text = extract_jd_text(js_vars)
-        listing.full_text = text
-
-        if not listing.full_text:
-            logger.warning("Empty job description extracted from %s", listing.url)
-
+        # Fallback: use the short description from the SERP card
+        logger.debug(
+            "extract_detail called with empty full_text for %s — applying fallback",
+            listing.external_id,
+        )
+        self._apply_short_description_fallback(listing)
         return listing
