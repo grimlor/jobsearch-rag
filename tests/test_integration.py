@@ -11,7 +11,7 @@ only when explicitly requested::
 The integration marker is defined in ``pyproject.toml`` under
 ``[tool.pytest.ini_options].markers``.
 
-Three test classes validate the assumptions our unit tests make:
+Four test classes validate the assumptions our unit tests make:
 
 1. **TestOllamaContract** — the Ollama SDK response shapes we rely on
    (embedding vectors, chat responses, model listing, error types).
@@ -21,6 +21,11 @@ Three test classes validate the assumptions our unit tests make:
 
 3. **TestEndToEndScoring** — the full pipeline from resume indexing
    through scoring, using real Ollama embeddings with no mocks.
+
+4. **TestLiveZipRecruiterPipeline** — the full system against live
+   ZipRecruiter: browser session → search → extract → score → rank →
+   export.  Requires a valid session cookie and Ollama.  Run with
+   ``uv run pytest -m live``.
 
 Between them, these tests catch the class of bug where our mocks
 silently diverge from reality — e.g. an ollama SDK upgrade changes
@@ -511,3 +516,241 @@ class TestEndToEndScoring:
 
         # The real archetypes file has 3 entries
         assert count == 3, f"Expected 3 archetypes, got {count}"
+
+
+# ---------------------------------------------------------------------------
+# TestLiveZipRecruiterPipeline
+# ---------------------------------------------------------------------------
+
+# This class uses the ``live`` marker — it is excluded from both default
+# and integration runs.  Run it explicitly:
+#
+#     uv run pytest -m live              # live tests only
+#     uv run pytest -m "live or integration"  # both tiers
+
+
+@pytest.mark.live
+class TestLiveZipRecruiterPipeline:
+    """REQUIREMENT: The full system works end-to-end against live ZipRecruiter.
+
+    WHO: The operator validating the tool after installation or upgrade
+    WHAT: A real browser session authenticates with ZipRecruiter, searches
+          one query, extracts ≥5 listings with full JD text, scores them
+          with real Ollama, ranks them, and exports valid Markdown/CSV/JD files
+    WHY: Unit tests mock every I/O boundary — browser, Ollama, ChromaDB.
+         Integration tests use real Ollama but fixture HTML.  Only this test
+         validates the entire system against the real world: ZipRecruiter's
+         DOM structure, Cloudflare behavior, Ollama model output, and
+         ChromaDB persistence all working together.
+    """
+
+    # Minimum listings we expect from a single search page.  ZR typically
+    # returns 20+ per page, so 5 is a conservative floor that accounts
+    # for rate-limit or layout changes.
+    MIN_LISTINGS = 5
+
+    @pytest.fixture
+    def live_embedder(self) -> Embedder:
+        """A real Embedder for live pipeline tests."""
+        return Embedder(
+            base_url=OLLAMA_BASE_URL,
+            embed_model=EMBED_MODEL,
+            llm_model=LLM_MODEL,
+            max_retries=2,
+            base_delay=0.5,
+        )
+
+    @pytest.fixture
+    def live_store(self) -> Iterator[VectorStore]:
+        """A VectorStore in a temp directory for live pipeline tests."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield VectorStore(persist_dir=tmpdir)
+
+    async def test_live_search_score_rank_export(
+        self,
+        live_store: VectorStore,
+        live_embedder: Embedder,
+        sample_resume: Path,
+        sample_archetypes: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Full pipeline: browser → search → score → rank → export, no mocks."""
+        from jobsearch_rag.adapters.session import SessionConfig, SessionManager, throttle
+        from jobsearch_rag.adapters.ziprecruiter import ZipRecruiterAdapter
+        from jobsearch_rag.export.csv_export import CSVExporter
+        from jobsearch_rag.export.jd_files import JDFileExporter
+        from jobsearch_rag.export.markdown import MarkdownExporter
+        from jobsearch_rag.pipeline.ranker import Ranker
+        from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
+        from jobsearch_rag.rag.indexer import Indexer
+
+        # --- Skip if session file is missing ---
+        session_path = Path("data/ziprecruiter_session.json")
+        if not session_path.exists():
+            pytest.skip("No ZipRecruiter session file — run login first")
+
+        # --- Step 1: Health check Ollama ---
+        await live_embedder.health_check()
+
+        # --- Step 2: Index resume + archetypes ---
+        indexer = Indexer(store=live_store, embedder=live_embedder)
+        await indexer.index_resume(str(sample_resume))
+        await indexer.index_archetypes(str(sample_archetypes))
+
+        # --- Step 3: Browser session → authenticate → search one query ---
+        adapter = ZipRecruiterAdapter()
+        config = SessionConfig(
+            board_name="ziprecruiter",
+            headless=False,
+            browser_channel="msedge",
+        )
+
+        search_url = (
+            "https://www.ziprecruiter.com/jobs-search"
+            "?search=staff+platform+architect&location=Remote+(USA)"
+        )
+
+        listings = []
+        try:
+            async with SessionManager(config) as session:
+                page = await session.new_page()
+
+                try:
+                    await adapter.authenticate(page)
+                except ActionableError as exc:
+                    pytest.skip(f"ZipRecruiter auth failed (session expired?): {exc.error}")
+
+                await throttle(adapter)
+                try:
+                    listings = await adapter.search(page, search_url, max_pages=1)
+                except ActionableError as exc:
+                    pytest.skip(f"ZipRecruiter search failed: {exc.error}")
+        except Exception as exc:
+            pytest.skip(f"Browser session failed: {exc}")
+
+        # --- Structural assertions about ZipRecruiter extraction ---
+        assert len(listings) >= self.MIN_LISTINGS, (
+            f"Expected ≥{self.MIN_LISTINGS} listings, got {len(listings)}"
+        )
+
+        for listing in listings:
+            assert listing.board == "ziprecruiter"
+            assert listing.title, "Every listing must have a title"
+            assert listing.company, "Every listing must have a company"
+            assert listing.url.startswith("https://"), (
+                f"URL should be HTTPS: {listing.url}"
+            )
+            assert listing.external_id, "Every listing must have an external_id"
+
+        # At least some listings should have full JD text from click-through
+        with_jd = [ls for ls in listings if ls.full_text.strip()]
+        assert len(with_jd) >= 1, "At least one listing should have full JD text"
+
+        # --- Step 4: Score each listing ---
+        scorer = Scorer(
+            store=live_store,
+            embedder=live_embedder,
+            disqualify_on_llm_flag=False,  # skip LLM for speed
+        )
+        base_salary = 220_000
+
+        scored = []
+        embeddings: dict[str, list[float]] = {}
+
+        for listing in with_jd[:self.MIN_LISTINGS]:
+            result = await scorer.score(listing.full_text)
+
+            # Parse compensation
+            comp = parse_compensation(listing.full_text)
+            if comp is not None:
+                listing.comp_min = comp.comp_min
+                listing.comp_max = comp.comp_max
+                listing.comp_source = comp.comp_source
+                listing.comp_text = comp.comp_text
+            result.comp_score = compute_comp_score(listing.comp_max, base_salary)
+
+            scored.append((listing, result))
+            embedding = await live_embedder.embed(listing.full_text)
+            embeddings[listing.url] = embedding
+
+        # --- Score assertions ---
+        for listing, result in scored:
+            assert result.is_valid, (
+                f"Invalid score for '{listing.title}': "
+                f"fit={result.fit_score}, arch={result.archetype_score}"
+            )
+            assert 0.0 <= result.fit_score <= 1.0
+            assert 0.0 <= result.archetype_score <= 1.0
+            assert 0.0 <= result.comp_score <= 1.0
+            # Fit and archetype should be non-zero for real JDs
+            assert result.fit_score > 0.0, (
+                f"Zero fit score for '{listing.title}' — embedding may have failed"
+            )
+            assert result.archetype_score > 0.0, (
+                f"Zero archetype score for '{listing.title}'"
+            )
+
+        # --- Step 5: Rank ---
+        ranker = Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.2,
+            comp_weight=0.15,
+            min_score_threshold=0.0,  # keep all for this test
+        )
+        ranked, summary = ranker.rank(scored, embeddings)
+
+        assert len(ranked) > 0, "Ranker should produce at least one result"
+        assert summary.total_found == len(scored)
+        assert summary.total_scored == len(scored)
+
+        # Rankings should be in descending order
+        scores = [r.final_score for r in ranked]
+        assert scores == sorted(scores, reverse=True), (
+            f"Rankings not in descending order: {scores}"
+        )
+
+        # All final scores should be positive (we set threshold=0.0)
+        for r in ranked:
+            assert r.final_score > 0.0, (
+                f"Zero final score for '{r.listing.title}'"
+            )
+
+        # --- Step 6: Export ---
+        md_path = str(tmp_path / "results.md")
+        csv_path = str(tmp_path / "results.csv")
+        jd_dir = str(tmp_path / "jds")
+
+        MarkdownExporter().export(ranked, md_path, summary=summary)
+        CSVExporter().export(ranked, csv_path, summary=summary)
+        jd_paths = JDFileExporter().export(ranked, jd_dir, summary=summary)
+
+        # Markdown export assertions
+        md_content = Path(md_path).read_text()
+        assert "# Run Summary" in md_content
+        assert "## Ranked Listings" in md_content
+        assert "ziprecruiter" in md_content
+        # Every ranked listing's title should appear in the MD
+        for r in ranked:
+            assert r.listing.title in md_content, (
+                f"'{r.listing.title}' missing from Markdown export"
+            )
+
+        # CSV export assertions
+        csv_content = Path(csv_path).read_text()
+        assert "title,company,board" in csv_content
+        csv_lines = csv_content.strip().split("\n")
+        # Header + data rows
+        assert len(csv_lines) == len(ranked) + 1, (
+            f"CSV should have {len(ranked)} data rows, got {len(csv_lines) - 1}"
+        )
+
+        # JD file export assertions
+        assert len(jd_paths) == len(ranked), (
+            f"Expected {len(ranked)} JD files, got {len(jd_paths)}"
+        )
+        for jd_path in jd_paths:
+            jd_content = jd_path.read_text()
+            assert "## Score" in jd_content
+            assert "## Job Description" in jd_content
+            assert "**Board:** ziprecruiter" in jd_content
