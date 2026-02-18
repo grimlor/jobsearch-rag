@@ -173,3 +173,69 @@ class TestDecisionRecording:
         decision = recorder.get_decision("zr-dup")
         assert decision is not None
         assert decision["verdict"] == "yes"
+
+    async def test_empty_jd_text_raises_validation_error(
+        self, recorder: DecisionRecorder
+    ) -> None:
+        """GIVEN an attempt to record a decision with empty JD text
+        WHEN record() is called
+        THEN a VALIDATION error is raised naming the issue.
+        """
+        with pytest.raises(ActionableError) as exc_info:
+            await recorder.record(
+                job_id="zr-empty",
+                verdict="yes",
+                jd_text="   ",
+                board="ziprecruiter",
+            )
+        assert exc_info.value.error_type == ErrorType.VALIDATION
+
+    def test_get_decision_returns_none_when_collection_missing(
+        self, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN a store with no decisions collection
+        WHEN get_decision() is called
+        THEN None is returned instead of raising.
+        """
+        from unittest.mock import MagicMock
+
+        mock_store = MagicMock()
+        mock_store.get_documents.side_effect = ActionableError(
+            error="Collection not found",
+            error_type=ErrorType.INDEX,
+            service="chromadb",
+        )
+        recorder = DecisionRecorder(store=mock_store, embedder=mock_embedder)
+        assert recorder.get_decision("nonexistent-job") is None
+
+    def test_get_decision_returns_none_when_no_results_found(
+        self, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN a decisions collection that exists but has no matching document
+        WHEN get_decision() is called
+        THEN None is returned.
+        """
+        from unittest.mock import MagicMock
+
+        mock_store = MagicMock()
+        mock_store.get_documents.return_value = {"ids": [], "metadatas": []}
+        recorder = DecisionRecorder(store=mock_store, embedder=mock_embedder)
+        assert recorder.get_decision("unknown-id") is None
+
+    def test_history_count_returns_zero_when_collection_missing(
+        self, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN a store where the decisions collection does not exist
+        WHEN history_count() is called
+        THEN 0 is returned instead of raising.
+        """
+        from unittest.mock import MagicMock
+
+        mock_store = MagicMock()
+        mock_store.collection_count.side_effect = ActionableError(
+            error="Collection not found",
+            error_type=ErrorType.INDEX,
+            service="chromadb",
+        )
+        recorder = DecisionRecorder(store=mock_store, embedder=mock_embedder)
+        assert recorder.history_count() == 0

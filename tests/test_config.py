@@ -169,3 +169,235 @@ searches = ["https://example.org/search"]
             # Output defaults
             assert settings.output.default_format == "markdown"
             assert settings.output.open_top_n == 5
+            # Board defaults
+            assert settings.boards["testboard"].browser_channel is None
+
+    def test_browser_channel_is_parsed_from_board_config(self) -> None:
+        """A browser_channel value in the board section is parsed and available on BoardConfig."""
+        channel_toml = _VALID_SETTINGS.replace(
+            "headless = true",
+            'headless = true\nbrowser_channel = "msedge"',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, channel_toml)
+            settings = load_settings(path)
+            assert settings.boards["testboard"].browser_channel == "msedge"
+
+    def test_comp_weight_defaults_to_zero_point_fifteen_when_absent(self) -> None:
+        """comp_weight defaults to 0.15 when not specified in settings.toml."""
+        minimal_toml = """\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, minimal_toml)
+            settings = load_settings(path)
+            assert settings.scoring.comp_weight == 0.15
+
+    def test_base_salary_defaults_to_220000_when_absent(self) -> None:
+        """base_salary defaults to 220000 when not specified in settings.toml."""
+        minimal_toml = """\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, minimal_toml)
+            settings = load_settings(path)
+            assert settings.scoring.base_salary == 220_000
+
+    def test_base_salary_must_be_positive_number(self) -> None:
+        """A non-positive base_salary is rejected at startup."""
+        bad_toml = _VALID_SETTINGS + "\nbase_salary = -50000\n"
+        # Insert base_salary into [scoring] section
+        bad_toml = _VALID_SETTINGS.replace(
+            "min_score_threshold = 0.45",
+            "min_score_threshold = 0.45\nbase_salary = -50000",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+            assert exc_info.value.error_type == ErrorType.VALIDATION
+            assert "base_salary" in exc_info.value.error
+
+    def test_missing_file_raises_config_error(self) -> None:
+        """GIVEN a settings path that does not exist
+        WHEN load_settings is called
+        THEN a CONFIG error is raised identifying the missing file.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing = Path(tmpdir) / "nonexistent.toml"
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(missing)
+            assert exc_info.value.error_type == ErrorType.CONFIG
+            assert "not found" in exc_info.value.error.lower()
+
+    def test_malformed_toml_raises_parse_error(self) -> None:
+        """GIVEN a settings file with invalid TOML syntax
+        WHEN load_settings is called
+        THEN a PARSE error is raised.
+        """
+        bad_toml = "[boards\nenabled = broken"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+            assert exc_info.value.error_type == ErrorType.PARSE
+
+    def test_empty_enabled_boards_raises_config_error(self) -> None:
+        """GIVEN boards.enabled is an empty list
+        WHEN load_settings is called
+        THEN a CONFIG error is raised.
+        """
+        bad_toml = _VALID_SETTINGS.replace(
+            'enabled = ["testboard"]', "enabled = []"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+            assert exc_info.value.error_type == ErrorType.CONFIG
+            assert "boards.enabled" in exc_info.value.error
+
+    def test_board_section_not_a_table_raises_config_error(self) -> None:
+        """GIVEN a board in enabled has a scalar value instead of a table
+        WHEN load_settings is called
+        THEN a CONFIG error about the board not being a table is raised.
+        """
+        bad_toml = """\
+[boards]
+enabled = ["testboard"]
+testboard = "not a table"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+            assert exc_info.value.error_type == ErrorType.CONFIG
+            assert "table" in exc_info.value.error.lower()
+
+    def test_overnight_board_configs_are_parsed(self) -> None:
+        """GIVEN a settings file with overnight_boards that have config sections
+        WHEN load_settings is called
+        THEN overnight boards have parsed BoardConfig entries.
+        """
+        overnight_toml = """\
+[boards]
+enabled = ["testboard"]
+overnight_boards = ["nightboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+
+[boards.nightboard]
+searches = ["https://night.org/search"]
+max_pages = 5
+headless = false
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, overnight_toml)
+            settings = load_settings(path)
+            assert "nightboard" in settings.boards
+            assert settings.boards["nightboard"].max_pages == 5
+            assert settings.boards["nightboard"].headless is False
+
+    def test_scoring_section_non_dict_uses_defaults(self) -> None:
+        """GIVEN scoring is a scalar instead of a table
+        WHEN load_settings is called
+        THEN scoring uses default values.
+        """
+        bad_toml = """\
+scoring = "not a dict"
+
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            settings = load_settings(path)
+            assert settings.scoring.archetype_weight == 0.5
+
+    def test_ollama_section_non_dict_uses_defaults(self) -> None:
+        """GIVEN ollama is a scalar instead of a table
+        WHEN load_settings is called
+        THEN ollama uses default values.
+        """
+        bad_toml = """\
+ollama = "not a dict"
+
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            settings = load_settings(path)
+            assert settings.ollama.base_url == "http://localhost:11434"
+
+    def test_output_section_non_dict_uses_defaults(self) -> None:
+        """GIVEN output is a scalar instead of a table
+        WHEN load_settings is called
+        THEN output uses default values.
+        """
+        bad_toml = """\
+output = "not a dict"
+
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            settings = load_settings(path)
+            assert settings.output.default_format == "markdown"
+
+    def test_chroma_section_non_dict_uses_defaults(self) -> None:
+        """GIVEN chroma is a scalar instead of a table
+        WHEN load_settings is called
+        THEN chroma uses default values.
+        """
+        bad_toml = """\
+chroma = "not a dict"
+
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            settings = load_settings(path)
+            assert settings.chroma.persist_dir == "./data/chroma_db"
+
+    def test_missing_enabled_field_raises_config_error(self) -> None:
+        """GIVEN boards section exists but has no 'enabled' key
+        WHEN load_settings is called
+        THEN a CONFIG error naming the missing field is raised.
+        """
+        bad_toml = """\
+[boards]
+overnight_boards = []
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+            assert exc_info.value.error_type == ErrorType.CONFIG
+            assert "enabled" in exc_info.value.error.lower()

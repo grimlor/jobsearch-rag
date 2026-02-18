@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import tempfile
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.indexer import Indexer, _chunk_resume
+from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.store import VectorStore
 
 if TYPE_CHECKING:
@@ -102,12 +102,11 @@ class TestOllamaConnectivity:
 
         mock_response = MagicMock()
         mock_response.models = []
-        embedder._client.list = AsyncMock(return_value=mock_response)  # type: ignore[method-assign]
-
-        with pytest.raises(ActionableError) as exc_info:
-            await embedder.health_check()
-        # Should be EMBEDDING error (model not found), not CONNECTION
-        assert exc_info.value.error_type == ErrorType.EMBEDDING
+        with patch.object(embedder._client, "list", AsyncMock(return_value=mock_response)):
+            with pytest.raises(ActionableError) as exc_info:
+                await embedder.health_check()
+            # Should be EMBEDDING error (model not found), not CONNECTION
+            assert exc_info.value.error_type == ErrorType.EMBEDDING
 
     async def test_ollama_timeout_on_embedding_retries_with_backoff(self) -> None:
         """A transient Ollama timeout triggers exponential backoff retries before giving up."""
@@ -133,10 +132,10 @@ class TestOllamaConnectivity:
             resp.embeddings = [EMBED_FAKE]
             return resp
 
-        embedder._client.embed = _mock_embed  # type: ignore[method-assign]
-        result = await embedder.embed("test text")
-        assert call_count == 3
-        assert result == EMBED_FAKE
+        with patch.object(embedder._client, "embed", _mock_embed):
+            result = await embedder.embed("test text")
+            assert call_count == 3
+            assert result == EMBED_FAKE
 
     async def test_ollama_timeout_after_max_retries_raises_embedding_error(self) -> None:
         """After exhausting retries, a persistent timeout raises an EMBEDDING error with retry count."""
@@ -153,11 +152,11 @@ class TestOllamaConnectivity:
         async def _always_fail(model: str, input: str) -> object:
             raise ollama_sdk.ResponseError("timeout", status_code=504)
 
-        embedder._client.embed = _always_fail  # type: ignore[method-assign]
-        with pytest.raises(ActionableError) as exc_info:
-            await embedder.embed("test text")
-        assert exc_info.value.error_type == ErrorType.EMBEDDING
-        assert "2" in exc_info.value.error  # mentions retry count
+        with patch.object(embedder._client, "embed", _always_fail):
+            with pytest.raises(ActionableError) as exc_info:
+                await embedder.embed("test text")
+            assert exc_info.value.error_type == ErrorType.EMBEDDING
+            assert "2" in exc_info.value.error  # mentions retry count
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +197,9 @@ class TestResumeIndexing:
             await scorer.score("Any JD text")
         assert "resume" in exc_info.value.error.lower()
 
-    def test_resume_is_chunked_by_section_heading(self) -> None:
+    async def test_resume_is_chunked_by_section_heading(
+        self, indexer: Indexer, store: VectorStore
+    ) -> None:
         """The resume is split on ## headings so each chunk carries coherent, section-scoped context."""
         content = """\
 # My Resume
@@ -212,14 +213,26 @@ Led platform architecture at multiple companies.
 ## Skills
 Python, distributed systems, cloud platforms.
 """
-        chunks = _chunk_resume(content)
-        assert len(chunks) == 3
-        headings = [c[1] for c in chunks]
-        assert "## Summary" in headings
-        assert "## Experience" in headings
-        assert "## Skills" in headings
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            path = f.name
 
-    def test_each_chunk_contains_at_least_one_complete_sentence(self) -> None:
+        n = await indexer.index_resume(path)
+        assert n == 3
+
+        # Verify each section became a separate document in ChromaDB
+        docs = store.get_documents(
+            collection_name="resume",
+            ids=["resume-summary", "resume-experience", "resume-skills"],
+        )
+        assert len(docs["documents"]) == 3
+        assert "principal architect" in docs["documents"][0]
+        assert "platform architecture" in docs["documents"][1]
+        assert "distributed systems" in docs["documents"][2]
+
+    async def test_each_chunk_contains_at_least_one_complete_sentence(
+        self, indexer: Indexer, store: VectorStore
+    ) -> None:
         """Chunks never split mid-sentence, preserving semantic coherence for embedding."""
         content = """\
 # Resume
@@ -230,10 +243,17 @@ I am an architect. I design systems.
 ## Experience
 Led teams. Built platforms.
 """
-        chunks = _chunk_resume(content)
-        for _id, _heading, body in chunks:
-            # Each body should contain at least one period (complete sentence)
-            # Strip the heading from body for the check
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            path = f.name
+
+        await indexer.index_resume(path)
+
+        # Retrieve all documents and verify each has a complete sentence
+        for doc_id in ["resume-summary", "resume-experience"]:
+            docs = store.get_documents(collection_name="resume", ids=[doc_id])
+            body = docs["documents"][0]
+            # Strip the heading line for the check
             text = body.split("\n", 1)[-1] if "\n" in body else body
             assert "." in text, f"Chunk lacks complete sentence: {body!r}"
 

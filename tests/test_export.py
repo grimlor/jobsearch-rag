@@ -57,6 +57,7 @@ def _scores(
     fit: float = 0.74,
     archetype: float = 0.81,
     history: float = 0.62,
+    comp: float = 0.5,
     disqualified: bool = False,
     reason: str | None = None,
 ) -> ScoreResult:
@@ -64,6 +65,7 @@ def _scores(
         fit_score=fit,
         archetype_score=archetype,
         history_score=history,
+        comp_score=comp,
         disqualified=disqualified,
         disqualifier_reason=reason,
     )
@@ -80,6 +82,7 @@ def _ranked(
     fit: float = 0.74,
     archetype: float = 0.81,
     history: float = 0.62,
+    comp: float = 0.5,
     disqualified: bool = False,
     reason: str | None = None,
     duplicate_boards: list[str] | None = None,
@@ -96,6 +99,7 @@ def _ranked(
             fit=fit,
             archetype=archetype,
             history=history,
+            comp=comp,
             disqualified=disqualified,
             reason=reason,
         ),
@@ -184,14 +188,15 @@ class TestMarkdownExport:
         assert "Bad Role" not in content
 
     def test_score_explanation_shows_all_three_component_scores(self, tmp_path: Path) -> None:
-        """The score explanation shows fit, archetype, and history component values for transparency."""
-        listings = [_ranked(fit=0.74, archetype=0.81, history=0.62)]
+        """The score explanation shows fit, archetype, history, and comp component values for transparency."""
+        listings = [_ranked(fit=0.74, archetype=0.81, history=0.62, comp=0.90)]
         out = tmp_path / "results.md"
         MarkdownExporter().export(listings, str(out), summary=_summary())
         content = out.read_text()
         assert "0.74" in content  # fit
         assert "0.81" in content  # archetype
         assert "0.62" in content  # history
+        assert "0.90" in content  # comp
 
     def test_run_summary_appears_at_top_of_output(self, tmp_path: Path) -> None:
         """The run summary header appears before any listing, providing immediate run context."""
@@ -269,6 +274,17 @@ class TestCSVExport:
         required = ["title", "company", "board", "final_score", "url"]
         for col in required:
             assert col in header, f"Missing required column: {col}"
+
+    def test_csv_includes_comp_score_comp_min_comp_max_columns(self, tmp_path: Path) -> None:
+        """The CSV includes comp_score, comp_min, and comp_max columns for salary analysis."""
+        listings = [_ranked()]
+        out = tmp_path / "results.csv"
+        CSVExporter().export(listings, str(out), summary=_summary())
+        with open(out) as f:
+            reader = csv.reader(f)
+            header = next(reader)
+        for col in ["comp_score", "comp_min", "comp_max"]:
+            assert col in header, f"Missing comp column: {col}"
 
     def test_full_jd_text_is_not_included_in_csv_output(self, tmp_path: Path) -> None:
         """full_text is omitted from CSV since it is too large for spreadsheet cells."""
@@ -484,3 +500,216 @@ class TestBrowserTabOpener:
         listings = [_ranked()]
         BrowserTabOpener().open(listings, top_n=0)
         assert _wb.open.call_count == 0  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# JD File Export
+# ---------------------------------------------------------------------------
+
+
+class TestJDFileExport:
+    """REQUIREMENT: Individual JD files are exported for standalone review.
+
+    WHO:  Operator reviewing JDs with external tools (e.g. Edge Copilot)
+    WHAT: Individual JD files with metadata header and full text
+    WHY:  Standalone files are easier to feed to AI assistants for red-flag
+          analysis than a single large table
+    """
+
+    def test_creates_individual_files_for_each_listing(
+        self, tmp_path: Path
+    ) -> None:
+        """Each qualified listing gets its own Markdown file."""
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        listings = [
+            _ranked(title="Staff Architect", company="Acme Corp", final_score=0.80),
+            _ranked(
+                title="Principal Engineer",
+                company="Beta Inc",
+                final_score=0.75,
+                external_id="ext-002",
+                url="https://example.org/job/2",
+            ),
+        ]
+        paths = JDFileExporter().export(listings, str(tmp_path))
+        assert len(paths) == 2
+        assert all(p.exists() for p in paths)
+        assert all(p.suffix == ".md" for p in paths)
+
+    def test_files_are_named_by_rank_company_title(
+        self, tmp_path: Path
+    ) -> None:
+        """Filenames follow NNN_company_title.md format for natural sort order."""
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        listings = [
+            _ranked(title="Staff Architect", company="Acme Corp", final_score=0.80),
+        ]
+        paths = JDFileExporter().export(listings, str(tmp_path))
+        name = paths[0].name
+        assert name.startswith("001_")
+        assert "acme-corp" in name
+        assert "staff-architect" in name
+
+    def test_file_contains_metadata_header(
+        self, tmp_path: Path
+    ) -> None:
+        """Each file includes company, location, board, URL, and score section."""
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        listings = [
+            _ranked(
+                title="Staff Architect",
+                company="Acme Corp",
+                url="https://example.org/job/1",
+            ),
+        ]
+        JDFileExporter().export(listings, str(tmp_path))
+        content = (tmp_path / "001_acme-corp_staff-architect.md").read_text()
+        assert "# Staff Architect" in content
+        assert "**Company:** Acme Corp" in content
+        assert "**URL:** https://example.org/job/1" in content
+        assert "## Score" in content
+        assert "**Rank:** #1" in content
+
+    def test_file_contains_full_jd_text(
+        self, tmp_path: Path
+    ) -> None:
+        """The full job description text appears after the score section."""
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        listings = [_ranked()]
+        JDFileExporter().export(listings, str(tmp_path))
+        files = list(tmp_path.glob("*.md"))
+        content = files[0].read_text()
+        assert "## Job Description" in content
+        assert "Build distributed systems." in content
+
+    def test_skips_listings_without_full_text(
+        self, tmp_path: Path
+    ) -> None:
+        """Listings with empty full_text are not exported as files."""
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        listing = _ranked(title="Empty JD")
+        listing.listing.full_text = ""
+        paths = JDFileExporter().export([listing], str(tmp_path))
+        assert len(paths) == 0
+
+    def test_excludes_disqualified_listings(
+        self, tmp_path: Path
+    ) -> None:
+        """Disqualified listings with final_score=0 are excluded from JD export."""
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        listings = [
+            _ranked(title="Good Role", final_score=0.80),
+            _ranked(
+                title="Bad Role",
+                final_score=0.0,
+                disqualified=True,
+                reason="Location mismatch",
+                external_id="ext-003",
+                url="https://example.org/job/3",
+            ),
+        ]
+        paths = JDFileExporter().export(listings, str(tmp_path))
+        assert len(paths) == 1
+        assert "good-role" in paths[0].name
+
+    def test_sorts_by_final_score_descending(
+        self, tmp_path: Path
+    ) -> None:
+        """Files are numbered by score rank, not insertion order."""
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        listings = [
+            _ranked(
+                title="Lower Score",
+                company="Beta",
+                final_score=0.60,
+                external_id="ext-002",
+                url="https://example.org/job/2",
+            ),
+            _ranked(title="Higher Score", company="Alpha", final_score=0.80),
+        ]
+        paths = JDFileExporter().export(listings, str(tmp_path))
+        assert "001_" in paths[0].name and "higher-score" in paths[0].name
+        assert "002_" in paths[1].name and "lower-score" in paths[1].name
+
+    def test_creates_output_directory_if_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """The exporter creates the output directory if it doesn't exist."""
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        nested = tmp_path / "deep" / "nested" / "jds"
+        listings = [_ranked()]
+        paths = JDFileExporter().export(listings, str(nested))
+        assert len(paths) == 1
+        assert nested.exists()
+
+    def test_score_section_includes_all_components(
+        self, tmp_path: Path
+    ) -> None:
+        """The score section shows fit, archetype, history, and comp scores."""
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        listings = [
+            _ranked(fit=0.74, archetype=0.81, history=0.62, comp=0.90, final_score=0.78),
+        ]
+        JDFileExporter().export(listings, str(tmp_path))
+        files = list(tmp_path.glob("*.md"))
+        content = files[0].read_text()
+        assert "**Final Score:** 0.78" in content
+        assert "**Fit Score:** 0.74" in content
+        assert "**Archetype Score:** 0.81" in content
+        assert "**History Score:** 0.62" in content
+        assert "**Comp Score:** 0.90" in content
+
+    def test_duplicate_boards_shown_in_jd_file(
+        self, tmp_path: Path
+    ) -> None:
+        """GIVEN a listing with duplicate_boards populated
+        WHEN the JD file is exported
+        THEN the file contains an 'Also on:' line listing the other boards.
+        """
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        listings = [
+            _ranked(
+                title="Staff Architect",
+                company="Acme Corp",
+                final_score=0.80,
+                duplicate_boards=["indeed", "linkedin"],
+            ),
+        ]
+        JDFileExporter().export(listings, str(tmp_path))
+        files = list(tmp_path.glob("*.md"))
+        content = files[0].read_text()
+        assert "**Also on:** indeed, linkedin" in content
+
+    def test_disqualified_listing_shows_reason_in_jd_file(
+        self, tmp_path: Path
+    ) -> None:
+        """GIVEN a listing that is disqualified but has a non-zero final score
+        WHEN the JD file is exported
+        THEN the file contains a 'Disqualified:' line with the reason.
+        """
+        from jobsearch_rag.export.jd_files import JDFileExporter
+
+        listings = [
+            _ranked(
+                title="Backend Engineer",
+                company="Acme Corp",
+                final_score=0.40,
+                disqualified=True,
+                reason="lacks cloud experience",
+            ),
+        ]
+        JDFileExporter().export(listings, str(tmp_path))
+        files = list(tmp_path.glob("*.md"))
+        content = files[0].read_text()
+        assert "**Disqualified:** lacks cloud experience" in content
+

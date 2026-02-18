@@ -177,6 +177,37 @@ class TestSemanticScoring:
         result = await scorer_empty_history.score("Any job description")
         assert result.history_score == 0.0
 
+    async def test_query_returning_no_distances_produces_zero_score(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN a collection that returns no distances from a query
+        WHEN score() is called
+        THEN the resulting score component is 0.0.
+        """
+        # Patch the store query to return empty distances list
+        original_query = populated_store.query
+
+        def _query_empty_distances(
+            collection_name: str,
+            query_embedding: list[float],
+            n_results: int = 3,
+            **kwargs: object,
+        ) -> dict[str, object]:
+            result = original_query(
+                collection_name=collection_name,
+                query_embedding=query_embedding,
+                n_results=n_results,
+            )
+            # Simulate empty distances for the resume collection
+            if collection_name == "resume":
+                result["distances"] = [[]]
+            return result
+
+        populated_store.query = _query_empty_distances  # type: ignore[method-assign]
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        score_result = await scorer.score("Any JD text")
+        assert score_result.fit_score == 0.0
+
     async def test_missing_resume_collection_raises_index_error(
         self, mock_embedder: Embedder
     ) -> None:
@@ -246,59 +277,181 @@ class TestSemanticScoring:
 
 
 # ---------------------------------------------------------------------------
-# TestDistanceToScore
+# TestJDChunking — chunked scoring for long job descriptions
 # ---------------------------------------------------------------------------
 
 
-class TestDistanceToScore:
-    """REQUIREMENT: Cosine distance conversion produces valid similarity scores.
+class TestJDChunking:
+    """REQUIREMENT: Long JDs are chunked so all content contributes to scoring.
 
-    WHO: The Scorer internals converting ChromaDB distances
-    WHAT: Empty distance lists return 0.0; distances clamp to [0.0, 1.0];
-          the best (smallest) distance maps to the highest score
-    WHY: Invalid distance-to-score conversion would silently corrupt all
-         ranking decisions downstream
+    WHO: The scorer processing real-world JDs from ZipRecruiter et al.
+    WHAT: JDs exceeding the embedding model's context window are split into
+          overlapping chunks; each chunk is embedded and queried; the best
+          (max) similarity score across chunks is kept; short JDs bypass
+          chunking entirely; the disqualifier still receives the full text
+    WHY: Real-world JDs place comp ranges and hands-on work details in the
+         last third — if truncated to the head only, scoring would miss the
+         signals that distinguish a Staff Architect role from a decorated IC
+         coding role
     """
 
-    def test_empty_distances_return_zero(self) -> None:
-        """An empty distances list returns 0.0 — the defensive guard."""
-        from jobsearch_rag.rag.scorer import _distance_to_score
+    async def test_short_jd_is_not_chunked(
+        self, scorer: Scorer, mock_embedder: Embedder
+    ) -> None:
+        """A short JD fits in one chunk — embed is called exactly once."""
+        mock_embedder.embed = AsyncMock(return_value=EMBED_ARCH_JD)  # type: ignore[method-assign]
+        await scorer.score("Staff architect for distributed systems")
+        mock_embedder.embed.assert_called_once()
 
-        assert _distance_to_score([]) == 0.0
+    async def test_long_jd_is_chunked_and_best_score_wins(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """A long JD produces multiple embed calls; the best score is kept.
 
-    def test_zero_distance_returns_perfect_score(self) -> None:
-        """A cosine distance of 0.0 (identical vectors) returns 1.0."""
-        from jobsearch_rag.rag.scorer import _distance_to_score
+        Simulates a JD where chunk 1 (overview) has a weak match and
+        chunk 2 (hands-on work at the tail) has a strong match — the
+        strong match should win.
+        """
+        from jobsearch_rag.rag.scorer import _CHUNK_SIZE
 
-        assert _distance_to_score([0.0]) == 1.0
+        # +1 char over _CHUNK_SIZE produces exactly 2 overlapping chunks
+        long_jd = "x" * (_CHUNK_SIZE + 1)
 
-    def test_distance_one_returns_zero_score(self) -> None:
-        """A cosine distance of 1.0 (orthogonal vectors) returns 0.0."""
-        from jobsearch_rag.rag.scorer import _distance_to_score
+        # Chunk 1 → weak embedding, chunk 2 → strong embedding
+        mock_embedder.embed = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[EMBED_UNRELATED_JD, EMBED_ARCH_JD]
+        )
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        result = await scorer.score(long_jd)
 
-        assert _distance_to_score([1.0]) == 0.0
+        # embed was called twice (one per chunk)
+        assert mock_embedder.embed.call_count == 2
+        # The strong chunk's archetype score should dominate
+        assert result.archetype_score > 0.5
 
-    def test_best_distance_is_used_when_multiple(self) -> None:
-        """The minimum distance (closest match) determines the score."""
-        from jobsearch_rag.rag.scorer import _distance_to_score
+    async def test_long_jd_weak_first_chunk_does_not_suppress_strong_tail(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """A strong signal in the tail chunk is not suppressed by a weak head.
 
-        assert _distance_to_score([0.8, 0.2, 0.5]) == pytest.approx(0.8)
+        This is the core scenario: aspirational architecture language up front,
+        but the actual hands-on work (better match) is at the end.
+        """
+        from jobsearch_rag.rag.scorer import _CHUNK_SIZE
 
-    def test_negative_distance_clamps_to_one(self) -> None:
-        """Distances below 0.0 clamp the score to 1.0 (max)."""
-        from jobsearch_rag.rag.scorer import _distance_to_score
+        # +1 char over _CHUNK_SIZE produces exactly 2 overlapping chunks
+        long_jd = "x" * (_CHUNK_SIZE + 1)
 
-        assert _distance_to_score([-0.5]) == 1.0
+        # Head chunk → far from everything; tail chunk → strong architect match
+        mock_embedder.embed = AsyncMock(  # type: ignore[method-assign]
+            side_effect=[EMBED_UNRELATED_JD, EMBED_ARCH_JD]
+        )
+        scorer_chunked = Scorer(store=populated_store, embedder=mock_embedder)
+        result_chunked = await scorer_chunked.score(long_jd)
 
-    def test_distance_greater_than_one_clamps_to_zero(self) -> None:
-        """Distances above 1.0 clamp the score to 0.0 (min)."""
-        from jobsearch_rag.rag.scorer import _distance_to_score
+        # Compare: same scorer with only the weak embedding (simulates head-only)
+        mock_embedder.embed = AsyncMock(return_value=EMBED_UNRELATED_JD)  # type: ignore[method-assign]
+        scorer_head_only = Scorer(store=populated_store, embedder=mock_embedder)
+        result_head = await scorer_head_only.score("short text")
 
-        assert _distance_to_score([1.5]) == 0.0
+        assert result_chunked.fit_score >= result_head.fit_score
+        assert result_chunked.archetype_score >= result_head.archetype_score
+
+    async def test_disqualifier_receives_full_text_not_chunks(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """The LLM disqualifier always operates on the full JD text."""
+        from jobsearch_rag.rag.scorer import _CHUNK_SIZE
+
+        long_jd = "FULL_JD_" * ((_CHUNK_SIZE // 8) + 1000)
+
+        mock_embedder.embed = AsyncMock(return_value=EMBED_ARCH_JD)  # type: ignore[method-assign]
+        mock_embedder.classify = AsyncMock(  # type: ignore[method-assign]
+            return_value='{"disqualified": false, "reason": null}'
+        )
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        await scorer.score(long_jd)
+
+        # classify should have been called with the *full* JD text, not chunks
+        classify_call = mock_embedder.classify.call_args[0][0]
+        assert long_jd in classify_call
+
+
+class TestChunkTextFunction:
+    """REQUIREMENT: _chunk_text correctly splits text into overlapping chunks.
+
+    WHO: The Scorer before embedding a JD
+    WHAT: Short text returns a single chunk unchanged; long text is split
+          into overlapping chunks that cover the entire input; each chunk
+          respects the size limit; overlap is present between adjacent chunks
+    WHY: Gaps in coverage would lose JD signals; chunks exceeding the model
+         context window would cause embedding errors
+    """
+
+    def test_short_text_returns_single_chunk(self) -> None:
+        """Text within the chunk size is returned as a single-element list."""
+        from jobsearch_rag.rag.scorer import _chunk_text
+
+        text = "Short JD text"
+        result = _chunk_text(text)
+        assert result == [text]
+
+    def test_long_text_produces_multiple_chunks(self) -> None:
+        """Text exceeding chunk_size is split into multiple chunks."""
+        from jobsearch_rag.rag.scorer import _chunk_text
+
+        text = "x" * 100
+        result = _chunk_text(text, chunk_size=40, overlap=10)
+        assert len(result) > 1
+
+    def test_each_chunk_respects_size_limit(self) -> None:
+        """Every chunk is at most chunk_size characters long."""
+        from jobsearch_rag.rag.scorer import _chunk_text
+
+        text = "x" * 200
+        result = _chunk_text(text, chunk_size=50, overlap=10)
+        for chunk in result:
+            assert len(chunk) <= 50
+
+    def test_chunks_cover_entire_input(self) -> None:
+        """The first and last characters of the input are present in the chunks."""
+        from jobsearch_rag.rag.scorer import _chunk_text
+
+        text = "".join(chr(i % 256 + 0x100) for i in range(200))  # unique chars
+        result = _chunk_text(text, chunk_size=50, overlap=10)
+
+        # First chunk starts at the beginning
+        assert result[0].startswith(text[:10])
+        # Last chunk ends at the input end
+        assert result[-1].endswith(text[-10:])
+        # Total coverage (sum of chunk lengths minus overlaps) >= input length
+        total_chars = sum(len(c) for c in result)
+        assert total_chars >= len(text)
+
+    def test_adjacent_chunks_overlap(self) -> None:
+        """Adjacent chunks share an overlapping region."""
+        from jobsearch_rag.rag.scorer import _chunk_text
+
+        text = "ABCDEFGHIJ" * 10  # 100 chars
+        result = _chunk_text(text, chunk_size=40, overlap=10)
+        assert len(result) >= 2
+        # The tail of chunk[0] should match the head of chunk[1]
+        tail_of_first = result[0][-10:]
+        head_of_second = result[1][:10]
+        assert tail_of_first == head_of_second
+
+    def test_exact_boundary_text_is_single_chunk(self) -> None:
+        """Text exactly equal to chunk_size is a single chunk, not two."""
+        from jobsearch_rag.rag.scorer import _chunk_text
+
+        text = "x" * 50
+        result = _chunk_text(text, chunk_size=50, overlap=10)
+        assert len(result) == 1
+        assert result[0] == text
 
 
 # ---------------------------------------------------------------------------
-# TestParseDisqualifierResponse
+# TestParseDisqualifierResponse — exercised through Scorer.disqualify()
 # ---------------------------------------------------------------------------
 
 
@@ -312,25 +465,49 @@ class TestParseDisqualifierResponse:
          false positives or crash the scoring pipeline
     """
 
-    def test_string_null_reason_is_normalised_to_none(self) -> None:
+    async def test_string_null_reason_is_normalised_to_none(
+        self, scorer: Scorer, mock_embedder: Embedder
+    ) -> None:
         """LLM returning reason as the string 'null' is normalised to None."""
-        result = Scorer._parse_disqualifier_response('{"disqualified": false, "reason": "null"}')
-        assert result == (False, None)
+        mock_embedder.classify = AsyncMock(  # type: ignore[method-assign]
+            return_value='{"disqualified": false, "reason": "null"}'
+        )
+        disqualified, reason = await scorer.disqualify("Some JD")
+        assert disqualified is False
+        assert reason is None
 
-    def test_reason_none_json_returns_none(self) -> None:
+    async def test_reason_none_json_returns_none(
+        self, scorer: Scorer, mock_embedder: Embedder
+    ) -> None:
         """JSON ``null`` for reason is parsed as None."""
-        result = Scorer._parse_disqualifier_response('{"disqualified": false, "reason": null}')
-        assert result == (False, None)
+        mock_embedder.classify = AsyncMock(  # type: ignore[method-assign]
+            return_value='{"disqualified": false, "reason": null}'
+        )
+        disqualified, reason = await scorer.disqualify("Some JD")
+        assert disqualified is False
+        assert reason is None
 
-    def test_numeric_reason_is_stringified(self) -> None:
+    async def test_numeric_reason_is_stringified(
+        self, scorer: Scorer, mock_embedder: Embedder
+    ) -> None:
         """A numeric reason is coerced to string."""
-        result = Scorer._parse_disqualifier_response('{"disqualified": true, "reason": 42}')
-        assert result == (True, "42")
+        mock_embedder.classify = AsyncMock(  # type: ignore[method-assign]
+            return_value='{"disqualified": true, "reason": 42}'
+        )
+        disqualified, reason = await scorer.disqualify("Some JD")
+        assert disqualified is True
+        assert reason == "42"
 
-    def test_missing_disqualified_key_defaults_to_false(self) -> None:
+    async def test_missing_disqualified_key_defaults_to_false(
+        self, scorer: Scorer, mock_embedder: Embedder
+    ) -> None:
         """If the 'disqualified' key is missing, defaults to False."""
-        result = Scorer._parse_disqualifier_response('{"reason": "something"}')
-        assert result == (False, "something")
+        mock_embedder.classify = AsyncMock(  # type: ignore[method-assign]
+            return_value='{"reason": "something"}'
+        )
+        disqualified, reason = await scorer.disqualify("Some JD")
+        assert disqualified is False
+        assert reason == "something"
 
 
 # ---------------------------------------------------------------------------
@@ -418,10 +595,12 @@ class TestScoreFusion:
     """REQUIREMENT: Final score correctly fuses weighted components from settings.
 
     WHO: The ranker; the operator tuning weights in settings.toml
-    WHAT: Final score equals the weighted sum of the three component scores;
-          weights are read from settings, not hardcoded; weights need not sum to 1.0
-          (the formula normalizes); a disqualified role always scores 0.0;
-          roles below min_score_threshold are excluded from output entirely
+    WHAT: Final score equals the weighted sum of the four component scores
+          (archetype, fit, history, comp); weights are read from settings,
+          not hardcoded; weights need not sum to 1.0 (the formula produces a
+          weighted composite, not a probability); a disqualified role always
+          scores 0.0; roles below min_score_threshold are excluded from output
+          entirely; comp_weight applies to the compensation taste signal
     WHY: Incorrect weight application would produce a ranking that doesn't
          reflect configured priorities — a silent correctness failure
     """
@@ -438,20 +617,22 @@ class TestScoreFusion:
         )
 
     def test_final_score_matches_weighted_sum_formula(self) -> None:
-        """The final score equals the weighted sum of fit, archetype, and history scores."""
+        """The final score equals the weighted sum of fit, archetype, history, and comp scores."""
         ranker = Ranker(
             archetype_weight=0.5,
             fit_weight=0.3,
             history_weight=0.2,
+            comp_weight=0.15,
             min_score_threshold=0.0,
         )
         scores = ScoreResult(
             fit_score=0.8,
             archetype_score=0.6,
             history_score=0.4,
+            comp_score=0.9,
             disqualified=False,
         )
-        expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4  # 0.30 + 0.24 + 0.08 = 0.62
+        expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4 + 0.15 * 0.9
         assert ranker.compute_final_score(scores) == pytest.approx(expected)
 
     def test_weights_are_read_from_settings_not_hardcoded(self) -> None:
@@ -461,12 +642,14 @@ class TestScoreFusion:
             archetype_weight=0.1,
             fit_weight=0.8,
             history_weight=0.1,
+            comp_weight=0.0,
             min_score_threshold=0.0,
         )
         scores = ScoreResult(
             fit_score=1.0,
             archetype_score=0.0,
             history_score=0.0,
+            comp_score=1.0,
             disqualified=False,
         )
         # With these weights, only fit matters — score should be 0.8
@@ -478,12 +661,14 @@ class TestScoreFusion:
             archetype_weight=0.5,
             fit_weight=0.3,
             history_weight=0.2,
+            comp_weight=0.15,
             min_score_threshold=0.0,
         )
         scores = ScoreResult(
             fit_score=1.0,
             archetype_score=1.0,
             history_score=1.0,
+            comp_score=1.0,
             disqualified=True,
             disqualifier_reason="IC role disguised as architect",
         )
@@ -495,6 +680,7 @@ class TestScoreFusion:
             archetype_weight=0.5,
             fit_weight=0.3,
             history_weight=0.2,
+            comp_weight=0.0,
             min_score_threshold=0.5,
         )
         listing = self._make_listing()
@@ -514,6 +700,7 @@ class TestScoreFusion:
             archetype_weight=1.0,
             fit_weight=0.0,
             history_weight=0.0,
+            comp_weight=0.0,
             min_score_threshold=0.5,
         )
         listing = self._make_listing()
@@ -527,12 +714,13 @@ class TestScoreFusion:
         assert len(ranked) == 1
         assert ranked[0].final_score == pytest.approx(0.5)
 
-    def test_score_explanation_includes_all_three_component_values(self) -> None:
-        """The explanation string shows fit, archetype, and history scores for transparency."""
+    def test_score_explanation_includes_all_four_component_values(self) -> None:
+        """The explanation string shows fit, archetype, history, and comp scores for transparency."""
         scores = ScoreResult(
             fit_score=0.75,
             archetype_score=0.80,
             history_score=0.60,
+            comp_score=0.90,
             disqualified=False,
         )
         ranked = RankedListing(
@@ -544,7 +732,67 @@ class TestScoreFusion:
         assert "Archetype: 0.80" in explanation
         assert "Fit: 0.75" in explanation
         assert "History: 0.60" in explanation
+        assert "Comp: 0.90" in explanation
         assert "Not disqualified" in explanation
+
+    def test_score_explanation_shows_disqualified_with_reason(self) -> None:
+        """GIVEN a disqualified listing
+        WHEN score_explanation() is called
+        THEN the explanation includes 'DISQUALIFIED:' with the reason.
+        """
+        scores = ScoreResult(
+            fit_score=0.75,
+            archetype_score=0.80,
+            history_score=0.60,
+            comp_score=0.90,
+            disqualified=True,
+            disqualifier_reason="IC role disguised as architect",
+        )
+        ranked = RankedListing(
+            listing=self._make_listing(),
+            scores=scores,
+            final_score=0.0,
+        )
+        explanation = ranked.score_explanation()
+        assert "DISQUALIFIED: IC role disguised as architect" in explanation
+
+    def test_comp_weight_is_included_in_fusion_formula(self) -> None:
+        """comp_weight contributes to final score when comp_score is present."""
+        ranker = Ranker(
+            archetype_weight=0.0,
+            fit_weight=0.0,
+            history_weight=0.0,
+            comp_weight=1.0,
+            min_score_threshold=0.0,
+        )
+        scores = ScoreResult(
+            fit_score=0.0,
+            archetype_score=0.0,
+            history_score=0.0,
+            comp_score=0.8,
+            disqualified=False,
+        )
+        # Only comp_weight matters — score should be 0.8
+        assert ranker.compute_final_score(scores) == pytest.approx(0.8)
+
+    def test_missing_comp_score_uses_neutral_value_in_fusion(self) -> None:
+        """When comp_score is the neutral 0.5, it provides a gentle push, not a penalty."""
+        ranker_with_comp = Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.2,
+            comp_weight=0.15,
+            min_score_threshold=0.0,
+        )
+        scores = ScoreResult(
+            fit_score=0.8,
+            archetype_score=0.6,
+            history_score=0.4,
+            comp_score=0.5,  # neutral — no salary data
+            disqualified=False,
+        )
+        base_expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4 + 0.15 * 0.5
+        assert ranker_with_comp.compute_final_score(scores) == pytest.approx(base_expected)
 
 
 # ---------------------------------------------------------------------------
@@ -582,6 +830,7 @@ class TestCrossBoardDeduplication:
             archetype_weight=0.5,
             fit_weight=0.3,
             history_weight=0.2,
+            comp_weight=0.0,
             min_score_threshold=threshold,
         )
 
@@ -704,3 +953,171 @@ class TestCrossBoardDeduplication:
         )
         assert summary.total_deduplicated == 1
         assert len(ranked) == 2
+
+    def test_near_dedup_handles_empty_embedding_vectors_gracefully(self) -> None:
+        """GIVEN two listings where one has an empty embedding vector
+        WHEN near-deduplication runs
+        THEN neither listing is collapsed (cosine similarity returns 0.0 for empty vectors).
+        """
+        ranker = self._make_ranker()
+        listing_a = self._make_listing(board="ziprecruiter", external_id="1")
+        listing_b = self._make_listing(board="indeed", external_id="2")
+
+        scores = ScoreResult(
+            fit_score=0.8, archetype_score=0.7, history_score=0.5, disqualified=False
+        )
+        # Empty embedding → _cosine_similarity returns 0.0
+        embeddings = {listing_a.url: [], listing_b.url: [0.9, 0.1]}
+
+        ranked, _ = ranker.rank(
+            [(listing_a, scores), (listing_b, scores)],
+            embeddings=embeddings,
+        )
+        assert len(ranked) == 2
+
+    def test_near_dedup_handles_zero_magnitude_vectors_gracefully(self) -> None:
+        """GIVEN two listings where one has a zero-magnitude embedding
+        WHEN near-deduplication runs
+        THEN neither listing is collapsed (cosine similarity returns 0.0 for zero vectors).
+        """
+        ranker = self._make_ranker()
+        listing_a = self._make_listing(board="ziprecruiter", external_id="1")
+        listing_b = self._make_listing(board="indeed", external_id="2")
+
+        scores = ScoreResult(
+            fit_score=0.8, archetype_score=0.7, history_score=0.5, disqualified=False
+        )
+        # Zero-magnitude vector → _cosine_similarity returns 0.0
+        embeddings = {
+            listing_a.url: [0.0, 0.0, 0.0],
+            listing_b.url: [0.9, 0.1, 0.2],
+        }
+
+        ranked, _ = ranker.rank(
+            [(listing_a, scores), (listing_b, scores)],
+            embeddings=embeddings,
+        )
+        assert len(ranked) == 2
+
+    def test_near_dedup_records_duplicate_board_on_survivor(self) -> None:
+        """GIVEN two near-identical listings on different boards
+        WHEN near-deduplication collapses them
+        THEN the survivor's duplicate_boards includes the consumed listing's board.
+        """
+        ranker = self._make_ranker()
+        listing_a = self._make_listing(board="ziprecruiter", external_id="1", title="Same Role")
+        listing_b = self._make_listing(board="indeed", external_id="2", title="Same Role")
+
+        high_scores = ScoreResult(
+            fit_score=0.9, archetype_score=0.9, history_score=0.5, disqualified=False
+        )
+        low_scores = ScoreResult(
+            fit_score=0.5, archetype_score=0.5, history_score=0.5, disqualified=False
+        )
+        # Identical embeddings → cosine similarity = 1.0
+        embed = [0.9, 0.1, 0.2, 0.3, 0.4]
+        embeddings = {listing_a.url: embed, listing_b.url: list(embed)}
+
+        ranked, summary = ranker.rank(
+            [(listing_a, high_scores), (listing_b, low_scores)],
+            embeddings=embeddings,
+        )
+        assert len(ranked) == 1
+        assert summary.total_deduplicated == 1
+        survivor = ranked[0]
+        # The consumed listing's board is in the survivor's duplicate_boards
+        assert "indeed" in survivor.duplicate_boards or "ziprecruiter" in survivor.duplicate_boards
+
+    def test_candidate_without_embedding_survives_dedup(self) -> None:
+        """GIVEN a listing that has no embedding in the embeddings map
+        WHEN near-deduplication runs
+        THEN that listing survives without being compared.
+        """
+        ranker = self._make_ranker()
+        listing_a = self._make_listing(board="ziprecruiter", external_id="1")
+        listing_b = self._make_listing(board="indeed", external_id="2")
+
+        scores = ScoreResult(
+            fit_score=0.8, archetype_score=0.7, history_score=0.5, disqualified=False
+        )
+        # Only listing_b has an embedding — listing_a is missing
+        embeddings = {listing_b.url: [0.9, 0.1, 0.2]}
+
+        ranked, _ = ranker.rank(
+            [(listing_a, scores), (listing_b, scores)],
+            embeddings=embeddings,
+        )
+        assert len(ranked) == 2
+
+    def test_other_without_embedding_skipped_in_dedup(self) -> None:
+        """GIVEN an 'other' listing in the inner dedup loop has no embedding
+        WHEN near-deduplication runs
+        THEN that listing is skipped (not collapsed) and survives.
+        """
+        ranker = self._make_ranker()
+        listing_a = self._make_listing(board="ziprecruiter", external_id="1")
+        listing_b = self._make_listing(board="indeed", external_id="2")
+
+        high_scores = ScoreResult(
+            fit_score=0.9, archetype_score=0.9, history_score=0.5, disqualified=False
+        )
+        low_scores = ScoreResult(
+            fit_score=0.5, archetype_score=0.5, history_score=0.5, disqualified=False
+        )
+        # listing_a has embedding but listing_b (inner loop "other") does not
+        embeddings = {listing_a.url: [0.9, 0.1, 0.2]}
+
+        ranked, _ = ranker.rank(
+            [(listing_a, high_scores), (listing_b, low_scores)],
+            embeddings=embeddings,
+        )
+        assert len(ranked) == 2
+
+    def test_consumed_listing_skipped_in_inner_dedup_loop(self) -> None:
+        """GIVEN four listings where one candidate consumes two duplicates
+        WHEN a later candidate's inner loop encounters an already-consumed entry
+        THEN the consumed entry is skipped in the inner loop.
+        """
+        ranker = self._make_ranker()
+        # W (highest score) will consume X (similar) and Z (similar), but not Y
+        listing_w = self._make_listing(board="ziprecruiter", external_id="w")
+        listing_x = self._make_listing(board="indeed", external_id="x")
+        listing_y = self._make_listing(board="linkedin", external_id="y")
+        listing_z = self._make_listing(board="weworkremotely", external_id="z")
+
+        scores_w = ScoreResult(
+            fit_score=0.95, archetype_score=0.95, history_score=0.5, disqualified=False
+        )
+        scores_x = ScoreResult(
+            fit_score=0.7, archetype_score=0.7, history_score=0.5, disqualified=False
+        )
+        scores_y = ScoreResult(
+            fit_score=0.5, archetype_score=0.5, history_score=0.5, disqualified=False
+        )
+        scores_z = ScoreResult(
+            fit_score=0.3, archetype_score=0.3, history_score=0.5, disqualified=False
+        )
+
+        # W, X, Z have identical embeddings; Y has a different one
+        similar_embed = [0.9, 0.1, 0.2, 0.3, 0.4]
+        different_embed = [0.0, 0.0, 0.1, 0.9, 0.0]
+        embeddings = {
+            listing_w.url: list(similar_embed),
+            listing_x.url: list(similar_embed),
+            listing_y.url: different_embed,
+            listing_z.url: list(similar_embed),
+        }
+
+        ranked, summary = ranker.rank(
+            [
+                (listing_w, scores_w),
+                (listing_x, scores_x),
+                (listing_y, scores_y),
+                (listing_z, scores_z),
+            ],
+            embeddings=embeddings,
+        )
+        # W survives, X and Z consumed, Y survives (different embedding)
+        assert len(ranked) == 2
+        assert summary.total_deduplicated == 2
+        # When Y processes its inner loop, Z (j=3) is already consumed → L205 fires
