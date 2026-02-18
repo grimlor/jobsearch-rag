@@ -282,6 +282,10 @@ class SessionManager:
         if self.config.headless:
             cmd.append("--headless=new")
 
+        # Open to about:blank so the initial window is invisible noise,
+        # not a distracting new-tab page.
+        cmd.append("about:blank")
+
         logger.info(
             "Launching %s via CDP on port %d for %s",
             channel,
@@ -299,6 +303,12 @@ class SessionManager:
         await _wait_for_cdp(cdp_url)
 
         self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
+
+        # Close the initial blank page that Edge opens at startup so the
+        # user sees only the Playwright-controlled window.
+        for context in self._browser.contexts:
+            for page in context.pages:
+                await page.close()
 
     async def __aexit__(
         self,
