@@ -6,6 +6,7 @@ Maps to BDD spec: TestDecisionRecording
 from __future__ import annotations
 
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
@@ -79,6 +80,39 @@ class TestDecisionRecording:
         assert decision is not None
         assert decision["verdict"] == "yes"
         assert decision["scoring_signal"] == "true"
+
+    async def test_reason_is_stored_in_chromadb_metadata(
+        self, recorder: DecisionRecorder
+    ) -> None:
+        """An optional reason is persisted alongside the verdict so the operator's reasoning is preserved."""
+        await recorder.record(
+            job_id="zr-reason",
+            verdict="no",
+            jd_text="Interesting role but fully on-site.",
+            board="ziprecruiter",
+            title="SRE",
+            company="OnSite Corp",
+            reason="Requires on-site 5 days/week, no remote option",
+        )
+        decision = recorder.get_decision("zr-reason")
+        assert decision is not None
+        assert decision["reason"] == "Requires on-site 5 days/week, no remote option"
+
+    async def test_empty_reason_stored_when_not_provided(
+        self, recorder: DecisionRecorder
+    ) -> None:
+        """When no reason is given, an empty string is stored — the field is always present."""
+        await recorder.record(
+            job_id="zr-noreason",
+            verdict="yes",
+            jd_text="Great remote role.",
+            board="ziprecruiter",
+            title="Staff Architect",
+            company="Remote Co",
+        )
+        decision = recorder.get_decision("zr-noreason")
+        assert decision is not None
+        assert decision["reason"] == ""
 
     async def test_no_verdict_is_stored_but_excluded_from_scoring_signal(
         self, recorder: DecisionRecorder
@@ -191,6 +225,36 @@ class TestDecisionRecording:
         assert err.error_type == ErrorType.VALIDATION
         assert err.suggestion is not None
         assert err.troubleshooting is not None
+
+    async def test_reason_is_written_to_jsonl_audit_log(
+        self, store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """The reason field appears in the daily JSONL audit file alongside the verdict."""
+        import json as json_mod
+
+        with tempfile.TemporaryDirectory() as decisions_dir:
+            store.get_or_create_collection("decisions")
+            rec = DecisionRecorder(
+                store=store, embedder=mock_embedder, decisions_dir=decisions_dir
+            )
+            await rec.record(
+                job_id="zr-audit",
+                verdict="no",
+                jd_text="On-site only role.",
+                board="ziprecruiter",
+                title="SRE",
+                company="Corp",
+                reason="No remote option",
+            )
+            # Read the JSONL file
+            jsonl_files = list(Path(decisions_dir).glob("*.jsonl"))
+            assert len(jsonl_files) == 1
+            records = [
+                json_mod.loads(line)
+                for line in jsonl_files[0].read_text().strip().splitlines()
+            ]
+            assert len(records) == 1
+            assert records[0]["reason"] == "No remote option"
 
     def test_get_decision_returns_none_when_collection_missing(
         self, mock_embedder: Embedder

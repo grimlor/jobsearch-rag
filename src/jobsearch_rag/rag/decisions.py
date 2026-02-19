@@ -80,6 +80,7 @@ class DecisionRecorder:
         board: str,
         title: str = "",
         company: str = "",
+        reason: str = "",
     ) -> None:
         """Record a user verdict on a job listing.
 
@@ -94,6 +95,7 @@ class DecisionRecorder:
             board: Source board name.
             title: Job title (for audit log).
             company: Company name (for audit log).
+            reason: Optional free-text explaining why the verdict was made.
 
         Raises:
             ActionableError (DECISION): if verdict is invalid.
@@ -146,6 +148,7 @@ class DecisionRecorder:
                 "title": title,
                 "company": company,
                 "scoring_signal": scoring_signal,
+                "reason": reason,
                 "recorded_at": datetime.now(UTC).isoformat(),
             }],
         )
@@ -158,6 +161,7 @@ class DecisionRecorder:
             title=title,
             company=company,
             jd_text=jd_text,
+            reason=reason,
         )
 
         logger.info(
@@ -206,6 +210,7 @@ class DecisionRecorder:
         title: str,
         company: str,
         jd_text: str,
+        reason: str = "",
     ) -> None:
         """Append a decision record to the daily JSONL file."""
         self._decisions_dir.mkdir(parents=True, exist_ok=True)
@@ -219,6 +224,7 @@ class DecisionRecorder:
             "title": title,
             "company": company,
             "jd_text": jd_text,
+            "reason": reason,
             "recorded_at": datetime.now(UTC).isoformat(),
         }
 

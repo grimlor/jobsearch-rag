@@ -155,6 +155,33 @@ class TestInteractiveReview:
         assert call_kwargs["job_id"] == "job-1"
 
     @pytest.mark.asyncio
+    async def test_verdict_with_reason_passes_reason_to_recorder(self) -> None:
+        """When the operator provides a reason, it is forwarded to DecisionRecorder
+        so both the verdict and the reasoning are persisted."""
+        ranked = _make_ranked(external_id="job-reason")
+        recorder = _make_recorder()
+        session = ReviewSession(ranked_listings=[ranked], recorder=recorder)
+
+        await session.record_verdict(
+            ranked, "n", reason="Requires 5 years Kubernetes experience"
+        )
+        call_kwargs = recorder.record.call_args.kwargs
+        assert call_kwargs["verdict"] == "no"
+        assert call_kwargs["reason"] == "Requires 5 years Kubernetes experience"
+
+    @pytest.mark.asyncio
+    async def test_verdict_without_reason_passes_empty_string(self) -> None:
+        """When the operator skips the reason prompt, an empty string is
+        passed — the field is always present but never required."""
+        ranked = _make_ranked(external_id="job-noreason")
+        recorder = _make_recorder()
+        session = ReviewSession(ranked_listings=[ranked], recorder=recorder)
+
+        await session.record_verdict(ranked, "y")
+        call_kwargs = recorder.record.call_args.kwargs
+        assert call_kwargs["reason"] == ""
+
+    @pytest.mark.asyncio
     async def test_no_verdict_records_via_decision_recorder(self) -> None:
         """Entering 'n' records a 'no' verdict."""
         ranked = _make_ranked(external_id="job-2")

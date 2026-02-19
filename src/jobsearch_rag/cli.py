@@ -242,8 +242,11 @@ def handle_decide(args: argparse.Namespace) -> None:
             board=board,
             title=title,
             company=company,
+            reason=args.reason,
         )
         print(f"Recorded '{args.verdict}' for {args.job_id}")
+        if args.reason:
+            print(f"  Reason: {args.reason}")
         print(f"  History size: {recorder.history_count()} decisions")
 
     asyncio.run(_run())
@@ -327,7 +330,8 @@ def handle_review(args: argparse.Namespace) -> None:
         return
 
     print(f"\n{len(undecided)} undecided listing(s) to review.\n")
-    print("Commands: y=yes  n=no  m=maybe  s=skip  o=open  q=quit\n")
+    print("Commands: y=yes  n=no  m=maybe  s=skip  o=open  q=quit")
+    print("After entering a verdict, you can add an optional reason.\n")
 
     async def _run() -> None:
         for idx, ranked in enumerate(undecided, 1):
@@ -348,8 +352,15 @@ def handle_review(args: argparse.Namespace) -> None:
                 elif key == "s":
                     break  # skip — advance to next listing
                 elif session.should_record(key):
-                    await session.record_verdict(ranked, key)
-                    print(f"  Recorded: {key}")
+                    try:
+                        reason = input("  Reason (Enter to skip): ").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        reason = ""
+                    await session.record_verdict(ranked, key, reason=reason)
+                    msg = f"  Recorded: {key}"
+                    if reason:
+                        msg += f" — {reason}"
+                    print(msg)
                     break
                 else:
                     print("  Invalid input. Use y/n/m/s/o/q")
@@ -475,6 +486,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["yes", "no", "maybe"],
         required=True,
         help="Your verdict on this role",
+    )
+    decide_p.add_argument(
+        "--reason",
+        type=str,
+        default="",
+        help="Optional reason explaining your verdict",
     )
 
     # -- review --------------------------------------------------------------

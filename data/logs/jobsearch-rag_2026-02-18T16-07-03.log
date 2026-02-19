@@ -1,0 +1,58 @@
+2026-02-18 16:07:03 - jobsearch-rag - INFO - Ollama health check passed — nomic-embed-text and mistral:7b available
+2026-02-18 16:07:03 - jobsearch-rag - INFO - Collection 'role_archetypes' deleted
+2026-02-18 16:07:03 - jobsearch-rag - INFO - Upserted 3 documents into 'role_archetypes' (total: 3)
+2026-02-18 16:07:03 - jobsearch-rag - INFO - Indexed 3 archetypes from config/role_archetypes.toml
+2026-02-18 16:07:03 - jobsearch-rag - INFO - Collection 'resume' deleted
+2026-02-18 16:07:04 - jobsearch-rag - INFO - Upserted 5 documents into 'resume' (total: 5)
+2026-02-18 16:07:04 - jobsearch-rag - INFO - Indexed 5 resume chunks from data/resume.md
+2026-02-18 16:07:04 - jobsearch-rag - INFO - Launching msedge via CDP on port 54116 for ziprecruiter
+2026-02-18 16:07:05 - jobsearch-rag - INFO - Loading session state from data/ziprecruiter_session.json
+2026-02-18 16:07:07 - jobsearch-rag - INFO - ZipRecruiter session verified
+2026-02-18 16:07:07 - jobsearch-rag - INFO - Session state saved to data/ziprecruiter_session.json
+2026-02-18 16:07:10 - jobsearch-rag - INFO - Searching ZipRecruiter: https://www.ziprecruiter.com/jobs-search?search=staff+platform+architect&location=Remote+(USA) (max 3 pages)
+2026-02-18 16:07:11 - jobsearch-rag - INFO - Processing search results page 1
+2026-02-18 16:07:34 - jobsearch-rag - INFO - Processing search results page 2
+2026-02-18 16:07:55 - jobsearch-rag - INFO - Processing search results page 3
+2026-02-18 16:08:19 - jobsearch-rag - INFO - Found 60 listings across 3 page(s) (60 with full JD)
+2026-02-18 16:08:21 - jobsearch-rag - INFO - Searching ZipRecruiter: https://www.ziprecruiter.com/jobs-search?search=principal+engineer+data+platform&location=Remote+(USA) (max 3 pages)
+2026-02-18 16:08:22 - jobsearch-rag - INFO - Processing search results page 1
+2026-02-18 16:09:17 - jobsearch-rag - WARNING - Click-through failed for card 17 (HeORrNGWi0_ZQ3D1EIWn8A): Locator.wait_for: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator("[data-testid='job-details-scroll-container']") to be visible
+
+2026-02-18 16:09:53 - jobsearch-rag - WARNING - Click-through failed for card 18 (91DrtehNAj2zxbbbsgs2vQ): Locator.wait_for: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator("[data-testid='job-details-scroll-container']") to be visible
+
+2026-02-18 16:10:29 - jobsearch-rag - WARNING - Click-through failed for card 19 (3BF2qBxnfohw5_4Cu0iPIA): Locator.wait_for: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator("[data-testid='job-details-scroll-container']") to be visible
+
+2026-02-18 16:11:05 - jobsearch-rag - WARNING - Click-through failed for card 20 (yKg6_9b3O7TD16H-1ksx2w): Locator.wait_for: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator("[data-testid='job-details-scroll-container']") to be visible
+
+2026-02-18 16:11:06 - jobsearch-rag - INFO - Processing search results page 2
+2026-02-18 16:11:28 - jobsearch-rag - INFO - Processing search results page 3
+2026-02-18 16:11:49 - jobsearch-rag - INFO - Found 60 listings across 3 page(s) (60 with full JD)
+2026-02-18 16:11:52 - jobsearch-rag - INFO - Searching ZipRecruiter: https://www.ziprecruiter.com/jobs-search?search=developer+relations+engineer&location=Remote+(USA) (max 3 pages)
+2026-02-18 16:11:53 - jobsearch-rag - INFO - Processing search results page 1
+2026-02-18 16:12:18 - jobsearch-rag - INFO - Processing search results page 2
+2026-02-18 16:12:41 - jobsearch-rag - INFO - Processing search results page 3
+2026-02-18 16:13:19 - jobsearch-rag - WARNING - Click-through failed for card 4 (RgWwQIN5wRzLtlLX1X-1jw): Locator.wait_for: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator("[data-testid='job-details-scroll-container']") to be visible
+
+2026-02-18 16:13:54 - jobsearch-rag - WARNING - Click-through failed for card 5 (tdvloCzx9aVgWP0be6cYXA): Locator.wait_for: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator("[data-testid='job-details-scroll-container']") to be visible
+
+2026-02-18 16:14:30 - jobsearch-rag - WARNING - Click-through failed for card 6 (ebSRiRH1Rtv-4fS6PRNf7A): Locator.wait_for: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator("[data-testid='job-details-scroll-container']") to be visible
+
+2026-02-18 16:15:07 - jobsearch-rag - WARNING - Click-through failed for card 7 (todBO8uh7PdGNz5lUkZVkw): Locator.wait_for: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator("[data-testid='job-details-scroll-container']") to be visible
+
+2026-02-18 16:15:23 - jobsearch-rag - INFO - Found 60 listings across 3 page(s) (60 with full JD)

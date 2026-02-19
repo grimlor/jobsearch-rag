@@ -576,7 +576,7 @@ class TestDecideCommand:
             patch("jobsearch_rag.rag.decisions.DecisionRecorder", return_value=mock_recorder),
             pytest.raises(SystemExit) as exc_info,
         ):
-            args = argparse.Namespace(job_id="nonexistent", verdict="yes")
+            args = argparse.Namespace(job_id="nonexistent", verdict="yes", reason="")
             handle_decide(args)
 
         assert exc_info.value.code == 1
@@ -611,13 +611,51 @@ class TestDecideCommand:
             patch("jobsearch_rag.rag.store.VectorStore", return_value=mock_store),
             patch("jobsearch_rag.rag.decisions.DecisionRecorder", return_value=mock_recorder),
         ):
-            args = argparse.Namespace(job_id="zr-123", verdict="yes")
+            args = argparse.Namespace(job_id="zr-123", verdict="yes", reason="")
             handle_decide(args)
 
         mock_recorder.record.assert_awaited_once()
         output = capsys.readouterr().out
         assert "Recorded 'yes' for zr-123" in output
         assert "5" in output
+
+    def test_decide_with_reason_prints_reason_in_confirmation(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """When --reason is provided, confirmation output includes the reason text."""
+        mock_recorder = MagicMock()
+        mock_recorder.get_decision.return_value = {
+            "verdict": "maybe",
+            "board": "ziprecruiter",
+            "title": "Staff Architect",
+            "company": "Acme",
+        }
+        mock_recorder.record = AsyncMock()
+        mock_recorder.history_count.return_value = 3
+
+        mock_store = MagicMock()
+        mock_store.get_documents.return_value = {
+            "documents": ["Full JD text here"],
+            "ids": ["decision-zr-123"],
+            "metadatas": [{}],
+        }
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.rag.embedder.Embedder"),
+            patch("jobsearch_rag.rag.store.VectorStore", return_value=mock_store),
+            patch("jobsearch_rag.rag.decisions.DecisionRecorder", return_value=mock_recorder),
+        ):
+            args = argparse.Namespace(
+                job_id="zr-123", verdict="no", reason="Role requires on-call rotation"
+            )
+            handle_decide(args)
+
+        call_kwargs = mock_recorder.record.call_args.kwargs
+        assert call_kwargs["reason"] == "Role requires on-call rotation"
+        output = capsys.readouterr().out
+        assert "Role requires on-call rotation" in output
 
     def test_missing_jd_text_exits_with_error(
         self, capsys: pytest.CaptureFixture[str]
@@ -646,7 +684,7 @@ class TestDecideCommand:
             patch("jobsearch_rag.rag.decisions.DecisionRecorder", return_value=mock_recorder),
             pytest.raises(SystemExit) as exc_info,
         ):
-            args = argparse.Namespace(job_id="zr-123", verdict="yes")
+            args = argparse.Namespace(job_id="zr-123", verdict="yes", reason="")
             handle_decide(args)
 
         assert exc_info.value.code == 1

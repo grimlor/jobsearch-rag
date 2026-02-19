@@ -96,12 +96,15 @@ class ReviewSession:
         """Return True if *key* maps to a recordable verdict ('y'/'n'/'m')."""
         return key.lower() in _VERDICT_MAP
 
-    async def record_verdict(self, ranked: RankedListing, key: str) -> None:
+    async def record_verdict(
+        self, ranked: RankedListing, key: str, *, reason: str = ""
+    ) -> None:
         """Record a verdict for the given listing.
 
         Args:
             ranked: The listing to record a decision for.
             key: One of 'y', 'n', 'm'.
+            reason: Optional free-text explaining why this verdict was made.
         """
         verdict = _VERDICT_MAP[key.lower()]
         listing = ranked.listing
@@ -112,6 +115,7 @@ class ReviewSession:
             board=listing.board,
             title=listing.title,
             company=listing.company,
+            reason=reason,
         )
 
     def open_listing(self, ranked: RankedListing) -> None:
