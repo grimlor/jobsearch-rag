@@ -40,7 +40,11 @@ class RankedListing:
     duplicate_boards: list[str] = field(default_factory=list)
 
     def score_explanation(self) -> str:
-        """Human-readable score breakdown for export output."""
+        """Human-readable score breakdown for export output.
+
+        Uses ``·`` (middle dot) as separator instead of ``|`` to avoid
+        breaking Markdown table column boundaries.
+        """
         parts = [
             f"Archetype: {self.scores.archetype_score:.2f}",
             f"Fit: {self.scores.fit_score:.2f}",
@@ -51,7 +55,7 @@ class RankedListing:
             parts.append(f"DISQUALIFIED: {self.scores.disqualifier_reason}")
         else:
             parts.append("Not disqualified")
-        return " | ".join(parts)
+        return " · ".join(parts)
 
 
 @dataclass

@@ -6,6 +6,7 @@ Maps to BDD specs: TestPipelineOrchestration, TestBoardSearchDelegation
 from __future__ import annotations
 
 import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters.base import JobListing
@@ -58,7 +59,7 @@ def _make_settings(
         boards=board_configs,
         scoring=ScoringConfig(),
         ollama=OllamaConfig(),
-        output=OutputConfig(),
+        output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
         chroma=ChromaConfig(persist_dir=tmpdir),
     )
 

@@ -299,6 +299,40 @@ class TestThrottleDetection:
         assert listing.full_text.strip() == _REAL_JD.strip()
 
     @pytest.mark.asyncio
+    async def test_late_throttle_exhausts_retries_then_falls_back(self) -> None:
+        """When wait_for always times out and the late panel read always
+        returns throttle text, all retries are exhausted and the adapter
+        falls back to the short description."""
+        adapter = ZipRecruiterAdapter()
+        listing = _make_listing()
+        listing.metadata["short_description"] = "Fallback desc"
+
+        # wait_for always raises; late inner_text always returns throttle
+        panel_mock = AsyncMock()
+        panel_mock.wait_for = AsyncMock(
+            side_effect=TimeoutError("5000ms exceeded")
+        )
+        panel_mock.inner_text = AsyncMock(return_value=_THROTTLE_TEXT)
+
+        card_mock = AsyncMock()
+        card_mock.click = AsyncMock()
+        card_locator = MagicMock()
+        card_locator.count = AsyncMock(return_value=1)
+        card_locator.nth = MagicMock(return_value=card_mock)
+
+        page = MagicMock()
+        page.locator = MagicMock(side_effect=[card_locator, panel_mock])
+
+        with patch(
+            "jobsearch_rag.adapters.ziprecruiter.asyncio.sleep",
+            new_callable=AsyncMock,
+        ):
+            await adapter._click_through_cards(page, [listing])
+
+        # Should have used fallback after exhausting retries
+        assert "Fallback desc" in listing.full_text
+
+    @pytest.mark.asyncio
     async def test_timeout_without_throttle_text_falls_back_immediately(
         self,
     ) -> None:

@@ -38,6 +38,8 @@ def _make_ranked(
     comp_min: float | None = 180_000,
     comp_max: float | None = 250_000,
     url: str = "https://www.ziprecruiter.com/jobs/test-1",
+    disqualified: bool = False,
+    disqualifier_reason: str | None = None,
 ) -> RankedListing:
     listing = JobListing(
         board=board,
@@ -54,7 +56,8 @@ def _make_ranked(
         fit_score=fit,
         archetype_score=archetype,
         history_score=history,
-        disqualified=False,
+        disqualified=disqualified,
+        disqualifier_reason=disqualifier_reason,
         comp_score=comp,
     )
     return RankedListing(listing=listing, scores=scores, final_score=final_score)
@@ -275,3 +278,28 @@ class TestInteractiveReview:
         session = ReviewSession(ranked_listings=[], recorder=_make_recorder())
         undecided = session.undecided_listings()
         assert len(undecided) == 0
+
+
+# ---------------------------------------------------------------------------
+# TestListingDisplayDisqualified
+# ---------------------------------------------------------------------------
+
+
+class TestListingDisplayDisqualified:
+    """Disqualified listings show a visible warning in the review display
+    so the operator knows the listing was flagged before deciding."""
+
+    def test_disqualified_listing_shows_warning_in_display(self) -> None:
+        """When a listing has disqualified=True, the formatted display
+        includes a '\u26a0 DISQUALIFIED: {reason}' line."""
+        ranked = _make_ranked(
+            disqualified=True,
+            disqualifier_reason="Requires active security clearance",
+        )
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=_make_recorder()
+        )
+        output = session.format_listing(ranked, rank=1, total=1)
+
+        assert "\u26a0 DISQUALIFIED" in output
+        assert "Requires active security clearance" in output

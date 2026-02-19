@@ -19,6 +19,8 @@ data/chroma_db/*
 !data/chroma_db/.gitkeep
 data/decisions/*
 !data/decisions/.gitkeep
+data/logs/*
+!data/logs/.gitkeep
 
 # Playwright session cookies (sensitive)
 data/*_session.json

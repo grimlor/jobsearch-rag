@@ -425,7 +425,8 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                 logger.debug("Card index %d exceeds DOM card count %d", i, card_count)
                 break
 
-            for retry in range(_THROTTLE_MAX_RETRIES + 1):
+            retry = 0
+            while retry <= _THROTTLE_MAX_RETRIES:
                 try:
                     # Click the card article
                     card = card_locator.nth(i)
@@ -452,17 +453,10 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                             backoff,
                             listing.url,
                         )
-                        if retry < _THROTTLE_MAX_RETRIES:
+                        retry += 1
+                        if retry <= _THROTTLE_MAX_RETRIES:
                             await asyncio.sleep(backoff)
-                            continue
-                        else:
-                            # Max retries exhausted — skip this listing
-                            logger.warning(
-                                "Max retries exhausted for %s — skipping",
-                                listing.external_id,
-                            )
-                            self._apply_short_description_fallback(listing)
-                            break
+                        continue
 
                     # Real content — accept it
                     if panel_text and len(panel_text.strip()) > 100:
@@ -473,7 +467,6 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                             len(listings),
                             len(listing.full_text),
                         )
-                        break
                     else:
                         # Too short — not throttle, just sparse content
                         self._apply_short_description_fallback(listing)
@@ -482,7 +475,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                             i + 1,
                             len(listings),
                         )
-                        break
+                    break
 
                 except Exception as exc:
                     # The wait_for timeout may fire even though the panel
@@ -509,16 +502,10 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                             backoff,
                             listing.url,
                         )
-                        if retry < _THROTTLE_MAX_RETRIES:
+                        retry += 1
+                        if retry <= _THROTTLE_MAX_RETRIES:
                             await asyncio.sleep(backoff)
-                            continue
-                        else:
-                            logger.warning(
-                                "Max retries exhausted for %s — skipping",
-                                listing.external_id,
-                            )
-                            self._apply_short_description_fallback(listing)
-                            break
+                        continue
 
                     logger.warning(
                         "Click-through failed for card %d (%s): %s",
@@ -528,6 +515,13 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                     )
                     self._apply_short_description_fallback(listing)
                     break
+            else:
+                # Retry budget exhausted — fall back to short description
+                logger.warning(
+                    "Max retries exhausted for %s — skipping",
+                    listing.external_id,
+                )
+                self._apply_short_description_fallback(listing)
 
     @staticmethod
     def _apply_short_description_fallback(listing: JobListing) -> None:

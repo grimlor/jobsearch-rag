@@ -10,6 +10,7 @@ a --force-rescore override flag.
 from __future__ import annotations
 
 import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -46,7 +47,7 @@ def _make_settings(tmpdir: str) -> Settings:
         },
         scoring=ScoringConfig(),
         ollama=OllamaConfig(),
-        output=OutputConfig(),
+        output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
         chroma=ChromaConfig(persist_dir=tmpdir),
     )
 

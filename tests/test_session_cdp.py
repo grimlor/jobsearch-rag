@@ -25,7 +25,9 @@ from jobsearch_rag.adapters.session import (
 # ───────────────────────────────────────────────────────────────────
 
 
-def _mock_playwright(*, connect_over_cdp: bool = True) -> MagicMock:
+def _mock_playwright(
+    *, connect_over_cdp: bool = True, cdp_pages: list[MagicMock] | None = None,
+) -> MagicMock:
     """Build a mock Playwright instance with browser/context stubs."""
     mock_context = MagicMock()
     mock_context.close = AsyncMock()
@@ -34,6 +36,14 @@ def _mock_playwright(*, connect_over_cdp: bool = True) -> MagicMock:
     mock_browser = MagicMock()
     mock_browser.new_context = AsyncMock(return_value=mock_context)
     mock_browser.close = AsyncMock()
+
+    # CDP launch closes initial blank pages: for context in browser.contexts
+    if cdp_pages is not None:
+        cdp_ctx = MagicMock()
+        cdp_ctx.pages = cdp_pages
+        mock_browser.contexts = [cdp_ctx]
+    else:
+        mock_browser.contexts = []
 
     pw = MagicMock()
     pw.stop = AsyncMock()
@@ -123,7 +133,9 @@ class TestSessionManagerCDP:
         fake_binary = tmp_path / "edge"
         fake_binary.touch()
 
-        mock_pw = _mock_playwright()
+        blank_page = MagicMock()
+        blank_page.close = AsyncMock()
+        mock_pw = _mock_playwright(cdp_pages=[blank_page])
 
         with (
             patch(
@@ -145,6 +157,8 @@ class TestSessionManagerCDP:
             # Verify Playwright connected via CDP (not standard launch)
             mock_pw.chromium.connect_over_cdp.assert_called_once()
             mock_pw.chromium.launch.assert_not_called()
+            # Verify initial blank page was closed
+            blank_page.close.assert_awaited_once()
 
             await manager.__aexit__(None, None, None)
 
@@ -576,6 +590,53 @@ class TestSessionManagerCDP:
             await manager.__aenter__()
             page = await manager.new_page()
             assert page is mock_page
+            await manager.__aexit__(None, None, None)
+
+
+class TestSessionManagerEdgeCases:
+    """Additional coverage for SessionManager edge cases."""
+
+    async def test_aexit_on_uninitialised_manager_is_noop(self) -> None:
+        """__aexit__ on a SessionManager that was never entered does not raise."""
+        config = SessionConfig(board_name="test", headless=True)
+        manager = SessionManager(config)
+        # context, browser, playwright are all None
+        await manager.__aexit__(None, None, None)
+
+    async def test_cdp_skips_nonexistent_binary_and_uses_next(
+        self, tmp_path: Path
+    ) -> None:
+        """When the first known path doesn't exist, __aenter__ skips it
+        and launches the CDP subprocess with the next valid binary."""
+        second = tmp_path / "edge-second"
+        second.touch()
+
+        mock_pw = _mock_playwright()
+
+        with (
+            patch(
+                "jobsearch_rag.adapters.session._BROWSER_PATHS",
+                {"msedge": ["/nonexistent/edge", str(second)]},
+            ),
+            patch("shutil.which", return_value=None),
+            patch("jobsearch_rag.adapters.session.subprocess.Popen") as mock_popen,
+            patch("urllib.request.urlopen"),
+            patch(
+                "jobsearch_rag.adapters.session.tempfile.mkdtemp",
+                return_value="/tmp/test",
+            ),
+            _patch_playwright(mock_pw),
+        ):
+            config = SessionConfig(
+                board_name="test", headless=False, browser_channel="msedge",
+            )
+            manager = SessionManager(config)
+            await manager.__aenter__()
+
+            # The Popen command should use the second binary
+            cmd = mock_popen.call_args[0][0]
+            assert cmd[0] == str(second)
+
             await manager.__aexit__(None, None, None)
 
 

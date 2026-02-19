@@ -8,9 +8,58 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
+from pathlib import Path
 
 from jobsearch_rag.adapters import AdapterRegistry
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+_MAX_SLUG_LEN = 80
+
+
+def _slugify(text: str) -> str:
+    """Convert text to a filesystem-safe slug.
+
+    Lowercases, strips non-alphanumeric characters (except hyphens),
+    collapses whitespace/underscores to single hyphens, and truncates
+    to :data:`_MAX_SLUG_LEN` characters.
+    """
+    slug = text.lower()
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[\s_]+", "-", slug)
+    slug = slug.strip("-")
+    return slug[:_MAX_SLUG_LEN]
+
+
+def _read_jd_text(
+    rank: int,
+    title: str,
+    company: str,
+    *,
+    jd_dir: Path | str = "output/jds",
+) -> str:
+    """Read the full JD body from the corresponding JD markdown file.
+
+    Returns the text after the ``## Job Description`` marker, or an
+    empty string if the file is missing or the marker is absent.
+    """
+    jd_dir = Path(jd_dir)
+    filename = f"{rank:03d}_{_slugify(company)}_{_slugify(title)}.md"
+    jd_path = jd_dir / filename
+    if not jd_path.exists():
+        return ""
+    content = jd_path.read_text()
+    marker = "## Job Description\n"
+    idx = content.find(marker)
+    if idx == -1:
+        return ""
+    return content[idx + len(marker):].strip()
+
 
 # Board login URLs for interactive authentication
 _LOGIN_URLS: dict[str, str] = {
@@ -260,7 +309,6 @@ def handle_review(args: argparse.Namespace) -> None:
     verdict, s to skip, o to open the JD, or q to quit.
     """
     import csv as csv_mod
-    from pathlib import Path
 
     from jobsearch_rag.adapters.base import JobListing
     from jobsearch_rag.config import load_settings
@@ -288,17 +336,22 @@ def handle_review(args: argparse.Namespace) -> None:
         return
 
     ranked_listings: list[RankedListing] = []
+    jd_dir = out_dir / "jds"
+
     with open(csv_path) as f:
         reader = csv_mod.DictReader(f)
         for _i, row in enumerate(reader, 1):
+            title = row.get("title", "")
+            company = row.get("company", "")
+            full_text = _read_jd_text(_i, title, company, jd_dir=jd_dir)
             listing = JobListing(
                 board=row.get("board", "unknown"),
                 external_id=row.get("url", "").rstrip("/").rsplit("/", 1)[-1],
-                title=row.get("title", ""),
-                company=row.get("company", ""),
+                title=title,
+                company=company,
                 location=row.get("location", ""),
                 url=row.get("url", ""),
-                full_text="",
+                full_text=full_text,
                 comp_min=float(row["comp_min"]) if row.get("comp_min") else None,
                 comp_max=float(row["comp_max"]) if row.get("comp_max") else None,
             )
@@ -317,11 +370,10 @@ def handle_review(args: argparse.Namespace) -> None:
             )
             ranked_listings.append(ranked)
 
-    jd_dir = str(out_dir / "jds")
     session = ReviewSession(
         ranked_listings=ranked_listings,
         recorder=recorder,
-        jd_dir=jd_dir,
+        jd_dir=str(jd_dir),
     )
 
     undecided = session.undecided_listings()
@@ -347,7 +399,7 @@ def handle_review(args: argparse.Namespace) -> None:
                     print(f"\nReview stopped. {idx - 1} listing(s) reviewed.")
                     return
                 elif key == "o":
-                    session.open_listing(ranked)
+                    session.open_listing(ranked, rank=idx)
                     continue  # re-prompt after opening
                 elif key == "s":
                     break  # skip — advance to next listing

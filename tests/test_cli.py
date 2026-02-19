@@ -7,12 +7,14 @@ TestSearchCommand, TestDecideCommand, TestExportCommand
 from __future__ import annotations
 
 import argparse
+import csv
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.cli import (
     build_parser,
     handle_boards,
@@ -21,6 +23,7 @@ from jobsearch_rag.cli import (
     handle_index,
     handle_login,
     handle_reset,
+    handle_review,
     handle_search,
 )
 from jobsearch_rag.config import (
@@ -68,17 +71,23 @@ def _make_listing(
     external_id: str = "1",
     title: str = "Staff Architect",
     company: str = "Acme Corp",
-) -> MagicMock:
-    """Create a mock JobListing."""
-    listing = MagicMock()
-    listing.board = board
-    listing.external_id = external_id
-    listing.title = title
-    listing.company = company
-    listing.location = "Remote"
-    listing.url = f"https://example.org/{external_id}"
-    listing.full_text = "A test job description."
-    return listing
+) -> JobListing:
+    """Create a real JobListing with controlled values.
+
+    Uses the actual dataclass rather than MagicMock so that optional
+    fields (comp_min, comp_max, etc.) default to ``None`` instead of
+    auto-generating child Mocks that serialize as ``<MagicMock …>``
+    strings in CSV exports.
+    """
+    return JobListing(
+        board=board,
+        external_id=external_id,
+        title=title,
+        company=company,
+        location="Remote",
+        url=f"https://example.org/{external_id}",
+        full_text="A test job description.",
+    )
 
 
 def _make_ranked(
@@ -532,7 +541,7 @@ class TestSearchCommand:
                     boards={},
                     scoring=ScoringConfig(),
                     ollama=OllamaConfig(),
-                    output=OutputConfig(open_top_n=0),
+                    output=OutputConfig(open_top_n=0, output_dir=str(Path(tmpdir) / "output")),
                     chroma=ChromaConfig(persist_dir=tmpdir),
                 ),
             ),
@@ -1062,3 +1071,468 @@ class TestResetCommand:
 
         output = capsys.readouterr().out
         assert "Cleared output directory" in output
+
+
+# ---------------------------------------------------------------------------
+# TestReviewJdLoading
+# ---------------------------------------------------------------------------
+
+
+class TestReviewJdLoading:
+    """
+    REQUIREMENT: The review command populates each listing's full_text
+    from JD files on disk, since CSV export does not store full text.
+
+    WHO: The review CLI handler reconstructing RankedListing objects
+         from CSV rows for the interactive review session
+    WHAT: Each listing's full_text is loaded from the corresponding
+          JD markdown file in output/jds/ using the rank-based filename
+          convention ({rank:03d}_{company_slug}_{title_slug}.md); the
+          JD body is extracted from the section after the
+          '## Job Description' marker; missing JD files or files without
+          the marker yield empty full_text (no crash); the slugify
+          function normalizes company and title to lowercase hyphenated
+          ASCII truncated at 80 characters
+    WHY: DecisionRecorder requires full_text to generate embeddings for
+         the history signal. Without it, recording a verdict fails with
+         an empty-text validation error on the second listing reviewed
+    """
+
+    def test_review_populates_full_text_from_jd_file(self, tmp_path: Path) -> None:
+        """
+        When a CSV row has a matching JD file with a Job Description section
+        Then the listing's full_text contains the JD body text
+        """
+        from jobsearch_rag.cli import _read_jd_text, _slugify
+
+        # Given: A JD file with the expected name and content
+        jd_dir = tmp_path / "jds"
+        jd_dir.mkdir()
+        slug_company = _slugify("Acme Corp")
+        slug_title = _slugify("Staff Architect")
+        filename = f"001_{slug_company}_{slug_title}.md"
+        jd_content = (
+            "# Staff Architect — Acme Corp\n\n"
+            "**Score:** 0.85\n\n"
+            "## Job Description\n"
+            "We are looking for a Staff Architect to lead our platform team."
+        )
+        (jd_dir / filename).write_text(jd_content)
+
+        # When: _read_jd_text is called with matching rank, title, company
+        result = _read_jd_text(1, "Staff Architect", "Acme Corp", jd_dir=jd_dir)
+
+        # Then: full_text contains the JD body
+        assert result == "We are looking for a Staff Architect to lead our platform team.", (
+            f"Expected JD body text, got: {result!r}"
+        )
+
+    def test_review_missing_jd_file_yields_empty_full_text(self, tmp_path: Path) -> None:
+        """
+        When the JD file does not exist on disk
+        Then full_text is an empty string and no exception is raised
+        """
+        from jobsearch_rag.cli import _read_jd_text
+
+        # Given: An empty jds directory (no matching file)
+        jd_dir = tmp_path / "jds"
+        jd_dir.mkdir()
+
+        # When: _read_jd_text is called for a nonexistent file
+        result = _read_jd_text(99, "Nonexistent Role", "Ghost Inc", jd_dir=jd_dir)
+
+        # Then: Returns empty string
+        assert result == "", (
+            f"Expected empty string for missing JD file, got: {result!r}"
+        )
+
+    def test_review_jd_file_without_marker_yields_empty_full_text(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        When the JD file exists but lacks the '## Job Description' marker
+        Then full_text is an empty string
+        """
+        from jobsearch_rag.cli import _read_jd_text, _slugify
+
+        # Given: A JD file that has no Job Description section
+        jd_dir = tmp_path / "jds"
+        jd_dir.mkdir()
+        slug_company = _slugify("Acme Corp")
+        slug_title = _slugify("Staff Architect")
+        filename = f"001_{slug_company}_{slug_title}.md"
+        (jd_dir / filename).write_text("# Staff Architect\n\nSome header text only.")
+
+        # When: _read_jd_text is called
+        result = _read_jd_text(1, "Staff Architect", "Acme Corp", jd_dir=jd_dir)
+
+        # Then: Returns empty string since marker is absent
+        assert result == "", (
+            f"Expected empty string when marker is absent, got: {result!r}"
+        )
+
+    def test_review_jd_filename_matches_rank_company_title_slug(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        When constructing the JD filename
+        Then it follows the pattern {rank:03d}_{company_slug}_{title_slug}.md
+        matching the export convention used by the search command
+        """
+        from jobsearch_rag.cli import _read_jd_text, _slugify
+
+        # Given: A JD file named with the expected slug convention
+        jd_dir = tmp_path / "jds"
+        jd_dir.mkdir()
+        # Company "O'Reilly Media" → "oreilly-media"
+        # Title "Sr. Data Engineer (Remote)" → "sr-data-engineer-remote"
+        company = "O'Reilly Media"
+        title = "Sr. Data Engineer (Remote)"
+        expected_name = f"005_{_slugify(company)}_{_slugify(title)}.md"
+        jd_content = "## Job Description\nBuild data pipelines at scale."
+        (jd_dir / expected_name).write_text(jd_content)
+
+        # When: _read_jd_text is called with the original (unslugged) values
+        result = _read_jd_text(5, title, company, jd_dir=jd_dir)
+
+        # Then: The text is found because the filename slug matched
+        assert result == "Build data pipelines at scale.", (
+            f"Filename slug mismatch — could not load JD. Got: {result!r}"
+        )
+
+    def test_slugify_strips_special_chars_and_lowercases(self) -> None:
+        """
+        When slugifying company or title text
+        Then special characters are stripped, spaces become hyphens,
+        text is lowercased, and result is truncated to 80 characters
+        """
+        from jobsearch_rag.cli import _slugify
+
+        # Given: Text with mixed case, special chars, and spaces
+        assert _slugify("Acme Corp") == "acme-corp", "Basic two-word slug"
+        assert _slugify("O'Reilly Media") == "oreilly-media", "Apostrophe stripped"
+        assert _slugify("Sr. Data Engineer (Remote)") == "sr-data-engineer-remote", (
+            "Dots and parens stripped"
+        )
+        assert _slugify("  Extra   Spaces  ") == "extra-spaces", (
+            "Leading/trailing/multiple spaces collapsed"
+        )
+        # Truncation at 80 chars
+        long_text = "a " * 50  # 100 chars before slugify
+        assert len(_slugify(long_text)) <= 80, "Slug must be truncated to 80 chars"
+
+    def test_open_listing_resolves_jd_file_via_slug_convention(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        When the operator presses 'o' to open a JD
+        Then the review session finds the JD file using the
+        rank/company/title slug convention, not external_id
+        """
+        from unittest.mock import patch as mock_patch
+
+        from jobsearch_rag.cli import _slugify
+        from jobsearch_rag.pipeline.review import ReviewSession
+
+        # Given: A JD file named with the slug convention at rank 3
+        jd_dir = tmp_path / "jds"
+        jd_dir.mkdir()
+        company = "Acme Corp"
+        title = "Staff Architect"
+        slug_name = f"003_{_slugify(company)}_{_slugify(title)}.md"
+        (jd_dir / slug_name).write_text("## Job Description\nFull JD here.")
+
+        ranked = _make_ranked(title=title, company=company, external_id="zr-42")
+        recorder = MagicMock()
+        recorder.get_decision = MagicMock(return_value=None)
+        session = ReviewSession(
+            ranked_listings=[ranked],
+            recorder=recorder,
+            jd_dir=str(jd_dir),
+        )
+
+        # When: open_listing is called with the rank
+        with mock_patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_open:
+            session.open_listing(ranked, rank=3)
+            mock_open.assert_called_once()
+            opened_path = mock_open.call_args[0][0]
+
+        # Then: It opened the slug-based JD file, not external_id.md
+        assert slug_name in opened_path, (
+            f"Expected slug-based filename '{slug_name}' in opened path, "
+            f"got: {opened_path}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestReviewCommandHandler
+# ---------------------------------------------------------------------------
+
+
+class TestReviewCommandHandler:
+    """
+    REQUIREMENT: The review CLI handler wires dependencies, loads CSV,
+    and drives the interactive loop so every operator action produces
+    the correct output and side-effect.
+
+    WHO: The operator running `python -m jobsearch_rag review`
+    WHAT: Missing CSV prints 'No results found' and exits; CSV rows are
+          faithfully reconstructed as RankedListings with all fields;
+          all-decided state prints 'nothing to review'; the undecided
+          count and command help are printed before the first listing;
+          'q' stops review and reports how many were reviewed; 's' skips
+          to the next listing without recording; 'y'/'n'/'m' records
+          and prints confirmation (with reason when provided); 'o'
+          delegates to session.open_listing with rank; invalid input
+          reprints the command list; EOF/Ctrl-C is treated as quit;
+          reviewing all listings prints 'Review complete'
+    WHY: The handler is the orchestration boundary between user input
+         and domain logic — untested wiring means the operator gets
+         silent failures, missing output, or wired-wrong dependencies
+         that only surface in production
+    """
+
+    _CSV_FIELDS = [
+        "title", "company", "board", "location", "url",
+        "fit_score", "archetype_score", "history_score",
+        "comp_score", "final_score", "comp_min", "comp_max",
+        "disqualified", "disqualifier_reason",
+    ]
+
+    @staticmethod
+    def _csv_row(**overrides: str) -> dict[str, str]:
+        """Build a CSV row dict with sensible defaults."""
+        row: dict[str, str] = {
+            "title": "Staff Architect",
+            "company": "Acme Corp",
+            "board": "ziprecruiter",
+            "location": "Remote",
+            "url": "https://example.org/job-1",
+            "fit_score": "0.85",
+            "archetype_score": "0.90",
+            "history_score": "0.50",
+            "comp_score": "0.60",
+            "final_score": "0.82",
+            "comp_min": "",
+            "comp_max": "",
+            "disqualified": "",
+            "disqualifier_reason": "",
+        }
+        row.update(overrides)
+        return row
+
+    @classmethod
+    def _write_csv(cls, csv_path: Path, rows: list[dict[str, str]]) -> None:
+        """Write a list of row dicts to a CSV file."""
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=cls._CSV_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    @pytest.fixture()
+    def review(self, tmp_path: Path):
+        """Temp output dir, settings, mock recorder, and active patches."""
+        out_dir = tmp_path / "output"
+        out_dir.mkdir()
+        (out_dir / "jds").mkdir()
+
+        settings = Settings(
+            enabled_boards=["testboard"],
+            overnight_boards=[],
+            boards={
+                "testboard": BoardConfig(
+                    name="testboard",
+                    searches=["https://example.org/search"],
+                    max_pages=2,
+                    headless=True,
+                ),
+            },
+            scoring=ScoringConfig(),
+            ollama=OllamaConfig(),
+            output=OutputConfig(output_dir=str(out_dir)),
+            chroma=ChromaConfig(persist_dir=str(tmp_path / "chroma")),
+            resume_path="data/resume.md",
+            archetypes_path="config/role_archetypes.toml",
+        )
+
+        recorder = MagicMock()
+        recorder.get_decision = MagicMock(return_value=None)
+        recorder.record = AsyncMock()
+
+        with (
+            patch("jobsearch_rag.config.load_settings", return_value=settings),
+            patch("jobsearch_rag.rag.embedder.Embedder"),
+            patch("jobsearch_rag.rag.store.VectorStore"),
+            patch(
+                "jobsearch_rag.rag.decisions.DecisionRecorder",
+                return_value=recorder,
+            ),
+        ):
+            yield {
+                "out_dir": out_dir,
+                "csv_path": out_dir / "results.csv",
+                "recorder": recorder,
+                "args": argparse.Namespace(),
+            }
+
+    # -- Tests ---------------------------------------------------------------
+
+    def test_missing_csv_prints_message_and_exits(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """When results.csv does not exist, print 'No results found' and return."""
+        handle_review(review["args"])
+        assert "No results found" in capsys.readouterr().out
+
+    def test_csv_rows_are_reconstructed_as_ranked_listings(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """CSV fields flow faithfully into RankedListing → display output."""
+        self._write_csv(review["csv_path"], [
+            self._csv_row(
+                title="Data Engineer",
+                company="BigTech",
+                comp_min="180000",
+                comp_max="250000",
+                final_score="0.92",
+                disqualified="true",
+                disqualifier_reason="Requires clearance",
+            ),
+        ])
+        with patch("builtins.input", side_effect=["q"]):
+            handle_review(review["args"])
+        out = capsys.readouterr().out
+        assert "Data Engineer" in out
+        assert "BigTech" in out
+        assert "180,000" in out
+        assert "250,000" in out
+        assert "0.92" in out
+        assert "DISQUALIFIED" in out
+        assert "Requires clearance" in out
+
+    def test_all_decided_prints_nothing_to_review(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """When every listing has a decision, print 'nothing to review'."""
+        self._write_csv(review["csv_path"], [
+            self._csv_row(url="https://example.org/done-1"),
+        ])
+        review["recorder"].get_decision.return_value = {"verdict": "yes"}
+        handle_review(review["args"])
+        assert "nothing to review" in capsys.readouterr().out
+
+    def test_undecided_count_shown_before_first_listing(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The undecided count is printed before any listing display."""
+        self._write_csv(review["csv_path"], [
+            self._csv_row(title="Job A", url="https://example.org/a"),
+            self._csv_row(title="Job B", url="https://example.org/b"),
+        ])
+        with patch("builtins.input", side_effect=["q"]):
+            handle_review(review["args"])
+        assert "2 undecided listing(s)" in capsys.readouterr().out
+
+    def test_quit_input_stops_review_and_prints_count(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Entering 'q' immediately stops review and reports 0 reviewed."""
+        self._write_csv(review["csv_path"], [self._csv_row()])
+        with patch("builtins.input", side_effect=["q"]):
+            handle_review(review["args"])
+        out = capsys.readouterr().out
+        assert "Review stopped" in out
+        assert "0 listing(s) reviewed" in out
+
+    def test_skip_input_advances_to_next_listing(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Entering 's' advances to the next listing without recording."""
+        self._write_csv(review["csv_path"], [
+            self._csv_row(title="First Job", final_score="0.90",
+                          url="https://example.org/j1"),
+            self._csv_row(title="Second Job", final_score="0.80",
+                          url="https://example.org/j2"),
+        ])
+        with patch("builtins.input", side_effect=["s", "q"]):
+            handle_review(review["args"])
+        out = capsys.readouterr().out
+        assert "Second Job" in out  # skip advanced past first
+        review["recorder"].record.assert_not_called()
+
+    def test_yes_verdict_records_and_prints_confirmation(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Entering 'y' + a reason records the verdict and prints confirmation."""
+        self._write_csv(review["csv_path"], [self._csv_row()])
+        with patch("builtins.input", side_effect=["y", "Good fit"]):
+            handle_review(review["args"])
+        out = capsys.readouterr().out
+        assert "Recorded: y" in out
+        assert "Good fit" in out
+        review["recorder"].record.assert_called_once()
+
+    def test_verdict_without_reason_prints_short_confirmation(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Entering a verdict then Enter (empty reason) omits the reason suffix."""
+        self._write_csv(review["csv_path"], [self._csv_row()])
+        with patch("builtins.input", side_effect=["n", ""]):
+            handle_review(review["args"])
+        out = capsys.readouterr().out
+        assert "Recorded: n" in out
+        assert "Recorded: n —" not in out
+
+    def test_invalid_input_reprints_help(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Unrecognised input reprints the valid command list."""
+        self._write_csv(review["csv_path"], [self._csv_row()])
+        with patch("builtins.input", side_effect=["x", "q"]):
+            handle_review(review["args"])
+        assert "Invalid input" in capsys.readouterr().out
+
+    def test_all_reviewed_prints_completion_message(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """After every undecided listing gets a verdict, print 'Review complete'."""
+        self._write_csv(review["csv_path"], [self._csv_row()])
+        with patch("builtins.input", side_effect=["y", ""]):
+            handle_review(review["args"])
+        assert "Review complete" in capsys.readouterr().out
+
+    def test_eof_during_input_treated_as_quit(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """EOFError on input() is treated identically to entering 'q'."""
+        self._write_csv(review["csv_path"], [self._csv_row()])
+        with patch("builtins.input", side_effect=EOFError):
+            handle_review(review["args"])
+        assert "Review stopped" in capsys.readouterr().out
+
+    def test_open_delegates_to_session_open_listing(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Entering 'o' delegates to ReviewSession.open_listing."""
+        self._write_csv(review["csv_path"], [
+            self._csv_row(url="https://example.org/open-me"),
+        ])
+        with (
+            patch("builtins.input", side_effect=["o", "q"]),
+            patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_wb,
+        ):
+            handle_review(review["args"])
+        mock_wb.assert_called_once()
+
+    def test_eof_during_reason_prompt_records_empty_reason(
+        self, review: dict, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """EOFError on the reason prompt records the verdict with an empty reason."""
+        self._write_csv(review["csv_path"], [self._csv_row()])
+        # First input() → "y" (verdict), second input() → EOFError (reason)
+        with patch("builtins.input", side_effect=["y", EOFError]):
+            handle_review(review["args"])
+        out = capsys.readouterr().out
+        assert "Recorded: y" in out
+        assert "Recorded: y —" not in out
+        review["recorder"].record.assert_called_once()

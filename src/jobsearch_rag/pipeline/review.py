@@ -118,11 +118,24 @@ class ReviewSession:
             reason=reason,
         )
 
-    def open_listing(self, ranked: RankedListing) -> None:
-        """Open the listing's JD file or URL in the system browser."""
+    def open_listing(self, ranked: RankedListing, *, rank: int = 0) -> None:
+        """Open the listing's JD file or URL in the system browser.
+
+        When *rank* is provided the JD file is located using the
+        ``{rank:03d}_{company_slug}_{title_slug}.md`` convention.
+        Falls back to the listing URL if the file does not exist.
+        """
+        from jobsearch_rag.cli import _slugify
+
         listing = ranked.listing
-        # Try JD file first
-        jd_path = Path(self._jd_dir) / f"{listing.external_id}.md"
+        if rank:
+            company_slug = _slugify(listing.company)
+            title_slug = _slugify(listing.title)
+            filename = f"{rank:03d}_{company_slug}_{title_slug}.md"
+            jd_path = Path(self._jd_dir) / filename
+        else:
+            # Legacy fallback — external_id-based lookup
+            jd_path = Path(self._jd_dir) / f"{listing.external_id}.md"
         if jd_path.exists():
             webbrowser.open(str(jd_path))
         else:
