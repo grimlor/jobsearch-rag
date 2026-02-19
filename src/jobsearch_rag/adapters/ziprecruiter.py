@@ -485,6 +485,41 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                         break
 
                 except Exception as exc:
+                    # The wait_for timeout may fire even though the panel
+                    # eventually rendered with throttle text.  Try reading
+                    # the panel before giving up — if it *is* a throttle
+                    # response, enter the backoff/retry loop instead of
+                    # immediately falling back to the short description.
+                    try:
+                        late_text = await panel_locator.inner_text()
+                    except Exception:
+                        late_text = ""
+
+                    if is_throttle_response(late_text):
+                        consecutive_throttles += 1
+                        backoff = _THROTTLE_BASE_DELAY * (
+                            2 ** (consecutive_throttles - 1)
+                        )
+                        logger.warning(
+                            "Throttle detected (late) for %s (retry %d/%d, "
+                            "backoff %.1fs): %s",
+                            listing.external_id,
+                            retry + 1,
+                            _THROTTLE_MAX_RETRIES,
+                            backoff,
+                            listing.url,
+                        )
+                        if retry < _THROTTLE_MAX_RETRIES:
+                            await asyncio.sleep(backoff)
+                            continue
+                        else:
+                            logger.warning(
+                                "Max retries exhausted for %s — skipping",
+                                listing.external_id,
+                            )
+                            self._apply_short_description_fallback(listing)
+                            break
+
                     logger.warning(
                         "Click-through failed for card %d (%s): %s",
                         i + 1,

@@ -112,9 +112,14 @@ def handle_search(args: argparse.Namespace) -> None:
 
     from jobsearch_rag.config import load_settings
     from jobsearch_rag.export import CSVExporter, JDFileExporter, MarkdownExporter
+    from jobsearch_rag.logging import configure_file_logging
     from jobsearch_rag.pipeline.runner import PipelineRunner
 
     settings = load_settings()
+
+    log_dir = Path(settings.chroma.persist_dir).parent / "logs"
+    configure_file_logging(str(log_dir))
+
     runner = PipelineRunner(settings)
 
     boards = [args.board] if args.board else None

@@ -261,3 +261,77 @@ class TestThrottleDetection:
             await adapter._click_through_cards(page, [listing])
 
         assert listing.full_text.strip() == _REAL_JD.strip()
+
+    @pytest.mark.asyncio
+    async def test_timeout_with_late_throttle_text_triggers_backoff(self) -> None:
+        """When ``wait_for`` times out but the panel rendered throttle text
+        after the timeout, the adapter detects the throttle on the late
+        read and retries with backoff instead of immediately falling back."""
+        adapter = ZipRecruiterAdapter()
+        listing = _make_listing()
+
+        # wait_for raises TimeoutError, but inner_text returns throttle text
+        # on the first "late" read, then real JD on the retry.
+        panel_mock = AsyncMock()
+        panel_mock.wait_for = AsyncMock(
+            side_effect=[TimeoutError("5000ms exceeded"), None]
+        )
+        panel_mock.inner_text = AsyncMock(
+            side_effect=[_THROTTLE_TEXT, _REAL_JD]
+        )
+
+        card_mock = AsyncMock()
+        card_mock.click = AsyncMock()
+        card_locator = MagicMock()
+        card_locator.count = AsyncMock(return_value=1)
+        card_locator.nth = MagicMock(return_value=card_mock)
+
+        page = MagicMock()
+        page.locator = MagicMock(side_effect=[card_locator, panel_mock])
+
+        with patch(
+            "jobsearch_rag.adapters.ziprecruiter.asyncio.sleep",
+            new_callable=AsyncMock,
+        ):
+            await adapter._click_through_cards(page, [listing])
+
+        # The retry should have succeeded with real JD
+        assert listing.full_text.strip() == _REAL_JD.strip()
+
+    @pytest.mark.asyncio
+    async def test_timeout_without_throttle_text_falls_back_immediately(
+        self,
+    ) -> None:
+        """When ``wait_for`` times out and the late panel read also fails
+        or returns non-throttle content, the adapter falls back to the
+        short description without retrying."""
+        adapter = ZipRecruiterAdapter()
+        listing = _make_listing()
+        listing.metadata["short_description"] = "Short desc for fallback"
+
+        # wait_for raises, and late inner_text also raises
+        panel_mock = AsyncMock()
+        panel_mock.wait_for = AsyncMock(
+            side_effect=TimeoutError("5000ms exceeded")
+        )
+        panel_mock.inner_text = AsyncMock(
+            side_effect=Exception("element detached")
+        )
+
+        card_mock = AsyncMock()
+        card_mock.click = AsyncMock()
+        card_locator = MagicMock()
+        card_locator.count = AsyncMock(return_value=1)
+        card_locator.nth = MagicMock(return_value=card_mock)
+
+        page = MagicMock()
+        page.locator = MagicMock(side_effect=[card_locator, panel_mock])
+
+        with patch(
+            "jobsearch_rag.adapters.ziprecruiter.asyncio.sleep",
+            new_callable=AsyncMock,
+        ):
+            await adapter._click_through_cards(page, [listing])
+
+        # Should have used the short description fallback
+        assert "Short desc for fallback" in listing.full_text
