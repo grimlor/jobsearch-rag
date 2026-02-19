@@ -594,6 +594,152 @@ class TestDisqualifierClassification:
 
 
 # ---------------------------------------------------------------------------
+# TestRejectionReasonInjection
+# ---------------------------------------------------------------------------
+
+
+class TestRejectionReasonInjection:
+    """REQUIREMENT: Past rejection reasons are injected into the disqualifier prompt.
+
+    WHO: The scorer augmenting the LLM system prompt with learned patterns
+    WHAT: When 'no' verdicts with reasons exist, the disqualifier prompt
+          includes those reasons so the LLM applies them to new JDs;
+          empty reasons are omitted; duplicate reasons appear once;
+          missing decisions collection returns no reasons;
+          results are cached per Scorer instance
+    WHY: Without injection, the operator must repeatedly reject the same
+         patterns — the system should learn from past 'no' verdicts
+    """
+
+    async def test_rejection_reasons_appear_in_disqualifier_prompt(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN past 'no' verdicts with reasons in the decisions collection
+        WHEN the disqualifier runs
+        THEN the LLM prompt includes those reasons as additional disqualifier patterns.
+        """
+        # Seed decisions with rejection reasons
+        populated_store.add_documents(
+            collection_name="decisions",
+            ids=["decision-rej-1", "decision-rej-2"],
+            documents=["On-call SRE role", "On-site only role"],
+            embeddings=[EMBED_UNRELATED_JD, EMBED_DATA_ENG],
+            metadatas=[
+                {"verdict": "no", "reason": "Requires on-call rotation"},
+                {"verdict": "no", "reason": "No remote option"},
+            ],
+        )
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        await scorer.disqualify("Some new JD text")
+        prompt_sent = mock_embedder.classify.call_args[0][0]
+        assert "Requires on-call rotation" in prompt_sent
+        assert "No remote option" in prompt_sent
+
+    async def test_yes_verdicts_not_injected_into_disqualifier(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN 'yes' verdicts with reasons
+        WHEN the disqualifier runs
+        THEN those reasons are NOT injected — only 'no' reasons are rejection patterns.
+        """
+        populated_store.add_documents(
+            collection_name="decisions",
+            ids=["decision-yes-1"],
+            documents=["Great role"],
+            embeddings=[EMBED_ARCH_JD],
+            metadatas=[
+                {"verdict": "yes", "reason": "Fully remote architecture leadership"},
+            ],
+        )
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        await scorer.disqualify("Some JD")
+        prompt_sent = mock_embedder.classify.call_args[0][0]
+        assert "Fully remote architecture leadership" not in prompt_sent
+
+    async def test_empty_reasons_are_omitted_from_prompt(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN 'no' verdicts where reason is empty
+        WHEN the disqualifier runs
+        THEN no rejection-reasons block is added to the prompt.
+        """
+        populated_store.add_documents(
+            collection_name="decisions",
+            ids=["decision-noreason"],
+            documents=["Role rejected without explanation"],
+            embeddings=[EMBED_UNRELATED_JD],
+            metadatas=[{"verdict": "no", "reason": ""}],
+        )
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        await scorer.disqualify("Any JD")
+        prompt_sent = mock_embedder.classify.call_args[0][0]
+        assert "rejected roles" not in prompt_sent
+
+    async def test_duplicate_reasons_appear_once(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN multiple 'no' verdicts with the same reason
+        WHEN the disqualifier runs
+        THEN each unique reason appears only once in the prompt.
+        """
+        populated_store.add_documents(
+            collection_name="decisions",
+            ids=["decision-dup-1", "decision-dup-2"],
+            documents=["Role A", "Role B"],
+            embeddings=[EMBED_UNRELATED_JD, EMBED_DATA_ENG],
+            metadatas=[
+                {"verdict": "no", "reason": "On-call required"},
+                {"verdict": "no", "reason": "On-call required"},
+            ],
+        )
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        await scorer.disqualify("Some JD")
+        prompt_sent = mock_embedder.classify.call_args[0][0]
+        assert prompt_sent.count("On-call required") == 1
+
+    async def test_missing_decisions_collection_returns_no_reasons(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN no decisions collection
+        WHEN the disqualifier runs
+        THEN no rejection-reasons block is added and scoring proceeds normally.
+        """
+        # populated_store has resume + archetypes but NO decisions
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        await scorer.disqualify("Any JD")
+        prompt_sent = mock_embedder.classify.call_args[0][0]
+        assert "rejected roles" not in prompt_sent
+
+    async def test_rejection_reasons_are_cached_per_scorer_instance(
+        self, populated_store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN a Scorer with cached rejection reasons
+        WHEN disqualify is called multiple times
+        THEN get_by_metadata is only called once (cached after first call).
+        """
+        populated_store.add_documents(
+            collection_name="decisions",
+            ids=["decision-cache-1"],
+            documents=["Cached role"],
+            embeddings=[EMBED_UNRELATED_JD],
+            metadatas=[{"verdict": "no", "reason": "Requires clearance"}],
+        )
+        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        # First call — populates cache
+        await scorer.disqualify("JD one")
+        # Second call — should use cache
+        await scorer.disqualify("JD two")
+        # The reasons should appear in both prompts
+        first_prompt = mock_embedder.classify.call_args_list[0][0][0]
+        second_prompt = mock_embedder.classify.call_args_list[1][0][0]
+        assert "Requires clearance" in first_prompt
+        assert "Requires clearance" in second_prompt
+        # Verify caching — the internal list should be the same object
+        assert scorer._cached_rejection_reasons is not None
+        assert len(scorer._cached_rejection_reasons) == 1
+
+
+# ---------------------------------------------------------------------------
 # TestScoreFusion (Phase 3 — Ranker)
 # ---------------------------------------------------------------------------
 

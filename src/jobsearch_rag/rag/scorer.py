@@ -145,6 +145,7 @@ class Scorer:
         self._store = store
         self._embedder = embedder
         self._disqualify_on_llm_flag = disqualify_on_llm_flag
+        self._cached_rejection_reasons: list[str] | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -214,11 +215,27 @@ class Scorer:
     async def disqualify(self, jd_text: str) -> tuple[bool, str | None]:
         """Run the LLM disqualifier prompt. Returns ``(disqualified, reason)``.
 
+        Past rejection reasons from "no" verdicts are injected into the
+        system prompt so the LLM learns the operator's personal
+        dealbreakers over time.  This makes decided reasons a *training
+        signal* — e.g. if you previously rejected a role for "requires
+        on-call rotation", future roles with on-call duties are flagged.
+
         If the LLM response is not valid JSON, the role is kept (safe
         default) and a warning is logged with the raw response so the
         prompt engineer can diagnose.
         """
-        raw = await self._embedder.classify(_DISQUALIFIER_SYSTEM_PROMPT + "\n\n" + jd_text)
+        prompt = _DISQUALIFIER_SYSTEM_PROMPT
+        rejection_reasons = self._get_rejection_reasons()
+        if rejection_reasons:
+            prompt += (
+                "\n\nThe operator has also rejected roles for these personal reasons "
+                "in the past.  Disqualify if this role clearly matches any of "
+                "these patterns:\n"
+            )
+            for r in rejection_reasons:
+                prompt += f"- {r}\n"
+        raw = await self._embedder.classify(prompt + "\n\n" + jd_text)
         return self._parse_disqualifier_response(raw)
 
     # ------------------------------------------------------------------
@@ -261,6 +278,43 @@ class Scorer:
         )
         distances: list[float] = results.get("distances", [[]])[0]
         return _distance_to_score(distances)
+
+    def _get_rejection_reasons(self) -> list[str]:
+        """Collect non-empty reasons from 'no' verdicts in the decisions collection.
+
+        Results are cached for the lifetime of the Scorer instance (one
+        search run) to avoid repeated ChromaDB queries.
+        """
+        if self._cached_rejection_reasons is not None:
+            return self._cached_rejection_reasons
+
+        reasons: list[str] = []
+        try:
+            results = self._store.get_by_metadata(
+                "decisions",
+                where={"verdict": "no"},
+                include=["metadatas"],
+            )
+            for meta in results.get("metadatas", []):
+                if meta and meta.get("reason"):
+                    reasons.append(str(meta["reason"]))
+        except ActionableError:
+            pass  # No decisions collection yet — normal on first run
+
+        # Deduplicate while preserving order
+        seen: set[str] = set()
+        unique: list[str] = []
+        for r in reasons:
+            if r not in seen:
+                seen.add(r)
+                unique.append(r)
+
+        self._cached_rejection_reasons = unique
+        logger.debug(
+            "Loaded %d rejection reason(s) for disqualifier augmentation",
+            len(unique),
+        )
+        return unique
 
     @staticmethod
     def _parse_disqualifier_response(raw: str) -> tuple[bool, str | None]:

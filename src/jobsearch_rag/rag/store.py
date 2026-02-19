@@ -148,6 +148,27 @@ class VectorStore:
         result = collection.get(ids=ids, include=["documents", "metadatas"])
         return dict(result)
 
+    def get_by_metadata(
+        self,
+        collection_name: str,
+        *,
+        where: dict[str, Any],
+        include: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Retrieve documents matching a metadata filter.
+
+        Uses ChromaDB's ``where`` filter syntax (e.g.
+        ``{"verdict": "no"}``).  Returns a dict with keys matching
+        ChromaDB's native format (``ids``, ``metadatas``, etc.).
+
+        Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
+        if the collection does not exist.
+        """
+        collection = self._get_existing_collection(collection_name)
+        include = include or ["metadatas"]
+        result = collection.get(where=where, include=include)  # type: ignore[arg-type]
+        return dict(result)
+
     # -- Similarity query ----------------------------------------------------
 
     def query(

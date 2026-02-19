@@ -323,3 +323,82 @@ class TestStoreErrors:
         assert err.error_type == ErrorType.INDEX
         assert err.suggestion is not None
         assert err.troubleshooting is not None
+
+
+# ---------------------------------------------------------------------------
+# TestMetadataQuery
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataQuery:
+    """REQUIREMENT: Documents can be retrieved by metadata filter.
+
+    WHO: The scorer retrieving past rejection reasons for disqualifier augmentation
+    WHAT: get_by_metadata returns only documents matching the where clause;
+          nonexistent collections raise an actionable INDEX error
+    WHY: The disqualifier prompt needs past 'no' reasons to learn the operator's
+         personal rejection patterns — metadata queries make this possible
+    """
+
+    def test_get_by_metadata_returns_matching_documents(
+        self, populated_store: VectorStore
+    ) -> None:
+        """GIVEN a collection with mixed metadata values
+        WHEN get_by_metadata filters on a specific value
+        THEN only matching documents are returned.
+        """
+        # Add documents with different verdict metadata
+        populated_store.add_documents(
+            collection_name="decisions",
+            ids=["decision-1", "decision-2", "decision-3"],
+            documents=["Great role", "Bad role", "Another bad role"],
+            embeddings=[EMBED_1, EMBED_2, EMBED_3],
+            metadatas=[
+                {"verdict": "yes", "reason": ""},
+                {"verdict": "no", "reason": "on-call required"},
+                {"verdict": "no", "reason": "fully on-site"},
+            ],
+        )
+        results = populated_store.get_by_metadata(
+            "decisions",
+            where={"verdict": "no"},
+            include=["metadatas"],
+        )
+        assert len(results["ids"]) == 2
+        reasons = [m["reason"] for m in results["metadatas"]]
+        assert "on-call required" in reasons
+        assert "fully on-site" in reasons
+
+    def test_get_by_metadata_returns_empty_when_no_match(
+        self, populated_store: VectorStore
+    ) -> None:
+        """GIVEN a collection with documents
+        WHEN get_by_metadata filters on a value that matches nothing
+        THEN an empty result is returned.
+        """
+        populated_store.add_documents(
+            collection_name="decisions",
+            ids=["decision-only-yes"],
+            documents=["A good role"],
+            embeddings=[EMBED_1],
+            metadatas=[{"verdict": "yes", "reason": ""}],
+        )
+        results = populated_store.get_by_metadata(
+            "decisions",
+            where={"verdict": "no"},
+            include=["metadatas"],
+        )
+        assert len(results["ids"]) == 0
+
+    def test_get_by_metadata_nonexistent_collection_raises_index_error(
+        self, store: VectorStore
+    ) -> None:
+        """Querying metadata on a nonexistent collection raises an actionable INDEX error."""
+        with pytest.raises(ActionableError) as exc_info:
+            store.get_by_metadata(
+                "nonexistent_collection",
+                where={"verdict": "no"},
+            )
+        err = exc_info.value
+        assert err.error_type == ErrorType.INDEX
+        assert err.suggestion is not None

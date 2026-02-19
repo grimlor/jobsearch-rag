@@ -114,6 +114,42 @@ class TestDecisionRecording:
         assert decision is not None
         assert decision["reason"] == ""
 
+    async def test_reason_enriches_embedding_vector(
+        self, recorder: DecisionRecorder, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN a verdict with a reason
+        WHEN the decision is recorded
+        THEN the embedder receives JD text + reason so the vector captures operator intent.
+        """
+        jd = "Staff Platform Architect role at Acme Corp."
+        reason = "Fully remote with architecture leadership"
+        await recorder.record(
+            job_id="zr-enrich",
+            verdict="yes",
+            jd_text=jd,
+            board="ziprecruiter",
+            reason=reason,
+        )
+        mock_embedder.embed.assert_called_once_with(
+            f"{jd}\n\nOperator reasoning: {reason}"
+        )
+
+    async def test_empty_reason_does_not_enrich_embedding(
+        self, recorder: DecisionRecorder, mock_embedder: Embedder
+    ) -> None:
+        """GIVEN a verdict with no reason
+        WHEN the decision is recorded
+        THEN the embedder receives only the bare JD text — no enrichment suffix.
+        """
+        jd = "Staff Platform Architect role at Acme Corp."
+        await recorder.record(
+            job_id="zr-bare",
+            verdict="yes",
+            jd_text=jd,
+            board="ziprecruiter",
+        )
+        mock_embedder.embed.assert_called_once_with(jd)
+
     async def test_no_verdict_is_stored_but_excluded_from_scoring_signal(
         self, recorder: DecisionRecorder
     ) -> None:

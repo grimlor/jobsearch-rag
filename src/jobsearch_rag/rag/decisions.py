@@ -129,8 +129,14 @@ class DecisionRecorder:
                 suggestion="Ensure the job listing has full_text before recording a decision",
             )
 
-        # Embed the JD text
-        embedding = await self._embedder.embed(jd_text)
+        # Embed the JD text, enriched with reason when provided.
+        # Appending the reason shifts the embedding vector so that future
+        # similarity queries reflect *why* the operator liked or rejected
+        # a role, not just what the role contained.
+        embed_text = jd_text
+        if reason:
+            embed_text = f"{jd_text}\n\nOperator reasoning: {reason}"
+        embedding = await self._embedder.embed(embed_text)
 
         # Determine whether this verdict participates in scoring
         scoring_signal = "true" if verdict == "yes" else "false"
