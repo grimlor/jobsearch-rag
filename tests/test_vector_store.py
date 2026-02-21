@@ -98,9 +98,7 @@ class TestCollectionLifecycle:
         store.get_or_create_collection("empty")
         assert store.collection_count("empty") == 0
 
-    def test_collection_count_reflects_added_documents(
-        self, populated_store: VectorStore
-    ) -> None:
+    def test_collection_count_reflects_added_documents(self, populated_store: VectorStore) -> None:
         """Document count matches the number of documents added."""
         assert populated_store.collection_count("test_collection") == 3
 
@@ -109,9 +107,7 @@ class TestCollectionLifecycle:
         populated_store.reset_collection("test_collection")
         assert populated_store.collection_count("test_collection") == 0
 
-    def test_reset_nonexistent_collection_does_not_raise(
-        self, store: VectorStore
-    ) -> None:
+    def test_reset_nonexistent_collection_does_not_raise(self, store: VectorStore) -> None:
         """Resetting a collection that doesn't exist is a safe no-op."""
         store.reset_collection("never_existed")  # Should not raise
 
@@ -132,9 +128,7 @@ class TestDocumentOperations:
          prevents score explanation and debugging
     """
 
-    def test_documents_are_retrievable_by_id(
-        self, populated_store: VectorStore
-    ) -> None:
+    def test_documents_are_retrievable_by_id(self, populated_store: VectorStore) -> None:
         """Documents added to a collection can be retrieved by their IDs."""
         result = populated_store.get_documents("test_collection", ids=["doc-1"])
         assert len(result["documents"]) == 1
@@ -145,9 +139,7 @@ class TestDocumentOperations:
         result = populated_store.get_documents("test_collection", ids=["doc-3"])
         assert result["metadatas"][0]["section"] == "skills"
 
-    def test_add_with_duplicate_id_updates_document(
-        self, populated_store: VectorStore
-    ) -> None:
+    def test_add_with_duplicate_id_updates_document(self, populated_store: VectorStore) -> None:
         """Adding a document with an existing ID updates it rather than creating a duplicate."""
         populated_store.add_documents(
             collection_name="test_collection",
@@ -194,9 +186,7 @@ class TestSimilarityQuery:
          the most dangerous class of bug in the system
     """
 
-    def test_query_returns_most_similar_document_first(
-        self, populated_store: VectorStore
-    ) -> None:
+    def test_query_returns_most_similar_document_first(self, populated_store: VectorStore) -> None:
         """Querying with architect-like vector returns the architect document first."""
         results = populated_store.query(
             collection_name="test_collection",
@@ -206,9 +196,7 @@ class TestSimilarityQuery:
         # doc-1 (architect) should be most similar to EMBED_1
         assert results["ids"][0][0] == "doc-1"
 
-    def test_query_returns_similarity_distances(
-        self, populated_store: VectorStore
-    ) -> None:
+    def test_query_returns_similarity_distances(self, populated_store: VectorStore) -> None:
         """Query results include distance scores as a list of floats."""
         results = populated_store.query(
             collection_name="test_collection",
@@ -219,9 +207,7 @@ class TestSimilarityQuery:
         assert len(distances) == 2
         assert all(isinstance(d, float) for d in distances)
 
-    def test_n_results_limits_output(
-        self, populated_store: VectorStore
-    ) -> None:
+    def test_n_results_limits_output(self, populated_store: VectorStore) -> None:
         """Requesting fewer results than available limits the output correctly."""
         results = populated_store.query(
             collection_name="test_collection",
@@ -230,9 +216,7 @@ class TestSimilarityQuery:
         )
         assert len(results["ids"][0]) == 1
 
-    def test_query_empty_collection_returns_empty(
-        self, store: VectorStore
-    ) -> None:
+    def test_query_empty_collection_returns_empty(self, store: VectorStore) -> None:
         """Querying an empty collection returns an empty result, not an error."""
         store.get_or_create_collection("empty")
         results = store.query(
@@ -242,9 +226,7 @@ class TestSimilarityQuery:
         )
         assert results["ids"][0] == []
 
-    def test_query_includes_document_text_and_metadata(
-        self, populated_store: VectorStore
-    ) -> None:
+    def test_query_includes_document_text_and_metadata(self, populated_store: VectorStore) -> None:
         """Query results include the original document text and metadata."""
         results = populated_store.query(
             collection_name="test_collection",
@@ -287,9 +269,7 @@ class TestStoreErrors:
         assert err.troubleshooting is not None
         assert len(err.troubleshooting.steps) > 0
 
-    def test_index_error_names_collection_and_provides_guidance(
-        self, store: VectorStore
-    ) -> None:
+    def test_index_error_names_collection_and_provides_guidance(self, store: VectorStore) -> None:
         """The INDEX error names the collection and provides step-by-step guidance."""
         with pytest.raises(ActionableError) as exc_info:
             store.query(
@@ -313,9 +293,7 @@ class TestStoreErrors:
         assert err.suggestion is not None
         assert err.troubleshooting is not None
 
-    def test_collection_count_nonexistent_provides_guidance(
-        self, store: VectorStore
-    ) -> None:
+    def test_collection_count_nonexistent_provides_guidance(self, store: VectorStore) -> None:
         """Checking count of a nonexistent collection provides actionable guidance."""
         with pytest.raises(ActionableError) as exc_info:
             store.collection_count("nonexistent")

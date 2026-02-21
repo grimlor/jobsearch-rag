@@ -1,6 +1,7 @@
-"""Indexer tests — resume chunking and archetype ingestion.
+"""Indexer tests — resume chunking, archetype ingestion, and negative signal indexing.
 
-Maps to BDD specs: TestResumeIndexing, TestArchetypeIndexing
+Maps to BDD specs: TestResumeIndexing, TestArchetypeIndexing,
+TestArchetypeEmbeddingSynthesis, TestGlobalRubricLoading, TestNegativeSignalIndexing
 
 The Indexer coordinates VectorStore and Embedder to ingest documents.
 VectorStore is tested with a real temp-directory instance; Embedder
@@ -18,7 +19,7 @@ import pytest
 
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.indexer import Indexer
+from jobsearch_rag.rag.indexer import Indexer, build_archetype_embedding_text
 from jobsearch_rag.rag.store import VectorStore
 
 if TYPE_CHECKING:
@@ -83,6 +84,54 @@ SAMPLE_ARCHETYPES_TOML = textwrap.dedent("""\
     \"\"\"
 """)
 
+SAMPLE_ARCHETYPES_WITH_SIGNALS_TOML = textwrap.dedent("""\
+    [[archetypes]]
+    name = "Staff Platform Architect"
+    description = \"\"\"
+    Defines technical strategy for distributed systems.
+    Cross-team influence. Cloud-native infrastructure.
+    \"\"\"
+    signals_positive = [
+        "Cross-team architecture ownership",
+        "Distributed systems design",
+    ]
+    signals_negative = [
+        "Primarily hands-on feature development",
+        "No cross-team scope mentioned",
+    ]
+
+    [[archetypes]]
+    name = "Principal Data Engineer"
+    description = \"\"\"
+    Leads data pipeline architecture and platform governance.
+    Deep experience with cloud data stacks.
+    \"\"\"
+    signals_positive = [
+        "Data pipeline architecture ownership",
+        "Cloud data stack expertise",
+    ]
+    signals_negative = [
+        "Data analyst or BI developer role",
+        "Junior data engineering with no architecture",
+    ]
+""")
+
+SAMPLE_RUBRIC_TOML = textwrap.dedent("""\
+    [[dimensions]]
+    name = "Role Scope"
+    signals_negative = [
+        "IC coding role disguised with architect title",
+        "No cross-team influence mentioned",
+    ]
+
+    [[dimensions]]
+    name = "Industry Alignment"
+    signals_negative = [
+        "Adtech or surveillance platform",
+        "Gambling technology",
+    ]
+""")
+
 
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
@@ -123,6 +172,22 @@ def archetypes_path(tmp_path: Path) -> Path:
     """Write sample archetypes to a temp file and return its path."""
     p = tmp_path / "role_archetypes.toml"
     p.write_text(SAMPLE_ARCHETYPES_TOML)
+    return p
+
+
+@pytest.fixture
+def archetypes_with_signals_path(tmp_path: Path) -> Path:
+    """Write sample archetypes with signals to a temp file and return its path."""
+    p = tmp_path / "role_archetypes_signals.toml"
+    p.write_text(SAMPLE_ARCHETYPES_WITH_SIGNALS_TOML)
+    return p
+
+
+@pytest.fixture
+def rubric_path(tmp_path: Path) -> Path:
+    """Write sample global rubric to a temp file and return its path."""
+    p = tmp_path / "global_rubric.toml"
+    p.write_text(SAMPLE_RUBRIC_TOML)
     return p
 
 
@@ -344,7 +409,9 @@ class TestArchetypeIndexing:
         assert err.suggestion is not None
         assert err.troubleshooting is not None
 
-    async def test_missing_archetypes_file_tells_operator_to_create_it(self, indexer: Indexer) -> None:
+    async def test_missing_archetypes_file_tells_operator_to_create_it(
+        self, indexer: Indexer
+    ) -> None:
         """A nonexistent archetypes file tells the operator to create it with actionable guidance."""
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_archetypes("/nonexistent/archetypes.toml")
@@ -361,3 +428,292 @@ class TestArchetypeIndexing:
         assert store.collection_count("role_archetypes") == 2
         await indexer.index_archetypes(str(archetypes_path))
         assert store.collection_count("role_archetypes") == 2
+
+
+# ---------------------------------------------------------------------------
+# TestArchetypeEmbeddingSynthesis
+# ---------------------------------------------------------------------------
+
+
+class TestArchetypeEmbeddingSynthesis:
+    """REQUIREMENT: Archetype embeddings synthesize description + positive signals.
+
+    WHO: The indexer preparing archetype documents for embedding
+    WHAT: When an archetype has ``signals_positive``, the embedding text
+          combines the normalized description with those signals so the
+          resulting vector captures both the narrative and keyword anchors;
+          when signals are absent, the description alone is used
+    WHY: Pure prose descriptions embed well for general similarity but miss
+         specific keyword anchors the scorer needs to distinguish roles —
+         e.g. "cross-team architecture ownership" as a distinct signal
+    """
+
+    def test_synthesis_includes_description_and_signals(self) -> None:
+        """Synthesized text includes both description and positive signals."""
+        archetype: dict[str, object] = {
+            "description": "  Distributed systems architect.  ",
+            "signals_positive": ["Cross-team influence", "API governance"],
+        }
+        result = build_archetype_embedding_text(archetype)
+        assert "Distributed systems architect." in result, (
+            f"Description missing from synthesized text: {result!r}"
+        )
+        assert "Cross-team influence" in result, (
+            f"Signal 'Cross-team influence' missing from synthesized text: {result!r}"
+        )
+        assert "API governance" in result, (
+            f"Signal 'API governance' missing from synthesized text: {result!r}"
+        )
+
+    def test_synthesis_normalizes_description_whitespace(self) -> None:
+        """Extra whitespace in the description is normalized before synthesis."""
+        archetype: dict[str, object] = {
+            "description": "  Lots    of   whitespace   here  ",
+            "signals_positive": ["Signal A"],
+        }
+        result = build_archetype_embedding_text(archetype)
+        assert "  " not in result.split("\n")[0], (
+            f"Double spaces remain in description: {result!r}"
+        )
+
+    def test_synthesis_without_signals_returns_description_only(self) -> None:
+        """An archetype with no signals_positive returns just the normalized description."""
+        archetype: dict[str, object] = {"description": "  A simple role.  "}
+        result = build_archetype_embedding_text(archetype)
+        assert result == "A simple role.", f"Expected clean description only, got: {result!r}"
+
+    def test_synthesis_with_empty_signals_returns_description_only(self) -> None:
+        """An archetype with an empty signals_positive list returns just the description."""
+        archetype: dict[str, object] = {"description": "A role.", "signals_positive": []}
+        result = build_archetype_embedding_text(archetype)
+        assert result == "A role.", f"Expected description only for empty signals, got: {result!r}"
+
+    async def test_index_archetypes_uses_synthesized_text(
+        self, indexer: Indexer, store: VectorStore, archetypes_with_signals_path: Path
+    ) -> None:
+        """index_archetypes() stores the synthesized text (description + signals) as the document."""
+        await indexer.index_archetypes(str(archetypes_with_signals_path))
+        result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
+        doc = result["documents"][0]
+        assert "Cross-team architecture ownership" in doc, (
+            f"Positive signal missing from stored document: {doc!r}"
+        )
+        assert "distributed systems" in doc.lower(), (
+            f"Description content missing from stored document: {doc!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestGlobalRubricLoading
+# ---------------------------------------------------------------------------
+
+
+class TestGlobalRubricLoading:
+    """REQUIREMENT: Global rubric TOML is loaded and parsed for negative signal extraction.
+
+    WHO: The indexer building the negative_signals collection
+    WHAT: Each dimension's signals_negative entries are loaded from
+          global_rubric.toml and used as source material for the
+          negative signals collection; malformed TOML produces a
+          parse error; a missing file produces a config error
+    WHY: The global rubric defines universal evaluation criteria that
+         apply to all listings regardless of archetype — without it,
+         negative scoring is incomplete
+    """
+
+    async def test_rubric_signals_are_loaded_and_indexed(
+        self,
+        indexer: Indexer,
+        store: VectorStore,
+        rubric_path: Path,
+        archetypes_with_signals_path: Path,
+    ) -> None:
+        """Negative signals from the global rubric are indexed into the negative_signals collection."""
+        count = await indexer.index_negative_signals(
+            str(rubric_path), str(archetypes_with_signals_path)
+        )
+        # 4 rubric signals + 4 archetype signals = 8 total
+        assert count == 8, f"Expected 8 negative signals (4 rubric + 4 archetype), got {count}"
+        assert store.collection_count("negative_signals") == 8
+
+    async def test_missing_rubric_file_tells_operator_to_create_it(
+        self, indexer: Indexer, archetypes_with_signals_path: Path
+    ) -> None:
+        """A nonexistent rubric file tells the operator to create it with actionable guidance."""
+        with pytest.raises(ActionableError) as exc_info:
+            await indexer.index_negative_signals(
+                "/nonexistent/rubric.toml", str(archetypes_with_signals_path)
+            )
+        err = exc_info.value
+        assert err.error_type == ErrorType.CONFIG, f"Expected CONFIG error, got {err.error_type}"
+        assert err.suggestion is not None
+        assert err.troubleshooting is not None
+
+    async def test_malformed_rubric_identifies_syntax_error(
+        self, indexer: Indexer, tmp_path: Path, archetypes_with_signals_path: Path
+    ) -> None:
+        """Invalid rubric TOML syntax produces a PARSE error."""
+        bad_rubric = tmp_path / "bad_rubric.toml"
+        bad_rubric.write_text("[[dimensions]\nname = broken")
+        with pytest.raises(ActionableError) as exc_info:
+            await indexer.index_negative_signals(
+                str(bad_rubric), str(archetypes_with_signals_path)
+            )
+        err = exc_info.value
+        assert err.error_type == ErrorType.PARSE, f"Expected PARSE error, got {err.error_type}"
+        assert err.suggestion is not None
+
+
+# ---------------------------------------------------------------------------
+# TestNegativeSignalIndexing
+# ---------------------------------------------------------------------------
+
+
+class TestNegativeSignalIndexing:
+    """REQUIREMENT: Negative signals from rubric and archetypes are indexed for penalty scoring.
+
+    WHO: The scorer computing negative_score for each listing
+    WHAT: Negative signals from both global_rubric.toml dimensions and
+          per-archetype signals_negative are combined into a single
+          negative_signals ChromaDB collection; each signal is individually
+          embedded; metadata tracks the source; re-indexing is idempotent
+    WHY: A JD about adtech should score high on negative signals regardless
+         of which archetype it matches — the global rubric catches universal
+         dealbreakers while archetype negatives catch role-specific mismatches
+    """
+
+    async def test_rubric_and_archetype_negatives_are_combined(
+        self,
+        indexer: Indexer,
+        store: VectorStore,
+        rubric_path: Path,
+        archetypes_with_signals_path: Path,
+    ) -> None:
+        """Both rubric dimensions and archetype signals_negative contribute to the collection."""
+        count = await indexer.index_negative_signals(
+            str(rubric_path), str(archetypes_with_signals_path)
+        )
+        assert count > 0, "Expected at least one negative signal indexed"
+        assert store.collection_count("negative_signals") == count
+
+    async def test_each_signal_is_individually_embedded(
+        self,
+        indexer: Indexer,
+        mock_embedder: Embedder,
+        rubric_path: Path,
+        archetypes_with_signals_path: Path,
+    ) -> None:
+        """Each negative signal text is embedded individually via the Embedder."""
+        count = await indexer.index_negative_signals(
+            str(rubric_path), str(archetypes_with_signals_path)
+        )
+        # Each signal should trigger one embed() call
+        assert mock_embedder.embed.call_count == count, (  # type: ignore[attr-defined]
+            f"Expected {count} embed calls, got {mock_embedder.embed.call_count}"  # type: ignore[attr-defined]
+        )
+
+    async def test_signal_metadata_records_source(
+        self,
+        indexer: Indexer,
+        store: VectorStore,
+        rubric_path: Path,
+        archetypes_with_signals_path: Path,
+    ) -> None:
+        """Each signal's metadata records whether it came from a rubric dimension or archetype."""
+        await indexer.index_negative_signals(str(rubric_path), str(archetypes_with_signals_path))
+        # Get all documents via the underlying collection
+        collection = store._get_existing_collection("negative_signals")
+        result = collection.get(include=["metadatas"])
+        metadatas = result["metadatas"]
+        assert metadatas is not None, "Expected metadatas in collection result"
+        for meta in metadatas:
+            source = str(meta.get("source", ""))
+            assert source.startswith(("rubric:", "archetype:")), (
+                f"Signal source should start with 'rubric:' or 'archetype:', got: {source!r}"
+            )
+
+    async def test_reindex_replaces_previous_signals(
+        self,
+        indexer: Indexer,
+        store: VectorStore,
+        rubric_path: Path,
+        archetypes_with_signals_path: Path,
+    ) -> None:
+        """Re-indexing negative signals replaces previous content, not appends."""
+        count1 = await indexer.index_negative_signals(
+            str(rubric_path), str(archetypes_with_signals_path)
+        )
+        count2 = await indexer.index_negative_signals(
+            str(rubric_path), str(archetypes_with_signals_path)
+        )
+        assert count1 == count2, f"Signal count changed on re-index: {count1} → {count2}"
+        assert store.collection_count("negative_signals") == count1
+
+    async def test_empty_rubric_dimensions_indexes_only_archetype_negatives(
+        self,
+        indexer: Indexer,
+        store: VectorStore,
+        tmp_path: Path,
+        archetypes_with_signals_path: Path,
+    ) -> None:
+        """An empty rubric (no dimensions) still indexes archetype negative signals."""
+        empty_rubric = tmp_path / "empty_rubric.toml"
+        empty_rubric.write_text("# No dimensions\n")
+        count = await indexer.index_negative_signals(
+            str(empty_rubric), str(archetypes_with_signals_path)
+        )
+        # 4 archetype negatives (2 per archetype x 2 archetypes)
+        assert count == 4, f"Expected 4 archetype-only negative signals, got {count}"
+
+    async def test_missing_archetypes_file_tells_operator(
+        self, indexer: Indexer, rubric_path: Path
+    ) -> None:
+        """A nonexistent archetypes file produces a CONFIG error with actionable guidance."""
+        with pytest.raises(ActionableError) as exc_info:
+            await indexer.index_negative_signals(str(rubric_path), "/nonexistent/archetypes.toml")
+        err = exc_info.value
+        assert err.error_type == ErrorType.CONFIG, f"Expected CONFIG error, got {err.error_type}"
+
+    async def test_malformed_archetypes_toml_produces_actionable_parse_error(
+        self, indexer: Indexer, rubric_path: Path, tmp_path: Path
+    ) -> None:
+        """
+        When the archetypes file contains invalid TOML syntax
+        Then a PARSE error is raised naming the file and suggesting a fix
+        """
+        bad_toml = tmp_path / "bad_archetypes.toml"
+        bad_toml.write_text('[[archetypes]]\nname = "broken\n')
+
+        with pytest.raises(ActionableError) as exc_info:
+            await indexer.index_negative_signals(str(rubric_path), str(bad_toml))
+        err = exc_info.value
+        assert err.error_type == ErrorType.PARSE, (
+            f"Expected PARSE error for malformed archetypes TOML, got {err.error_type}"
+        )
+        assert "role_archetypes" in err.error.lower() or "syntax" in err.error.lower(), (
+            f"Error should mention the file or syntax issue: {err.error!r}"
+        )
+
+    async def test_zero_signals_from_both_sources_returns_empty_collection(
+        self, indexer: Indexer, store: VectorStore, tmp_path: Path
+    ) -> None:
+        """
+        When both rubric dimensions and archetypes have no signals_negative
+        Then the method returns 0 and the collection is empty (no crash)
+        """
+        # Rubric with dimensions but no negative signals
+        empty_rubric = tmp_path / "no_neg_rubric.toml"
+        empty_rubric.write_text(
+            '[[dimensions]]\nname = "Culture"\nsignals_positive = ["async-first"]\n'
+        )
+        # Archetypes with no negative signals
+        empty_archetypes = tmp_path / "no_neg_archetypes.toml"
+        empty_archetypes.write_text(
+            '[[archetypes]]\nname = "Architect"\ndescription = "Designs systems."\n'
+        )
+
+        count = await indexer.index_negative_signals(str(empty_rubric), str(empty_archetypes))
+        assert count == 0, f"Expected 0 negative signals when both sources are empty, got {count}"
+        assert store.collection_count("negative_signals") == 0, (
+            "Collection should be empty when no negative signals exist"
+        )

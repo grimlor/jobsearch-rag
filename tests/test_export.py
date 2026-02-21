@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import csv
 import logging
+import webbrowser
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.export.browser_tabs import BrowserTabOpener
 from jobsearch_rag.export.csv_export import CSVExporter
+from jobsearch_rag.export.jd_files import JDFileExporter
 from jobsearch_rag.export.markdown import MarkdownExporter
 from jobsearch_rag.pipeline.ranker import RankedListing, RankSummary
 from jobsearch_rag.rag.scorer import ScoreResult
@@ -157,8 +159,18 @@ class TestMarkdownExport:
         """Listings appear in descending final_score order so the best matches are reviewed first."""
         listings = [
             _ranked(title="Low", final_score=0.40),
-            _ranked(title="High", final_score=0.90, external_id="ext-002", url="https://example.org/job/2"),
-            _ranked(title="Mid", final_score=0.65, external_id="ext-003", url="https://example.org/job/3"),
+            _ranked(
+                title="High",
+                final_score=0.90,
+                external_id="ext-002",
+                url="https://example.org/job/2",
+            ),
+            _ranked(
+                title="Mid",
+                final_score=0.65,
+                external_id="ext-003",
+                url="https://example.org/job/3",
+            ),
         ]
         out = tmp_path / "results.md"
         MarkdownExporter().export(listings, str(out), summary=_summary())
@@ -198,6 +210,44 @@ class TestMarkdownExport:
         assert "0.62" in content  # history
         assert "0.90" in content  # comp
 
+    def test_score_explanation_includes_culture_score(self, tmp_path: Path) -> None:
+        """The score explanation includes culture_score for environment-quality transparency."""
+        scores = _scores(fit=0.74, archetype=0.81, history=0.62, comp=0.90)
+        scores.culture_score = 0.65
+        listing = RankedListing(
+            listing=_listing(),
+            scores=scores,
+            final_score=0.78,
+        )
+        out = tmp_path / "results.md"
+        MarkdownExporter().export([listing], str(out), summary=_summary())
+        content = out.read_text()
+        assert "Culture" in content, (
+            f"culture_score should appear in markdown output. Got: {content}"
+        )
+        assert "0.65" in content, (
+            f"culture_score value 0.65 should appear in output. Got: {content}"
+        )
+
+    def test_score_explanation_includes_negative_score(self, tmp_path: Path) -> None:
+        """The score explanation includes negative_score for penalty signal transparency."""
+        scores = _scores(fit=0.74, archetype=0.81, history=0.62, comp=0.90)
+        scores.negative_score = 0.25
+        listing = RankedListing(
+            listing=_listing(),
+            scores=scores,
+            final_score=0.78,
+        )
+        out = tmp_path / "results.md"
+        MarkdownExporter().export([listing], str(out), summary=_summary())
+        content = out.read_text()
+        assert "Negative" in content, (
+            f"negative_score should appear in markdown output. Got: {content}"
+        )
+        assert "0.25" in content, (
+            f"negative_score value 0.25 should appear in output. Got: {content}"
+        )
+
     def test_run_summary_appears_at_top_of_output(self, tmp_path: Path) -> None:
         """The run summary header appears before any listing, providing immediate run context."""
         listings = [_ranked()]
@@ -219,7 +269,7 @@ class TestMarkdownExport:
         MarkdownExporter().export(listings, str(out), summary=summary)
         content = out.read_text()
         assert "10" in content  # total found
-        assert "8" in content   # total scored
+        assert "8" in content  # total scored
         # excluded and deduplicated counts
         assert "1" in content
 
@@ -343,6 +393,26 @@ class TestCSVExport:
         # 2 scored, 1 disqualified excluded
         assert len(rows) == 2
 
+    def test_csv_includes_culture_score_column(self, tmp_path: Path) -> None:
+        """The CSV includes a culture_score column for environment-quality signal analysis."""
+        listings = [_ranked()]
+        out = tmp_path / "results.csv"
+        CSVExporter().export(listings, str(out), summary=_summary())
+        with open(out) as f:
+            reader = csv.reader(f)
+            header = next(reader)
+        assert "culture_score" in header, f"Missing culture_score column. Header: {header}"
+
+    def test_csv_includes_negative_score_column(self, tmp_path: Path) -> None:
+        """The CSV includes a negative_score column for penalty signal analysis."""
+        listings = [_ranked()]
+        out = tmp_path / "results.csv"
+        CSVExporter().export(listings, str(out), summary=_summary())
+        with open(out) as f:
+            reader = csv.reader(f)
+            header = next(reader)
+        assert "negative_score" in header, f"Missing negative_score column. Header: {header}"
+
 
 # ---------------------------------------------------------------------------
 # TestBrowserTabOpener
@@ -366,15 +436,21 @@ class TestBrowserTabOpener:
     @patch("webbrowser.open")
     def test_tabs_open_in_descending_score_order(self, mock_open: object) -> None:
         """Browser tabs open highest-scored listing first so the best match is immediately visible."""
-        import webbrowser as _wb
 
         listings = [
             _ranked(title="Low", final_score=0.40, url="https://example.org/low"),
-            _ranked(title="High", final_score=0.90, url="https://example.org/high", external_id="ext-002"),
-            _ranked(title="Mid", final_score=0.65, url="https://example.org/mid", external_id="ext-003"),
+            _ranked(
+                title="High",
+                final_score=0.90,
+                url="https://example.org/high",
+                external_id="ext-002",
+            ),
+            _ranked(
+                title="Mid", final_score=0.65, url="https://example.org/mid", external_id="ext-003"
+            ),
         ]
         BrowserTabOpener().open(listings, top_n=3)
-        calls = [c.args[0] for c in _wb.open.call_args_list]  # type: ignore[union-attr]
+        calls = [c.args[0] for c in webbrowser.open.call_args_list]  # type: ignore[attr-defined]
         assert calls == [
             "https://example.org/high",
             "https://example.org/mid",
@@ -384,7 +460,6 @@ class TestBrowserTabOpener:
     @patch("webbrowser.open")
     def test_tab_count_respects_open_top_n_from_cli(self, mock_open: object) -> None:
         """The --open-top N CLI flag limits the number of tabs opened to exactly N."""
-        import webbrowser as _wb
 
         listings = [
             _ranked(
@@ -396,14 +471,13 @@ class TestBrowserTabOpener:
             for i in range(5)
         ]
         BrowserTabOpener().open(listings, top_n=2)
-        assert _wb.open.call_count == 2  # type: ignore[union-attr]
+        assert webbrowser.open.call_count == 2  # type: ignore[attr-defined]
 
     @patch("webbrowser.open")
     def test_tab_count_respects_open_top_n_from_settings_when_cli_not_provided(
         self, mock_open: object
     ) -> None:
         """When --open-top is not specified on CLI, the default from settings.toml is used."""
-        import webbrowser as _wb
 
         listings = [
             _ranked(
@@ -416,25 +490,23 @@ class TestBrowserTabOpener:
         ]
         # Default top_n=5
         BrowserTabOpener().open(listings)
-        assert _wb.open.call_count == 5  # type: ignore[union-attr]
+        assert webbrowser.open.call_count == 5  # type: ignore[attr-defined]
 
     @patch("webbrowser.open")
     def test_fewer_results_than_n_opens_all_available_without_error(
         self, mock_open: object
     ) -> None:
         """If fewer results exist than N, all are opened without raising on the shortfall."""
-        import webbrowser as _wb
 
         listings = [
             _ranked(title="Only One", url="https://example.org/only"),
         ]
         BrowserTabOpener().open(listings, top_n=10)
-        assert _wb.open.call_count == 1  # type: ignore[union-attr]
+        assert webbrowser.open.call_count == 1  # type: ignore[attr-defined]
 
     @patch("webbrowser.open")
     def test_disqualified_roles_are_never_opened_as_tabs(self, mock_open: object) -> None:
         """Disqualified roles are excluded from tab opening regardless of their position in the list."""
-        import webbrowser as _wb
 
         listings = [
             _ranked(title="Good", final_score=0.80, url="https://example.org/good"),
@@ -448,7 +520,7 @@ class TestBrowserTabOpener:
             ),
         ]
         BrowserTabOpener().open(listings, top_n=5)
-        calls = [c.args[0] for c in _wb.open.call_args_list]  # type: ignore[union-attr]
+        calls = [c.args[0] for c in webbrowser.open.call_args_list]  # type: ignore[attr-defined]
         assert "https://example.org/good" in calls
         assert "https://example.org/bad" not in calls
 
@@ -459,7 +531,9 @@ class TestBrowserTabOpener:
         """A failed tab open logs the URL and proceeds to the next — one failure doesn't abort the rest."""
         listings = [
             _ranked(title="Fail", final_score=0.90, url="https://example.org/fail"),
-            _ranked(title="OK", final_score=0.80, url="https://example.org/ok", external_id="ext-002"),
+            _ranked(
+                title="OK", final_score=0.80, url="https://example.org/ok", external_id="ext-002"
+            ),
         ]
         with caplog.at_level(logging.WARNING):
             BrowserTabOpener().open(listings, top_n=2)
@@ -470,14 +544,13 @@ class TestBrowserTabOpener:
         self, mock_open: object, caplog: pytest.LogCaptureFixture
     ) -> None:
         """When all results score zero, no tabs open and an advisory message is logged."""
-        import webbrowser as _wb
 
         listings = [
             _ranked(title="Zero", final_score=0.0, disqualified=True, reason="IC role"),
         ]
         with caplog.at_level(logging.INFO):
             BrowserTabOpener().open(listings, top_n=5)
-        assert _wb.open.call_count == 0  # type: ignore[union-attr]
+        assert webbrowser.open.call_count == 0  # type: ignore[attr-defined]
         assert "no" in caplog.text.lower() or "0" in caplog.text
 
     @patch("webbrowser.open")
@@ -485,21 +558,19 @@ class TestBrowserTabOpener:
         self, mock_open: object
     ) -> None:
         """Tabs open in the system browser, not in the Playwright automation session."""
-        import webbrowser as _wb
 
         listings = [_ranked()]
         BrowserTabOpener().open(listings, top_n=1)
         # Verify webbrowser.open was called (not Playwright)
-        _wb.open.assert_called_once()  # type: ignore[union-attr]
+        webbrowser.open.assert_called_once()  # type: ignore[attr-defined]
 
     @patch("webbrowser.open")
     def test_open_top_zero_opens_no_tabs_without_error(self, mock_open: object) -> None:
         """--open-top 0 is a valid choice that skips tab opening entirely without raising."""
-        import webbrowser as _wb
 
         listings = [_ranked()]
         BrowserTabOpener().open(listings, top_n=0)
-        assert _wb.open.call_count == 0  # type: ignore[union-attr]
+        assert webbrowser.open.call_count == 0  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -516,11 +587,8 @@ class TestJDFileExport:
           analysis than a single large table
     """
 
-    def test_creates_individual_files_for_each_listing(
-        self, tmp_path: Path
-    ) -> None:
+    def test_creates_individual_files_for_each_listing(self, tmp_path: Path) -> None:
         """Each qualified listing gets its own Markdown file."""
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         listings = [
             _ranked(title="Staff Architect", company="Acme Corp", final_score=0.80),
@@ -537,11 +605,8 @@ class TestJDFileExport:
         assert all(p.exists() for p in paths)
         assert all(p.suffix == ".md" for p in paths)
 
-    def test_files_are_named_by_rank_company_title(
-        self, tmp_path: Path
-    ) -> None:
+    def test_files_are_named_by_rank_company_title(self, tmp_path: Path) -> None:
         """Filenames follow NNN_company_title.md format for natural sort order."""
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         listings = [
             _ranked(title="Staff Architect", company="Acme Corp", final_score=0.80),
@@ -552,11 +617,8 @@ class TestJDFileExport:
         assert "acme-corp" in name
         assert "staff-architect" in name
 
-    def test_file_contains_metadata_header(
-        self, tmp_path: Path
-    ) -> None:
+    def test_file_contains_metadata_header(self, tmp_path: Path) -> None:
         """Each file includes company, location, board, URL, and score section."""
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         listings = [
             _ranked(
@@ -573,11 +635,8 @@ class TestJDFileExport:
         assert "## Score" in content
         assert "**Rank:** #1" in content
 
-    def test_file_contains_full_jd_text(
-        self, tmp_path: Path
-    ) -> None:
+    def test_file_contains_full_jd_text(self, tmp_path: Path) -> None:
         """The full job description text appears after the score section."""
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         listings = [_ranked()]
         JDFileExporter().export(listings, str(tmp_path))
@@ -586,22 +645,16 @@ class TestJDFileExport:
         assert "## Job Description" in content
         assert "Build distributed systems." in content
 
-    def test_skips_listings_without_full_text(
-        self, tmp_path: Path
-    ) -> None:
+    def test_skips_listings_without_full_text(self, tmp_path: Path) -> None:
         """Listings with empty full_text are not exported as files."""
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         listing = _ranked(title="Empty JD")
         listing.listing.full_text = ""
         paths = JDFileExporter().export([listing], str(tmp_path))
         assert len(paths) == 0
 
-    def test_excludes_disqualified_listings(
-        self, tmp_path: Path
-    ) -> None:
+    def test_excludes_disqualified_listings(self, tmp_path: Path) -> None:
         """Disqualified listings with final_score=0 are excluded from JD export."""
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         listings = [
             _ranked(title="Good Role", final_score=0.80),
@@ -618,11 +671,8 @@ class TestJDFileExport:
         assert len(paths) == 1
         assert "good-role" in paths[0].name
 
-    def test_sorts_by_final_score_descending(
-        self, tmp_path: Path
-    ) -> None:
+    def test_sorts_by_final_score_descending(self, tmp_path: Path) -> None:
         """Files are numbered by score rank, not insertion order."""
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         listings = [
             _ranked(
@@ -638,11 +688,8 @@ class TestJDFileExport:
         assert "001_" in paths[0].name and "higher-score" in paths[0].name
         assert "002_" in paths[1].name and "lower-score" in paths[1].name
 
-    def test_creates_output_directory_if_missing(
-        self, tmp_path: Path
-    ) -> None:
+    def test_creates_output_directory_if_missing(self, tmp_path: Path) -> None:
         """The exporter creates the output directory if it doesn't exist."""
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         nested = tmp_path / "deep" / "nested" / "jds"
         listings = [_ranked()]
@@ -650,11 +697,8 @@ class TestJDFileExport:
         assert len(paths) == 1
         assert nested.exists()
 
-    def test_score_section_includes_all_components(
-        self, tmp_path: Path
-    ) -> None:
+    def test_score_section_includes_all_components(self, tmp_path: Path) -> None:
         """The score section shows fit, archetype, history, and comp scores."""
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         listings = [
             _ranked(fit=0.74, archetype=0.81, history=0.62, comp=0.90, final_score=0.78),
@@ -668,14 +712,11 @@ class TestJDFileExport:
         assert "**History Score:** 0.62" in content
         assert "**Comp Score:** 0.90" in content
 
-    def test_duplicate_boards_shown_in_jd_file(
-        self, tmp_path: Path
-    ) -> None:
+    def test_duplicate_boards_shown_in_jd_file(self, tmp_path: Path) -> None:
         """GIVEN a listing with duplicate_boards populated
         WHEN the JD file is exported
         THEN the file contains an 'Also on:' line listing the other boards.
         """
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         listings = [
             _ranked(
@@ -690,14 +731,11 @@ class TestJDFileExport:
         content = files[0].read_text()
         assert "**Also on:** indeed, linkedin" in content
 
-    def test_disqualified_listing_shows_reason_in_jd_file(
-        self, tmp_path: Path
-    ) -> None:
+    def test_disqualified_listing_shows_reason_in_jd_file(self, tmp_path: Path) -> None:
         """GIVEN a listing that is disqualified but has a non-zero final score
         WHEN the JD file is exported
         THEN the file contains a 'Disqualified:' line with the reason.
         """
-        from jobsearch_rag.export.jd_files import JDFileExporter
 
         listings = [
             _ranked(
@@ -712,4 +750,3 @@ class TestJDFileExport:
         files = list(tmp_path.glob("*.md"))
         content = files[0].read_text()
         assert "**Disqualified:** lacks cloud experience" in content
-

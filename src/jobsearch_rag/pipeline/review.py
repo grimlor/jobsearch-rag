@@ -12,6 +12,8 @@ import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jobsearch_rag.text import slugify
+
 if TYPE_CHECKING:
     from jobsearch_rag.pipeline.ranker import RankedListing
     from jobsearch_rag.rag.decisions import DecisionRecorder
@@ -43,8 +45,7 @@ class ReviewSession:
         """Return ranked listings that have no recorded decision, sorted
         by final_score descending (best first)."""
         undecided = [
-            r for r in self._listings
-            if self._recorder.get_decision(r.listing.external_id) is None
+            r for r in self._listings if self._recorder.get_decision(r.listing.external_id) is None
         ]
         undecided.sort(key=lambda r: r.final_score, reverse=True)
         return undecided
@@ -96,9 +97,7 @@ class ReviewSession:
         """Return True if *key* maps to a recordable verdict ('y'/'n'/'m')."""
         return key.lower() in _VERDICT_MAP
 
-    async def record_verdict(
-        self, ranked: RankedListing, key: str, *, reason: str = ""
-    ) -> None:
+    async def record_verdict(self, ranked: RankedListing, key: str, *, reason: str = "") -> None:
         """Record a verdict for the given listing.
 
         Args:
@@ -125,12 +124,10 @@ class ReviewSession:
         ``{rank:03d}_{company_slug}_{title_slug}.md`` convention.
         Falls back to the listing URL if the file does not exist.
         """
-        from jobsearch_rag.cli import _slugify
-
         listing = ranked.listing
         if rank:
-            company_slug = _slugify(listing.company)
-            title_slug = _slugify(listing.title)
+            company_slug = slugify(listing.company)
+            title_slug = slugify(listing.title)
             filename = f"{rank:03d}_{company_slug}_{title_slug}.md"
             jd_path = Path(self._jd_dir) / filename
         else:

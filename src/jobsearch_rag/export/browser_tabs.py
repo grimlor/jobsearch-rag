@@ -26,9 +26,7 @@ class BrowserTabOpener:
             return
 
         # Filter out disqualified, sort descending
-        qualified = [
-            r for r in listings if not (r.scores.disqualified and r.final_score == 0.0)
-        ]
+        qualified = [r for r in listings if not (r.scores.disqualified and r.final_score == 0.0)]
         qualified.sort(key=lambda r: r.final_score, reverse=True)
 
         if not qualified:

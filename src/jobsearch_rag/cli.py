@@ -8,32 +8,28 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import re
+import csv as csv_mod
+import shutil
 import sys
+import webbrowser
 from pathlib import Path
 
 from jobsearch_rag.adapters import AdapterRegistry
-
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
-_MAX_SLUG_LEN = 80
-
-
-def _slugify(text: str) -> str:
-    """Convert text to a filesystem-safe slug.
-
-    Lowercases, strips non-alphanumeric characters (except hyphens),
-    collapses whitespace/underscores to single hyphens, and truncates
-    to :data:`_MAX_SLUG_LEN` characters.
-    """
-    slug = text.lower()
-    slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s_]+", "-", slug)
-    slug = slug.strip("-")
-    return slug[:_MAX_SLUG_LEN]
+from jobsearch_rag.adapters.base import JobListing
+from jobsearch_rag.adapters.session import SessionConfig, SessionManager
+from jobsearch_rag.config import load_settings
+from jobsearch_rag.export import CSVExporter, JDFileExporter, MarkdownExporter
+from jobsearch_rag.logging import configure_file_logging
+from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
+from jobsearch_rag.pipeline.rescorer import Rescorer
+from jobsearch_rag.pipeline.review import ReviewSession
+from jobsearch_rag.pipeline.runner import PipelineRunner
+from jobsearch_rag.rag.decisions import DecisionRecorder
+from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.indexer import Indexer
+from jobsearch_rag.rag.scorer import Scorer, ScoreResult
+from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.text import slugify
 
 
 def _read_jd_text(
@@ -49,7 +45,7 @@ def _read_jd_text(
     empty string if the file is missing or the marker is absent.
     """
     jd_dir = Path(jd_dir)
-    filename = f"{rank:03d}_{_slugify(company)}_{_slugify(title)}.md"
+    filename = f"{rank:03d}_{slugify(company)}_{slugify(title)}.md"
     jd_path = jd_dir / filename
     if not jd_path.exists():
         return ""
@@ -58,7 +54,7 @@ def _read_jd_text(
     idx = content.find(marker)
     if idx == -1:
         return ""
-    return content[idx + len(marker):].strip()
+    return content[idx + len(marker) :].strip()
 
 
 # Board login URLs for interactive authentication
@@ -81,8 +77,6 @@ def handle_login(args: argparse.Namespace) -> None:
     Use ``--browser msedge`` to launch Microsoft Edge instead of
     Chromium — Edge bypasses Cloudflare where Chromium cannot.
     """
-    from jobsearch_rag.adapters.session import SessionConfig, SessionManager
-
     board = args.board
     browser = getattr(args, "browser", None)
     login_url = _LOGIN_URLS.get(board, f"https://www.{board}.com")
@@ -128,11 +122,6 @@ def handle_boards() -> None:
 
 def handle_index(args: argparse.Namespace) -> None:
     """Index resume and/or archetypes into ChromaDB."""
-    from jobsearch_rag.config import load_settings
-    from jobsearch_rag.rag.embedder import Embedder
-    from jobsearch_rag.rag.indexer import Indexer
-    from jobsearch_rag.rag.store import VectorStore
-
     settings = load_settings()
     embedder = Embedder(
         base_url=settings.ollama.base_url,
@@ -142,12 +131,32 @@ def handle_index(args: argparse.Namespace) -> None:
     store = VectorStore(persist_dir=settings.chroma.persist_dir)
     indexer = Indexer(store=store, embedder=embedder)
 
+    archetypes_only = getattr(args, "archetypes_only", False)
+
     async def _run() -> None:
         await embedder.health_check()
+
+        if archetypes_only:
+            # Rebuild archetypes, negative signals, and positive signals only
+            n_archetypes = await indexer.index_archetypes(settings.archetypes_path)
+            print(f"Indexed {n_archetypes} archetypes")
+            n_neg = await indexer.index_negative_signals(
+                settings.global_rubric_path, settings.archetypes_path
+            )
+            print(f"Indexed {n_neg} negative signals")
+            n_pos = await indexer.index_global_positive_signals(settings.global_rubric_path)
+            print(f"Indexed {n_pos} global positive signals")
+            return
 
         if not args.resume_only:
             n_archetypes = await indexer.index_archetypes(settings.archetypes_path)
             print(f"Indexed {n_archetypes} archetypes")
+            n_neg = await indexer.index_negative_signals(
+                settings.global_rubric_path, settings.archetypes_path
+            )
+            print(f"Indexed {n_neg} negative signals")
+            n_pos = await indexer.index_global_positive_signals(settings.global_rubric_path)
+            print(f"Indexed {n_pos} global positive signals")
 
         n_resume = await indexer.index_resume(settings.resume_path)
         print(f"Indexed {n_resume} resume chunks")
@@ -157,13 +166,6 @@ def handle_index(args: argparse.Namespace) -> None:
 
 def handle_search(args: argparse.Namespace) -> None:
     """Run search across enabled boards."""
-    from pathlib import Path
-
-    from jobsearch_rag.config import load_settings
-    from jobsearch_rag.export import CSVExporter, JDFileExporter, MarkdownExporter
-    from jobsearch_rag.logging import configure_file_logging
-    from jobsearch_rag.pipeline.runner import PipelineRunner
-
     settings = load_settings()
 
     log_dir = Path(settings.chroma.persist_dir).parent / "logs"
@@ -210,15 +212,11 @@ def handle_search(args: argparse.Namespace) -> None:
             out_dir.mkdir(parents=True, exist_ok=True)
 
             md_path = str(out_dir / "results.md")
-            MarkdownExporter().export(
-                result.ranked_listings, md_path, summary=result.summary
-            )
+            MarkdownExporter().export(result.ranked_listings, md_path, summary=result.summary)
             print(f"Exported Markdown → {md_path}")
 
             csv_path = str(out_dir / "results.csv")
-            CSVExporter().export(
-                result.ranked_listings, csv_path, summary=result.summary
-            )
+            CSVExporter().export(result.ranked_listings, csv_path, summary=result.summary)
             print(f"Exported CSV      → {csv_path}")
 
             jd_dir = str(out_dir / "jds")
@@ -230,8 +228,6 @@ def handle_search(args: argparse.Namespace) -> None:
         # Open top N in browser if requested
         open_n = args.open_top if args.open_top is not None else settings.output.open_top_n
         if open_n and open_n > 0 and result.ranked_listings:
-            import webbrowser
-
             to_open = result.ranked_listings[:open_n]
             print(f"Opening top {len(to_open)} results in browser...")
             for ranked in to_open:
@@ -245,11 +241,6 @@ def handle_search(args: argparse.Namespace) -> None:
 
 def handle_decide(args: argparse.Namespace) -> None:
     """Record a verdict on a job listing."""
-    from jobsearch_rag.config import load_settings
-    from jobsearch_rag.rag.decisions import DecisionRecorder
-    from jobsearch_rag.rag.embedder import Embedder
-    from jobsearch_rag.rag.store import VectorStore
-
     settings = load_settings()
     embedder = Embedder(
         base_url=settings.ollama.base_url,
@@ -308,17 +299,6 @@ def handle_review(args: argparse.Namespace) -> None:
     scores and compensation.  The operator enters y/n/m to record a
     verdict, s to skip, o to open the JD, or q to quit.
     """
-    import csv as csv_mod
-
-    from jobsearch_rag.adapters.base import JobListing
-    from jobsearch_rag.config import load_settings
-    from jobsearch_rag.pipeline.ranker import RankedListing
-    from jobsearch_rag.pipeline.review import ReviewSession
-    from jobsearch_rag.rag.decisions import DecisionRecorder
-    from jobsearch_rag.rag.embedder import Embedder
-    from jobsearch_rag.rag.scorer import ScoreResult
-    from jobsearch_rag.rag.store import VectorStore
-
     settings = load_settings()
     embedder = Embedder(
         base_url=settings.ollama.base_url,
@@ -362,6 +342,7 @@ def handle_review(args: argparse.Namespace) -> None:
                 disqualified=row.get("disqualified", "").lower() == "true",
                 disqualifier_reason=row.get("disqualifier_reason") or None,
                 comp_score=float(row.get("comp_score", 0)),
+                culture_score=float(row.get("culture_score", 0)),
             )
             ranked = RankedListing(
                 listing=listing,
@@ -422,16 +403,93 @@ def handle_review(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def handle_rescore(args: argparse.Namespace) -> None:
+    """Re-score existing JDs through updated collections without browser automation.
+
+    Loads previously exported JD files from ``output/jds/``, re-scores each
+    through the current RAG collections (archetypes, negative signals, resume,
+    decisions), re-ranks, and re-exports all results.
+    """
+    settings = load_settings()
+    embedder = Embedder(
+        base_url=settings.ollama.base_url,
+        embed_model=settings.ollama.embed_model,
+        llm_model=settings.ollama.llm_model,
+    )
+    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    scorer = Scorer(
+        store=store,
+        embedder=embedder,
+        disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
+    )
+    ranker = Ranker(
+        archetype_weight=settings.scoring.archetype_weight,
+        fit_weight=settings.scoring.fit_weight,
+        history_weight=settings.scoring.history_weight,
+        comp_weight=settings.scoring.comp_weight,
+        negative_weight=settings.scoring.negative_weight,
+        culture_weight=settings.scoring.culture_weight,
+        min_score_threshold=settings.scoring.min_score_threshold,
+    )
+    rescorer = Rescorer(
+        scorer=scorer,
+        ranker=ranker,
+        base_salary=settings.scoring.base_salary,
+    )
+
+    jd_dir = Path(settings.output.output_dir) / "jds"
+
+    async def _run() -> None:
+        await embedder.health_check()
+
+        result = await rescorer.rescore(str(jd_dir))
+
+        print(f"\n{'=' * 60}")
+        print(" Rescore Results Summary")
+        print(f"{'=' * 60}")
+        print(f" JDs loaded:     {result.total_loaded}")
+        print(f" Scored:         {result.summary.total_scored}")
+        print(f" Deduplicated:   {result.summary.total_deduplicated}")
+        print(f" Excluded:       {result.summary.total_excluded}")
+        print(f" Failed:         {result.failed_listings}")
+        print(f" Final results:  {len(result.ranked_listings)}")
+        print(f"{'=' * 60}\n")
+
+        for i, ranked in enumerate(result.ranked_listings, 1):
+            listing = ranked.listing
+            print(f"{i}. [{ranked.final_score:.2f}] {listing.title}")
+            print(f"   {listing.company} | {listing.board} | {listing.url}")
+            print(f"   {ranked.score_explanation()}")
+            print()
+
+        # Re-export results
+        if result.ranked_listings:
+            out_dir = Path(settings.output.output_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            md_path = str(out_dir / "results.md")
+            MarkdownExporter().export(result.ranked_listings, md_path, summary=result.summary)
+            print(f"Exported Markdown → {md_path}")
+
+            csv_path = str(out_dir / "results.csv")
+            CSVExporter().export(result.ranked_listings, csv_path, summary=result.summary)
+            print(f"Exported CSV      → {csv_path}")
+
+            jd_out_dir = str(out_dir / "jds")
+            jd_paths = JDFileExporter().export(
+                result.ranked_listings, jd_out_dir, summary=result.summary
+            )
+            print(f"Exported JDs      → {jd_out_dir}/ ({len(jd_paths)} files)")
+
+    asyncio.run(_run())
+
+
 def handle_export(args: argparse.Namespace) -> None:
     """Re-export last results in a specific format.
 
     Search results are auto-exported during ``search``.  This command
     can re-export from the saved output files in a different format.
     """
-    from pathlib import Path
-
-    from jobsearch_rag.config import load_settings
-
     settings = load_settings()
     out_dir = Path(settings.output.output_dir)
     md_path = out_dir / "results.md"
@@ -451,14 +509,11 @@ def handle_export(args: argparse.Namespace) -> None:
 
 
 # Known ChromaDB collections used by the pipeline
-_COLLECTIONS = ["resume", "role_archetypes", "decisions"]
+_COLLECTIONS = ["resume", "role_archetypes", "negative_signals", "decisions"]
 
 
 def handle_reset(args: argparse.Namespace) -> None:
     """Reset ChromaDB collections and optionally clear output files."""
-    from jobsearch_rag.config import load_settings
-    from jobsearch_rag.rag.store import VectorStore
-
     settings = load_settings()
     store = VectorStore(persist_dir=settings.chroma.persist_dir)
 
@@ -470,9 +525,6 @@ def handle_reset(args: argparse.Namespace) -> None:
 
     # Optionally clear output files
     if args.clear_output:
-        import shutil
-        from pathlib import Path
-
         out_dir = Path(settings.output.output_dir)
         if out_dir.exists():
             shutil.rmtree(out_dir)
@@ -498,6 +550,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--resume-only",
         action="store_true",
         help="Re-index resume only (skip archetypes)",
+    )
+    index_p.add_argument(
+        "--archetypes-only",
+        action="store_true",
+        help="Re-index archetypes and negative signals only (skip resume)",
     )
 
     # -- search --------------------------------------------------------------
@@ -528,6 +585,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["markdown", "csv", "json"],
         default="markdown",
         help="Output format (default: markdown)",
+    )
+
+    # -- rescore -------------------------------------------------------------
+    sub.add_parser(
+        "rescore",
+        help="Re-score existing JDs through updated collections (no browser)",
     )
 
     # -- decide --------------------------------------------------------------
@@ -564,7 +627,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--collection",
         type=str,
         default=None,
-        choices=["resume", "role_archetypes", "decisions"],
+        choices=["resume", "role_archetypes", "negative_signals", "decisions"],
         help="Reset a specific collection only (default: all)",
     )
     reset_p.add_argument(

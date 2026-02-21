@@ -105,8 +105,14 @@ class TestCrossRunDedup:
             ):
                 mock_search.return_value = ([decided_listing, new_listing], 0)
                 mock_score.return_value = MagicMock(
-                    fit_score=0.8, archetype_score=0.7, history_score=0.5,
-                    comp_score=0.5, disqualified=False, disqualifier_reason=None,
+                    fit_score=0.8,
+                    archetype_score=0.7,
+                    history_score=0.5,
+                    comp_score=0.5,
+                    negative_score=0.0,
+                    culture_score=0.0,
+                    disqualified=False,
+                    disqualifier_reason=None,
                 )
                 mock_embed.return_value = EMBED_FAKE
 
@@ -136,8 +142,14 @@ class TestCrossRunDedup:
             ):
                 mock_search.return_value = ([decided, new], 0)
                 mock_score.return_value = MagicMock(
-                    fit_score=0.8, archetype_score=0.7, history_score=0.5,
-                    comp_score=0.5, disqualified=False, disqualifier_reason=None,
+                    fit_score=0.8,
+                    archetype_score=0.7,
+                    history_score=0.5,
+                    comp_score=0.5,
+                    negative_score=0.0,
+                    culture_score=0.0,
+                    disqualified=False,
+                    disqualifier_reason=None,
                 )
                 mock_embed.return_value = EMBED_FAKE
 
@@ -170,8 +182,14 @@ class TestCrossRunDedup:
             ):
                 mock_search.return_value = ([decided, new], 0)
                 mock_score.return_value = MagicMock(
-                    fit_score=0.8, archetype_score=0.7, history_score=0.5,
-                    comp_score=0.5, disqualified=False, disqualifier_reason=None,
+                    fit_score=0.8,
+                    archetype_score=0.7,
+                    history_score=0.5,
+                    comp_score=0.5,
+                    negative_score=0.0,
+                    culture_score=0.0,
+                    disqualified=False,
+                    disqualifier_reason=None,
                 )
                 mock_embed.return_value = EMBED_FAKE
 
@@ -199,8 +217,14 @@ class TestCrossRunDedup:
             ):
                 mock_search.return_value = ([new_listing], 0)
                 mock_score.return_value = MagicMock(
-                    fit_score=0.8, archetype_score=0.7, history_score=0.5,
-                    comp_score=0.5, disqualified=False, disqualifier_reason=None,
+                    fit_score=0.8,
+                    archetype_score=0.7,
+                    history_score=0.5,
+                    comp_score=0.5,
+                    negative_score=0.0,
+                    culture_score=0.0,
+                    disqualified=False,
+                    disqualifier_reason=None,
                 )
                 mock_embed.return_value = EMBED_FAKE
 
@@ -229,8 +253,14 @@ class TestCrossRunDedup:
             ):
                 mock_search.return_value = ([decided], 0)
                 mock_score.return_value = MagicMock(
-                    fit_score=0.8, archetype_score=0.7, history_score=0.5,
-                    comp_score=0.5, disqualified=False, disqualifier_reason=None,
+                    fit_score=0.8,
+                    archetype_score=0.7,
+                    history_score=0.5,
+                    comp_score=0.5,
+                    negative_score=0.0,
+                    culture_score=0.0,
+                    disqualified=False,
+                    disqualifier_reason=None,
                 )
                 mock_embed.return_value = EMBED_FAKE
 
@@ -260,8 +290,14 @@ class TestCrossRunDedup:
             ):
                 mock_search.return_value = ([listing], 0)
                 mock_score.return_value = MagicMock(
-                    fit_score=0.8, archetype_score=0.7, history_score=0.5,
-                    comp_score=0.5, disqualified=False, disqualifier_reason=None,
+                    fit_score=0.8,
+                    archetype_score=0.7,
+                    history_score=0.5,
+                    comp_score=0.5,
+                    negative_score=0.0,
+                    culture_score=0.0,
+                    disqualified=False,
+                    disqualifier_reason=None,
                 )
                 mock_embed.return_value = EMBED_FAKE
 

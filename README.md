@@ -7,7 +7,7 @@
 [![CI](https://github.com/grimlor/jobsearch-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/grimlor/jobsearch-rag/actions/workflows/ci.yml)
 [![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/grimlor/b6bda813bb4ef28ff592b6c81a09c791/raw/jobsearch-rag-coverage.json)](https://github.com/grimlor/jobsearch-rag/actions/workflows/ci.yml)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
 
 ---
 
@@ -193,4 +193,4 @@ responsibly.
 
 ## License
 
-[MIT](LICENSE)
+[PolyForm Noncommercial 1.0.0](LICENSE) — free for personal use, learning, and noncommercial purposes.

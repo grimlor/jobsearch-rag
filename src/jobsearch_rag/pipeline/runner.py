@@ -74,12 +74,12 @@ class PipelineRunner:
             fit_weight=settings.scoring.fit_weight,
             history_weight=settings.scoring.history_weight,
             comp_weight=settings.scoring.comp_weight,
+            negative_weight=settings.scoring.negative_weight,
+            culture_weight=settings.scoring.culture_weight,
             min_score_threshold=settings.scoring.min_score_threshold,
         )
         self._base_salary = settings.scoring.base_salary
-        self._decision_recorder = DecisionRecorder(
-            store=self._store, embedder=self._embedder
-        )
+        self._decision_recorder = DecisionRecorder(store=self._store, embedder=self._embedder)
 
     async def run(
         self,
@@ -160,9 +160,7 @@ class PipelineRunner:
         for listing in all_listings:
             # Cross-run dedup: skip listings with existing decisions
             if not force_rescore:
-                decision = self._decision_recorder.get_decision(
-                    listing.external_id
-                )
+                decision = self._decision_recorder.get_decision(listing.external_id)
                 if decision is not None:
                     logger.info(
                         "Skipping %s (%s) — already decided: %s",
@@ -183,9 +181,7 @@ class PipelineRunner:
                     listing.comp_max = comp.comp_max
                     listing.comp_source = comp.comp_source
                     listing.comp_text = comp.comp_text
-                score_result.comp_score = compute_comp_score(
-                    listing.comp_max, self._base_salary
-                )
+                score_result.comp_score = compute_comp_score(listing.comp_max, self._base_salary)
 
                 scored.append((listing, score_result))
                 # Cache the embedding for deduplication
@@ -212,17 +208,19 @@ class PipelineRunner:
         )
 
     async def _ensure_indexed(self) -> None:
-        """Auto-index resume and archetypes if collections are empty.
+        """Auto-index resume, archetypes, and positive signals if collections are empty.
 
-        After a ``reset`` or on first run, the ``resume`` and
-        ``role_archetypes`` collections will be empty.  Rather than
-        failing every scoring call, detect this and run the indexer
-        automatically — it's the only sensible recovery.
+        After a ``reset`` or on first run, the ``resume``,
+        ``role_archetypes``, and ``global_positive_signals`` collections
+        will be empty.  Rather than failing every scoring call, detect
+        this and run the indexer automatically — it's the only sensible
+        recovery.
         """
         needs_resume = self._collection_empty("resume")
         needs_archetypes = self._collection_empty("role_archetypes")
+        needs_positive = self._collection_empty("global_positive_signals")
 
-        if not needs_resume and not needs_archetypes:
+        if not needs_resume and not needs_archetypes and not needs_positive:
             return
 
         logger.info("Empty collections detected — auto-indexing before scoring")
@@ -235,6 +233,10 @@ class PipelineRunner:
         if needs_resume:
             n = await indexer.index_resume(self._settings.resume_path)
             logger.info("Auto-indexed %d resume chunks", n)
+
+        if needs_positive:
+            n = await indexer.index_global_positive_signals(self._settings.global_rubric_path)
+            logger.info("Auto-indexed %d global positive signal dimensions", n)
 
     def _collection_empty(self, name: str) -> bool:
         """Return True if the named collection is missing or has zero documents."""
@@ -283,9 +285,7 @@ class PipelineRunner:
             for search_url in board_cfg.searches:
                 await throttle(adapter)
                 try:
-                    results = await adapter.search(
-                        page, search_url, max_pages=board_cfg.max_pages
-                    )
+                    results = await adapter.search(page, search_url, max_pages=board_cfg.max_pages)
                 except ActionableError as exc:
                     logger.warning(
                         "Search failed for %s @ %s: %s",

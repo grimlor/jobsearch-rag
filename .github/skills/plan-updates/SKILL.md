@@ -1,3 +1,8 @@
+---
+name: plan-updates
+description: "Tracking progress in project artifacts. Use after completing implementation work, when the user asks to update project status, or when reviewing what has been done vs. what remains."
+---
+
 # Plan Updates — Tracking Progress in Project Artifacts
 
 ## When This Skill Applies

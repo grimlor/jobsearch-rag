@@ -12,6 +12,7 @@ enriches listings via SERP click-through.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -197,7 +198,10 @@ class TestZipRecruiterJsonExtraction:
         }
         listing = card_to_listing(card)
 
-        assert listing.url == "https://www.ziprecruiter.com/c/TestCo/Job/Test-Role/-in-Remote?jid=fallback"
+        assert (
+            listing.url
+            == "https://www.ziprecruiter.com/c/TestCo/Job/Test-Role/-in-Remote?jid=fallback"
+        )
 
     def test_card_to_listing_sets_board_name(self) -> None:
         """Every listing is tagged with board='ziprecruiter'."""
@@ -242,7 +246,7 @@ class TestZipRecruiterJsonExtraction:
 
     def test_extract_jd_text_returns_empty_when_no_description(self) -> None:
         """When htmlFullDescription is absent, extract_jd_text returns empty string."""
-        js_vars = {"getJobDetailsResponse": {"jobDetails": {}}}
+        js_vars: dict[str, Any] = {"getJobDetailsResponse": {"jobDetails": {}}}
         text = extract_jd_text(js_vars)
 
         assert text == ""
@@ -449,9 +453,7 @@ def _make_mock_page(
     mock_page.title = AsyncMock(return_value=title)
     mock_page.content = AsyncMock(return_value=content_html)
     mock_page.url = url
-    mock_page.query_selector = AsyncMock(
-        return_value=MagicMock() if captcha else None
-    )
+    mock_page.query_selector = AsyncMock(return_value=MagicMock() if captcha else None)
 
     # Card locator
     mock_card_locator = MagicMock()
@@ -748,15 +750,13 @@ class TestSearch:
         # Override maxPages to allow multi-page
         empty_html = fixture_html.replace('"maxPages": 1', '"maxPages": 3')
         # Second page has no cards
-        empty_html.replace(
-            '"jobCards": [', '"jobCards": ['
-        ).replace(
+        empty_html.replace('"jobCards": [', '"jobCards": [').replace(
             '"hydrateJobCardsResponse"',
             '"hydrateJobCardsResponse"',
         )
         # Simpler: just return fixture for page 1, then empty for page 2
         no_cards_fixture = (
-            '<html><head><title>Jobs</title></head><body>'
+            "<html><head><title>Jobs</title></head><body>"
             '<script id="js_variables" type="application/json">'
             '{"hydrateJobCardsResponse":{"jobCards":[]},"maxPages":3}'
             "</script></body></html>"
@@ -822,7 +822,7 @@ class TestSearch:
 
         call_count = {"calls": 0}
 
-        def _failing_card_to_listing(card: dict) -> JobListing:
+        def _failing_card_to_listing(card: dict[str, Any]) -> JobListing:
             call_count["calls"] += 1
             if call_count["calls"] == 2:
                 raise ValueError("Unparseable card")
@@ -870,11 +870,9 @@ class TestSearch:
     async def test_search_paginates_url_correctly(self) -> None:
         """Page 2+ URLs append &page=N or ?page=N correctly."""
         adapter = ZipRecruiterAdapter()
-        fixture_html = _SERP_FIXTURE.read_text().replace(
-            '"maxPages": 1', '"maxPages": 2'
-        )
+        fixture_html = _SERP_FIXTURE.read_text().replace('"maxPages": 1', '"maxPages": 2')
         empty_fixture = (
-            '<html><head><title>Jobs</title></head><body>'
+            "<html><head><title>Jobs</title></head><body>"
             '<script id="js_variables" type="application/json">'
             '{"hydrateJobCardsResponse":{"jobCards":[]},"maxPages":2}'
             "</script></body></html>"
@@ -943,11 +941,9 @@ class TestSearch:
     async def test_search_pagination_uses_question_mark_separator(self) -> None:
         """When query URL has no '?', page=N is appended with '?' separator."""
         adapter = ZipRecruiterAdapter()
-        fixture_html = _SERP_FIXTURE.read_text().replace(
-            '"maxPages": 1', '"maxPages": 2'
-        )
+        fixture_html = _SERP_FIXTURE.read_text().replace('"maxPages": 1', '"maxPages": 2')
         empty_fixture = (
-            '<html><head><title>Jobs</title></head><body>'
+            "<html><head><title>Jobs</title></head><body>"
             '<script id="js_variables" type="application/json">'
             '{"hydrateJobCardsResponse":{"jobCards":[]},"maxPages":2}'
             "</script></body></html>"
@@ -981,7 +977,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter()
         # Build a minimal fixture with cards but no getJobDetailsResponse
         fixture_html = (
-            '<html><head><title>Jobs</title></head><body>'
+            "<html><head><title>Jobs</title></head><body>"
             '<script id="js_variables" type="application/json">'
             '{"hydrateJobCardsResponse":{"jobCards":['
             '{"listingKey":"k1","title":"Role A","company":{"name":"Co"},'
@@ -1015,7 +1011,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter()
         # Fixture says maxPages=3 but we pass max_pages=1
         fixture_html = (
-            '<html><head><title>Jobs</title></head><body>'
+            "<html><head><title>Jobs</title></head><body>"
             '<script id="js_variables" type="application/json">'
             '{"hydrateJobCardsResponse":{"jobCards":['
             '{"listingKey":"k1","title":"Role A","company":{"name":"Co"},'

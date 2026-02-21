@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Local LLM + RAG pipeline for intelligent job search filtering"
 readme = "README.md"
 requires-python = ">=3.13"
-license = { text = "MIT" }
+license = { text = "PolyForm-Noncommercial-1.0.0" }
 authors = [{ name = "grimlor" }]
 
 dependencies = [
@@ -39,7 +39,7 @@ jobsearch-rag = "jobsearch_rag.__main__:main"
 [tool.taskipy.tasks]
 lint   = "uv run ruff check --fix src/ tests/"
 format = "uv run ruff format src/ tests/"
-type   = "uv run mypy src/"
+type   = "uv run mypy src/ tests/"
 test   = "uv run pytest tests/ -v"
 check  = "task lint && task type && task test"
 
@@ -52,6 +52,8 @@ line-length = 99
 src = ["src", "tests"]
 
 [tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
 select = [
     "E",    # pycodestyle errors
     "W",    # pycodestyle warnings
@@ -63,6 +65,8 @@ select = [
     "SIM",  # flake8-simplify
     "TCH",  # flake8-type-checking
     "RUF",  # ruff-specific rules
+    "PLC0415",  # import-outside-top-level
+    "PLC2701",  # import-private-name (preview)
 ]
 ignore = [
     "E501",   # line length (handled by formatter)

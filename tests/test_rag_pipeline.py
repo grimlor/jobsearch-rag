@@ -1,44 +1,40 @@
-"""RAG pipeline tests — Ollama connectivity, resume/archetype indexing.
+"""RAG pipeline tests — Ollama connectivity, resume/archetype indexing, negative scoring.
 
-Maps to BDD specs: TestOllamaConnectivity, TestResumeIndexing, TestArchetypeIndexing
+Maps to BDD specs: TestOllamaConnectivity, TestResumeIndexing, TestArchetypeIndexing,
+TestNegativeScoring
 """
 
 from __future__ import annotations
 
 import tempfile
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import ollama as ollama_sdk
 import pytest
 
+from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.errors import ActionableError, ErrorType
+from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
+from jobsearch_rag.rag.scorer import Scorer, ScoreResult
 from jobsearch_rag.rag.store import VectorStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+# Re-exported from conftest for use in OllamaConnectivity assertions
 EMBED_FAKE = [0.1, 0.2, 0.3, 0.4, 0.5]
+
+
+# mock_embedder is provided by conftest.py (Embedder.__new__ + stubbed I/O)
 
 
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     with tempfile.TemporaryDirectory() as tmpdir:
         yield VectorStore(persist_dir=tmpdir)
-
-
-@pytest.fixture
-def mock_embedder() -> Embedder:
-    embedder = Embedder.__new__(Embedder)
-    embedder.base_url = "http://localhost:11434"
-    embedder.embed_model = "nomic-embed-text"
-    embedder.llm_model = "mistral:7b"
-    embedder.max_retries = 3
-    embedder.base_delay = 0.0
-    embedder.embed = AsyncMock(return_value=EMBED_FAKE)  # type: ignore[method-assign]
-    embedder.classify = AsyncMock(return_value='{"disqualified": false}')  # type: ignore[method-assign]
-    return embedder
 
 
 @pytest.fixture
@@ -99,16 +95,17 @@ class TestOllamaConnectivity:
         self,
     ) -> None:
         """A wrong model name suggests 'ollama pull' so the operator knows exactly how to fix it."""
-        embedder = Embedder(
-            base_url="http://localhost:11434",
-            embed_model="nonexistent-model-xyz",
-            llm_model="also-nonexistent",
-        )
-        from unittest.mock import MagicMock
-
+        mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.models = []
-        with patch.object(embedder._client, "list", AsyncMock(return_value=mock_response)):
+        mock_client.list = AsyncMock(return_value=mock_response)
+
+        with patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client):
+            embedder = Embedder(
+                base_url="http://localhost:11434",
+                embed_model="nonexistent-model-xyz",
+                llm_model="also-nonexistent",
+            )
             with pytest.raises(ActionableError) as exc_info:
                 await embedder.health_check()
             err = exc_info.value
@@ -119,49 +116,52 @@ class TestOllamaConnectivity:
 
     async def test_ollama_timeout_on_embedding_retries_with_backoff(self) -> None:
         """A transient Ollama timeout triggers exponential backoff retries before giving up."""
-        import ollama as ollama_sdk
-
-        embedder = Embedder(
-            base_url="http://localhost:11434",
-            embed_model="nomic-embed-text",
-            llm_model="mistral:7b",
-            max_retries=3,
-            base_delay=0.01,  # fast for testing
-        )
 
         # First two calls fail with retryable error, third succeeds
         call_count = 0
+
         async def _mock_embed(model: str, input: str) -> object:
             nonlocal call_count
             call_count += 1
             if call_count < 3:
                 raise ollama_sdk.ResponseError("timeout", status_code=504)
-            from unittest.mock import MagicMock
+
             resp = MagicMock()
             resp.embeddings = [EMBED_FAKE]
             return resp
 
-        with patch.object(embedder._client, "embed", _mock_embed):
+        mock_client = MagicMock()
+        mock_client.embed = _mock_embed
+
+        with patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client):
+            embedder = Embedder(
+                base_url="http://localhost:11434",
+                embed_model="nomic-embed-text",
+                llm_model="mistral:7b",
+                max_retries=3,
+                base_delay=0.01,  # fast for testing
+            )
             result = await embedder.embed("test text")
             assert call_count == 3
             assert result == EMBED_FAKE
 
     async def test_ollama_timeout_after_retries_advises_checking_system_resources(self) -> None:
         """After exhausting retries, the error advises checking system resources."""
-        import ollama as ollama_sdk
-
-        embedder = Embedder(
-            base_url="http://localhost:11434",
-            embed_model="nomic-embed-text",
-            llm_model="mistral:7b",
-            max_retries=2,
-            base_delay=0.01,
-        )
 
         async def _always_fail(model: str, input: str) -> object:
             raise ollama_sdk.ResponseError("timeout", status_code=504)
 
-        with patch.object(embedder._client, "embed", _always_fail):
+        mock_client = MagicMock()
+        mock_client.embed = _always_fail
+
+        with patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client):
+            embedder = Embedder(
+                base_url="http://localhost:11434",
+                embed_model="nomic-embed-text",
+                llm_model="mistral:7b",
+                max_retries=2,
+                base_delay=0.01,
+            )
             with pytest.raises(ActionableError) as exc_info:
                 await embedder.embed("test text")
             err = exc_info.value
@@ -191,7 +191,6 @@ class TestResumeIndexing:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """Scoring against an empty resume collection tells the operator to run the index command."""
-        from jobsearch_rag.rag.scorer import Scorer
 
         scorer = Scorer(store=store, embedder=mock_embedder)
         with pytest.raises(ActionableError) as exc_info:
@@ -206,7 +205,6 @@ class TestResumeIndexing:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """The INDEX error provides step-by-step setup guidance naming the missing collection."""
-        from jobsearch_rag.rag.scorer import Scorer
 
         scorer = Scorer(store=store, embedder=mock_embedder)
         with pytest.raises(ActionableError) as exc_info:
@@ -302,9 +300,7 @@ Original summary.
         count2 = store.collection_count("resume")
         assert count2 == count1  # same count, not doubled
 
-    async def test_index_confirms_chunk_count_in_output(
-        self, indexer: Indexer
-    ) -> None:
+    async def test_index_confirms_chunk_count_in_output(self, indexer: Indexer) -> None:
         """The index command reports how many chunks were created so the operator can sanity-check coverage."""
         content = """\
 # Resume
@@ -436,3 +432,558 @@ description = \"\"\"
         doc_text = docs["documents"][0]
         # No runs of multiple spaces should remain
         assert "  " not in doc_text
+
+
+# ---------------------------------------------------------------------------
+# TestNegativeScoring
+# ---------------------------------------------------------------------------
+
+
+class TestNegativeScoring:
+    """REQUIREMENT: JDs matching negative signals receive a continuous penalty score.
+
+    WHO: The scorer and ranker computing the final ranked output
+    WHAT: When a negative_signals collection exists and contains embedded
+          signals, the scorer queries it for each JD chunk and returns a
+          negative_score in [0.0, 1.0]; when the collection is empty or
+          missing, negative_score defaults to 0.0; the negative_score
+          appears in ScoreResult and is available for the ranker
+    WHY: Binary disqualification (yes/no via LLM) misses gradient cases —
+         a role at a borderline-adtech company should rank lower, not be
+         entirely hidden; the negative_score provides continuous penalization
+    """
+
+    async def test_negative_score_is_zero_when_collection_missing(
+        self, store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """negative_score defaults to 0.0 when the negative_signals collection is absent."""
+
+        # Populate resume and archetypes (required) but NOT negative_signals
+        store.add_documents(
+            collection_name="resume",
+            ids=["resume-summary"],
+            documents=["## Summary\nPrincipal architect."],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"source": "resume", "section": "Summary"}],
+        )
+        store.add_documents(
+            collection_name="role_archetypes",
+            ids=["archetype-test"],
+            documents=["Staff Architect"],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+        )
+
+        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        result = await scorer.score("Any JD text")
+        assert result.negative_score == 0.0, (
+            f"Expected negative_score 0.0 when collection missing, got {result.negative_score}"
+        )
+
+    async def test_negative_score_is_zero_when_collection_empty(
+        self, store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """negative_score defaults to 0.0 when the negative_signals collection exists but is empty."""
+
+        store.add_documents(
+            collection_name="resume",
+            ids=["resume-summary"],
+            documents=["## Summary\nPrincipal architect."],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"source": "resume", "section": "Summary"}],
+        )
+        store.add_documents(
+            collection_name="role_archetypes",
+            ids=["archetype-test"],
+            documents=["Staff Architect"],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+        )
+        # Create empty negative_signals collection
+        store.reset_collection("negative_signals")
+
+        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        result = await scorer.score("Any JD text")
+        assert result.negative_score == 0.0, (
+            f"Expected negative_score 0.0 for empty collection, got {result.negative_score}"
+        )
+
+    async def test_negative_score_returned_in_score_result(
+        self, store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """ScoreResult includes negative_score as a named field."""
+
+        store.add_documents(
+            collection_name="resume",
+            ids=["resume-summary"],
+            documents=["## Summary\nPrincipal architect."],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"source": "resume", "section": "Summary"}],
+        )
+        store.add_documents(
+            collection_name="role_archetypes",
+            ids=["archetype-test"],
+            documents=["Staff Architect"],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+        )
+        store.add_documents(
+            collection_name="negative_signals",
+            ids=["neg-test"],
+            documents=["Adtech surveillance platform"],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"source": "rubric:Industry", "signal": "Adtech surveillance platform"}],
+        )
+
+        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        result = await scorer.score("Some JD about adtech platform")
+        assert hasattr(result, "negative_score"), "ScoreResult should have negative_score field"
+        assert 0.0 <= result.negative_score <= 1.0, (
+            f"negative_score should be in [0.0, 1.0], got {result.negative_score}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestGlobalPositiveSignalIndexing
+# ---------------------------------------------------------------------------
+
+
+class TestGlobalPositiveSignalIndexing:
+    """REQUIREMENT: Positive signals from the global rubric are indexed into
+    a dedicated ChromaDB collection that the scorer queries to compute a
+    continuous culture score — orthogonal to archetype score.
+
+    WHO: The scorer computing culture_score; the indexer building the
+         global_positive_signals collection
+    WHAT: index_global_positive_signals() produces one ChromaDB document
+          per global rubric dimension that has signals_positive entries;
+          documents are labeled with their source dimension name in metadata;
+          re-indexing resets the collection first (replaces, not appends);
+          a rubric with no positive signals produces an empty collection
+          without error; missing global_rubric.toml produces an actionable
+          error before any browser work begins
+    WHY: The global rubric positive signals encode universal environment
+         and culture preferences that apply to every role regardless of
+         archetype. A dedicated collection keeps archetype and culture
+         scoring axes independent
+    """
+
+    async def test_one_document_per_rubric_dimension_with_positive_signals(
+        self, indexer: Indexer, store: VectorStore
+    ) -> None:
+        """Each dimension with signals_positive becomes exactly one ChromaDB document."""
+        rubric_toml = """\
+[[dimensions]]
+name = "Altitude"
+signals_positive = ["strategic", "cross-org"]
+signals_negative = ["tactical only"]
+
+[[dimensions]]
+name = "Humane Culture"
+signals_positive = ["async-first", "no crunch"]
+signals_negative = ["60-hour weeks"]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write(rubric_toml)
+            path = f.name
+
+        n = await indexer.index_global_positive_signals(path)
+        assert n == 2, f"Expected 2 documents, got {n}"
+        assert store.collection_count("global_positive_signals") == 2
+
+    async def test_document_metadata_identifies_source_dimension(
+        self, indexer: Indexer, store: VectorStore
+    ) -> None:
+        """Each document's metadata records the rubric dimension it came from."""
+        rubric_toml = """\
+[[dimensions]]
+name = "Altitude"
+signals_positive = ["strategic thinking", "cross-org influence"]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write(rubric_toml)
+            path = f.name
+
+        await indexer.index_global_positive_signals(path)
+        # Retrieve the document and check metadata
+        docs = store.get_documents(
+            collection_name="global_positive_signals",
+            ids=["pos-altitude"],
+        )
+        assert docs["metadatas"][0]["source"] == "Altitude", (
+            f"Expected source 'Altitude', got {docs['metadatas'][0].get('source')}"
+        )
+
+    async def test_reindex_replaces_global_positive_collection_not_appends(
+        self, indexer: Indexer, store: VectorStore
+    ) -> None:
+        """Re-indexing resets the collection first so documents are replaced, not accumulated."""
+        rubric_toml = """\
+[[dimensions]]
+name = "Altitude"
+signals_positive = ["strategic"]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write(rubric_toml)
+            path = f.name
+
+        await indexer.index_global_positive_signals(path)
+        count1 = store.collection_count("global_positive_signals")
+        await indexer.index_global_positive_signals(path)
+        count2 = store.collection_count("global_positive_signals")
+        assert count2 == count1, (
+            f"Re-indexing should replace, not append. Count went from {count1} to {count2}"
+        )
+
+    async def test_dimension_without_signals_positive_produces_no_document(
+        self, indexer: Indexer, store: VectorStore
+    ) -> None:
+        """Dimensions that lack signals_positive are gracefully skipped."""
+        rubric_toml = """\
+[[dimensions]]
+name = "Compensation Red Flags"
+signals_negative = ["equity-only compensation"]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write(rubric_toml)
+            path = f.name
+
+        n = await indexer.index_global_positive_signals(path)
+        assert n == 0, f"Expected 0 documents for dimension without signals_positive, got {n}"
+
+    async def test_missing_global_rubric_produces_actionable_error(self, indexer: Indexer) -> None:
+        """A missing global_rubric.toml raises an ActionableError with the path and guidance."""
+        with pytest.raises(ActionableError) as exc_info:
+            await indexer.index_global_positive_signals("/nonexistent/rubric.toml")
+        err = exc_info.value
+        assert err.error_type == ErrorType.CONFIG
+        assert "rubric" in err.error.lower() or "not found" in err.error.lower()
+
+    async def test_archetypes_only_flag_rebuilds_global_positive_collection(
+        self, indexer: Indexer, store: VectorStore
+    ) -> None:
+        """The --archetypes-only flag triggers index_global_positive_signals alongside archetypes."""
+        rubric_toml = """\
+[[dimensions]]
+name = "Altitude"
+signals_positive = ["strategic vision"]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write(rubric_toml)
+            path = f.name
+
+        # Simulate what --archetypes-only does: call index_global_positive_signals
+        n = await indexer.index_global_positive_signals(path)
+        assert n >= 1, "Global positive signals should be indexed during --archetypes-only"
+
+    async def test_global_positive_collection_count_matches_contributing_dimensions(
+        self, indexer: Indexer, store: VectorStore
+    ) -> None:
+        """The collection count matches the number of dimensions that have signals_positive."""
+        rubric_toml = """\
+[[dimensions]]
+name = "Altitude"
+signals_positive = ["strategic"]
+
+[[dimensions]]
+name = "Humane Culture"
+signals_positive = ["async-first"]
+
+[[dimensions]]
+name = "Compensation"
+signals_negative = ["equity-only"]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write(rubric_toml)
+            path = f.name
+
+        n = await indexer.index_global_positive_signals(path)
+        assert n == 2, f"Only 2 dimensions have signals_positive, got {n}"
+        assert store.collection_count("global_positive_signals") == 2
+
+    async def test_compensation_dimension_produces_no_positive_document(
+        self, indexer: Indexer, store: VectorStore
+    ) -> None:
+        """A dimension with only signals_negative (like Compensation) produces no positive document."""
+        rubric_toml = """\
+[[dimensions]]
+name = "Compensation Red Flags"
+signals_negative = ["equity-only compensation", "unpaid position"]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write(rubric_toml)
+            path = f.name
+
+        n = await indexer.index_global_positive_signals(path)
+        assert n == 0, f"Expected 0 positive documents from negative-only dimension, got {n}"
+
+    async def test_malformed_rubric_toml_produces_actionable_parse_error(
+        self, indexer: Indexer
+    ) -> None:
+        """
+        When the global rubric file contains invalid TOML syntax
+        Then a PARSE error is raised naming the file and suggesting a fix
+        """
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write('[[dimensions]]\nname = "broken\n')
+            path = f.name
+
+        with pytest.raises(ActionableError) as exc_info:
+            await indexer.index_global_positive_signals(path)
+        err = exc_info.value
+        assert err.error_type == ErrorType.PARSE, (
+            f"Expected PARSE error for malformed rubric TOML, got {err.error_type}"
+        )
+        assert "global_rubric" in err.error.lower() or "syntax" in err.error.lower(), (
+            f"Error should mention the file or syntax issue: {err.error!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestCultureScoring
+# ---------------------------------------------------------------------------
+
+
+class TestCultureScoring:
+    """REQUIREMENT: culture_score continuously rewards roles whose environment
+    signals match global rubric positive dimensions — altitude, humane
+    culture, domain alignment, scope, company maturity, ethics, and
+    ND compatibility — acting as a second scoring axis orthogonal to
+    archetype and fit.
+
+    WHO: The ranker computing final_score; the operator who wants roles
+         in humane, well-scoped, ethically aligned environments to rank
+         higher regardless of which archetype they match
+    WHAT: culture_score is queried from the global_positive_signals
+          collection using cosine similarity; missing collection returns
+          0.0 rather than an error; culture_score is a float in [0.0, 1.0];
+          culture_weight is read from settings.toml, not hardcoded
+    WHY: Archetype score answers "right kind of role." Culture score
+         answers "right kind of environment."
+    """
+
+    async def test_missing_global_positive_collection_returns_zero_not_error(
+        self, store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """culture_score defaults to 0.0 when global_positive_signals collection is absent."""
+
+        # Populate required collections but NOT global_positive_signals
+        store.add_documents(
+            collection_name="resume",
+            ids=["resume-summary"],
+            documents=["## Summary\nPrincipal architect."],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"source": "resume", "section": "Summary"}],
+        )
+        store.add_documents(
+            collection_name="role_archetypes",
+            ids=["archetype-test"],
+            documents=["Staff Architect"],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+        )
+
+        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        result = await scorer.score("Any JD text")
+        assert result.culture_score == 0.0, (
+            f"Expected culture_score 0.0 when collection missing, got {result.culture_score}"
+        )
+
+    async def test_culture_score_is_float_between_zero_and_one(
+        self, store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """culture_score is always a float in [0.0, 1.0]."""
+
+        store.add_documents(
+            collection_name="resume",
+            ids=["resume-summary"],
+            documents=["## Summary\nPrincipal architect."],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"source": "resume", "section": "Summary"}],
+        )
+        store.add_documents(
+            collection_name="role_archetypes",
+            ids=["archetype-test"],
+            documents=["Staff Architect"],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+        )
+        store.add_documents(
+            collection_name="global_positive_signals",
+            ids=["pos-altitude"],
+            documents=["Altitude: strategic thinking, cross-org influence"],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"source": "Altitude"}],
+        )
+
+        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        result = await scorer.score("A strategic platform architect role")
+        assert isinstance(result.culture_score, float), (
+            f"culture_score should be float, got {type(result.culture_score)}"
+        )
+        assert 0.0 <= result.culture_score <= 1.0, (
+            f"culture_score should be in [0.0, 1.0], got {result.culture_score}"
+        )
+
+    async def test_culture_score_returned_in_score_result(
+        self, store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """ScoreResult includes culture_score as a named field."""
+
+        store.add_documents(
+            collection_name="resume",
+            ids=["resume-summary"],
+            documents=["## Summary\nPrincipal architect."],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"source": "resume", "section": "Summary"}],
+        )
+        store.add_documents(
+            collection_name="role_archetypes",
+            ids=["archetype-test"],
+            documents=["Staff Architect"],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+        )
+
+        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        result = await scorer.score("Any JD text")
+        assert hasattr(result, "culture_score"), "ScoreResult should have culture_score field"
+
+    async def test_culture_score_appears_in_score_breakdown_output(self) -> None:
+        """The score explanation string includes culture_score for export display."""
+        scores = ScoreResult(
+            fit_score=0.75,
+            archetype_score=0.80,
+            history_score=0.60,
+            comp_score=0.90,
+            negative_score=0.15,
+            culture_score=0.65,
+            disqualified=False,
+        )
+        ranked = RankedListing(
+            listing=JobListing(
+                board="test",
+                external_id="1",
+                title="Test",
+                company="Co",
+                location="Remote",
+                url="https://example.org",
+                full_text="JD text",
+            ),
+            scores=scores,
+            final_score=0.75,
+        )
+        explanation = ranked.score_explanation()
+        assert "Culture: 0.65" in explanation, (
+            f"culture_score should appear in explanation. Got: {explanation}"
+        )
+
+    async def test_culture_weight_is_read_from_settings_not_hardcoded(self) -> None:
+        """The Ranker accepts culture_weight as a parameter, not hardcoded."""
+        ranker = Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.2,
+            comp_weight=0.15,
+            culture_weight=0.2,
+            negative_weight=0.4,
+            min_score_threshold=0.0,
+        )
+        assert ranker.culture_weight == 0.2, (
+            f"Expected culture_weight 0.2, got {ranker.culture_weight}"
+        )
+
+    async def test_high_culture_score_raises_final_score(self) -> None:
+        """A high culture_score increases the final score via culture_weight."""
+        ranker = Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.0,
+            comp_weight=0.0,
+            culture_weight=0.3,
+            negative_weight=0.0,
+            min_score_threshold=0.0,
+        )
+        scores_no_culture = ScoreResult(
+            fit_score=0.5,
+            archetype_score=0.5,
+            history_score=0.0,
+            comp_score=0.0,
+            culture_score=0.0,
+            negative_score=0.0,
+            disqualified=False,
+        )
+        scores_with_culture = ScoreResult(
+            fit_score=0.5,
+            archetype_score=0.5,
+            history_score=0.0,
+            comp_score=0.0,
+            culture_score=0.9,
+            negative_score=0.0,
+            disqualified=False,
+        )
+        final_no = ranker.compute_final_score(scores_no_culture)
+        final_with = ranker.compute_final_score(scores_with_culture)
+        assert final_with > final_no, (
+            f"High culture_score should raise final. No culture: {final_no}, With: {final_with}"
+        )
+
+    async def test_empty_global_positive_collection_returns_zero_culture_score(
+        self, store: VectorStore, mock_embedder: Embedder
+    ) -> None:
+        """An empty global_positive_signals collection returns 0.0 culture_score."""
+
+        store.add_documents(
+            collection_name="resume",
+            ids=["resume-summary"],
+            documents=["## Summary\nPrincipal architect."],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"source": "resume", "section": "Summary"}],
+        )
+        store.add_documents(
+            collection_name="role_archetypes",
+            ids=["archetype-test"],
+            documents=["Staff Architect"],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+        )
+        # Create empty collection
+        store.reset_collection("global_positive_signals")
+
+        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        result = await scorer.score("Any JD text")
+        assert result.culture_score == 0.0, (
+            f"Expected culture_score 0.0 for empty collection, got {result.culture_score}"
+        )
+
+    async def test_score_explanation_includes_all_six_component_values(self) -> None:
+        """The explanation string shows all six components: archetype, fit, culture, history, comp, negative."""
+        scores = ScoreResult(
+            fit_score=0.75,
+            archetype_score=0.80,
+            history_score=0.60,
+            comp_score=0.90,
+            negative_score=0.25,
+            culture_score=0.65,
+            disqualified=False,
+        )
+        ranked = RankedListing(
+            listing=JobListing(
+                board="test",
+                external_id="1",
+                title="Test",
+                company="Co",
+                location="Remote",
+                url="https://example.org",
+                full_text="JD text",
+            ),
+            scores=scores,
+            final_score=0.75,
+        )
+        explanation = ranked.score_explanation()
+        assert "Archetype: 0.80" in explanation
+        assert "Fit: 0.75" in explanation
+        assert "Culture: 0.65" in explanation
+        assert "History: 0.60" in explanation
+        assert "Comp: 0.90" in explanation
+        assert "Negative: 0.25" in explanation

@@ -14,10 +14,12 @@ from jobsearch_rag.cli import (
     handle_export,
     handle_index,
     handle_login,
+    handle_rescore,
     handle_reset,
     handle_review,
     handle_search,
 )
+from jobsearch_rag.errors import ActionableError
 
 
 def main() -> None:
@@ -37,14 +39,14 @@ def main() -> None:
             handle_review(args)
         elif args.command == "export":
             handle_export(args)
+        elif args.command == "rescore":
+            handle_rescore(args)
         elif args.command == "login":
             handle_login(args)
         elif args.command == "reset":
             handle_reset(args)
     except Exception as exc:
         # ActionableError instances have rich context
-        from jobsearch_rag.errors import ActionableError
-
         if isinstance(exc, ActionableError):
             print(f"\nError [{exc.error_type}]: {exc.error}", file=sys.stderr)
             if exc.suggestion:

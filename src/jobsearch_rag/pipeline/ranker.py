@@ -3,9 +3,9 @@
 The Ranker is the bridge between raw scoring outputs and the final ranked
 shortlist the operator reviews.  It performs three operations in sequence:
 
-1. **Score fusion** — combine fit / archetype / history scores using
-   configurable weights from ``settings.toml`` into a single ``final_score``.
-   Disqualified roles are zeroed.
+1. **Score fusion** — combine fit / archetype / history / culture scores
+   using configurable weights from ``settings.toml`` into a single
+   ``final_score``.  Disqualified roles are zeroed.
 
 2. **Deduplication** — the same job often appears on multiple boards.
    Exact matches (same ``external_id`` + ``board``) are collapsed
@@ -50,6 +50,8 @@ class RankedListing:
             f"Fit: {self.scores.fit_score:.2f}",
             f"History: {self.scores.history_score:.2f}",
             f"Comp: {self.scores.comp_score:.2f}",
+            f"Culture: {self.scores.culture_score:.2f}",
+            f"Negative: {self.scores.negative_score:.2f}",
         ]
         if self.scores.disqualified:
             parts.append(f"DISQUALIFIED: {self.scores.disqualifier_reason}")
@@ -79,12 +81,16 @@ class Ranker:
         fit_weight: float,
         history_weight: float,
         comp_weight: float = 0.0,
+        negative_weight: float = 0.4,
+        culture_weight: float = 0.0,
         min_score_threshold: float = 0.45,
     ) -> None:
         self.archetype_weight = archetype_weight
         self.fit_weight = fit_weight
         self.history_weight = history_weight
         self.comp_weight = comp_weight
+        self.negative_weight = negative_weight
+        self.culture_weight = culture_weight
         self.min_score_threshold = min_score_threshold
 
     def rank(
@@ -110,11 +116,13 @@ class Ranker:
         ranked: list[RankedListing] = []
         for listing, scores in listings:
             final = self.compute_final_score(scores)
-            ranked.append(RankedListing(
-                listing=listing,
-                scores=scores,
-                final_score=final,
-            ))
+            ranked.append(
+                RankedListing(
+                    listing=listing,
+                    scores=scores,
+                    final_score=final,
+                )
+            )
 
         summary.total_scored = len(ranked)
 
@@ -143,15 +151,29 @@ class Ranker:
         return ranked, summary
 
     def compute_final_score(self, scores: ScoreResult) -> float:
-        """Weighted sum of component scores, zeroed if disqualified."""
+        """Weighted sum of component scores minus negative penalty, zeroed if disqualified.
+
+        The formula is:
+            positive = (archetype_weight * archetype_score
+                       + fit_weight * fit_score
+                       + history_weight * history_score
+                       + comp_weight * comp_score
+                       + culture_weight * culture_score)
+            final = max(0.0, positive - negative_weight * negative_score)
+
+        The floor at 0.0 prevents negative final scores.
+        """
         if scores.disqualified:
             return 0.0
-        return (
+        positive = (
             self.archetype_weight * scores.archetype_score
             + self.fit_weight * scores.fit_score
             + self.history_weight * scores.history_score
             + self.comp_weight * scores.comp_score
+            + self.culture_weight * scores.culture_score
         )
+        penalty = self.negative_weight * scores.negative_score
+        return max(0.0, positive - penalty)
 
     # ------------------------------------------------------------------
     # Deduplication internals

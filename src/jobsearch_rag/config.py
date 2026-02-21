@@ -42,6 +42,8 @@ class ScoringConfig:
     fit_weight: float = 0.3
     history_weight: float = 0.2
     comp_weight: float = 0.15
+    negative_weight: float = 0.4
+    culture_weight: float = 0.2
     base_salary: float = 220_000
     disqualify_on_llm_flag: bool = True
     min_score_threshold: float = 0.45
@@ -85,6 +87,7 @@ class Settings:
     chroma: ChromaConfig
     resume_path: str = "data/resume.md"
     archetypes_path: str = "config/role_archetypes.toml"
+    global_rubric_path: str = "config/global_rubric.toml"
 
 
 # ---------------------------------------------------------------------------
@@ -195,13 +198,22 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
         fit_weight=float(scoring_data.get("fit_weight", 0.3)),
         history_weight=float(scoring_data.get("history_weight", 0.2)),
         comp_weight=float(scoring_data.get("comp_weight", 0.15)),
+        negative_weight=float(scoring_data.get("negative_weight", 0.4)),
+        culture_weight=float(scoring_data.get("culture_weight", 0.2)),
         base_salary=float(scoring_data.get("base_salary", 220_000)),
         disqualify_on_llm_flag=bool(scoring_data.get("disqualify_on_llm_flag", True)),
         min_score_threshold=float(scoring_data.get("min_score_threshold", 0.45)),
     )
 
     # Validate weight ranges
-    for weight_name in ("archetype_weight", "fit_weight", "history_weight", "comp_weight"):
+    for weight_name in (
+        "archetype_weight",
+        "fit_weight",
+        "history_weight",
+        "comp_weight",
+        "negative_weight",
+        "culture_weight",
+    ):
         value = getattr(scoring, weight_name)
         if value < 0.0:
             raise ActionableError.validation(
@@ -263,6 +275,21 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
         persist_dir=str(chroma_data.get("persist_dir", "./data/chroma_db")),
     )
 
+    # -- shared file paths --------------------------------------------------
+    resume_path = str(data.get("resume_path", "data/resume.md"))
+    archetypes_path = str(data.get("archetypes_path", "config/role_archetypes.toml"))
+    global_rubric_path = str(data.get("global_rubric_path", "config/global_rubric.toml"))
+
+    if not Path(global_rubric_path).exists():
+        raise ActionableError.config(
+            field_name="global_rubric_path",
+            reason=f"Global rubric file not found: {global_rubric_path}",
+            suggestion=(
+                "Create the file or update global_rubric_path in settings.toml "
+                "to a valid TOML file path"
+            ),
+        )
+
     return Settings(
         enabled_boards=list(enabled_boards),
         overnight_boards=list(overnight_boards),
@@ -271,6 +298,9 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
         ollama=ollama,
         output=output,
         chroma=chroma,
+        resume_path=resume_path,
+        archetypes_path=archetypes_path,
+        global_rubric_path=global_rubric_path,
     )
 
 

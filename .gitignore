@@ -36,3 +36,5 @@ output/
 .DS_Store
 Thumbs.db
 .coverage
+
+.copilot/

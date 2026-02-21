@@ -5,10 +5,11 @@ Maps to BDD spec: TestDecisionRecording
 
 from __future__ import annotations
 
+import json as json_mod
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -46,9 +47,7 @@ def recorder(store: VectorStore, mock_embedder: Embedder) -> Iterator[DecisionRe
     with tempfile.TemporaryDirectory() as decisions_dir:
         # Ensure decisions collection exists
         store.get_or_create_collection("decisions")
-        yield DecisionRecorder(
-            store=store, embedder=mock_embedder, decisions_dir=decisions_dir
-        )
+        yield DecisionRecorder(store=store, embedder=mock_embedder, decisions_dir=decisions_dir)
 
 
 class TestDecisionRecording:
@@ -81,9 +80,7 @@ class TestDecisionRecording:
         assert decision["verdict"] == "yes"
         assert decision["scoring_signal"] == "true"
 
-    async def test_reason_is_stored_in_chromadb_metadata(
-        self, recorder: DecisionRecorder
-    ) -> None:
+    async def test_reason_is_stored_in_chromadb_metadata(self, recorder: DecisionRecorder) -> None:
         """An optional reason is persisted alongside the verdict so the operator's reasoning is preserved."""
         await recorder.record(
             job_id="zr-reason",
@@ -98,9 +95,7 @@ class TestDecisionRecording:
         assert decision is not None
         assert decision["reason"] == "Requires on-site 5 days/week, no remote option"
 
-    async def test_empty_reason_stored_when_not_provided(
-        self, recorder: DecisionRecorder
-    ) -> None:
+    async def test_empty_reason_stored_when_not_provided(self, recorder: DecisionRecorder) -> None:
         """When no reason is given, an empty string is stored — the field is always present."""
         await recorder.record(
             job_id="zr-noreason",
@@ -130,7 +125,7 @@ class TestDecisionRecording:
             board="ziprecruiter",
             reason=reason,
         )
-        mock_embedder.embed.assert_called_once_with(
+        mock_embedder.embed.assert_called_once_with(  # type: ignore[attr-defined]
             f"{jd}\n\nOperator reasoning: {reason}"
         )
 
@@ -148,7 +143,7 @@ class TestDecisionRecording:
             jd_text=jd,
             board="ziprecruiter",
         )
-        mock_embedder.embed.assert_called_once_with(jd)
+        mock_embedder.embed.assert_called_once_with(jd)  # type: ignore[attr-defined]
 
     async def test_no_verdict_is_stored_but_excluded_from_scoring_signal(
         self, recorder: DecisionRecorder
@@ -266,7 +261,6 @@ class TestDecisionRecording:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """The reason field appears in the daily JSONL audit file alongside the verdict."""
-        import json as json_mod
 
         with tempfile.TemporaryDirectory() as decisions_dir:
             store.get_or_create_collection("decisions")
@@ -286,8 +280,7 @@ class TestDecisionRecording:
             jsonl_files = list(Path(decisions_dir).glob("*.jsonl"))
             assert len(jsonl_files) == 1
             records = [
-                json_mod.loads(line)
-                for line in jsonl_files[0].read_text().strip().splitlines()
+                json_mod.loads(line) for line in jsonl_files[0].read_text().strip().splitlines()
             ]
             assert len(records) == 1
             assert records[0]["reason"] == "No remote option"
@@ -299,7 +292,6 @@ class TestDecisionRecording:
         WHEN get_decision() is called
         THEN None is returned instead of raising.
         """
-        from unittest.mock import MagicMock
 
         mock_store = MagicMock()
         mock_store.get_documents.side_effect = ActionableError(
@@ -317,7 +309,6 @@ class TestDecisionRecording:
         WHEN get_decision() is called
         THEN None is returned.
         """
-        from unittest.mock import MagicMock
 
         mock_store = MagicMock()
         mock_store.get_documents.return_value = {"ids": [], "metadatas": []}
@@ -331,7 +322,6 @@ class TestDecisionRecording:
         WHEN history_count() is called
         THEN 0 is returned instead of raising.
         """
-        from unittest.mock import MagicMock
 
         mock_store = MagicMock()
         mock_store.collection_count.side_effect = ActionableError(

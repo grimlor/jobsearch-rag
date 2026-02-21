@@ -133,8 +133,8 @@ class TestCompensationScoring:
     def test_comp_score_interpolates_linearly_within_bands(self) -> None:
         """Within each band, the score increases linearly — no plateaus or jumps."""
         # Sample three points in the 77-90% band (0.4-0.7)
-        low = compute_comp_score(comp_max=170_000, base_salary=self.BASE)   # ~77%
-        mid = compute_comp_score(comp_max=184_000, base_salary=self.BASE)   # ~83.6%
+        low = compute_comp_score(comp_max=170_000, base_salary=self.BASE)  # ~77%
+        mid = compute_comp_score(comp_max=184_000, base_salary=self.BASE)  # ~83.6%
         high = compute_comp_score(comp_max=197_000, base_salary=self.BASE)  # ~89.5%
         assert low < mid < high, f"Expected monotonic increase: {low} < {mid} < {high}"
 
@@ -169,9 +169,7 @@ class TestCompensationScoring:
         assert abs(just_above_90 - just_below_90) < 0.02, "Discontinuity at 90% boundary"
 
         # At 100% boundary (1.0)
-        just_below_100 = compute_comp_score(
-            comp_max=self.BASE - epsilon, base_salary=self.BASE
-        )
+        just_below_100 = compute_comp_score(comp_max=self.BASE - epsilon, base_salary=self.BASE)
         at_100 = compute_comp_score(comp_max=self.BASE, base_salary=self.BASE)
         assert just_below_100 > 0.89, "Score should be near 1.0 just below 100%"
         assert at_100 == pytest.approx(1.0)

@@ -47,9 +47,9 @@ class TestFileLogging:
             assert len(log_files) == 1
             name = log_files[0].name
             # Expect: jobsearch-rag_2026-02-18T12-30-45.log
-            assert re.match(
-                r"jobsearch-rag_\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.log$", name
-            ), f"Log filename '{name}' does not match timestamp pattern"
+            assert re.match(r"jobsearch-rag_\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.log$", name), (
+                f"Log filename '{name}' does not match timestamp pattern"
+            )
         finally:
             logger.removeHandler(handler)
 

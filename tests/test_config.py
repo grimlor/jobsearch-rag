@@ -27,6 +27,7 @@ headless = true
 archetype_weight = 0.5
 fit_weight = 0.3
 history_weight = 0.2
+negative_weight = 0.4
 disqualify_on_llm_flag = true
 min_score_threshold = 0.45
 
@@ -274,9 +275,7 @@ searches = ["https://example.org/search"]
 
     def test_empty_enabled_boards_tells_operator_to_add_board_names(self) -> None:
         """An empty boards.enabled list produces an error telling the operator to add board names."""
-        bad_toml = _VALID_SETTINGS.replace(
-            'enabled = ["testboard"]', "enabled = []"
-        )
+        bad_toml = _VALID_SETTINGS.replace('enabled = ["testboard"]', "enabled = []")
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
             with pytest.raises(ActionableError) as exc_info:
@@ -423,3 +422,142 @@ searches = ["https://example.org/search"]
             assert "enabled" in err.error.lower()
             assert err.suggestion is not None
             assert err.troubleshooting is not None
+
+    def test_negative_weight_defaults_to_zero_point_four_when_absent(self) -> None:
+        """negative_weight defaults to 0.4 when not specified in settings.toml."""
+        minimal_toml = """\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, minimal_toml)
+            settings = load_settings(path)
+            assert settings.scoring.negative_weight == 0.4, (
+                f"Expected negative_weight default 0.4, got {settings.scoring.negative_weight}"
+            )
+
+    def test_negative_weight_above_range_names_the_field_and_valid_range(self) -> None:
+        """A negative_weight > 1.0 produces an error naming the field so the operator knows which value to fix."""
+        bad_toml = _VALID_SETTINGS.replace("negative_weight = 0.4", "negative_weight = 1.5")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+            err = exc_info.value
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
+            assert "negative_weight" in err.error, (
+                f"Error should name negative_weight. Got: {err.error}"
+            )
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
+
+    def test_negative_weight_below_range_names_the_field_and_valid_range(self) -> None:
+        """A negative negative_weight produces an error naming the field so the operator knows which value to fix."""
+        bad_toml = _VALID_SETTINGS.replace("negative_weight = 0.4", "negative_weight = -0.1")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+            err = exc_info.value
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
+            assert "negative_weight" in err.error, (
+                f"Error should name negative_weight. Got: {err.error}"
+            )
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
+
+    def test_global_rubric_path_defaults_when_absent(self) -> None:
+        """global_rubric_path defaults to 'config/global_rubric.toml' when not specified."""
+        minimal_toml = """\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, minimal_toml)
+            settings = load_settings(path)
+            assert settings.global_rubric_path == "config/global_rubric.toml", (
+                f"Expected default global_rubric_path, got {settings.global_rubric_path}"
+            )
+
+    def test_missing_global_rubric_path_names_field_and_creation_guidance(self) -> None:
+        """A non-existent global_rubric_path raises CONFIG error naming the field and recovery path."""
+        bad_toml = 'global_rubric_path = "/nonexistent/global_rubric.toml"\n\n' + _VALID_SETTINGS
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+            err = exc_info.value
+            assert err.error_type == ErrorType.CONFIG, (
+                f"Expected CONFIG error, got {err.error_type}"
+            )
+            assert "global_rubric_path" in err.error, (
+                f"Error should name global_rubric_path. Got: {err.error}"
+            )
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
+
+    def test_culture_weight_defaults_to_zero_point_two_when_absent(self) -> None:
+        """culture_weight defaults to 0.2 when not specified in settings.toml."""
+        minimal_toml = """\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, minimal_toml)
+            settings = load_settings(path)
+            assert settings.scoring.culture_weight == 0.2, (
+                f"Expected culture_weight default 0.2, got {settings.scoring.culture_weight}"
+            )
+
+    def test_culture_weight_above_range_names_the_field_and_valid_range(self) -> None:
+        """A culture_weight > 1.0 produces an error naming the field so the operator knows which value to fix."""
+        bad_toml = _VALID_SETTINGS + "\n" + "culture_weight = 1.5\n"
+        # Insert culture_weight into the scoring section
+        bad_toml = _VALID_SETTINGS.replace(
+            "negative_weight = 0.4",
+            "negative_weight = 0.4\nculture_weight = 1.5",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+            err = exc_info.value
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
+            assert "culture_weight" in err.error, (
+                f"Error should name culture_weight. Got: {err.error}"
+            )
+            assert err.suggestion is not None
+            assert err.troubleshooting is not None
+
+    def test_culture_weight_below_range_names_the_field_and_valid_range(self) -> None:
+        """A negative culture_weight produces an error naming the field so the operator knows which value to fix."""
+        bad_toml = _VALID_SETTINGS.replace(
+            "negative_weight = 0.4",
+            "negative_weight = 0.4\nculture_weight = -0.1",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+            err = exc_info.value
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
+            assert "culture_weight" in err.error, (
+                f"Error should name culture_weight. Got: {err.error}"
+            )

@@ -1,7 +1,7 @@
 """CLI handler tests — parser construction, command wiring, output formatting.
 
 Maps to BDD specs: TestParserConstruction, TestBoardsCommand, TestIndexCommand,
-TestSearchCommand, TestDecideCommand, TestExportCommand
+TestSearchCommand, TestDecideCommand, TestExportCommand, TestRescoreCommand
 """
 
 from __future__ import annotations
@@ -9,10 +9,17 @@ from __future__ import annotations
 import argparse
 import csv
 import tempfile
+import typing
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from jobsearch_rag.config import Settings
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.cli import (
@@ -22,19 +29,15 @@ from jobsearch_rag.cli import (
     handle_export,
     handle_index,
     handle_login,
+    handle_rescore,
     handle_reset,
     handle_review,
     handle_search,
 )
-from jobsearch_rag.config import (
-    BoardConfig,
-    ChromaConfig,
-    OllamaConfig,
-    OutputConfig,
-    ScoringConfig,
-    Settings,
-)
+from jobsearch_rag.config import load_settings
 from jobsearch_rag.pipeline.ranker import RankedListing, RankSummary
+from jobsearch_rag.pipeline.rescorer import RescoreResult
+from jobsearch_rag.pipeline.review import ReviewSession
 from jobsearch_rag.pipeline.runner import RunResult
 from jobsearch_rag.rag.scorer import ScoreResult
 
@@ -43,27 +46,48 @@ from jobsearch_rag.rag.scorer import ScoreResult
 # ---------------------------------------------------------------------------
 
 
-def _make_settings(tmpdir: str) -> Settings:
-    """Create a valid Settings instance pointing at temp directories."""
-    output_dir = str(Path(tmpdir) / "output")
-    return Settings(
-        enabled_boards=["testboard"],
-        overnight_boards=[],
-        boards={
-            "testboard": BoardConfig(
-                name="testboard",
-                searches=["https://example.org/search"],
-                max_pages=2,
-                headless=True,
-            ),
-        },
-        scoring=ScoringConfig(),
-        ollama=OllamaConfig(),
-        output=OutputConfig(output_dir=output_dir),
-        chroma=ChromaConfig(persist_dir=tmpdir),
-        resume_path="data/resume.md",
-        archetypes_path="config/role_archetypes.toml",
-    )
+def _make_settings(
+    tmpdir: str,
+    *,
+    output_dir: str | None = None,
+    open_top_n: int = 5,
+) -> Settings:
+    """Write a valid settings.toml in *tmpdir* and load it through the real parser.
+
+    The real ``load_settings`` exercises TOML parsing and field validation
+    so that tests are never silently working with an invalid ``Settings``
+    that the production code would reject at startup.
+    """
+    if output_dir is None:
+        output_dir = str(Path(tmpdir) / "output")
+
+    toml_path = Path(tmpdir) / "settings.toml"
+    toml_path.parent.mkdir(parents=True, exist_ok=True)
+    toml_path.write_text(f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+max_pages = 2
+headless = true
+
+[scoring]
+
+[ollama]
+
+[output]
+output_dir = "{output_dir}"
+open_top_n = {open_top_n}
+
+[chroma]
+persist_dir = "{tmpdir}"
+
+resume_path = "data/resume.md"
+archetypes_path = "config/role_archetypes.toml"
+global_rubric_path = "config/global_rubric.toml"
+""")
+    return load_settings(toml_path)
 
 
 def _make_listing(
@@ -149,7 +173,9 @@ class TestParserConstruction:
     def test_parser_accepts_search_subcommand_with_all_flags(self) -> None:
         """The 'search' subcommand accepts --board, --overnight, and --open-top flags."""
         parser = build_parser()
-        args = parser.parse_args(["search", "--board", "ziprecruiter", "--overnight", "--open-top", "5"])
+        args = parser.parse_args(
+            ["search", "--board", "ziprecruiter", "--overnight", "--open-top", "5"]
+        )
         assert args.command == "search"
         assert args.board == "ziprecruiter"
         assert args.overnight is True
@@ -215,6 +241,26 @@ class TestParserConstruction:
         with pytest.raises(SystemExit):
             parser.parse_args([])
 
+    def test_parser_accepts_rescore_subcommand(self) -> None:
+        """The 'rescore' subcommand is registered and parseable."""
+        parser = build_parser()
+        args = parser.parse_args(["rescore"])
+        assert args.command == "rescore"
+
+    def test_index_accepts_archetypes_only_flag(self) -> None:
+        """The --archetypes-only flag on 'index' is accepted and defaults to False."""
+        parser = build_parser()
+        args = parser.parse_args(["index"])
+        assert args.archetypes_only is False
+        args = parser.parse_args(["index", "--archetypes-only"])
+        assert args.archetypes_only is True
+
+    def test_reset_collection_choices_include_negative_signals(self) -> None:
+        """The reset --collection accepts 'negative_signals' as a valid choice."""
+        parser = build_parser()
+        args = parser.parse_args(["reset", "--collection", "negative_signals"])
+        assert args.collection == "negative_signals"
+
 
 # ---------------------------------------------------------------------------
 # TestBoardsCommand
@@ -232,7 +278,9 @@ class TestBoardsCommand:
          leading to search failures on typos
     """
 
-    def test_handle_boards_prints_sorted_board_names(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_handle_boards_prints_sorted_board_names(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Registered boards are printed in sorted alphabetical order."""
         with patch("jobsearch_rag.cli.AdapterRegistry") as mock_registry:
             mock_registry.list_registered.return_value = ["ziprecruiter", "indeed", "linkedin"]
@@ -242,7 +290,9 @@ class TestBoardsCommand:
         # Verify sorted order
         assert output.index("indeed") < output.index("linkedin") < output.index("ziprecruiter")
 
-    def test_handle_boards_empty_registry_prints_no_adapters(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_handle_boards_empty_registry_prints_no_adapters(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """An empty registry prints a clear message rather than blank output."""
         with patch("jobsearch_rag.cli.AdapterRegistry") as mock_registry:
             mock_registry.list_registered.return_value = []
@@ -281,14 +331,16 @@ class TestIndexCommand:
         mock_embedder.health_check = AsyncMock()
         mock_indexer = MagicMock()
         mock_indexer.index_archetypes = AsyncMock(return_value=3)
+        mock_indexer.index_negative_signals = AsyncMock(return_value=8)
+        mock_indexer.index_global_positive_signals = AsyncMock(return_value=4)
         mock_indexer.index_resume = AsyncMock(return_value=5)
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.rag.embedder.Embedder", return_value=mock_embedder),
-            patch("jobsearch_rag.rag.store.VectorStore"),
-            patch("jobsearch_rag.rag.indexer.Indexer", return_value=mock_indexer),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Indexer", return_value=mock_indexer),
         ):
             args = argparse.Namespace(resume_only=False)
             handle_index(args)
@@ -303,14 +355,16 @@ class TestIndexCommand:
         mock_embedder.health_check = AsyncMock()
         mock_indexer = MagicMock()
         mock_indexer.index_archetypes = AsyncMock(return_value=3)
+        mock_indexer.index_negative_signals = AsyncMock(return_value=8)
+        mock_indexer.index_global_positive_signals = AsyncMock(return_value=4)
         mock_indexer.index_resume = AsyncMock(return_value=5)
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.rag.embedder.Embedder", return_value=mock_embedder),
-            patch("jobsearch_rag.rag.store.VectorStore"),
-            patch("jobsearch_rag.rag.indexer.Indexer", return_value=mock_indexer),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Indexer", return_value=mock_indexer),
         ):
             args = argparse.Namespace(resume_only=False)
             handle_index(args)
@@ -321,9 +375,7 @@ class TestIndexCommand:
         assert "Indexed 3 archetypes" in output
         assert "Indexed 5 resume chunks" in output
 
-    def test_index_resume_only_skips_archetypes(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_index_resume_only_skips_archetypes(self, capsys: pytest.CaptureFixture[str]) -> None:
         """With --resume-only, archetypes are not indexed."""
         mock_embedder = MagicMock()
         mock_embedder.health_check = AsyncMock()
@@ -333,10 +385,10 @@ class TestIndexCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.rag.embedder.Embedder", return_value=mock_embedder),
-            patch("jobsearch_rag.rag.store.VectorStore"),
-            patch("jobsearch_rag.rag.indexer.Indexer", return_value=mock_indexer),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Indexer", return_value=mock_indexer),
         ):
             args = argparse.Namespace(resume_only=True)
             handle_index(args)
@@ -347,22 +399,22 @@ class TestIndexCommand:
         assert "archetypes" not in output.lower()
         assert "Indexed 5 resume chunks" in output
 
-    def test_index_prints_chunk_counts_to_stdout(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_index_prints_chunk_counts_to_stdout(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Index command reports archetype and resume chunk counts for operator sanity-check."""
         mock_embedder = MagicMock()
         mock_embedder.health_check = AsyncMock()
         mock_indexer = MagicMock()
         mock_indexer.index_archetypes = AsyncMock(return_value=7)
+        mock_indexer.index_negative_signals = AsyncMock(return_value=10)
+        mock_indexer.index_global_positive_signals = AsyncMock(return_value=4)
         mock_indexer.index_resume = AsyncMock(return_value=4)
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.rag.embedder.Embedder", return_value=mock_embedder),
-            patch("jobsearch_rag.rag.store.VectorStore"),
-            patch("jobsearch_rag.rag.indexer.Indexer", return_value=mock_indexer),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Indexer", return_value=mock_indexer),
         ):
             args = argparse.Namespace(resume_only=False)
             handle_index(args)
@@ -395,7 +447,9 @@ class TestSearchCommand:
         """The summary section includes all pipeline statistics."""
         result = RunResult(
             ranked_listings=[],
-            summary=RankSummary(total_found=20, total_scored=18, total_deduplicated=3, total_excluded=2),
+            summary=RankSummary(
+                total_found=20, total_scored=18, total_deduplicated=3, total_excluded=2
+            ),
             failed_listings=2,
             boards_searched=["ziprecruiter"],
         )
@@ -404,10 +458,12 @@ class TestSearchCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.PipelineRunner", return_value=mock_runner),
         ):
-            args = argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
+            args = argparse.Namespace(
+                board=None, overnight=False, open_top=None, force_rescore=False
+            )
             handle_search(args)
 
         output = capsys.readouterr().out
@@ -436,11 +492,13 @@ class TestSearchCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.PipelineRunner", return_value=mock_runner),
             patch("webbrowser.open"),
         ):
-            args = argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
+            args = argparse.Namespace(
+                board=None, overnight=False, open_top=None, force_rescore=False
+            )
             handle_search(args)
 
         output = capsys.readouterr().out
@@ -463,11 +521,13 @@ class TestSearchCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.PipelineRunner", return_value=mock_runner),
             patch("webbrowser.open"),
         ):
-            args = argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
+            args = argparse.Namespace(
+                board=None, overnight=False, open_top=None, force_rescore=False
+            )
             handle_search(args)
 
         output = capsys.readouterr().out
@@ -487,10 +547,12 @@ class TestSearchCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.PipelineRunner", return_value=mock_runner),
         ):
-            args = argparse.Namespace(board="indeed", overnight=False, open_top=None, force_rescore=False)
+            args = argparse.Namespace(
+                board="indeed", overnight=False, open_top=None, force_rescore=False
+            )
             handle_search(args)
 
         # Verify the runner was called with boards=["indeed"]
@@ -511,8 +573,8 @@ class TestSearchCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.PipelineRunner", return_value=mock_runner),
             patch("webbrowser.open") as mock_open,
         ):
             args = argparse.Namespace(board=None, overnight=False, open_top=1, force_rescore=False)
@@ -534,21 +596,15 @@ class TestSearchCommand:
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             patch(
-                "jobsearch_rag.config.load_settings",
-                return_value=Settings(
-                    enabled_boards=["testboard"],
-                    overnight_boards=[],
-                    boards={},
-                    scoring=ScoringConfig(),
-                    ollama=OllamaConfig(),
-                    output=OutputConfig(open_top_n=0, output_dir=str(Path(tmpdir) / "output")),
-                    chroma=ChromaConfig(persist_dir=tmpdir),
-                ),
+                "jobsearch_rag.cli.load_settings",
+                return_value=_make_settings(tmpdir, open_top_n=0),
             ),
-            patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
+            patch("jobsearch_rag.cli.PipelineRunner", return_value=mock_runner),
             patch("webbrowser.open") as mock_open,
         ):
-            args = argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
+            args = argparse.Namespace(
+                board=None, overnight=False, open_top=None, force_rescore=False
+            )
             handle_search(args)
 
         mock_open.assert_not_called()
@@ -579,10 +635,10 @@ class TestDecideCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.rag.embedder.Embedder"),
-            patch("jobsearch_rag.rag.store.VectorStore"),
-            patch("jobsearch_rag.rag.decisions.DecisionRecorder", return_value=mock_recorder),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder"),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.DecisionRecorder", return_value=mock_recorder),
             pytest.raises(SystemExit) as exc_info,
         ):
             args = argparse.Namespace(job_id="nonexistent", verdict="yes", reason="")
@@ -615,10 +671,10 @@ class TestDecideCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.rag.embedder.Embedder"),
-            patch("jobsearch_rag.rag.store.VectorStore", return_value=mock_store),
-            patch("jobsearch_rag.rag.decisions.DecisionRecorder", return_value=mock_recorder),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder"),
+            patch("jobsearch_rag.cli.VectorStore", return_value=mock_store),
+            patch("jobsearch_rag.cli.DecisionRecorder", return_value=mock_recorder),
         ):
             args = argparse.Namespace(job_id="zr-123", verdict="yes", reason="")
             handle_decide(args)
@@ -651,10 +707,10 @@ class TestDecideCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.rag.embedder.Embedder"),
-            patch("jobsearch_rag.rag.store.VectorStore", return_value=mock_store),
-            patch("jobsearch_rag.rag.decisions.DecisionRecorder", return_value=mock_recorder),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder"),
+            patch("jobsearch_rag.cli.VectorStore", return_value=mock_store),
+            patch("jobsearch_rag.cli.DecisionRecorder", return_value=mock_recorder),
         ):
             args = argparse.Namespace(
                 job_id="zr-123", verdict="no", reason="Role requires on-call rotation"
@@ -666,9 +722,7 @@ class TestDecideCommand:
         output = capsys.readouterr().out
         assert "Role requires on-call rotation" in output
 
-    def test_missing_jd_text_exits_with_error(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_missing_jd_text_exits_with_error(self, capsys: pytest.CaptureFixture[str]) -> None:
         """If the JD text cannot be retrieved for a known job, exits with error."""
         mock_recorder = MagicMock()
         mock_recorder.get_decision.return_value = {
@@ -687,10 +741,10 @@ class TestDecideCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.rag.embedder.Embedder"),
-            patch("jobsearch_rag.rag.store.VectorStore", return_value=mock_store),
-            patch("jobsearch_rag.rag.decisions.DecisionRecorder", return_value=mock_recorder),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder"),
+            patch("jobsearch_rag.cli.VectorStore", return_value=mock_store),
+            patch("jobsearch_rag.cli.DecisionRecorder", return_value=mock_recorder),
             pytest.raises(SystemExit) as exc_info,
         ):
             args = argparse.Namespace(job_id="zr-123", verdict="yes", reason="")
@@ -725,11 +779,11 @@ class TestExportCommand:
         md_file.write_text("# Run Summary\n\nTest results.\n")
 
         with patch(
-            "jobsearch_rag.config.load_settings",
-            return_value=_make_settings(str(tmp_path / "chroma")),
-        ) as mock_load:
-            # Override output_dir to point to tmp_path
-            mock_load.return_value.output = OutputConfig(output_dir=str(tmp_path))
+            "jobsearch_rag.cli.load_settings",
+            return_value=_make_settings(
+                str(tmp_path / "chroma"), output_dir=str(tmp_path),
+            ),
+        ):
             args = argparse.Namespace(format="markdown")
             handle_export(args)
 
@@ -747,11 +801,11 @@ class TestExportCommand:
         md_file.write_text("# Results\n")
 
         with patch(
-            "jobsearch_rag.config.load_settings",
-            return_value=_make_settings(str(tmp_path / "chroma")),
-        ) as mock_load:
-            mock_load.return_value.output = OutputConfig(output_dir=str(tmp_path))
-
+            "jobsearch_rag.cli.load_settings",
+            return_value=_make_settings(
+                str(tmp_path / "chroma"), output_dir=str(tmp_path),
+            ),
+        ):
             args = argparse.Namespace(format="csv")
             handle_export(args)
             output = capsys.readouterr().out
@@ -768,12 +822,13 @@ class TestExportCommand:
         """When no previous results exist, exits with code 1."""
         with (
             patch(
-                "jobsearch_rag.config.load_settings",
-                return_value=_make_settings(str(tmp_path / "chroma")),
-            ) as mock_load,
+                "jobsearch_rag.cli.load_settings",
+                return_value=_make_settings(
+                    str(tmp_path / "chroma"), output_dir=str(tmp_path),
+                ),
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            mock_load.return_value.output = OutputConfig(output_dir=str(tmp_path))
             args = argparse.Namespace(format="markdown")
             handle_export(args)
 
@@ -814,7 +869,7 @@ class TestLoginCommand:
 
         with (
             patch(
-                "jobsearch_rag.adapters.session.SessionManager",
+                "jobsearch_rag.cli.SessionManager",
                 return_value=mock_session,
             ) as mock_sm_cls,
             patch("builtins.input", return_value=""),
@@ -850,7 +905,7 @@ class TestLoginCommand:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("jobsearch_rag.adapters.session.SessionManager", return_value=mock_session),
+            patch("jobsearch_rag.cli.SessionManager", return_value=mock_session),
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="linkedin", browser=None)
@@ -873,7 +928,7 @@ class TestLoginCommand:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("jobsearch_rag.adapters.session.SessionManager", return_value=mock_session),
+            patch("jobsearch_rag.cli.SessionManager", return_value=mock_session),
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="ziprecruiter", browser=None)
@@ -897,7 +952,7 @@ class TestLoginCommand:
 
         with (
             patch(
-                "jobsearch_rag.adapters.session.SessionManager",
+                "jobsearch_rag.cli.SessionManager",
                 return_value=mock_session,
             ) as mock_sm_cls,
             patch("builtins.input", return_value=""),
@@ -941,8 +996,8 @@ class TestSearchBrowserFailure:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.pipeline.runner.PipelineRunner", return_value=mock_runner),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.PipelineRunner", return_value=mock_runner),
             patch("webbrowser.open", side_effect=OSError("no browser")),
         ):
             args = argparse.Namespace(board=None, overnight=False, open_top=1, force_rescore=False)
@@ -982,7 +1037,7 @@ class TestExportMissing:
             # Create only the markdown file, not csv
             (out_dir / "results.md").write_text("# Results")
 
-            with patch("jobsearch_rag.config.load_settings", return_value=settings):
+            with patch("jobsearch_rag.cli.load_settings", return_value=settings):
                 args = argparse.Namespace(format="csv")
                 handle_export(args)
 
@@ -1016,8 +1071,8 @@ class TestResetCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.rag.store.VectorStore", return_value=mock_store),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.VectorStore", return_value=mock_store),
         ):
             args = argparse.Namespace(collection=None, clear_output=False)
             handle_reset(args)
@@ -1026,9 +1081,7 @@ class TestResetCommand:
         assert "Reset complete" in output
         assert mock_store.reset_collection.call_count > 0
 
-    def test_reset_single_collection(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_reset_single_collection(self, capsys: pytest.CaptureFixture[str]) -> None:
         """GIVEN --collection=resume
         WHEN handle_reset is run
         THEN only the 'resume' collection is reset.
@@ -1037,8 +1090,8 @@ class TestResetCommand:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("jobsearch_rag.config.load_settings", return_value=_make_settings(tmpdir)),
-            patch("jobsearch_rag.rag.store.VectorStore", return_value=mock_store),
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.VectorStore", return_value=mock_store),
         ):
             args = argparse.Namespace(collection="resume", clear_output=False)
             handle_reset(args)
@@ -1063,8 +1116,8 @@ class TestResetCommand:
             (out_dir / "results.md").write_text("old data")
 
             with (
-                patch("jobsearch_rag.config.load_settings", return_value=settings),
-                patch("jobsearch_rag.rag.store.VectorStore", return_value=mock_store),
+                patch("jobsearch_rag.cli.load_settings", return_value=settings),
+                patch("jobsearch_rag.cli.VectorStore", return_value=mock_store),
             ):
                 args = argparse.Namespace(collection=None, clear_output=True)
                 handle_reset(args)
@@ -1098,148 +1151,18 @@ class TestReviewJdLoading:
          an empty-text validation error on the second listing reviewed
     """
 
-    def test_review_populates_full_text_from_jd_file(self, tmp_path: Path) -> None:
-        """
-        When a CSV row has a matching JD file with a Job Description section
-        Then the listing's full_text contains the JD body text
-        """
-        from jobsearch_rag.cli import _read_jd_text, _slugify
-
-        # Given: A JD file with the expected name and content
-        jd_dir = tmp_path / "jds"
-        jd_dir.mkdir()
-        slug_company = _slugify("Acme Corp")
-        slug_title = _slugify("Staff Architect")
-        filename = f"001_{slug_company}_{slug_title}.md"
-        jd_content = (
-            "# Staff Architect — Acme Corp\n\n"
-            "**Score:** 0.85\n\n"
-            "## Job Description\n"
-            "We are looking for a Staff Architect to lead our platform team."
-        )
-        (jd_dir / filename).write_text(jd_content)
-
-        # When: _read_jd_text is called with matching rank, title, company
-        result = _read_jd_text(1, "Staff Architect", "Acme Corp", jd_dir=jd_dir)
-
-        # Then: full_text contains the JD body
-        assert result == "We are looking for a Staff Architect to lead our platform team.", (
-            f"Expected JD body text, got: {result!r}"
-        )
-
-    def test_review_missing_jd_file_yields_empty_full_text(self, tmp_path: Path) -> None:
-        """
-        When the JD file does not exist on disk
-        Then full_text is an empty string and no exception is raised
-        """
-        from jobsearch_rag.cli import _read_jd_text
-
-        # Given: An empty jds directory (no matching file)
-        jd_dir = tmp_path / "jds"
-        jd_dir.mkdir()
-
-        # When: _read_jd_text is called for a nonexistent file
-        result = _read_jd_text(99, "Nonexistent Role", "Ghost Inc", jd_dir=jd_dir)
-
-        # Then: Returns empty string
-        assert result == "", (
-            f"Expected empty string for missing JD file, got: {result!r}"
-        )
-
-    def test_review_jd_file_without_marker_yields_empty_full_text(
-        self, tmp_path: Path
-    ) -> None:
-        """
-        When the JD file exists but lacks the '## Job Description' marker
-        Then full_text is an empty string
-        """
-        from jobsearch_rag.cli import _read_jd_text, _slugify
-
-        # Given: A JD file that has no Job Description section
-        jd_dir = tmp_path / "jds"
-        jd_dir.mkdir()
-        slug_company = _slugify("Acme Corp")
-        slug_title = _slugify("Staff Architect")
-        filename = f"001_{slug_company}_{slug_title}.md"
-        (jd_dir / filename).write_text("# Staff Architect\n\nSome header text only.")
-
-        # When: _read_jd_text is called
-        result = _read_jd_text(1, "Staff Architect", "Acme Corp", jd_dir=jd_dir)
-
-        # Then: Returns empty string since marker is absent
-        assert result == "", (
-            f"Expected empty string when marker is absent, got: {result!r}"
-        )
-
-    def test_review_jd_filename_matches_rank_company_title_slug(
-        self, tmp_path: Path
-    ) -> None:
-        """
-        When constructing the JD filename
-        Then it follows the pattern {rank:03d}_{company_slug}_{title_slug}.md
-        matching the export convention used by the search command
-        """
-        from jobsearch_rag.cli import _read_jd_text, _slugify
-
-        # Given: A JD file named with the expected slug convention
-        jd_dir = tmp_path / "jds"
-        jd_dir.mkdir()
-        # Company "O'Reilly Media" → "oreilly-media"
-        # Title "Sr. Data Engineer (Remote)" → "sr-data-engineer-remote"
-        company = "O'Reilly Media"
-        title = "Sr. Data Engineer (Remote)"
-        expected_name = f"005_{_slugify(company)}_{_slugify(title)}.md"
-        jd_content = "## Job Description\nBuild data pipelines at scale."
-        (jd_dir / expected_name).write_text(jd_content)
-
-        # When: _read_jd_text is called with the original (unslugged) values
-        result = _read_jd_text(5, title, company, jd_dir=jd_dir)
-
-        # Then: The text is found because the filename slug matched
-        assert result == "Build data pipelines at scale.", (
-            f"Filename slug mismatch — could not load JD. Got: {result!r}"
-        )
-
-    def test_slugify_strips_special_chars_and_lowercases(self) -> None:
-        """
-        When slugifying company or title text
-        Then special characters are stripped, spaces become hyphens,
-        text is lowercased, and result is truncated to 80 characters
-        """
-        from jobsearch_rag.cli import _slugify
-
-        # Given: Text with mixed case, special chars, and spaces
-        assert _slugify("Acme Corp") == "acme-corp", "Basic two-word slug"
-        assert _slugify("O'Reilly Media") == "oreilly-media", "Apostrophe stripped"
-        assert _slugify("Sr. Data Engineer (Remote)") == "sr-data-engineer-remote", (
-            "Dots and parens stripped"
-        )
-        assert _slugify("  Extra   Spaces  ") == "extra-spaces", (
-            "Leading/trailing/multiple spaces collapsed"
-        )
-        # Truncation at 80 chars
-        long_text = "a " * 50  # 100 chars before slugify
-        assert len(_slugify(long_text)) <= 80, "Slug must be truncated to 80 chars"
-
-    def test_open_listing_resolves_jd_file_via_slug_convention(
-        self, tmp_path: Path
-    ) -> None:
+    def test_open_listing_resolves_jd_file_via_slug_convention(self, tmp_path: Path) -> None:
         """
         When the operator presses 'o' to open a JD
         Then the review session finds the JD file using the
         rank/company/title slug convention, not external_id
         """
-        from unittest.mock import patch as mock_patch
-
-        from jobsearch_rag.cli import _slugify
-        from jobsearch_rag.pipeline.review import ReviewSession
-
         # Given: A JD file named with the slug convention at rank 3
         jd_dir = tmp_path / "jds"
         jd_dir.mkdir()
         company = "Acme Corp"
         title = "Staff Architect"
-        slug_name = f"003_{_slugify(company)}_{_slugify(title)}.md"
+        slug_name = "003_acme-corp_staff-architect.md"
         (jd_dir / slug_name).write_text("## Job Description\nFull JD here.")
 
         ranked = _make_ranked(title=title, company=company, external_id="zr-42")
@@ -1252,15 +1175,14 @@ class TestReviewJdLoading:
         )
 
         # When: open_listing is called with the rank
-        with mock_patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_open:
+        with patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_open:
             session.open_listing(ranked, rank=3)
             mock_open.assert_called_once()
             opened_path = mock_open.call_args[0][0]
 
         # Then: It opened the slug-based JD file, not external_id.md
         assert slug_name in opened_path, (
-            f"Expected slug-based filename '{slug_name}' in opened path, "
-            f"got: {opened_path}"
+            f"Expected slug-based filename '{slug_name}' in opened path, got: {opened_path}"
         )
 
 
@@ -1292,11 +1214,21 @@ class TestReviewCommandHandler:
          that only surface in production
     """
 
-    _CSV_FIELDS = [
-        "title", "company", "board", "location", "url",
-        "fit_score", "archetype_score", "history_score",
-        "comp_score", "final_score", "comp_min", "comp_max",
-        "disqualified", "disqualifier_reason",
+    _CSV_FIELDS: typing.ClassVar[list[str]] = [
+        "title",
+        "company",
+        "board",
+        "location",
+        "url",
+        "fit_score",
+        "archetype_score",
+        "history_score",
+        "comp_score",
+        "final_score",
+        "comp_min",
+        "comp_max",
+        "disqualified",
+        "disqualifier_reason",
     ]
 
     @staticmethod
@@ -1330,29 +1262,14 @@ class TestReviewCommandHandler:
             writer.writerows(rows)
 
     @pytest.fixture()
-    def review(self, tmp_path: Path):
+    def review(self, tmp_path: Path) -> Iterator[dict[str, Any]]:
         """Temp output dir, settings, mock recorder, and active patches."""
         out_dir = tmp_path / "output"
         out_dir.mkdir()
         (out_dir / "jds").mkdir()
 
-        settings = Settings(
-            enabled_boards=["testboard"],
-            overnight_boards=[],
-            boards={
-                "testboard": BoardConfig(
-                    name="testboard",
-                    searches=["https://example.org/search"],
-                    max_pages=2,
-                    headless=True,
-                ),
-            },
-            scoring=ScoringConfig(),
-            ollama=OllamaConfig(),
-            output=OutputConfig(output_dir=str(out_dir)),
-            chroma=ChromaConfig(persist_dir=str(tmp_path / "chroma")),
-            resume_path="data/resume.md",
-            archetypes_path="config/role_archetypes.toml",
+        settings = _make_settings(
+            str(tmp_path / "chroma"), output_dir=str(out_dir),
         )
 
         recorder = MagicMock()
@@ -1360,11 +1277,11 @@ class TestReviewCommandHandler:
         recorder.record = AsyncMock()
 
         with (
-            patch("jobsearch_rag.config.load_settings", return_value=settings),
-            patch("jobsearch_rag.rag.embedder.Embedder"),
-            patch("jobsearch_rag.rag.store.VectorStore"),
+            patch("jobsearch_rag.cli.load_settings", return_value=settings),
+            patch("jobsearch_rag.cli.Embedder"),
+            patch("jobsearch_rag.cli.VectorStore"),
             patch(
-                "jobsearch_rag.rag.decisions.DecisionRecorder",
+                "jobsearch_rag.cli.DecisionRecorder",
                 return_value=recorder,
             ),
         ):
@@ -1378,27 +1295,30 @@ class TestReviewCommandHandler:
     # -- Tests ---------------------------------------------------------------
 
     def test_missing_csv_prints_message_and_exits(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """When results.csv does not exist, print 'No results found' and return."""
         handle_review(review["args"])
         assert "No results found" in capsys.readouterr().out
 
     def test_csv_rows_are_reconstructed_as_ranked_listings(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """CSV fields flow faithfully into RankedListing → display output."""
-        self._write_csv(review["csv_path"], [
-            self._csv_row(
-                title="Data Engineer",
-                company="BigTech",
-                comp_min="180000",
-                comp_max="250000",
-                final_score="0.92",
-                disqualified="true",
-                disqualifier_reason="Requires clearance",
-            ),
-        ])
+        self._write_csv(
+            review["csv_path"],
+            [
+                self._csv_row(
+                    title="Data Engineer",
+                    company="BigTech",
+                    comp_min="180000",
+                    comp_max="250000",
+                    final_score="0.92",
+                    disqualified="true",
+                    disqualifier_reason="Requires clearance",
+                ),
+            ],
+        )
         with patch("builtins.input", side_effect=["q"]):
             handle_review(review["args"])
         out = capsys.readouterr().out
@@ -1411,30 +1331,36 @@ class TestReviewCommandHandler:
         assert "Requires clearance" in out
 
     def test_all_decided_prints_nothing_to_review(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """When every listing has a decision, print 'nothing to review'."""
-        self._write_csv(review["csv_path"], [
-            self._csv_row(url="https://example.org/done-1"),
-        ])
+        self._write_csv(
+            review["csv_path"],
+            [
+                self._csv_row(url="https://example.org/done-1"),
+            ],
+        )
         review["recorder"].get_decision.return_value = {"verdict": "yes"}
         handle_review(review["args"])
         assert "nothing to review" in capsys.readouterr().out
 
     def test_undecided_count_shown_before_first_listing(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """The undecided count is printed before any listing display."""
-        self._write_csv(review["csv_path"], [
-            self._csv_row(title="Job A", url="https://example.org/a"),
-            self._csv_row(title="Job B", url="https://example.org/b"),
-        ])
+        self._write_csv(
+            review["csv_path"],
+            [
+                self._csv_row(title="Job A", url="https://example.org/a"),
+                self._csv_row(title="Job B", url="https://example.org/b"),
+            ],
+        )
         with patch("builtins.input", side_effect=["q"]):
             handle_review(review["args"])
         assert "2 undecided listing(s)" in capsys.readouterr().out
 
     def test_quit_input_stops_review_and_prints_count(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Entering 'q' immediately stops review and reports 0 reviewed."""
         self._write_csv(review["csv_path"], [self._csv_row()])
@@ -1445,15 +1371,18 @@ class TestReviewCommandHandler:
         assert "0 listing(s) reviewed" in out
 
     def test_skip_input_advances_to_next_listing(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Entering 's' advances to the next listing without recording."""
-        self._write_csv(review["csv_path"], [
-            self._csv_row(title="First Job", final_score="0.90",
-                          url="https://example.org/j1"),
-            self._csv_row(title="Second Job", final_score="0.80",
-                          url="https://example.org/j2"),
-        ])
+        self._write_csv(
+            review["csv_path"],
+            [
+                self._csv_row(title="First Job", final_score="0.90", url="https://example.org/j1"),
+                self._csv_row(
+                    title="Second Job", final_score="0.80", url="https://example.org/j2"
+                ),
+            ],
+        )
         with patch("builtins.input", side_effect=["s", "q"]):
             handle_review(review["args"])
         out = capsys.readouterr().out
@@ -1461,7 +1390,7 @@ class TestReviewCommandHandler:
         review["recorder"].record.assert_not_called()
 
     def test_yes_verdict_records_and_prints_confirmation(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Entering 'y' + a reason records the verdict and prints confirmation."""
         self._write_csv(review["csv_path"], [self._csv_row()])
@@ -1472,8 +1401,37 @@ class TestReviewCommandHandler:
         assert "Good fit" in out
         review["recorder"].record.assert_called_once()
 
+    def test_review_loads_full_text_from_jd_file(
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """
+        When a CSV row has a matching JD file on disk
+        Then the listing's full_text is populated from the JD body
+        and passed to the recorder when a verdict is recorded
+        """
+        # Given: A CSV row and a matching JD file with the slug convention
+        self._write_csv(review["csv_path"], [self._csv_row()])
+        jd_dir = review["out_dir"] / "jds"
+        jd_file = jd_dir / "001_acme-corp_staff-architect.md"
+        jd_file.write_text(
+            "# Staff Architect\n\n"
+            "## Job Description\n"
+            "Lead the platform team and design distributed systems."
+        )
+
+        # When: handle_review is called and user approves
+        with patch("builtins.input", side_effect=["y", "Good fit"]):
+            handle_review(review["args"])
+
+        # Then: recorder received the JD body as jd_text
+        review["recorder"].record.assert_called_once()
+        call_kwargs = review["recorder"].record.call_args.kwargs
+        assert "Lead the platform team" in call_kwargs["jd_text"], (
+            f"Expected JD body in jd_text, got: {call_kwargs['jd_text']!r}"
+        )
+
     def test_verdict_without_reason_prints_short_confirmation(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Entering a verdict then Enter (empty reason) omits the reason suffix."""
         self._write_csv(review["csv_path"], [self._csv_row()])
@@ -1484,7 +1442,7 @@ class TestReviewCommandHandler:
         assert "Recorded: n —" not in out
 
     def test_invalid_input_reprints_help(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Unrecognised input reprints the valid command list."""
         self._write_csv(review["csv_path"], [self._csv_row()])
@@ -1493,7 +1451,7 @@ class TestReviewCommandHandler:
         assert "Invalid input" in capsys.readouterr().out
 
     def test_all_reviewed_prints_completion_message(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """After every undecided listing gets a verdict, print 'Review complete'."""
         self._write_csv(review["csv_path"], [self._csv_row()])
@@ -1502,7 +1460,7 @@ class TestReviewCommandHandler:
         assert "Review complete" in capsys.readouterr().out
 
     def test_eof_during_input_treated_as_quit(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """EOFError on input() is treated identically to entering 'q'."""
         self._write_csv(review["csv_path"], [self._csv_row()])
@@ -1511,12 +1469,15 @@ class TestReviewCommandHandler:
         assert "Review stopped" in capsys.readouterr().out
 
     def test_open_delegates_to_session_open_listing(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Entering 'o' delegates to ReviewSession.open_listing."""
-        self._write_csv(review["csv_path"], [
-            self._csv_row(url="https://example.org/open-me"),
-        ])
+        self._write_csv(
+            review["csv_path"],
+            [
+                self._csv_row(url="https://example.org/open-me"),
+            ],
+        )
         with (
             patch("builtins.input", side_effect=["o", "q"]),
             patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_wb,
@@ -1525,7 +1486,7 @@ class TestReviewCommandHandler:
         mock_wb.assert_called_once()
 
     def test_eof_during_reason_prompt_records_empty_reason(
-        self, review: dict, capsys: pytest.CaptureFixture[str]
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         """EOFError on the reason prompt records the verdict with an empty reason."""
         self._write_csv(review["csv_path"], [self._csv_row()])
@@ -1536,3 +1497,271 @@ class TestReviewCommandHandler:
         assert "Recorded: y" in out
         assert "Recorded: y —" not in out
         review["recorder"].record.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# TestIndexArchetypesOnly
+# ---------------------------------------------------------------------------
+
+
+class TestIndexArchetypesOnly:
+    """REQUIREMENT: --archetypes-only rebuilds archetypes and negative signals without resume.
+
+    WHO: The operator tuning archetypes or the global rubric
+    WHAT: When ``--archetypes-only`` is passed to ``index``, only archetypes
+          and negative signals are re-indexed; the resume is not touched;
+          chunk counts are printed to stdout
+    WHY: After editing role_archetypes.toml or global_rubric.toml, the operator
+         needs a fast re-index path that doesn't re-embed the full resume
+    """
+
+    def test_archetypes_only_indexes_archetypes_and_negative_signals(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """With --archetypes-only, archetypes and negative signals are indexed."""
+        mock_embedder = MagicMock()
+        mock_embedder.health_check = AsyncMock()
+        mock_indexer = MagicMock()
+        mock_indexer.index_archetypes = AsyncMock(return_value=3)
+        mock_indexer.index_negative_signals = AsyncMock(return_value=12)
+        mock_indexer.index_global_positive_signals = AsyncMock(return_value=4)
+        mock_indexer.index_resume = AsyncMock(return_value=5)
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Indexer", return_value=mock_indexer),
+        ):
+            args = argparse.Namespace(archetypes_only=True, resume_only=False)
+            handle_index(args)
+
+        mock_indexer.index_archetypes.assert_awaited_once()
+        mock_indexer.index_negative_signals.assert_awaited_once()
+        mock_indexer.index_resume.assert_not_awaited()
+        output = capsys.readouterr().out
+        assert "Indexed 3 archetypes" in output
+        assert "Indexed 12 negative signals" in output
+        assert "resume" not in output.lower()
+
+    def test_default_index_also_indexes_negative_signals(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Without any flags, index also indexes negative signals alongside archetypes."""
+        mock_embedder = MagicMock()
+        mock_embedder.health_check = AsyncMock()
+        mock_indexer = MagicMock()
+        mock_indexer.index_archetypes = AsyncMock(return_value=3)
+        mock_indexer.index_negative_signals = AsyncMock(return_value=8)
+        mock_indexer.index_global_positive_signals = AsyncMock(return_value=4)
+        mock_indexer.index_resume = AsyncMock(return_value=5)
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Indexer", return_value=mock_indexer),
+        ):
+            args = argparse.Namespace(archetypes_only=False, resume_only=False)
+            handle_index(args)
+
+        mock_indexer.index_negative_signals.assert_awaited_once()
+        output = capsys.readouterr().out
+        assert "Indexed 8 negative signals" in output
+
+
+# ---------------------------------------------------------------------------
+# TestRescoreCommand
+# ---------------------------------------------------------------------------
+
+
+class TestRescoreCommand:
+    """REQUIREMENT: The rescore command re-scores JDs through updated collections.
+
+    WHO: The operator iterating on archetype tuning or negative signal refinement
+    WHAT: ``handle_rescore`` loads settings, creates scorer/ranker/rescorer,
+          runs rescore against output/jds/, prints a summary, and re-exports;
+          the health check runs before rescoring
+    WHY: Without a dedicated rescore command the operator must re-run full
+         browser sessions after every config change — minutes instead of seconds
+    """
+
+    def test_rescore_prints_summary(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """The rescore command prints a summary with loaded/scored/failed counts."""
+        mock_embedder = MagicMock()
+        mock_embedder.health_check = AsyncMock()
+
+        mock_result = RescoreResult(
+            ranked_listings=[],
+            summary=RankSummary(total_scored=5, total_excluded=1),
+            total_loaded=6,
+            failed_listings=1,
+        )
+        mock_rescorer = MagicMock()
+        mock_rescorer.rescore = AsyncMock(return_value=mock_result)
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Scorer"),
+            patch("jobsearch_rag.cli.Rescorer", return_value=mock_rescorer),
+        ):
+            args = argparse.Namespace()
+            handle_rescore(args)
+
+        mock_embedder.health_check.assert_awaited_once()
+        output = capsys.readouterr().out
+        assert "Rescore Results Summary" in output
+        assert "JDs loaded:     6" in output
+        assert "Failed:         1" in output
+
+    def test_rescore_runs_health_check_first(self) -> None:
+        """The health check runs before any rescoring work begins."""
+        mock_embedder = MagicMock()
+        mock_embedder.health_check = AsyncMock()
+
+        mock_rescorer = MagicMock()
+        mock_rescorer.rescore = AsyncMock(return_value=RescoreResult())
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Scorer"),
+            patch("jobsearch_rag.cli.Rescorer", return_value=mock_rescorer),
+        ):
+            args = argparse.Namespace()
+            handle_rescore(args)
+
+        mock_embedder.health_check.assert_awaited_once()
+
+    def test_rescore_prints_each_ranked_listing_with_score_and_details(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """
+        When rescore produces ranked listings
+        Then each listing is printed with rank, score, title, company, board, URL,
+        and score explanation
+        """
+        mock_embedder = MagicMock()
+        mock_embedder.health_check = AsyncMock()
+
+        ranked = _make_ranked(
+            final_score=0.82,
+            title="Staff Architect",
+            company="Acme Corp",
+            board="ziprecruiter",
+            external_id="42",
+        )
+        mock_result = RescoreResult(
+            ranked_listings=[ranked],
+            summary=RankSummary(total_scored=1),
+            total_loaded=1,
+            failed_listings=0,
+        )
+        mock_rescorer = MagicMock()
+        mock_rescorer.rescore = AsyncMock(return_value=mock_result)
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Scorer"),
+            patch("jobsearch_rag.cli.Rescorer", return_value=mock_rescorer),
+        ):
+            args = argparse.Namespace()
+            handle_rescore(args)
+
+        output = capsys.readouterr().out
+        assert "1. [0.82]" in output, f"Expected ranked listing with score in output: {output!r}"
+        assert "Staff Architect" in output, f"Expected listing title in output: {output!r}"
+        assert "Acme Corp" in output, f"Expected company name in output: {output!r}"
+        assert "ziprecruiter" in output, f"Expected board name in output: {output!r}"
+        assert "Archetype:" in output, f"Expected score explanation in output: {output!r}"
+
+    def test_rescore_re_exports_results_md_and_csv(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """
+        When rescore produces ranked listings
+        Then Markdown and CSV results are exported to the output directory
+        """
+        mock_embedder = MagicMock()
+        mock_embedder.health_check = AsyncMock()
+
+        ranked = _make_ranked(final_score=0.75)
+        mock_result = RescoreResult(
+            ranked_listings=[ranked],
+            summary=RankSummary(total_scored=1),
+            total_loaded=1,
+        )
+        mock_rescorer = MagicMock()
+        mock_rescorer.rescore = AsyncMock(return_value=mock_result)
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Scorer"),
+            patch("jobsearch_rag.cli.Rescorer", return_value=mock_rescorer),
+        ):
+            args = argparse.Namespace()
+            handle_rescore(args)
+            out_dir = Path(tmpdir) / "output"
+
+            output = capsys.readouterr().out
+            assert "Exported Markdown" in output, (
+                f"Expected Markdown export confirmation in output: {output!r}"
+            )
+            assert "Exported CSV" in output, (
+                f"Expected CSV export confirmation in output: {output!r}"
+            )
+            assert (out_dir / "results.md").exists(), "results.md should be created"
+            assert (out_dir / "results.csv").exists(), "results.csv should be created"
+
+    def test_rescore_re_exports_jd_files_with_updated_scores_and_ranks(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """
+        When rescore produces ranked listings
+        Then JD files are re-exported with updated scores and ranks
+        """
+        mock_embedder = MagicMock()
+        mock_embedder.health_check = AsyncMock()
+
+        ranked = _make_ranked(final_score=0.75)
+        mock_result = RescoreResult(
+            ranked_listings=[ranked],
+            summary=RankSummary(total_scored=1),
+            total_loaded=1,
+        )
+        mock_rescorer = MagicMock()
+        mock_rescorer.rescore = AsyncMock(return_value=mock_result)
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("jobsearch_rag.cli.load_settings", return_value=_make_settings(tmpdir)),
+            patch("jobsearch_rag.cli.Embedder", return_value=mock_embedder),
+            patch("jobsearch_rag.cli.VectorStore"),
+            patch("jobsearch_rag.cli.Scorer"),
+            patch("jobsearch_rag.cli.Rescorer", return_value=mock_rescorer),
+        ):
+            args = argparse.Namespace()
+            handle_rescore(args)
+            out_dir = Path(tmpdir) / "output"
+
+            output = capsys.readouterr().out
+            assert "Exported JDs" in output, (
+                f"Expected JD export confirmation in output: {output!r}"
+            )
+            jd_dir = out_dir / "jds"
+            assert jd_dir.exists(), "jds/ directory should be created"
+            jd_files = list(jd_dir.glob("*.md"))
+            assert len(jd_files) >= 1, f"Expected at least 1 JD file, found {len(jd_files)}"

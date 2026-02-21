@@ -35,7 +35,7 @@ _RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 # ~1 char/token rather than the ~4 average for clean English prose.  Empirical
 # testing shows formatted JD text breaks at ~9 200 chars; 8 000 gives safe
 # headroom.  The scorer chunks long JDs at this size so no content is lost.
-_MAX_EMBED_CHARS = 8_000
+_DEFAULT_MAX_EMBED_CHARS = 8_000
 
 # When truncation is needed, keep head (title, company, overview) and tail
 # (hands-on work, comp range, specific tech) — the middle is typically "about
@@ -57,6 +57,13 @@ class Embedder:
         await embedder.health_check()          # fail fast if Ollama is down
         vec = await embedder.embed("some text") # → list[float]
         answer = await embedder.classify("Is this role suitable?")
+    """
+
+    MAX_EMBED_CHARS: int = _DEFAULT_MAX_EMBED_CHARS
+    """Maximum character count accepted by the embedding model.
+
+    The scorer reads this to size its overlapping chunks so that no
+    single chunk exceeds the model's context window.
     """
 
     def __init__(
@@ -83,7 +90,7 @@ class Embedder:
         Strips whitespace before embedding. Raises VALIDATION for empty
         input; retries transient Ollama errors with exponential backoff.
 
-        Text longer than ``_MAX_EMBED_CHARS`` is truncated using a
+        Text longer than :attr:`MAX_EMBED_CHARS` is truncated using a
         **head + tail** strategy to avoid exceeding the model's context
         window.  The head captures title, company, and overview.  The
         tail preserves hands-on work details and compensation ranges —
@@ -98,23 +105,19 @@ class Embedder:
                 suggestion="Provide non-empty text to embed",
             )
 
-        if len(cleaned) > _MAX_EMBED_CHARS:
+        if len(cleaned) > self.MAX_EMBED_CHARS:
             logger.debug(
                 "Truncating embed input from %d to %d chars (head+tail)",
                 len(cleaned),
-                _MAX_EMBED_CHARS,
+                self.MAX_EMBED_CHARS,
             )
-            budget = _MAX_EMBED_CHARS - len(_TRUNCATION_MARKER)
+            budget = self.MAX_EMBED_CHARS - len(_TRUNCATION_MARKER)
             head_len = int(budget * _HEAD_RATIO)
             tail_len = budget - head_len
-            cleaned = (
-                cleaned[:head_len] + _TRUNCATION_MARKER + cleaned[-tail_len:]
-            )
+            cleaned = cleaned[:head_len] + _TRUNCATION_MARKER + cleaned[-tail_len:]
 
         async def _call() -> list[float]:
-            response = await self._client.embed(
-                model=self.embed_model, input=cleaned
-            )
+            response = await self._client.embed(model=self.embed_model, input=cleaned)
             return list(response.embeddings[0])
 
         return await self._with_retry(_call, operation="embed")

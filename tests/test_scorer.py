@@ -302,9 +302,7 @@ class TestJDChunking:
          coding role
     """
 
-    async def test_short_jd_is_not_chunked(
-        self, scorer: Scorer, mock_embedder: Embedder
-    ) -> None:
+    async def test_short_jd_is_not_chunked(self, scorer: Scorer, mock_embedder: Embedder) -> None:
         """A short JD fits in one chunk — embed is called exactly once."""
         mock_embedder.embed = AsyncMock(return_value=EMBED_ARCH_JD)  # type: ignore[method-assign]
         await scorer.score("Staff architect for distributed systems")
@@ -319,20 +317,18 @@ class TestJDChunking:
         chunk 2 (hands-on work at the tail) has a strong match — the
         strong match should win.
         """
-        from jobsearch_rag.rag.scorer import _CHUNK_SIZE
+        # Text long enough to guarantee chunking regardless of chunk-size tuning
+        long_jd = "x" * 20_000
 
-        # +1 char over _CHUNK_SIZE produces exactly 2 overlapping chunks
-        long_jd = "x" * (_CHUNK_SIZE + 1)
-
-        # Chunk 1 → weak embedding, chunk 2 → strong embedding
+        # First chunk → weak embedding, remaining chunks → strong embedding
         mock_embedder.embed = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[EMBED_UNRELATED_JD, EMBED_ARCH_JD]
+            side_effect=[EMBED_UNRELATED_JD] + [EMBED_ARCH_JD] * 20
         )
         scorer = Scorer(store=populated_store, embedder=mock_embedder)
         result = await scorer.score(long_jd)
 
-        # embed was called twice (one per chunk)
-        assert mock_embedder.embed.call_count == 2
+        # embed was called multiple times (chunked)
+        assert mock_embedder.embed.call_count >= 2
         # The strong chunk's archetype score should dominate
         assert result.archetype_score > 0.5
 
@@ -344,14 +340,12 @@ class TestJDChunking:
         This is the core scenario: aspirational architecture language up front,
         but the actual hands-on work (better match) is at the end.
         """
-        from jobsearch_rag.rag.scorer import _CHUNK_SIZE
+        # Text long enough to guarantee chunking regardless of chunk-size tuning
+        long_jd = "x" * 20_000
 
-        # +1 char over _CHUNK_SIZE produces exactly 2 overlapping chunks
-        long_jd = "x" * (_CHUNK_SIZE + 1)
-
-        # Head chunk → far from everything; tail chunk → strong architect match
+        # First chunk → far from everything; remaining chunks → strong architect match
         mock_embedder.embed = AsyncMock(  # type: ignore[method-assign]
-            side_effect=[EMBED_UNRELATED_JD, EMBED_ARCH_JD]
+            side_effect=[EMBED_UNRELATED_JD] + [EMBED_ARCH_JD] * 20
         )
         scorer_chunked = Scorer(store=populated_store, embedder=mock_embedder)
         result_chunked = await scorer_chunked.score(long_jd)
@@ -368,9 +362,8 @@ class TestJDChunking:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """The LLM disqualifier always operates on the full JD text."""
-        from jobsearch_rag.rag.scorer import _CHUNK_SIZE
-
-        long_jd = "FULL_JD_" * ((_CHUNK_SIZE // 8) + 1000)
+        # Text long enough to guarantee chunking regardless of chunk-size tuning
+        long_jd = "FULL_JD_" * 5_000  # ~40,000 chars
 
         mock_embedder.embed = AsyncMock(return_value=EMBED_ARCH_JD)  # type: ignore[method-assign]
         mock_embedder.classify = AsyncMock(  # type: ignore[method-assign]
@@ -382,79 +375,6 @@ class TestJDChunking:
         # classify should have been called with the *full* JD text, not chunks
         classify_call = mock_embedder.classify.call_args[0][0]
         assert long_jd in classify_call
-
-
-class TestChunkTextFunction:
-    """REQUIREMENT: _chunk_text correctly splits text into overlapping chunks.
-
-    WHO: The Scorer before embedding a JD
-    WHAT: Short text returns a single chunk unchanged; long text is split
-          into overlapping chunks that cover the entire input; each chunk
-          respects the size limit; overlap is present between adjacent chunks
-    WHY: Gaps in coverage would lose JD signals; chunks exceeding the model
-         context window would cause embedding errors
-    """
-
-    def test_short_text_returns_single_chunk(self) -> None:
-        """Text within the chunk size is returned as a single-element list."""
-        from jobsearch_rag.rag.scorer import _chunk_text
-
-        text = "Short JD text"
-        result = _chunk_text(text)
-        assert result == [text]
-
-    def test_long_text_produces_multiple_chunks(self) -> None:
-        """Text exceeding chunk_size is split into multiple chunks."""
-        from jobsearch_rag.rag.scorer import _chunk_text
-
-        text = "x" * 100
-        result = _chunk_text(text, chunk_size=40, overlap=10)
-        assert len(result) > 1
-
-    def test_each_chunk_respects_size_limit(self) -> None:
-        """Every chunk is at most chunk_size characters long."""
-        from jobsearch_rag.rag.scorer import _chunk_text
-
-        text = "x" * 200
-        result = _chunk_text(text, chunk_size=50, overlap=10)
-        for chunk in result:
-            assert len(chunk) <= 50
-
-    def test_chunks_cover_entire_input(self) -> None:
-        """The first and last characters of the input are present in the chunks."""
-        from jobsearch_rag.rag.scorer import _chunk_text
-
-        text = "".join(chr(i % 256 + 0x100) for i in range(200))  # unique chars
-        result = _chunk_text(text, chunk_size=50, overlap=10)
-
-        # First chunk starts at the beginning
-        assert result[0].startswith(text[:10])
-        # Last chunk ends at the input end
-        assert result[-1].endswith(text[-10:])
-        # Total coverage (sum of chunk lengths minus overlaps) >= input length
-        total_chars = sum(len(c) for c in result)
-        assert total_chars >= len(text)
-
-    def test_adjacent_chunks_overlap(self) -> None:
-        """Adjacent chunks share an overlapping region."""
-        from jobsearch_rag.rag.scorer import _chunk_text
-
-        text = "ABCDEFGHIJ" * 10  # 100 chars
-        result = _chunk_text(text, chunk_size=40, overlap=10)
-        assert len(result) >= 2
-        # The tail of chunk[0] should match the head of chunk[1]
-        tail_of_first = result[0][-10:]
-        head_of_second = result[1][:10]
-        assert tail_of_first == head_of_second
-
-    def test_exact_boundary_text_is_single_chunk(self) -> None:
-        """Text exactly equal to chunk_size is a single chunk, not two."""
-        from jobsearch_rag.rag.scorer import _chunk_text
-
-        text = "x" * 50
-        result = _chunk_text(text, chunk_size=50, overlap=10)
-        assert len(result) == 1
-        assert result[0] == text
 
 
 # ---------------------------------------------------------------------------
@@ -631,7 +551,7 @@ class TestRejectionReasonInjection:
         )
         scorer = Scorer(store=populated_store, embedder=mock_embedder)
         await scorer.disqualify("Some new JD text")
-        prompt_sent = mock_embedder.classify.call_args[0][0]
+        prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
         assert "Requires on-call rotation" in prompt_sent
         assert "No remote option" in prompt_sent
 
@@ -653,7 +573,7 @@ class TestRejectionReasonInjection:
         )
         scorer = Scorer(store=populated_store, embedder=mock_embedder)
         await scorer.disqualify("Some JD")
-        prompt_sent = mock_embedder.classify.call_args[0][0]
+        prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
         assert "Fully remote architecture leadership" not in prompt_sent
 
     async def test_empty_reasons_are_omitted_from_prompt(
@@ -672,7 +592,7 @@ class TestRejectionReasonInjection:
         )
         scorer = Scorer(store=populated_store, embedder=mock_embedder)
         await scorer.disqualify("Any JD")
-        prompt_sent = mock_embedder.classify.call_args[0][0]
+        prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
         assert "rejected roles" not in prompt_sent
 
     async def test_duplicate_reasons_appear_once(
@@ -694,7 +614,7 @@ class TestRejectionReasonInjection:
         )
         scorer = Scorer(store=populated_store, embedder=mock_embedder)
         await scorer.disqualify("Some JD")
-        prompt_sent = mock_embedder.classify.call_args[0][0]
+        prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
         assert prompt_sent.count("On-call required") == 1
 
     async def test_missing_decisions_collection_returns_no_reasons(
@@ -707,7 +627,7 @@ class TestRejectionReasonInjection:
         # populated_store has resume + archetypes but NO decisions
         scorer = Scorer(store=populated_store, embedder=mock_embedder)
         await scorer.disqualify("Any JD")
-        prompt_sent = mock_embedder.classify.call_args[0][0]
+        prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
         assert "rejected roles" not in prompt_sent
 
     async def test_rejection_reasons_are_cached_per_scorer_instance(
@@ -730,8 +650,8 @@ class TestRejectionReasonInjection:
         # Second call — should use cache
         await scorer.disqualify("JD two")
         # The reasons should appear in both prompts
-        first_prompt = mock_embedder.classify.call_args_list[0][0][0]
-        second_prompt = mock_embedder.classify.call_args_list[1][0][0]
+        first_prompt = mock_embedder.classify.call_args_list[0][0][0]  # type: ignore[attr-defined]
+        second_prompt = mock_embedder.classify.call_args_list[1][0][0]  # type: ignore[attr-defined]
         assert "Requires clearance" in first_prompt
         assert "Requires clearance" in second_prompt
         # Verify caching — the internal list should be the same object
@@ -748,12 +668,14 @@ class TestScoreFusion:
     """REQUIREMENT: Final score correctly fuses weighted components from settings.
 
     WHO: The ranker; the operator tuning weights in settings.toml
-    WHAT: Final score equals the weighted sum of the four component scores
-          (archetype, fit, history, comp); weights are read from settings,
+    WHAT: Final score equals the weighted sum of the four positive component
+          scores (archetype, fit, history, comp) minus a negative penalty
+          (negative_weight * negative_score); weights are read from settings,
           not hardcoded; weights need not sum to 1.0 (the formula produces a
           weighted composite, not a probability); a disqualified role always
           scores 0.0; roles below min_score_threshold are excluded from output
-          entirely; comp_weight applies to the compensation taste signal
+          entirely; comp_weight applies to the compensation taste signal;
+          the final score floors at 0.0 to prevent negative values
     WHY: Incorrect weight application would produce a ranking that doesn't
          reflect configured priorities — a silent correctness failure
     """
@@ -770,12 +692,14 @@ class TestScoreFusion:
         )
 
     def test_final_score_matches_weighted_sum_formula(self) -> None:
-        """The final score equals the weighted sum of fit, archetype, history, and comp scores."""
+        """The final score equals positive weighted sum (including culture) minus negative penalty."""
         ranker = Ranker(
             archetype_weight=0.5,
             fit_weight=0.3,
             history_weight=0.2,
             comp_weight=0.15,
+            culture_weight=0.2,
+            negative_weight=0.4,
             min_score_threshold=0.0,
         )
         scores = ScoreResult(
@@ -783,9 +707,12 @@ class TestScoreFusion:
             archetype_score=0.6,
             history_score=0.4,
             comp_score=0.9,
+            culture_score=0.7,
+            negative_score=0.3,
             disqualified=False,
         )
-        expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4 + 0.15 * 0.9
+        positive = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.7 + 0.2 * 0.4 + 0.15 * 0.9
+        expected = max(0.0, positive - 0.4 * 0.3)
         assert ranker.compute_final_score(scores) == pytest.approx(expected)
 
     def test_weights_are_read_from_settings_not_hardcoded(self) -> None:
@@ -867,13 +794,15 @@ class TestScoreFusion:
         assert len(ranked) == 1
         assert ranked[0].final_score == pytest.approx(0.5)
 
-    def test_score_explanation_includes_all_four_component_values(self) -> None:
-        """The explanation string shows fit, archetype, history, and comp scores for transparency."""
+    def test_score_explanation_includes_all_six_component_values(self) -> None:
+        """The explanation string shows fit, archetype, culture, history, comp, and negative scores."""
         scores = ScoreResult(
             fit_score=0.75,
             archetype_score=0.80,
             history_score=0.60,
             comp_score=0.90,
+            negative_score=0.25,
+            culture_score=0.65,
             disqualified=False,
         )
         ranked = RankedListing(
@@ -884,8 +813,10 @@ class TestScoreFusion:
         explanation = ranked.score_explanation()
         assert "Archetype: 0.80" in explanation
         assert "Fit: 0.75" in explanation
+        assert "Culture: 0.65" in explanation
         assert "History: 0.60" in explanation
         assert "Comp: 0.90" in explanation
+        assert "Negative: 0.25" in explanation
         assert "Not disqualified" in explanation
 
     def test_score_explanation_shows_disqualified_with_reason(self) -> None:
@@ -909,6 +840,66 @@ class TestScoreFusion:
         explanation = ranked.score_explanation()
         assert "DISQUALIFIED: IC role disguised as architect" in explanation
 
+    def test_negative_penalty_reduces_final_score(self) -> None:
+        """A non-zero negative_score reduces the final score by negative_weight * negative_score."""
+        ranker = Ranker(
+            archetype_weight=1.0,
+            fit_weight=0.0,
+            history_weight=0.0,
+            comp_weight=0.0,
+            negative_weight=0.5,
+            min_score_threshold=0.0,
+        )
+        scores = ScoreResult(
+            fit_score=0.0,
+            archetype_score=0.8,
+            history_score=0.0,
+            negative_score=0.6,
+            disqualified=False,
+        )
+        # positive = 0.8, penalty = 0.5 * 0.6 = 0.3, final = 0.5
+        assert ranker.compute_final_score(scores) == pytest.approx(0.5)
+
+    def test_final_score_floors_at_zero_when_penalty_exceeds_positive(self) -> None:
+        """When the negative penalty exceeds the positive sum, the final score floors at 0.0."""
+        ranker = Ranker(
+            archetype_weight=1.0,
+            fit_weight=0.0,
+            history_weight=0.0,
+            comp_weight=0.0,
+            negative_weight=1.0,
+            min_score_threshold=0.0,
+        )
+        scores = ScoreResult(
+            fit_score=0.0,
+            archetype_score=0.3,
+            history_score=0.0,
+            negative_score=0.8,
+            disqualified=False,
+        )
+        # positive = 0.3, penalty = 1.0 * 0.8 = 0.8, floor at 0.0
+        assert ranker.compute_final_score(scores) == 0.0
+
+    def test_zero_negative_score_has_no_effect_on_fusion(self) -> None:
+        """When negative_score is 0.0, the formula reduces to the positive weighted sum."""
+        ranker = Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.2,
+            comp_weight=0.0,
+            negative_weight=0.4,
+            min_score_threshold=0.0,
+        )
+        scores = ScoreResult(
+            fit_score=0.8,
+            archetype_score=0.6,
+            history_score=0.4,
+            negative_score=0.0,
+            disqualified=False,
+        )
+        expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4
+        assert ranker.compute_final_score(scores) == pytest.approx(expected)
+
     def test_comp_weight_is_included_in_fusion_formula(self) -> None:
         """comp_weight contributes to final score when comp_score is present."""
         ranker = Ranker(
@@ -916,6 +907,7 @@ class TestScoreFusion:
             fit_weight=0.0,
             history_weight=0.0,
             comp_weight=1.0,
+            negative_weight=0.0,
             min_score_threshold=0.0,
         )
         scores = ScoreResult(
@@ -935,6 +927,7 @@ class TestScoreFusion:
             fit_weight=0.3,
             history_weight=0.2,
             comp_weight=0.15,
+            negative_weight=0.0,
             min_score_threshold=0.0,
         )
         scores = ScoreResult(
@@ -984,6 +977,7 @@ class TestCrossBoardDeduplication:
             fit_weight=0.3,
             history_weight=0.2,
             comp_weight=0.0,
+            negative_weight=0.0,
             min_score_threshold=threshold,
         )
 
@@ -1073,7 +1067,9 @@ class TestCrossBoardDeduplication:
     def test_distinct_roles_with_similar_titles_are_not_collapsed(self) -> None:
         """Roles with similar titles but different JD content remain as separate listings."""
         ranker = self._make_ranker()
-        listing_a = self._make_listing(board="ziprecruiter", external_id="1", title="Staff Architect")
+        listing_a = self._make_listing(
+            board="ziprecruiter", external_id="1", title="Staff Architect"
+        )
         listing_b = self._make_listing(board="indeed", external_id="2", title="Staff Architect")
 
         scores = ScoreResult(

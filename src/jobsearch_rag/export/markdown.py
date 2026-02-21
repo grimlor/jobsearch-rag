@@ -38,9 +38,7 @@ class MarkdownExporter:
         lines.append("")
 
         # Filter and sort
-        qualified = [
-            r for r in listings if not (r.scores.disqualified and r.final_score == 0.0)
-        ]
+        qualified = [r for r in listings if not (r.scores.disqualified and r.final_score == 0.0)]
         qualified.sort(key=lambda r: r.final_score, reverse=True)
 
         if not qualified:
@@ -51,12 +49,8 @@ class MarkdownExporter:
 
         # --- Listing table ---
         lines.append("## Ranked Listings\n")
-        lines.append(
-            "| # | Title | Company | Board | Score | Breakdown | URL |"
-        )
-        lines.append(
-            "|---|-------|---------|-------|-------|-----------|-----|"
-        )
+        lines.append("| # | Title | Company | Board | Score | Breakdown | URL |")
+        lines.append("|---|-------|---------|-------|-------|-----------|-----|")
 
         for rank, r in enumerate(qualified, start=1):
             explanation = r.score_explanation()
@@ -75,4 +69,3 @@ class MarkdownExporter:
 
         with open(output_path, "w") as f:
             f.write("\n".join(lines))
-

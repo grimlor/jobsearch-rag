@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters.base import JobListing
@@ -21,6 +22,9 @@ from jobsearch_rag.config import (
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.scorer import ScoreResult
+
+if TYPE_CHECKING:
+    from jobsearch_rag.rag.store import VectorStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,7 +49,7 @@ def _make_settings(
             headless=True,
         )
     # Also add overnight board configs
-    for name in (overnight_boards or []):
+    for name in overnight_boards or []:
         if name not in board_configs:
             board_configs[name] = BoardConfig(
                 name=name,
@@ -82,16 +86,25 @@ def _make_listing(
 
 def _make_runner_with_mocks(
     settings: Settings,
-) -> tuple[PipelineRunner, MagicMock, MagicMock, MagicMock]:
-    """Create a PipelineRunner with mocked Embedder, Scorer, and Store.
+    *,
+    populate_store: bool = True,
+) -> tuple[PipelineRunner, MagicMock, MagicMock]:
+    """Create a PipelineRunner with mocked Embedder and Scorer.
 
-    Returns (runner, mock_embedder, mock_scorer, mock_store).
+    VectorStore and DecisionRecorder use **real** instances backed by
+    the temp directory in ``settings.chroma.persist_dir``.  Embedder
+    and Scorer are mocked because they make network I/O to Ollama.
+
+    When *populate_store* is True (default), minimal documents are
+    seeded into the ``resume``, ``role_archetypes``, and
+    ``global_positive_signals`` collections so that auto-indexing is
+    skipped.  Set to False for auto-index-specific tests.
+
+    Returns ``(runner, mock_embedder, mock_scorer)``.
     """
     mock_embedder = MagicMock()
     mock_embedder.health_check = AsyncMock()
     mock_embedder.embed = AsyncMock(return_value=EMBED_FAKE)
-
-    mock_store = MagicMock()
 
     mock_scorer = MagicMock()
     mock_scorer.score = AsyncMock(
@@ -105,22 +118,25 @@ def _make_runner_with_mocks(
 
     with (
         patch("jobsearch_rag.pipeline.runner.Embedder", return_value=mock_embedder),
-        patch("jobsearch_rag.pipeline.runner.VectorStore", return_value=mock_store),
         patch("jobsearch_rag.pipeline.runner.Scorer", return_value=mock_scorer),
-        patch("jobsearch_rag.pipeline.runner.DecisionRecorder"),
     ):
         runner = PipelineRunner(settings)
 
-    # Replace internal references (they were set in __init__)
-    runner._embedder = mock_embedder
-    runner._scorer = mock_scorer
-    runner._store = mock_store
-    # Decision recorder mock: no prior decisions by default
-    mock_decision_recorder = MagicMock()
-    mock_decision_recorder.get_decision = MagicMock(return_value=None)
-    runner._decision_recorder = mock_decision_recorder
+    if populate_store:
+        _populate_store(runner._store)
 
-    return runner, mock_embedder, mock_scorer, mock_store
+    return runner, mock_embedder, mock_scorer
+
+
+def _populate_store(store: VectorStore) -> None:
+    """Seed the three required collections so auto-indexing is skipped."""
+    for name in ("resume", "role_archetypes", "global_positive_signals"):
+        store.add_documents(
+            name,
+            ids=[f"{name}-seed"],
+            documents=[f"Seed document for {name}"],
+            embeddings=[EMBED_FAKE],
+        )
 
 
 def _mock_board_io(
@@ -177,14 +193,14 @@ class TestPipelineOrchestration:
         """Ollama health check is the first async step — before any browser work."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, mock_embedder, _, _ = _make_runner_with_mocks(settings)
+            runner, mock_embedder, _ = _make_runner_with_mocks(settings)
 
             call_order: list[str] = []
             original_health_check = mock_embedder.health_check
 
             async def _tracked_health_check() -> None:
                 call_order.append("health_check")
-                return await original_health_check()
+                await original_health_check()
 
             mock_embedder.health_check = _tracked_health_check
 
@@ -193,7 +209,7 @@ class TestPipelineOrchestration:
 
             async def _tracked_auth(page: object) -> None:
                 call_order.append("board_io")
-                return await original_auth(page)
+                await original_auth(page)
 
             mock_adapter.authenticate = _tracked_auth
 
@@ -210,7 +226,7 @@ class TestPipelineOrchestration:
         """When boards=None, all enabled_boards from settings are searched."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             _, mock_session, mock_registry = _mock_board_io()
 
@@ -229,7 +245,7 @@ class TestPipelineOrchestration:
         """An explicit boards list overrides the enabled_boards in settings."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             _, mock_session, mock_registry = _mock_board_io()
 
@@ -251,7 +267,7 @@ class TestPipelineOrchestration:
                 enabled_boards=["board_a"],
                 overnight_boards=["linkedin"],
             )
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             _, mock_session, mock_registry = _mock_board_io()
 
@@ -270,7 +286,7 @@ class TestPipelineOrchestration:
         """An ActionableError from one board does not prevent other boards from running."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir, enabled_boards=["failing_board", "good_board"])
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             # Failing board: authenticate raises ActionableError
             failing_adapter = MagicMock()
@@ -293,8 +309,8 @@ class TestPipelineOrchestration:
             good_adapter.extract_detail = AsyncMock()
 
             mock_registry = MagicMock()
-            mock_registry.get.side_effect = (
-                lambda name: failing_adapter if name == "failing_board" else good_adapter
+            mock_registry.get.side_effect = lambda name: (
+                failing_adapter if name == "failing_board" else good_adapter
             )
 
             _, mock_session, _ = _mock_board_io()
@@ -315,7 +331,7 @@ class TestPipelineOrchestration:
         """A scoring failure on an individual listing increments failed_listings."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, mock_scorer, _ = _make_runner_with_mocks(settings)
+            runner, _, mock_scorer = _make_runner_with_mocks(settings)
 
             listing = _make_listing()
             _, mock_session, mock_registry = _mock_board_io(search_results=[listing])
@@ -342,7 +358,7 @@ class TestPipelineOrchestration:
         """When no listings are collected, a valid RunResult is returned with zero ranked listings."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             _, mock_session, mock_registry = _mock_board_io()
 
@@ -361,7 +377,7 @@ class TestPipelineOrchestration:
         """Successfully scored listings are passed through the ranker for fusion and dedup."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             listing = _make_listing()
             _, mock_session, mock_registry = _mock_board_io(search_results=[listing])
@@ -401,7 +417,7 @@ class TestBoardSearchDelegation:
         """A board name not in settings.boards returns empty results without error."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             # AdapterRegistry.get succeeds, but board has no config section
             mock_session = MagicMock()
@@ -430,7 +446,7 @@ class TestBoardSearchDelegation:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             call_order: list[str] = []
             # Listing with EMPTY full_text — runner should call extract_detail
@@ -485,7 +501,7 @@ class TestBoardSearchDelegation:
         """Listings with full_text already populated skip extract_detail."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             call_order: list[str] = []
             # Listing with POPULATED full_text (e.g. from click-through)
@@ -532,7 +548,7 @@ class TestBoardSearchDelegation:
         """A listing with empty full_text after extraction is excluded and counted as failed."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             # Search returns listing with empty full_text (needs extract_detail)
             search_listing = JobListing(
@@ -583,7 +599,7 @@ class TestBoardSearchDelegation:
         """An extraction error on one listing doesn't prevent processing the next."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             # Both listings need extract_detail (empty full_text)
             listing_good = JobListing(
@@ -645,7 +661,7 @@ class TestBoardSearchDelegation:
         """An unexpected (non-ActionableError) exception during extraction is caught and counted."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             # Listing with empty full_text to trigger extract_detail
             listing = JobListing(
@@ -691,7 +707,7 @@ class TestBoardSearchDelegation:
                 "https://testboard.com/search1",
                 "https://testboard.com/search2",
             ]
-            runner, _, _, _ = _make_runner_with_mocks(settings)
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             listing = _make_listing()
             call_count = {"search": 0}
@@ -752,14 +768,12 @@ class TestAutoIndex:
         """An empty resume collection triggers auto-indexing before scoring."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, mock_store = _make_runner_with_mocks(settings)
-
-            # Simulate empty collections
-            mock_store.collection_count.return_value = 0
+            runner, _, _ = _make_runner_with_mocks(settings, populate_store=False)
 
             mock_indexer = MagicMock()
             mock_indexer.index_resume = AsyncMock(return_value=5)
             mock_indexer.index_archetypes = AsyncMock(return_value=3)
+            mock_indexer.index_global_positive_signals = AsyncMock(return_value=2)
 
             _, mock_session, mock_registry = _mock_board_io()
 
@@ -778,10 +792,7 @@ class TestAutoIndex:
         """Populated collections skip the auto-index step entirely."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, mock_store = _make_runner_with_mocks(settings)
-
-            # Simulate populated collections
-            mock_store.collection_count.return_value = 10
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             _, mock_session, mock_registry = _mock_board_io()
 
@@ -799,20 +810,11 @@ class TestAutoIndex:
         """Auto-indexing completes before the first scoring call."""
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, mock_scorer, mock_store = _make_runner_with_mocks(settings)
+            runner, _, mock_scorer = _make_runner_with_mocks(
+                settings, populate_store=False,
+            )
 
             call_order: list[str] = []
-
-            # First call: empty (triggers auto-index), subsequent calls: populated
-            count_calls = 0
-
-            def _mock_count(name: str) -> int:
-                nonlocal count_calls
-                count_calls += 1
-                # First two calls (resume + archetypes check) return 0
-                return 0 if count_calls <= 2 else 5
-
-            mock_store.collection_count.side_effect = _mock_count
 
             mock_indexer = MagicMock()
 
@@ -823,8 +825,12 @@ class TestAutoIndex:
             async def _mock_index_archetypes(path: str) -> int:
                 return 3
 
+            async def _mock_index_positive(path: str) -> int:
+                return 2
+
             mock_indexer.index_resume = _mock_index_resume
             mock_indexer.index_archetypes = _mock_index_archetypes
+            mock_indexer.index_global_positive_signals = _mock_index_positive
 
             listing = _make_listing()
 
@@ -854,26 +860,22 @@ class TestAutoIndex:
             assert call_order[0] == "index", "Auto-index must run before scoring"
             assert "score" in call_order, "Scoring should still run after auto-index"
 
-
     async def test_collection_empty_returns_true_when_store_raises(self) -> None:
-        """GIVEN store.collection_count raises ActionableError
+        """GIVEN store has no collections (collection_count raises ActionableError)
         WHEN _ensure_indexed checks collections
         THEN the collection is treated as empty and auto-indexing runs.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, mock_store = _make_runner_with_mocks(settings)
-
-            # collection_count raises ActionableError (not just returns 0)
-            mock_store.collection_count.side_effect = ActionableError(
-                error="Collection not found — table does not exist",
-                error_type=ErrorType.INDEX,
-                service="chromadb",
-            )
+            # Real VectorStore with no seeded collections → collection_count
+            # raises ActionableError for missing tables → _collection_empty
+            # returns True, which is exactly the scenario under test.
+            runner, _, _ = _make_runner_with_mocks(settings, populate_store=False)
 
             mock_indexer = MagicMock()
             mock_indexer.index_resume = AsyncMock(return_value=5)
             mock_indexer.index_archetypes = AsyncMock(return_value=3)
+            mock_indexer.index_global_positive_signals = AsyncMock(return_value=2)
 
             _, mock_session, mock_registry = _mock_board_io()
 
@@ -885,9 +887,10 @@ class TestAutoIndex:
             ):
                 await runner.run()
 
-            # Both collections were treated as empty → auto-indexing ran
+            # All three collections were treated as empty → auto-indexing ran
             mock_indexer.index_resume.assert_awaited_once()
             mock_indexer.index_archetypes.assert_awaited_once()
+            mock_indexer.index_global_positive_signals.assert_awaited_once()
 
 
 class TestCompEnrichment:
@@ -907,10 +910,7 @@ class TestCompEnrichment:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
-            runner, _, _, mock_store = _make_runner_with_mocks(settings)
-
-            # Simulate populated collections to skip auto-index
-            mock_store.collection_count.return_value = 10
+            runner, _, _ = _make_runner_with_mocks(settings)
 
             # Listing with salary info in full_text
             listing = JobListing(
@@ -940,4 +940,5 @@ class TestCompEnrichment:
             assert listing.comp_min == 180_000.0
             assert listing.comp_max == 220_000.0
             assert listing.comp_source == "employer"
+            assert listing.comp_text is not None
             assert "$180,000" in listing.comp_text

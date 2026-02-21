@@ -34,13 +34,21 @@ the response shape, or ChromaDB alters its distance metric.
 
 from __future__ import annotations
 
+import math
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
+from jobsearch_rag.adapters.session import SessionConfig, SessionManager, throttle
+from jobsearch_rag.adapters.ziprecruiter import ZipRecruiterAdapter
 from jobsearch_rag.errors import ActionableError, ErrorType
+from jobsearch_rag.export.csv_export import CSVExporter
+from jobsearch_rag.export.jd_files import JDFileExporter
+from jobsearch_rag.export.markdown import MarkdownExporter
+from jobsearch_rag.pipeline.ranker import Ranker
+from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
@@ -209,8 +217,6 @@ class TestOllamaContract:
         This validates our assumption that cosine distance is meaningful
         for the nomic-embed-text model.
         """
-        import math
-
         vec_arch = await embedder.embed("Staff platform architect for distributed cloud systems")
         vec_similar = await embedder.embed(
             "Principal engineer designing cloud-native infrastructure"
@@ -582,15 +588,6 @@ class TestLiveZipRecruiterPipeline:
         tmp_path: Path,
     ) -> None:
         """Full pipeline: browser → search → score → rank → export, no mocks."""
-        from jobsearch_rag.adapters.session import SessionConfig, SessionManager, throttle
-        from jobsearch_rag.adapters.ziprecruiter import ZipRecruiterAdapter
-        from jobsearch_rag.export.csv_export import CSVExporter
-        from jobsearch_rag.export.jd_files import JDFileExporter
-        from jobsearch_rag.export.markdown import MarkdownExporter
-        from jobsearch_rag.pipeline.ranker import Ranker
-        from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
-        from jobsearch_rag.rag.indexer import Indexer
-
         # --- Skip if session file is missing ---
         session_path = Path("data/ziprecruiter_session.json")
         if not session_path.exists():
@@ -644,9 +641,7 @@ class TestLiveZipRecruiterPipeline:
             assert listing.board == "ziprecruiter"
             assert listing.title, "Every listing must have a title"
             assert listing.company, "Every listing must have a company"
-            assert listing.url.startswith("https://"), (
-                f"URL should be HTTPS: {listing.url}"
-            )
+            assert listing.url.startswith("https://"), f"URL should be HTTPS: {listing.url}"
             assert listing.external_id, "Every listing must have an external_id"
 
         # At least some listings should have full JD text from click-through
@@ -664,7 +659,7 @@ class TestLiveZipRecruiterPipeline:
         scored = []
         embeddings: dict[str, list[float]] = {}
 
-        for listing in with_jd[:self.MIN_LISTINGS]:
+        for listing in with_jd[: self.MIN_LISTINGS]:
             result = await scorer.score(listing.full_text)
 
             # Parse compensation
@@ -693,9 +688,7 @@ class TestLiveZipRecruiterPipeline:
             assert result.fit_score > 0.0, (
                 f"Zero fit score for '{listing.title}' — embedding may have failed"
             )
-            assert result.archetype_score > 0.0, (
-                f"Zero archetype score for '{listing.title}'"
-            )
+            assert result.archetype_score > 0.0, f"Zero archetype score for '{listing.title}'"
 
         # --- Step 5: Rank ---
         ranker = Ranker(
@@ -719,9 +712,7 @@ class TestLiveZipRecruiterPipeline:
 
         # All final scores should be positive (we set threshold=0.0)
         for r in ranked:
-            assert r.final_score > 0.0, (
-                f"Zero final score for '{r.listing.title}'"
-            )
+            assert r.final_score > 0.0, f"Zero final score for '{r.listing.title}'"
 
         # --- Step 6: Export ---
         md_path = str(tmp_path / "results.md")

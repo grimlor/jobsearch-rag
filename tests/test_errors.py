@@ -6,7 +6,7 @@ recoverable errors per the actionable-error philosophy.
 
 from __future__ import annotations
 
-from jobsearch_rag.errors import ActionableError, ErrorType
+from jobsearch_rag.errors import ActionableError, AIGuidance, ErrorType
 
 
 class TestErrorFactoryMethods:
@@ -126,40 +126,30 @@ class TestAIGuidanceToDict:
 
     def test_to_dict_includes_command_when_set(self) -> None:
         """GIVEN AIGuidance with command populated THEN to_dict includes 'command' key."""
-        from jobsearch_rag.errors import AIGuidance
-
         g = AIGuidance(action_required="fix it", command="run fix")
         d = g.to_dict()
         assert d["command"] == "run fix"
 
     def test_to_dict_includes_discovery_tool_when_set(self) -> None:
         """GIVEN AIGuidance with discovery_tool populated THEN to_dict includes it."""
-        from jobsearch_rag.errors import AIGuidance
-
         g = AIGuidance(action_required="fix it", discovery_tool="tool_x")
         d = g.to_dict()
         assert d["discovery_tool"] == "tool_x"
 
     def test_to_dict_includes_checks_when_set(self) -> None:
         """GIVEN AIGuidance with checks populated THEN to_dict includes 'checks' list."""
-        from jobsearch_rag.errors import AIGuidance
-
         g = AIGuidance(action_required="fix it", checks=["check1", "check2"])
         d = g.to_dict()
         assert d["checks"] == ["check1", "check2"]
 
     def test_to_dict_includes_steps_when_set(self) -> None:
         """GIVEN AIGuidance with steps populated THEN to_dict includes 'steps' list."""
-        from jobsearch_rag.errors import AIGuidance
-
         g = AIGuidance(action_required="fix it", steps=["step1", "step2"])
         d = g.to_dict()
         assert d["steps"] == ["step1", "step2"]
 
     def test_to_dict_excludes_none_optional_fields(self) -> None:
         """GIVEN AIGuidance with only action_required THEN to_dict has no extra keys."""
-        from jobsearch_rag.errors import AIGuidance
-
         g = AIGuidance(action_required="fix it")
         d = g.to_dict()
         assert d == {"action_required": "fix it"}

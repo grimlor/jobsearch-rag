@@ -9,8 +9,11 @@ Run: ``uv run pytest tests/test_session_cdp.py -v``
 
 from __future__ import annotations
 
+import builtins
+import json
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,7 +21,9 @@ import pytest
 from jobsearch_rag.adapters.session import (
     SessionConfig,
     SessionManager,
+    throttle,
 )
+from jobsearch_rag.errors import ActionableError
 
 # ───────────────────────────────────────────────────────────────────
 # Helpers
@@ -26,7 +31,9 @@ from jobsearch_rag.adapters.session import (
 
 
 def _mock_playwright(
-    *, connect_over_cdp: bool = True, cdp_pages: list[MagicMock] | None = None,
+    *,
+    connect_over_cdp: bool = True,
+    cdp_pages: list[MagicMock] | None = None,
 ) -> MagicMock:
     """Build a mock Playwright instance with browser/context stubs."""
     mock_context = MagicMock()
@@ -55,12 +62,12 @@ def _mock_playwright(
     return pw
 
 
-def _patch_playwright(mock_pw: MagicMock):
+def _patch_playwright(mock_pw: MagicMock) -> Any:
     """Return a patch context for ``async_playwright`` that yields *mock_pw*."""
     mock_pw_ctx = MagicMock()
     mock_pw_ctx.start = AsyncMock(return_value=mock_pw)
     return patch(
-        "playwright.async_api.async_playwright",
+        "jobsearch_rag.adapters.session.async_playwright",
         return_value=mock_pw_ctx,
     )
 
@@ -197,9 +204,7 @@ class TestSessionManagerCDP:
 
             await manager.__aexit__(None, None, None)
 
-    async def test_cdp_headless_adds_headless_flag(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_cdp_headless_adds_headless_flag(self, tmp_path: Path) -> None:
         """When headless=True + CDP, --headless=new is added to subprocess args."""
         config = SessionConfig(
             board_name="test",
@@ -233,9 +238,7 @@ class TestSessionManagerCDP:
 
             await manager.__aexit__(None, None, None)
 
-    async def test_binary_resolved_via_shutil_which_fallback(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_binary_resolved_via_shutil_which_fallback(self, tmp_path: Path) -> None:
         """If _BROWSER_PATHS has no match, shutil.which is used as fallback."""
         # shutil.which returns a real-looking path; subprocess.Popen is
         # the I/O boundary that actually launches the browser.
@@ -269,9 +272,7 @@ class TestSessionManagerCDP:
 
             await manager.__aexit__(None, None, None)
 
-    async def test_standard_launch_when_no_channel(
-        self, playwright_config: SessionConfig
-    ) -> None:
+    async def test_standard_launch_when_no_channel(self, playwright_config: SessionConfig) -> None:
         """Without browser_channel, standard Playwright launch is used."""
         mock_pw = _mock_playwright(connect_over_cdp=True)
 
@@ -288,8 +289,6 @@ class TestSessionManagerCDP:
         self, cdp_config: SessionConfig
     ) -> None:
         """A missing browser binary tells the operator which browser to install."""
-        from jobsearch_rag.errors import ActionableError
-
         mock_pw = _mock_playwright()
 
         with (
@@ -305,9 +304,7 @@ class TestSessionManagerCDP:
             assert err.suggestion is not None
             assert err.troubleshooting is not None
 
-    async def test_cdp_cleanup_terminates_subprocess(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_cdp_cleanup_terminates_subprocess(self, tmp_path: Path) -> None:
         """Exiting the context manager sends SIGTERM to the CDP subprocess."""
         config = SessionConfig(
             board_name="test",
@@ -351,9 +348,7 @@ class TestSessionManagerCDP:
             mock_proc.send_signal.assert_called_once()
             mock_rmtree.assert_called_once_with(tmpdir, ignore_errors=True)
 
-    async def test_cdp_cleanup_kills_on_sigterm_timeout(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_cdp_cleanup_kills_on_sigterm_timeout(self, tmp_path: Path) -> None:
         """If SIGTERM doesn't work, __aexit__ escalates to SIGKILL."""
         config = SessionConfig(
             board_name="test",
@@ -396,9 +391,7 @@ class TestSessionManagerCDP:
 
             mock_proc.kill.assert_called_once()
 
-    async def test_cdp_cleanup_noop_when_process_already_exited(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_cdp_cleanup_noop_when_process_already_exited(self, tmp_path: Path) -> None:
         """No signals sent if the browser subprocess already exited."""
         config = SessionConfig(
             board_name="test",
@@ -438,17 +431,42 @@ class TestSessionManagerCDP:
             mock_proc.send_signal.assert_not_called()
 
     async def test_cdp_timeout_raises_timeout_error(self, tmp_path: Path) -> None:
-        """GIVEN the CDP endpoint never responds
-        WHEN _wait_for_cdp times out
-        THEN a TimeoutError is raised with the CDP URL.
-        """
-        from jobsearch_rag.adapters.session import _wait_for_cdp
+        """When the CDP endpoint never responds, entering SessionManager raises TimeoutError."""
+        config = SessionConfig(
+            board_name="test",
+            headless=False,
+            browser_channel="msedge",
+        )
+        fake_binary = tmp_path / "edge"
+        fake_binary.touch()
+        tmpdir = str(tmp_path / "cdp_profile")
+        Path(tmpdir).mkdir()
+
+        mock_pw = _mock_playwright()
 
         with (
-            patch("urllib.request.urlopen", side_effect=OSError("refused")),
+            patch(
+                "jobsearch_rag.adapters.session._BROWSER_PATHS",
+                {"msedge": [str(fake_binary)]},
+            ),
+            patch("shutil.which", return_value=None),
+            patch("jobsearch_rag.adapters.session.subprocess.Popen"),
+            patch(
+                "jobsearch_rag.adapters.session.tempfile.mkdtemp",
+                return_value=tmpdir,
+            ),
+            # _wait_for_cdp is an I/O boundary (network polling) — mock it to
+            # raise immediately rather than waiting 15 s for the real timeout.
+            patch(
+                "jobsearch_rag.adapters.session._wait_for_cdp",
+                side_effect=TimeoutError("CDP endpoint did not start"),
+            ),
+            _patch_playwright(mock_pw),
+            patch("jobsearch_rag.adapters.session.shutil.rmtree"),
             pytest.raises(TimeoutError, match="did not start"),
         ):
-                await _wait_for_cdp("http://127.0.0.1:9999", timeout=0.1, poll_interval=0.05)
+            manager = SessionManager(config)
+            await manager.__aenter__()
 
     async def test_new_page_without_context_raises_runtime_error(self) -> None:
         """GIVEN a SessionManager that has not been entered as a context manager
@@ -470,9 +488,7 @@ class TestSessionManagerCDP:
         with pytest.raises(RuntimeError, match="not entered"):
             await manager.save_storage_state()
 
-    async def test_save_storage_state_persists_cookies_to_disk(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_save_storage_state_persists_cookies_to_disk(self, tmp_path: Path) -> None:
         """GIVEN an active session with cookies
         WHEN save_storage_state is called
         THEN cookies are written to the storage state path as JSON.
@@ -490,15 +506,12 @@ class TestSessionManagerCDP:
             await manager.__aenter__()
             result = await manager.save_storage_state()
             assert result.exists()
-            import json
 
             saved = json.loads(result.read_text())
             assert saved["cookies"][0]["name"] == "session"
             await manager.__aexit__(None, None, None)
 
-    def test_has_storage_state_returns_true_when_file_exists(
-        self, tmp_path: Path
-    ) -> None:
+    def test_has_storage_state_returns_true_when_file_exists(self, tmp_path: Path) -> None:
         """GIVEN a persisted session file exists on disk
         WHEN has_storage_state is called
         THEN it returns True.
@@ -520,9 +533,7 @@ class TestSessionManagerCDP:
         manager = SessionManager(config)
         assert manager.has_storage_state() is False
 
-    async def test_stealth_patches_applied_when_stealth_enabled(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_stealth_patches_applied_when_stealth_enabled(self, tmp_path: Path) -> None:
         """GIVEN stealth mode is enabled in the config
         WHEN the session is entered
         THEN playwright-stealth patches are applied to the context.
@@ -546,9 +557,7 @@ class TestSessionManagerCDP:
             mock_stealth_instance.apply_stealth_async.assert_called_once()
             await manager.__aexit__(None, None, None)
 
-    async def test_stealth_import_error_logs_warning(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_stealth_import_error_logs_warning(self, tmp_path: Path) -> None:
         """GIVEN stealth mode is enabled but playwright-stealth is not installed
         WHEN the session is entered
         THEN the session still starts and a warning is logged.
@@ -556,12 +565,10 @@ class TestSessionManagerCDP:
         config = SessionConfig(board_name="linkedin", headless=True, stealth=True)
         mock_pw = _mock_playwright(connect_over_cdp=False)
 
-        def _raise_import_error(name, *args, **kwargs):
+        def _raise_import_error(name: str, *args: Any, **kwargs: Any) -> Any:
             if name == "playwright_stealth":
                 raise ImportError("No module named 'playwright_stealth'")
             return original_import(name, *args, **kwargs)
-
-        import builtins
 
         original_import = builtins.__import__
 
@@ -603,9 +610,7 @@ class TestSessionManagerEdgeCases:
         # context, browser, playwright are all None
         await manager.__aexit__(None, None, None)
 
-    async def test_cdp_skips_nonexistent_binary_and_uses_next(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_cdp_skips_nonexistent_binary_and_uses_next(self, tmp_path: Path) -> None:
         """When the first known path doesn't exist, __aenter__ skips it
         and launches the CDP subprocess with the next valid binary."""
         second = tmp_path / "edge-second"
@@ -628,7 +633,9 @@ class TestSessionManagerEdgeCases:
             _patch_playwright(mock_pw),
         ):
             config = SessionConfig(
-                board_name="test", headless=False, browser_channel="msedge",
+                board_name="test",
+                headless=False,
+                browser_channel="msedge",
             )
             manager = SessionManager(config)
             await manager.__aenter__()
@@ -653,13 +660,13 @@ class TestThrottle:
         WHEN throttle is called
         THEN asyncio.sleep is called with a duration between 0.5 and 1.0.
         """
-        from jobsearch_rag.adapters.session import throttle
-
         mock_adapter = MagicMock()
         mock_adapter.rate_limit_seconds = (0.5, 1.0)
         mock_adapter.board_name = "testboard"
 
-        with patch("jobsearch_rag.adapters.session.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch(
+            "jobsearch_rag.adapters.session.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep:
             duration = await throttle(mock_adapter)
             assert 0.5 <= duration <= 1.0
             mock_sleep.assert_called_once_with(duration)

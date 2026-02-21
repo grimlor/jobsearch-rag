@@ -20,10 +20,14 @@ import signal
 import socket
 import subprocess
 import tempfile
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from playwright.async_api import async_playwright
+
+from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
 
 if TYPE_CHECKING:
@@ -109,8 +113,6 @@ async def _wait_for_cdp(
     poll_interval: float = 0.3,
 ) -> None:
     """Poll until the CDP ``/json/version`` endpoint responds."""
-    import urllib.request
-
     deadline = asyncio.get_event_loop().time() + timeout
     while True:
         try:
@@ -195,8 +197,6 @@ class SessionManager:
         self._cdp_tmpdir: str | None = None
 
     async def __aenter__(self) -> SessionManager:
-        from playwright.async_api import async_playwright
-
         self._playwright = await async_playwright().start()
 
         if self.config.browser_channel:
@@ -225,7 +225,7 @@ class SessionManager:
         # Apply stealth patches if requested (LinkedIn)
         if self.config.stealth:
             try:
-                from playwright_stealth import Stealth
+                from playwright_stealth import Stealth  # noqa: PLC0415  # optional dependency
 
                 await Stealth().apply_stealth_async(self._context)
                 logger.info("Stealth patches applied for %s", self.config.board_name)
@@ -253,8 +253,6 @@ class SessionManager:
         # Find the browser binary
         binary = _find_browser_binary(channel)
         if not binary:
-            from jobsearch_rag.errors import ActionableError
-
             raise ActionableError.config(
                 field_name="browser_channel",
                 reason=f"Could not find '{channel}' browser binary",
@@ -354,6 +352,3 @@ class SessionManager:
     def has_storage_state(self) -> bool:
         """Check whether a persisted session exists for this board."""
         return self.config.storage_state_path.exists()
-
-
-

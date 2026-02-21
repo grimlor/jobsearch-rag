@@ -1,3 +1,8 @@
+---
+name: feature-workflow
+description: "Spec-before-code feature development workflow. Use when the user requests a new feature, enhancement, or non-trivial change — anything that adds or modifies behavior, including requests phrased as add, implement, build, create, or start implementation."
+---
+
 # Feature Workflow — Spec Before Code
 
 ## When This Skill Applies

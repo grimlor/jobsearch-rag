@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from jobsearch_rag.errors import ActionableError, ErrorType
+from jobsearch_rag.errors import ActionableError, AIGuidance, ErrorType, Troubleshooting
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.embedder import Embedder
@@ -102,8 +102,6 @@ class DecisionRecorder:
             ActionableError (VALIDATION): if jd_text is empty.
         """
         if verdict not in VALID_VERDICTS:
-            from jobsearch_rag.errors import AIGuidance, Troubleshooting
-
             raise ActionableError(
                 error=f"Invalid verdict '{verdict}' for job '{job_id}'",
                 error_type=ErrorType.DECISION,
@@ -147,16 +145,18 @@ class DecisionRecorder:
             ids=[f"decision-{job_id}"],
             documents=[jd_text],
             embeddings=[embedding],
-            metadatas=[{
-                "job_id": job_id,
-                "verdict": verdict,
-                "board": board,
-                "title": title,
-                "company": company,
-                "scoring_signal": scoring_signal,
-                "reason": reason,
-                "recorded_at": datetime.now(UTC).isoformat(),
-            }],
+            metadatas=[
+                {
+                    "job_id": job_id,
+                    "verdict": verdict,
+                    "board": board,
+                    "title": title,
+                    "company": company,
+                    "scoring_signal": scoring_signal,
+                    "reason": reason,
+                    "recorded_at": datetime.now(UTC).isoformat(),
+                }
+            ],
         )
 
         # Append to daily JSONL log

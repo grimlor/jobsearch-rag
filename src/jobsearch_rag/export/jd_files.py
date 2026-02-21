@@ -12,26 +12,15 @@ Files are named ``NNN_company_title.md`` so they sort by rank.
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jobsearch_rag.pipeline.ranker import RankedListing, RankSummary
 
+from jobsearch_rag.text import slugify
+
 logger = logging.getLogger(__name__)
-
-# Maximum filename length (excluding extension) to avoid OS limits
-_MAX_SLUG_LEN = 80
-
-
-def _slugify(text: str) -> str:
-    """Convert text to a filesystem-safe slug."""
-    slug = text.lower()
-    slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s_]+", "-", slug)
-    slug = slug.strip("-")
-    return slug[:_MAX_SLUG_LEN]
 
 
 class JDFileExporter:
@@ -61,9 +50,7 @@ class JDFileExporter:
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
 
-        qualified = [
-            r for r in listings if not (r.scores.disqualified and r.final_score == 0.0)
-        ]
+        qualified = [r for r in listings if not (r.scores.disqualified and r.final_score == 0.0)]
         qualified.sort(key=lambda r: r.final_score, reverse=True)
 
         paths: list[Path] = []
@@ -75,8 +62,8 @@ class JDFileExporter:
                 )
                 continue
 
-            company_slug = _slugify(r.listing.company)
-            title_slug = _slugify(r.listing.title)
+            company_slug = slugify(r.listing.company)
+            title_slug = slugify(r.listing.title)
             filename = f"{rank:03d}_{company_slug}_{title_slug}.md"
             filepath = out / filename
 
@@ -109,6 +96,8 @@ class JDFileExporter:
         lines.append(f"- **Archetype Score:** {r.scores.archetype_score:.2f}")
         lines.append(f"- **History Score:** {r.scores.history_score:.2f}")
         lines.append(f"- **Comp Score:** {r.scores.comp_score:.2f}")
+        lines.append(f"- **Culture Score:** {r.scores.culture_score:.2f}")
+        lines.append(f"- **Negative Score:** {r.scores.negative_score:.2f}")
         if r.scores.disqualified:
             lines.append(f"- **Disqualified:** {r.scores.disqualifier_reason}")
         if r.duplicate_boards:

@@ -23,6 +23,8 @@ _COLUMNS = [
     "archetype_score",
     "history_score",
     "comp_score",
+    "culture_score",
+    "negative_score",
     "comp_min",
     "comp_max",
     "disqualified",
@@ -46,9 +48,7 @@ class CSVExporter:
         Disqualified listings are excluded.  Results are sorted descending
         by ``final_score``.
         """
-        qualified = [
-            r for r in listings if not (r.scores.disqualified and r.final_score == 0.0)
-        ]
+        qualified = [r for r in listings if not (r.scores.disqualified and r.final_score == 0.0)]
         qualified.sort(key=lambda r: r.final_score, reverse=True)
 
         with open(output_path, "w", newline="") as f:
@@ -56,19 +56,27 @@ class CSVExporter:
             writer.writerow(_COLUMNS)
 
             for r in qualified:
-                writer.writerow([
-                    r.listing.title,
-                    r.listing.company,
-                    r.listing.board,
-                    r.listing.location,
-                    f"{r.final_score:.4f}",
-                    f"{r.scores.fit_score:.4f}",
-                    f"{r.scores.archetype_score:.4f}",
-                    f"{r.scores.history_score:.4f}",
-                    f"{r.scores.comp_score:.4f}",
-                    f"{r.listing.comp_min:.0f}" if isinstance(r.listing.comp_min, (int, float)) else "",
-                    f"{r.listing.comp_max:.0f}" if isinstance(r.listing.comp_max, (int, float)) else "",
-                    r.scores.disqualified,
-                    r.scores.disqualifier_reason or "",
-                    r.listing.url,
-                ])
+                writer.writerow(
+                    [
+                        r.listing.title,
+                        r.listing.company,
+                        r.listing.board,
+                        r.listing.location,
+                        f"{r.final_score:.4f}",
+                        f"{r.scores.fit_score:.4f}",
+                        f"{r.scores.archetype_score:.4f}",
+                        f"{r.scores.history_score:.4f}",
+                        f"{r.scores.comp_score:.4f}",
+                        f"{r.scores.culture_score:.4f}",
+                        f"{r.scores.negative_score:.4f}",
+                        f"{r.listing.comp_min:.0f}"
+                        if isinstance(r.listing.comp_min, (int, float))
+                        else "",
+                        f"{r.listing.comp_max:.0f}"
+                        if isinstance(r.listing.comp_max, (int, float))
+                        else "",
+                        r.scores.disqualified,
+                        r.scores.disqualifier_reason or "",
+                        r.listing.url,
+                    ]
+                )

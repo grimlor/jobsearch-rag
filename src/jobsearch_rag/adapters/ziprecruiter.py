@@ -326,6 +326,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
             via click-through.  ``extract_detail`` will be a no-op.
         """
         listings: list[JobListing] = []
+        pages_processed = 0
 
         logger.info("Searching ZipRecruiter: %s (max %d pages)", query, max_pages)
 
@@ -376,6 +377,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
             await self._click_through_cards(page, page_listings)
 
             listings.extend(page_listings)
+            pages_processed = page_num
 
             # Check if there are more pages
             site_max_pages = js_vars.get("maxPages", 1)
@@ -387,7 +389,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         logger.info(
             "Found %d listings across %d page(s) (%d with full JD)",
             len(listings),
-            page_num,
+            pages_processed,
             enriched,
         )
         return listings
@@ -445,8 +447,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                         consecutive_throttles += 1
                         backoff = _THROTTLE_BASE_DELAY * (2 ** (consecutive_throttles - 1))
                         logger.warning(
-                            "Throttle detected for %s (retry %d/%d, "
-                            "backoff %.1fs): %s",
+                            "Throttle detected for %s (retry %d/%d, backoff %.1fs): %s",
                             listing.external_id,
                             retry + 1,
                             _THROTTLE_MAX_RETRIES,
@@ -490,12 +491,9 @@ class ZipRecruiterAdapter(JobBoardAdapter):
 
                     if is_throttle_response(late_text):
                         consecutive_throttles += 1
-                        backoff = _THROTTLE_BASE_DELAY * (
-                            2 ** (consecutive_throttles - 1)
-                        )
+                        backoff = _THROTTLE_BASE_DELAY * (2 ** (consecutive_throttles - 1))
                         logger.warning(
-                            "Throttle detected (late) for %s (retry %d/%d, "
-                            "backoff %.1fs): %s",
+                            "Throttle detected (late) for %s (retry %d/%d, backoff %.1fs): %s",
                             listing.external_id,
                             retry + 1,
                             _THROTTLE_MAX_RETRIES,

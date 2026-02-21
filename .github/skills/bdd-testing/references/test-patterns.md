@@ -1,98 +1,4 @@
-# BDD Testing — How to Write Tests in This Repo
-
-## When This Skill Applies
-
-Whenever writing, modifying, or reviewing test files in this repository. This includes
-creating tests for new features (Phase 2 of the feature workflow) and adding coverage
-specs (Phase 4).
-
----
-
-## Test Organization
-
-Tests are organized by **consumer requirement**, not by code structure or persona.
-
-```python
-# ✅ Grouped by requirement
-class TestSuggestionPreservation:
-class TestErrorCategorization:
-class TestScoreFusion:
-
-# ❌ Grouped by code structure
-class TestScorerModule:
-class TestRankerModule:
-
-# ❌ Grouped by persona
-class TestDeveloperFeatures:
-```
-
-A single test file may contain multiple requirement classes. Group related requirements
-in one file when they exercise the same module. The file-level docstring should explain
-which BDD spec classes it covers.
-
----
-
-## Class-Level Docstrings — REQUIREMENT / WHO / WHAT / WHY
-
-Every test class MUST have a structured docstring:
-
-```python
-class TestAdapterRegistration:
-    """
-    REQUIREMENT: Adapters self-register and are discoverable by board name.
-
-    WHO: The pipeline runner loading adapters from settings.toml
-    WHAT: Registered adapters are retrievable by board name string;
-          an unregistered board name produces an error that names the
-          requested board and lists available options
-    WHY: The runner must not know concrete adapter classes — IoC requires
-         that board name is the only coupling between config and implementation
-    """
-```
-
-| Field | Purpose | Question It Answers |
-|-------|---------|---------------------|
-| **REQUIREMENT** | One-line capability statement | What promise does this group verify? |
-| **WHO** | Stakeholder or consumer | Who benefits when this is met? |
-| **WHAT** | Concrete, testable behavior | What observable behavior proves it? |
-| **WHY** | Business/operational justification | What goes wrong if it's missing? |
-
----
-
-## Method-Level Docstrings — Scenario Format
-
-This repo uses the **scenario ("When / Then")** format for individual test docstrings,
-with persona context from the class-level WHO field:
-
-```python
-def test_unregistered_board_name_error_names_the_board_and_lists_available(self):
-    """
-    When an unregistered board name is requested
-    Then the error message names the missing board and lists available options
-    """
-```
-
-**Do not mix** user-story and scenario formats within this repository.
-
----
-
-## Method Naming
-
-Names read as behavior statements, not implementation descriptions:
-
-```python
-# ✅ Behavior-focused
-def test_registered_adapter_is_retrievable_by_board_name(self): ...
-def test_operations_team_gets_clear_errors_for_missing_config(self): ...
-def test_comp_parser_normalizes_hourly_to_annual(self): ...
-
-# ❌ Implementation-focused
-def test_get_adapter_returns_class(self): ...
-def test_config_validation_raises_exception(self): ...
-def test_multiply_by_2080(self): ...
-```
-
----
+# BDD Test Patterns — Detailed Examples
 
 ## Test Body Structure — Given / When / Then
 
@@ -214,10 +120,60 @@ Every uncovered line triggers the question: "Which requirement is this line serv
 
 ---
 
-## Reference Documents
+## No Private-Function Imports
 
-For the full philosophy and rationale behind these practices:
-- `Patterns & Practices/BDD_TESTING_PRINCIPLES.md`
-- `Patterns & Practices/spec-first-bdd-testing-patterns.md`
-- `Patterns & Practices/actionable-error-handling-patterns.md`
-- `Patterns & Practices/actionable-error-philosophy.md`
+Tests must **never** import `_`-prefixed names from production modules.
+
+Private functions are implementation details — testing them directly couples tests to
+internal structure rather than observable behavior. When the implementation changes, the
+tests break even though the public contract is intact.
+
+```python
+# ❌ Testing private internals — breaks encapsulation
+from jobsearch_rag.pipeline.rescorer import _parse_jd_header, _extract_jd_body
+
+def test_parse_jd_header_extracts_metadata(self):
+    meta = _parse_jd_header(content)  # coupled to internal function signature
+    assert meta["title"] == "Staff Architect"
+
+# ✅ Testing through the public API
+from jobsearch_rag.pipeline.rescorer import load_jd_files
+
+def test_loaded_listing_has_correct_metadata(self, jd_dir):
+    listings = load_jd_files(jd_dir)
+    assert listings[0].title == "Staff Architect"
+```
+
+**If a private function has complex logic worth testing directly**, that is a signal it
+should be critically inspected for promotion to its own domain/module. However, it is 
+not an immediate signal that it *should* be tested directly, but that tests should be 
+written to test it thoroughly through the public API it is called from. This is the 
+crux of black-box testing.
+
+---
+
+## No Local Imports Inside Tests
+
+As with all modules, all imports belong at the **top of the file** — either as regular 
+imports or inside an `if TYPE_CHECKING:` block (for annotations only). Never place 
+imports inside test methods, helper functions, or fixtures.
+
+```python
+# ❌ Local import inside a helper
+class TestRescoreWorkflow:
+    def _make_ranker(self):
+        from jobsearch_rag.pipeline.ranker import Ranker  # buried import
+        return Ranker(...)
+
+# ✅ Module-level import
+from jobsearch_rag.pipeline.ranker import Ranker
+
+class TestRescoreWorkflow:
+    def _make_ranker(self):
+        return Ranker(...)
+```
+
+**Why:** Local imports scatter dependencies, making it hard to see what a module 
+actually touches. Module-level imports make the full dependency surface visible at a
+glance and allow tools (linters, type checkers, import-graph analyzers) to reason about
+the file correctly.
