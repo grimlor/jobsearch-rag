@@ -1,8 +1,76 @@
 # BDD Test Patterns — Detailed Examples
 
+## The Three-Part Contract — Complete Examples
+
+Every test method requires a name, a Given/When/Then docstring, and Given/When/Then
+body comments. The following contrasts the anti-pattern with both correct forms.
+
+```python
+# ❌ Wrong — name only, no docstring, no body structure
+def test_registered_adapter_is_retrievable_by_board_name(self):
+    registry = AdapterRegistry()
+    registry.register("ziprecruiter", ZipRecruiterAdapter)
+    result = registry.get("ziprecruiter")
+    assert result is ZipRecruiterAdapter
+
+
+# ✅ Correct — Given omitted from docstring (default fixture state is the precondition)
+def test_registered_adapter_is_retrievable_by_board_name(self):
+    """
+    When a registered board name is requested from the registry
+    Then the correct adapter class is returned
+    """
+    # Given: an adapter registered under a known board name
+    registry = AdapterRegistry()
+    registry.register("ziprecruiter", ZipRecruiterAdapter)
+
+    # When: the board name is looked up
+    adapter_cls = registry.get("ziprecruiter")
+
+    # Then: the correct adapter class is returned
+    assert adapter_cls is ZipRecruiterAdapter, (
+        f"Expected ZipRecruiterAdapter, got {adapter_cls}"
+    )
+
+
+# ✅ Correct — Given required in docstring (the precondition is the point)
+def test_extraction_error_on_one_listing_does_not_abort_others(self):
+    """
+    Given a batch where one listing raises an extraction error
+    When the runner processes the batch
+    Then the remaining listings are scored and returned
+    """
+    # Given: a batch where the first listing raises on extract_detail
+    failing = make_listing(external_id="bad", full_text="")
+    succeeding = make_listing(external_id="good")
+    mock_adapter.extract_detail.side_effect = [
+        ActionableError(...),
+        succeeding,
+    ]
+
+    # When: the runner processes the batch
+    result = await runner.run()
+
+    # Then: the good listing is in the output and the failure is counted
+    assert len(result.ranked_listings) == 1, (
+        f"Expected 1 ranked listing, got {len(result.ranked_listings)}"
+    )
+    assert result.ranked_listings[0].listing.external_id == "good"
+    assert result.failed_listings == 1, (
+        f"Expected 1 failed listing, got {result.failed_listings}"
+    )
+```
+
+**Rule:** Include Given in the docstring when the precondition is the distinguishing
+condition of the scenario — when "given X" is specifically what makes this test
+different from the others in the class. Omit it when the precondition is the default
+state established by conftest fixtures. The `# Given:` body comment is always present.
+
+---
+
 ## Test Body Structure — Given / When / Then
 
-Use comments to delineate the three phases:
+Given / When / Then comments are required on every test method body:
 
 ```python
 def test_score_fusion_uses_configured_weights(self):
@@ -10,13 +78,13 @@ def test_score_fusion_uses_configured_weights(self):
     When scoring with custom weights
     Then the final score reflects the configured weight distribution
     """
-    # Given: Custom weights that differ from defaults
+    # Given: custom weights that differ from defaults
     weights = {"fit": 0.5, "archetype": 0.3, "history": 0.2}
 
-    # When: Computing the final score
+    # When: computing the final score
     result = ranker.compute_final_score(scores, weights=weights)
 
-    # Then: Score reflects the weight distribution
+    # Then: score reflects the weight distribution
     assert result == pytest.approx(expected, abs=0.01), (
         f"Expected {expected} with weights {weights}, got {result}"
     )
@@ -83,16 +151,21 @@ def test_unregistered_board_name_error_names_the_board_and_lists_available(self)
     When an unregistered board name is requested
     Then the error names the missing board and lists available options
     """
+    # Given: a registry with no boards registered
+    registry = AdapterRegistry()
+
+    # When: an unknown board name is requested
     with pytest.raises(ActionableError) as exc_info:
         registry.get("nonexistent_board")
 
+    # Then: the error names the missing board
     assert "nonexistent_board" in str(exc_info.value), (
         f"Error should name the missing board. Got: {exc_info.value}"
     )
 ```
 
-Errors in this repo follow the **ActionableError** pattern — factory methods, recovery
-paths, AI guidance, and troubleshooting steps. See `src/jobsearch_rag/errors.py`.
+Errors in this repo follow the **ActionableError** pattern — factory methods,
+recovery paths, AI guidance, and troubleshooting steps. See `src/jobsearch_rag/errors.py`.
 
 ---
 
@@ -133,7 +206,7 @@ tests break even though the public contract is intact.
 from jobsearch_rag.pipeline.rescorer import _parse_jd_header, _extract_jd_body
 
 def test_parse_jd_header_extracts_metadata(self):
-    meta = _parse_jd_header(content)  # coupled to internal function signature
+    meta = _parse_jd_header(content)
     assert meta["title"] == "Staff Architect"
 
 # ✅ Testing through the public API
@@ -144,19 +217,16 @@ def test_loaded_listing_has_correct_metadata(self, jd_dir):
     assert listings[0].title == "Staff Architect"
 ```
 
-**If a private function has complex logic worth testing directly**, that is a signal it
-should be critically inspected for promotion to its own domain/module. However, it is 
-not an immediate signal that it *should* be tested directly, but that tests should be 
-written to test it thoroughly through the public API it is called from. This is the 
-crux of black-box testing.
+If a private function has complex logic that seems worth testing directly, that is a
+signal it should be inspected for promotion to its own module — not a justification
+to import it directly.
 
 ---
 
 ## No Local Imports Inside Tests
 
-As with all modules, all imports belong at the **top of the file** — either as regular 
-imports or inside an `if TYPE_CHECKING:` block (for annotations only). Never place 
-imports inside test methods, helper functions, or fixtures.
+All imports belong at the **top of the file**. Never place imports inside test methods,
+helper functions, or fixtures.
 
 ```python
 # ❌ Local import inside a helper
@@ -173,7 +243,99 @@ class TestRescoreWorkflow:
         return Ranker(...)
 ```
 
-**Why:** Local imports scatter dependencies, making it hard to see what a module 
-actually touches. Module-level imports make the full dependency surface visible at a
-glance and allow tools (linters, type checkers, import-graph analyzers) to reason about
-the file correctly.
+---
+
+## Mock Anti-Patterns
+
+### ❌ Mocking the Registry (Computation Mock)
+
+```python
+# ❌ Wrong — AdapterRegistry is pure computation (dict lookup), not I/O
+mock_registry = MagicMock()
+mock_registry.get.return_value = mock_adapter
+patch("...AdapterRegistry", mock_registry)
+
+# ✅ Correct — register a mock adapter in a real registry
+registry = AdapterRegistry()
+registry.register("ziprecruiter", mock_adapter)
+# mock_adapter's I/O methods (authenticate, search, extract_detail) are AsyncMock
+```
+
+The registry has no I/O and no side effects. Mocking it severs the contract
+that board names resolve to adapter classes and hides misconfiguration.
+
+### ❌ Patching Internal Parsing Functions
+
+```python
+# ❌ Wrong — card_to_listing is an internal parser, not an I/O boundary
+patch("...card_to_listing", side_effect=ParseError)
+
+# ✅ Correct — return mixed valid/invalid HTML from the Playwright locator mock
+card_locator.all.return_value = [valid_card_mock, malformed_card_mock]
+# Then assert output contains only the valid listing
+```
+
+When a card can't be parsed, the behavioral contract is "other cards still
+return." Test that contract through the adapter's public interface with a page
+mock that produces the failure condition, not by injecting it into the parser.
+
+### ❌ Repeated Patch Blocks
+
+```python
+# ❌ Wrong — same 6-patch block repeated in every test method
+def test_search_happy_path(self):
+    with patch("...load_settings") as ms, \
+         patch("...PipelineRunner") as mr, \
+         patch("...webbrowser.open") as mw:
+        ...
+
+def test_search_no_results(self):
+    with patch("...load_settings") as ms, \  # identical block
+         patch("...PipelineRunner") as mr, \
+         patch("...webbrowser.open") as mw:
+        ...
+
+# ✅ Correct — fixture in conftest.py handles shared setup
+@pytest.fixture
+def cli_search_mocks():
+    with patch("...load_settings") as ms, \
+         patch("...PipelineRunner") as mr, \
+         patch("...webbrowser.open") as mw:
+        yield SimpleNamespace(settings=ms, runner=mr, browser=mw)
+
+def test_search_happy_path(self, cli_search_mocks):
+    cli_search_mocks.runner.return_value.run = AsyncMock(return_value=result)
+    ...
+```
+
+Shared setup belongs in conftest. Repeated inline blocks make it impossible to
+tell whether variation between copies is intentional or drift.
+
+---
+
+## conftest.py — Infrastructure You Must Not Bypass
+
+`conftest.py` provides two categories of infrastructure that all test files
+depend on. Neither is optional.
+
+### Shared I/O Stubs
+
+The `embedder` fixture constructs an `Embedder` instance via `__new__` (bypassing
+`__init__` to avoid Ollama client construction) and replaces `embed`, `classify`,
+and `health_check` with `AsyncMock`. Use this fixture rather than creating a
+local embedder mock in individual test files.
+
+If a setup pattern recurs across two or more test classes — such as a runner with
+mocked adapter I/O — add it to conftest as a fixture rather than reconstructing
+it inline in each test method.
+
+### Output Directory Guard
+
+`conftest.py` redirects the application's output directory to a temporary path
+for the duration of every test run. This prevents tests from writing to the real
+`output/jds/`, `output/results.md`, and `output/results.csv` files produced by
+live search runs.
+
+**Do not bypass this guard.** Any test that exercises file output uses the
+redirected path provided by the conftest fixture. Never hardcode or reference
+the real `output/` directory in a test.
