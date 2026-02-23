@@ -7,7 +7,7 @@ name = "jobsearch-rag"
 version = "0.1.0"
 description = "Local LLM + RAG pipeline for intelligent job search filtering"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"
 license = { text = "PolyForm-Noncommercial-1.0.0" }
 authors = [{ name = "grimlor" }]
 

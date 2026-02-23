@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 import chromadb
+from chromadb.errors import NotFoundError
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
@@ -75,7 +76,7 @@ class VectorStore:
         try:
             self._client.delete_collection(name)
             logger.info("Collection '%s' deleted", name)
-        except chromadb.errors.NotFoundError:
+        except NotFoundError:
             logger.debug("Collection '%s' does not exist — nothing to reset", name)
         # Recreate empty so callers can immediately use the collection
         self.get_or_create_collection(name)
@@ -212,5 +213,5 @@ class VectorStore:
         """
         try:
             return self._client.get_collection(name)
-        except chromadb.errors.NotFoundError:
+        except NotFoundError:
             raise ActionableError.index(name) from None

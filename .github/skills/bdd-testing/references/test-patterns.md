@@ -68,44 +68,166 @@ state established by conftest fixtures. The `# Given:` body comment is always pr
 
 ---
 
-## Test Body Structure — Given / When / Then
+## Mock Boundary Contract — Full Examples
 
-Given / When / Then comments are required on every test method body:
+Every test class declares its mock boundary in the class docstring. Three lines: what
+is mocked, what runs real, and what must never be constructed directly.
 
 ```python
-def test_score_fusion_uses_configured_weights(self):
+class TestSemanticScoring:
     """
-    When scoring with custom weights
-    Then the final score reflects the configured weight distribution
+    REQUIREMENT: The scorer produces meaningful similarity scores for job listings.
+
+    WHO: The pipeline runner invoking scorer.score() per listing
+    WHAT: fit_score, archetype_score, culture_score, and negative_score are
+          derived from real ChromaDB similarity queries against indexed content;
+          a JD matching archetype signals scores higher than one that does not
+    WHY: Scores are the core signal — if they are tautological or mocked, the
+         entire pipeline produces meaningless output
+
+    MOCK BOUNDARY:
+        Mock:  mock_embedder fixture (Ollama HTTP — the only I/O boundary)
+        Real:  Scorer instance, ChromaDB via vector_store fixture, tmp_path
+        Never: Construct ScoreResult directly — always obtain via scorer.score(listing)
     """
-    # Given: custom weights that differ from defaults
-    weights = {"fit": 0.5, "archetype": 0.3, "history": 0.2}
 
-    # When: computing the final score
-    result = ranker.compute_final_score(scores, weights=weights)
 
-    # Then: score reflects the weight distribution
-    assert result == pytest.approx(expected, abs=0.01), (
-        f"Expected {expected} with weights {weights}, got {result}"
-    )
+class TestCompScoring:
+    """
+    REQUIREMENT: Compensation scoring scales continuously relative to base salary.
+
+    WHO: The ranker computing final_score via score fusion
+    WHAT: comp_score is 1.0 at or above base; grades linearly below; 0.5 when absent
+    WHY: Comp is a taste signal — wrong scores silently skew ranking without errors
+
+    MOCK BOUNDARY:
+        Mock:  nothing — this class tests pure computation
+        Real:  Scorer.compute_comp_score() called directly with float inputs
+        Never: Mock the scorer itself to return a preset comp_score
+    """
+
+
+class TestAdapterRegistration:
+    """
+    REQUIREMENT: Adapters self-register and are discoverable by board name.
+
+    WHO: The pipeline runner loading adapters from settings.toml
+    WHAT: Registered adapters are retrievable by board name string;
+          an unregistered board name produces an error that names the board
+    WHY: The runner must not know concrete adapter classes — board name is
+         the only coupling between config and implementation
+
+    MOCK BOUNDARY:
+        Mock:  nothing — AdapterRegistry is pure computation (dict lookup)
+        Real:  AdapterRegistry, ZipRecruiterAdapter class reference
+        Never: Mock the registry itself; mock_adapter's I/O methods are AsyncMock
+               but the registry must be a real instance
+    """
 ```
 
 ---
 
-## Assertion Quality
+## Assertion Quality — Full Examples
 
-Every assertion MUST include a diagnostic message:
+Every assertion requires a diagnostic message. The message must show enough context
+that a failing test is self-explanatory without running a debugger.
 
 ```python
-# ✅ Actionable message
-assert err.error_type == ErrorType.AUTHENTICATION, (
-    f"Expected AUTHENTICATION error type, got {err.error_type}. "
-    f"Error message: {err.error}"
+# ✅ Shows expected vs actual with context
+assert result.fit_score == pytest.approx(0.74, abs=0.05), (
+    f"fit_score out of range. Expected ~0.74, got {result.fit_score:.4f}. "
+    f"Full scores: {result}"
+)
+
+# ✅ Loop assertions include the item that failed
+for i, chunk in enumerate(chunks):
+    assert len(chunk) <= MAX_EMBED_CHARS, (
+        f"Chunk {i} exceeds max length. "
+        f"Expected <= {MAX_EMBED_CHARS}, got {len(chunk)}: ...{chunk[-60:]!r}"
+    )
+
+# ✅ Multi-assertion blocks give each assertion its own message
+assert result.comp_min == 180000.0, (
+    f"comp_min mismatch. Expected 180000.0, got {result.comp_min}. "
+    f"Parsed from: {result.comp_text!r}"
+)
+assert result.comp_source == "employer", (
+    f"comp_source mismatch. Expected 'employer', got {result.comp_source!r}"
+)
+
+# ✅ Collection checks name the expected contents
+assert set(result.keys()) == {"fit_score", "archetype_score", "final_score"}, (
+    f"Unexpected keys in result. Got: {sorted(result.keys())}"
 )
 
 # ❌ Bare assertion — failure is opaque
-assert err.error_type == ErrorType.AUTHENTICATION
+assert result.is_valid
+assert len(items) == 3
+assert "error" in response
 ```
+
+**When pytest.approx is required:**
+Floating-point comparisons from similarity scores or weighted sums must always
+use `pytest.approx`. A tolerance of `abs=0.01` is appropriate for final scores;
+`abs=0.05` is appropriate for component scores where the embedding model introduces
+small variation.
+
+---
+
+## Test Data — Representative Values
+
+Test data should be close enough to real-world values that failures mean something.
+Placeholder strings like `"t"` for title or `"f"` for full_text produce opaque
+failures and hide bugs where the implementation uses the field content.
+
+```python
+# ✅ Realistic — failures are interpretable
+listing = JobListing(
+    board="ziprecruiter",
+    external_id="zr_8821234",
+    title="Staff Platform Architect",
+    company="Acme Corp",
+    location="Remote (USA)",
+    url="https://www.ziprecruiter.com/jobs/acme-corp/staff-architect",
+    full_text=(
+        "We are seeking a Staff Platform Architect to define technical strategy "
+        "for our distributed infrastructure platform serving 200M users. "
+        "You will own RFC processes, drive cross-team alignment, and mentor "
+        "senior engineers across the organization."
+    ),
+    comp_min=180000.0,
+    comp_max=220000.0,
+    comp_source="employer",
+    comp_text="$180,000 - $220,000/yr",
+)
+
+# ❌ Meaningless placeholders — failures are opaque
+listing = JobListing(
+    board="b", external_id="1", title="t",
+    company="c", location="l", url="u", full_text="f"
+)
+```
+
+**Magic numbers** are acceptable when their meaning is stated in either an inline
+comment or the assertion message:
+
+```python
+# ✅ Magic number explained in comment
+expected_chunks = 3  # resume has 3 sections: Experience, Skills, Education
+
+# ✅ Magic number explained in assertion message
+assert len(results) == 3, (
+    "Expected 3 results (Bronze/Silver/Gold tier) "
+    f"but got {len(results)}: {[r.title for r in results]}"
+)
+
+# ❌ Unexplained magic number
+assert result == 0.7
+assert len(chunks) == 4
+```
+
+Extract a named constant only when the same value appears in multiple tests or
+when it encodes a business rule referenced by name in the production code.
 
 ---
 
@@ -117,16 +239,130 @@ assert err.error_type == ErrorType.AUTHENTICATION
 - System resources (`webbrowser.open`, `builtins.input`)
 - Time/randomness (`asyncio.sleep`, `random.uniform`) for speed and determinism
 
-**Use real instances:**
-- Filesystem with `tmp_path` or `tempfile.TemporaryDirectory()`
-- ChromaDB with temp directories (VectorStore tests do this)
-- All pure computation (scoring math, regex parsing, config validation)
-- Dataclass instances — never `MagicMock` for data objects
+**Use real instances for everything else:**
+- Filesystem operations: use `tmp_path` or `tempfile.TemporaryDirectory()`
+- ChromaDB: use real instance with `tmp_path` (VectorStore fixture does this)
+- All pure computation: scoring math, regex parsing, config validation, dataclass construction
+- Config loading: use real TOML written to `tmp_path`, not a mock
 
 **Never mock:**
+- The subject under test — if you mock `Scorer` in `TestSemanticScoring`, you are
+  not testing `Scorer`
 - Internal helper functions within the module under test
-- Pure computation logic
-- Config loading (use real TOML with temp files)
+- Dataclass constructors — build real instances with real field values
+- Pure computation logic of any kind
+
+The mock boundary contract in each test class docstring is the authoritative
+statement of what is mocked for that class.
+
+---
+
+## Tautology Tests — The Most Dangerous Anti-Pattern
+
+A tautology test always passes regardless of production code behavior. It typically
+appears when a test constructs expected output directly and asserts on the constructed
+object rather than invoking the system under test.
+
+```python
+# ❌ Tautology — ScoreResult is constructed here, not by Scorer
+# This test passes even if Scorer.score() is deleted from the codebase
+def test_fit_score_above_threshold_for_matching_jd(self):
+    result = ScoreResult(fit_score=0.8, archetype_score=0.7, final_score=0.75)
+    assert result.fit_score > 0.5, (
+        f"Expected fit_score > 0.5, got {result.fit_score}"
+    )
+
+# ✅ Real — Scorer is invoked, ChromaDB is queried, score is earned
+def test_fit_score_above_threshold_for_matching_jd(self, scorer, indexed_resume):
+    """
+    Given a resume indexed in ChromaDB and a JD describing matching experience
+    When scorer.score() is called
+    Then fit_score exceeds 0.5
+    """
+    # Given: a JD that mirrors the indexed resume's content
+    listing = make_listing(full_text=MATCHING_JD_TEXT)
+
+    # When: the scorer evaluates the listing
+    result = scorer.score(listing)
+
+    # Then: fit_score reflects genuine semantic similarity
+    assert result.fit_score > 0.5, (
+        f"Expected fit_score > 0.5 for matching JD, got {result.fit_score:.4f}"
+    )
+```
+
+**How to recognize a tautology:**
+- The When step does not call any production code
+- The Given and Then operate entirely on objects created in the test body
+- Deleting the module under test would not cause the test to fail
+
+---
+
+## Coverage — Three Categories That Surface Late
+
+After all spec tests pass, run coverage and examine uncovered lines. Three categories
+of requirements routinely surface only at coverage time. All three are real
+requirements — do not delete the code, write the spec.
+
+**Defensive guard code** — protects against API misuse:
+```python
+# Production code: what happens when full_text is empty?
+if not listing.full_text.strip():
+    raise ValidationError("full_text cannot be empty")
+# → Write: test_empty_full_text_raises_validation_error
+```
+
+**Graceful degradation** — soft failures the system absorbs rather than raising:
+```python
+# Production code: decisions collection may not exist yet
+try:
+    collection = store.get_collection("decisions")
+except CollectionNotFoundError:
+    return []  # ← this line
+# → Write: test_missing_decisions_collection_returns_empty_list
+```
+
+**Conditional formatting branches** — display logic that varies by state:
+```python
+# Production code: disqualification warning only appears when disqualified
+if result.disqualified:
+    lines.append(f"⚠️  Disqualified: {result.disqualification_reason}")  # ← this line
+# → Write: test_disqualified_listing_includes_warning_in_display
+```
+
+For each uncovered line, ask: is this a real requirement (write the spec), dead code
+(remove it), or over-engineering (remove it and simplify)?
+
+---
+
+## Error Testing — Messages, Not Just Types
+
+Verify message content, not just exception type. Future changes to error message
+wording will break tests that check for the right message — that is the point.
+
+```python
+# ✅ Checks what the operator actually sees
+with pytest.raises(ActionableError) as exc_info:
+    registry.get("nonexistent_board")
+
+assert "nonexistent_board" in str(exc_info.value), (
+    f"Error should name the missing board. Got: {exc_info.value}"
+)
+assert "available" in str(exc_info.value).lower(), (
+    f"Error should list available boards. Got: {exc_info.value}"
+)
+
+# ❌ Only confirms an exception occurred — message could be anything
+with pytest.raises(ActionableError):
+    registry.get("nonexistent_board")
+
+# ❌ Constructs the error manually and asserts on the construction — always true
+err = ActionableError(error=f"No adapter for 'nonexistent_board'")
+assert "nonexistent_board" in str(err)
+```
+
+The third anti-pattern is particularly insidious — it looks like it tests error
+content but only confirms that Python string formatting works.
 
 ---
 
@@ -141,65 +377,9 @@ Unit tests (no marker) should run fast with zero external dependencies.
 
 ---
 
-## Error Testing
-
-When testing error paths, verify the **message content**, not just the exception type:
-
-```python
-def test_unregistered_board_name_error_names_the_board_and_lists_available(self):
-    """
-    When an unregistered board name is requested
-    Then the error names the missing board and lists available options
-    """
-    # Given: a registry with no boards registered
-    registry = AdapterRegistry()
-
-    # When: an unknown board name is requested
-    with pytest.raises(ActionableError) as exc_info:
-        registry.get("nonexistent_board")
-
-    # Then: the error names the missing board
-    assert "nonexistent_board" in str(exc_info.value), (
-        f"Error should name the missing board. Got: {exc_info.value}"
-    )
-```
-
-Errors in this repo follow the **ActionableError** pattern — factory methods,
-recovery paths, AI guidance, and troubleshooting steps. See `src/jobsearch_rag/errors.py`.
-
----
-
-## Failure-Mode Specs
-
-Failure-mode specs are as important as happy-path specs. An unspecified failure is an
-unhandled failure. For every feature, ask:
-
-- What happens when input is missing or malformed?
-- What happens when an external service is unavailable?
-- What happens when configuration is invalid?
-- What happens at boundary values?
-
----
-
-## Coverage = Complete Specification
-
-100% coverage means every line has a specification justifying it. After implementation:
-
-```bash
-pytest --cov=jobsearch_rag --cov-report=term-missing tests/
-```
-
-Every uncovered line triggers the question: "Which requirement is this line serving?"
-
----
-
 ## No Private-Function Imports
 
 Tests must **never** import `_`-prefixed names from production modules.
-
-Private functions are implementation details — testing them directly couples tests to
-internal structure rather than observable behavior. When the implementation changes, the
-tests break even though the public contract is intact.
 
 ```python
 # ❌ Testing private internals — breaks encapsulation
@@ -214,25 +394,25 @@ from jobsearch_rag.pipeline.rescorer import load_jd_files
 
 def test_loaded_listing_has_correct_metadata(self, jd_dir):
     listings = load_jd_files(jd_dir)
-    assert listings[0].title == "Staff Architect"
+    assert listings[0].title == "Staff Architect", (
+        f"Expected 'Staff Architect', got {listings[0].title!r}"
+    )
 ```
 
 If a private function has complex logic that seems worth testing directly, that is a
-signal it should be inspected for promotion to its own module — not a justification
-to import it directly.
+signal it should be promoted to its own module — not a justification to import it.
 
 ---
 
 ## No Local Imports Inside Tests
 
-All imports belong at the **top of the file**. Never place imports inside test methods,
-helper functions, or fixtures.
+All imports belong at the top of the file:
 
 ```python
 # ❌ Local import inside a helper
 class TestRescoreWorkflow:
     def _make_ranker(self):
-        from jobsearch_rag.pipeline.ranker import Ranker  # buried import
+        from jobsearch_rag.pipeline.ranker import Ranker  # buried
         return Ranker(...)
 
 # ✅ Module-level import
@@ -247,22 +427,61 @@ class TestRescoreWorkflow:
 
 ## Mock Anti-Patterns
 
-### ❌ Mocking the Registry (Computation Mock)
+### ❌ Mocking the Subject Under Test
 
 ```python
-# ❌ Wrong — AdapterRegistry is pure computation (dict lookup), not I/O
+# ❌ Wrong — mocking Scorer in a test that claims to test scoring
+mock_scorer = MagicMock()
+mock_scorer.score.return_value = ScoreResult(fit_score=0.8, ...)
+result = mock_scorer.score(listing)
+assert result.fit_score == 0.8  # tautology
+```
+
+This is the most common and most damaging violation. It produces 100% green tests
+for code that may be entirely broken.
+
+### ❌ Mocking Pure Computation (Registry)
+
+```python
+# ❌ Wrong — AdapterRegistry is pure computation, not I/O
 mock_registry = MagicMock()
 mock_registry.get.return_value = mock_adapter
-patch("...AdapterRegistry", mock_registry)
 
 # ✅ Correct — register a mock adapter in a real registry
 registry = AdapterRegistry()
 registry.register("ziprecruiter", mock_adapter)
-# mock_adapter's I/O methods (authenticate, search, extract_detail) are AsyncMock
 ```
 
-The registry has no I/O and no side effects. Mocking it severs the contract
-that board names resolve to adapter classes and hides misconfiguration.
+The registry has no I/O and no side effects. Mocking it hides misconfiguration.
+
+### ❌ Direct Construction Bypassing the SUT
+
+```python
+# ❌ Wrong — inserts directly into ChromaDB, bypassing DecisionRecorder.record()
+collection = recorder._store.get_or_create_collection("history")
+collection.add(ids=["job-1"], documents=["Staff Architect at Acme"], metadatas=[{}])
+results = collection.get(ids=["job-1"])
+assert len(results["documents"]) == 1  # tautology — recorder.record() never called
+
+# ✅ Correct — calls the real recorder, then verifies via public query
+recorder.record(listing, verdict="yes", reason="Strong archetype match")
+history = recorder.get_recent(limit=10)
+assert any(item.external_id == listing.external_id for item in history), (
+    f"Expected {listing.external_id} in history, got: {[i.external_id for i in history]}"
+)
+```
+
+### ❌ Accessing Private Store Attributes
+
+```python
+# ❌ Wrong — _store and _registry are implementation details
+collection = recorder._store.get_or_create_collection("history")
+original = dict(AdapterRegistry._registry)
+
+# ✅ Correct — test through public methods only
+recorder.record(listing, verdict="yes")
+runner.run()
+```
 
 ### ❌ Patching Internal Parsing Functions
 
@@ -275,41 +494,27 @@ card_locator.all.return_value = [valid_card_mock, malformed_card_mock]
 # Then assert output contains only the valid listing
 ```
 
-When a card can't be parsed, the behavioral contract is "other cards still
-return." Test that contract through the adapter's public interface with a page
-mock that produces the failure condition, not by injecting it into the parser.
-
 ### ❌ Repeated Patch Blocks
 
 ```python
-# ❌ Wrong — same 6-patch block repeated in every test method
+# ❌ Wrong — same block repeated in every test method
 def test_search_happy_path(self):
-    with patch("...load_settings") as ms, \
-         patch("...PipelineRunner") as mr, \
-         patch("...webbrowser.open") as mw:
+    with patch("...load_settings") as ms, patch("...PipelineRunner") as mr:
         ...
 
 def test_search_no_results(self):
-    with patch("...load_settings") as ms, \  # identical block
-         patch("...PipelineRunner") as mr, \
-         patch("...webbrowser.open") as mw:
+    with patch("...load_settings") as ms, patch("...PipelineRunner") as mr:
         ...
 
-# ✅ Correct — fixture in conftest.py handles shared setup
+# ✅ Correct — extract to conftest fixture
 @pytest.fixture
 def cli_search_mocks():
-    with patch("...load_settings") as ms, \
-         patch("...PipelineRunner") as mr, \
-         patch("...webbrowser.open") as mw:
-        yield SimpleNamespace(settings=ms, runner=mr, browser=mw)
-
-def test_search_happy_path(self, cli_search_mocks):
-    cli_search_mocks.runner.return_value.run = AsyncMock(return_value=result)
-    ...
+    with patch("...load_settings") as ms, patch("...PipelineRunner") as mr:
+        yield SimpleNamespace(settings=ms, runner=mr)
 ```
 
-Shared setup belongs in conftest. Repeated inline blocks make it impossible to
-tell whether variation between copies is intentional or drift.
+Shared setup belongs in conftest. Repeated inline blocks hide whether variation
+between copies is intentional or drift.
 
 ---
 
@@ -333,8 +538,7 @@ it inline in each test method.
 
 `conftest.py` redirects the application's output directory to a temporary path
 for the duration of every test run. This prevents tests from writing to the real
-`output/jds/`, `output/results.md`, and `output/results.csv` files produced by
-live search runs.
+`output/jds/`, `output/results.md`, and `output/results.csv` files.
 
 **Do not bypass this guard.** Any test that exercises file output uses the
 redirected path provided by the conftest fixture. Never hardcode or reference

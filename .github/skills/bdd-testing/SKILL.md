@@ -100,10 +100,40 @@ traced to a clause in WHAT, either the test is speculative or WHAT is incomplete
 
 ---
 
+## Mock Boundary Contract (REQUIRED per class)
+
+Every test class must include a MOCK BOUNDARY declaration immediately after the
+WHO/WHAT/WHY block. This is not optional annotation — it is the contract that
+prevents the most common violations.
+
+```python
+class TestSemanticScoring:
+    """
+    REQUIREMENT: ...
+    WHO: ...
+    WHAT: ...
+    WHY: ...
+
+    MOCK BOUNDARY:
+        Mock:  mock_embedder fixture (Ollama HTTP — the only I/O boundary)
+        Real:  Scorer instance, ChromaDB via vector_store fixture, tmp_path filesystem
+        Never: Construct ScoreResult directly — always obtain via scorer.score(listing)
+    """
+```
+
+The three lines answer:
+- **Mock** — what is patched and which fixture to use
+- **Real** — what runs for real (computation, filesystem, embedded DB)
+- **Never** — what must not be constructed or mocked directly
+
+If a test class has no I/O, the Mock line reads `Mock: nothing — this class tests
+pure computation`. This is still required so the intent is explicit.
+
+---
+
 ## Method-Level Docstrings — Given / When / Then (REQUIRED)
 
-Every test method MUST have a Given / When / Then docstring. This is the full scenario
-form — not just When / Then.
+Every test method MUST have a Given / When / Then docstring.
 
 **Given is required in the docstring** when the precondition is the distinguishing
 condition of the scenario — when it is specifically what makes this test different from
@@ -130,11 +160,7 @@ def test_registered_adapter_is_retrievable_by_board_name(self):
     """
 ```
 
-The method name and the docstring are not redundant — they serve different purposes.
-The name is a scannable claim. The docstring makes the specific conditions and
-observable outcome explicit, and provides the traceability link back to the BDD spec.
-
-**Do not mix** user-story ("As a … I want … So that …") and scenario ("Given / When /
+Do not mix user-story ("As a … I want … So that …") and scenario ("Given / When /
 Then") formats within this repository. Use scenario format only.
 
 ---
@@ -160,8 +186,7 @@ def test_multiply_by_2080(self): ...
 ## Test Body Structure — Given / When / Then (REQUIRED)
 
 Every test method body MUST use Given / When / Then comments to delineate
-the three phases. This is not optional annotation — it is the structure that
-makes a test readable without executing it.
+the three phases.
 
 ```python
 def test_registered_adapter_is_retrievable_by_board_name(self):
@@ -182,17 +207,160 @@ def test_registered_adapter_is_retrievable_by_board_name(self):
     )
 ```
 
-See [test-patterns.md](references/test-patterns.md) for full examples of:
+---
 
-- Complete Given / When / Then structure with assertion diagnostic messages
-- When to include Given in the docstring versus the body only
-- Mocking rules (I/O boundaries only, real instances for computation)
-- Mock anti-patterns and fixture consolidation
-- `conftest.py` infrastructure — shared stubs and the output directory guard
-- Test markers (`@pytest.mark.integration`, `@pytest.mark.live`)
-- Error testing (verify message content, not just type)
-- Failure-mode specs (coverage of error paths and edge cases)
-- Coverage as complete specification
+## Assertion Quality (REQUIRED on every assertion)
+
+Every assertion MUST include a diagnostic message. Bare assertions are prohibited.
+
+```python
+# ✅ Shows expected vs actual
+assert result.fit_score == pytest.approx(0.74, abs=0.05), (
+    f"fit_score out of range. Expected ~0.74, got {result.fit_score:.4f}. "
+    f"Full scores: {result}"
+)
+
+# ✅ Loop assertions include the failing item
+for i, chunk in enumerate(chunks):
+    assert len(chunk) <= MAX_EMBED_CHARS, (
+        f"Chunk {i} exceeds max length. "
+        f"Expected <= {MAX_EMBED_CHARS}, got {len(chunk)}: ...{chunk[-60:]!r}"
+    )
+
+# ❌ Bare assertion — failure is opaque
+assert result.is_valid
+assert len(items) == 3
+```
+
+---
+
+## Test Data
+
+Test data should be representative — close enough to real-world values that
+failures mean something. Placeholder strings like `"t"` for title or `"f"` for
+full_text produce opaque failures and hide bugs where the implementation uses
+the field content.
+
+Magic numbers are acceptable when their meaning is stated:
+
+```python
+# ✅ Magic number explained in comment
+expected_chunks = 3  # resume has 3 sections: Experience, Skills, Education
+
+# ✅ Magic number explained in assertion message
+assert len(results) == 3, (
+    "Expected 3 results (Bronze/Silver/Gold tier) "
+    f"but got {len(results)}: {[r.title for r in results]}"
+)
+
+# ❌ Unexplained magic number
+assert result == 0.7
+assert len(chunks) == 4
+```
+
+Extract constants only when a value appears multiple times or encodes a business
+rule referenced by name in the production code.
+
+---
+
+## Coverage = Complete Specification
+
+100% coverage means every line of production code has a spec justifying it.
+After all spec tests pass, run:
+
+```bash
+pytest --cov=jobsearch_rag --cov-report=term-missing tests/
+```
+
+Every uncovered line triggers the question: *"Which requirement is this line serving?"*
+
+Three categories of requirements surface only at coverage time — they are real
+requirements, not optional extras:
+
+| Category | Description | Example |
+|---|---|---|
+| **Defensive guard code** | Protects against misuse — empty input, wrong types, boundary values | `if not full_text.strip(): raise ValidationError(...)` |
+| **Graceful degradation** | Soft failures the system absorbs rather than raising | Missing `decisions` collection returns empty list, not error |
+| **Conditional formatting** | Display logic that varies by state | DQ warning line only appears when `disqualified=True` |
+
+For each uncovered line: keep it and write the spec, or remove it if it has no
+justifying requirement.
+
+---
+
+## Reading `src/` — Public API Discovery Only
+
+Before writing any test for a module, read the relevant `src/` files to discover
+the real public API: method signatures, return types, constructor parameters,
+and which names are public vs. private (`_` prefix).
+
+**This is the only permitted reason to read `src/` during test writing.**
+
+```python
+# ✅ Correct use of src/ knowledge — discovered scorer.score() returns ScoreResult
+result = scorer.score(listing)
+assert result.fit_score > 0.5, (...)
+
+# ❌ Wrong — used src/ to find an internal function to mock
+with patch("jobsearch_rag.rag.scorer._compute_chunks") as mock_chunks:
+    ...
+```
+
+If a failure condition cannot be induced through public API inputs alone, that is
+a signal the condition may be dead code — flag it in the deviation log rather
+than patching around it.
+
+---
+
+## Public APIs Only — No Private Imports
+
+Tests must **never** import `_`-prefixed names from production modules.
+
+```python
+# ❌ Testing private internals
+from jobsearch_rag.pipeline.rescorer import _parse_jd_header
+
+# ✅ Testing through the public API
+from jobsearch_rag.pipeline.rescorer import load_jd_files
+```
+
+If a private function's logic seems worth testing directly, that is a signal it
+should be promoted to its own module — not a justification to import it.
+
+---
+
+## Error Testing — Messages, Not Just Types
+
+When testing error paths, verify message content, not just that an exception was raised:
+
+```python
+# ✅ Tests the message the operator actually sees
+with pytest.raises(ActionableError) as exc_info:
+    registry.get("nonexistent_board")
+
+assert "nonexistent_board" in str(exc_info.value), (
+    f"Error should name the missing board. Got: {exc_info.value}"
+)
+
+# ❌ Only confirms an exception occurred
+with pytest.raises(ActionableError):
+    registry.get("nonexistent_board")
+```
+
+Errors in this repo follow the ActionableError pattern. See `src/jobsearch_rag/errors.py`.
+
+---
+
+## Failure-Mode Specs Are Mandatory
+
+Failure-mode specs are as important as happy-path specs. An unspecified failure is
+an unhandled failure. For every feature, the spec must cover:
+
+- Missing or malformed input
+- External service unavailable
+- Invalid configuration
+- Boundary values
+- Partial failure (one item in a batch fails, others continue)
 
 ---
 
@@ -201,5 +369,7 @@ See [test-patterns.md](references/test-patterns.md) for full examples of:
 For the full philosophy and rationale behind these practices:
 - `Patterns & Practices/BDD_TESTING_PRINCIPLES.md`
 - `Patterns & Practices/spec-first-bdd-testing-patterns.md`
-- `Patterns & Practices/actionable-error-handling-patterns.md`
-- `Patterns & Practices/actionable-error-philosophy.md`
+
+For detailed implementation examples including mock boundary contracts, tautology
+anti-patterns, assertion quality, test data, and conftest infrastructure:
+- `.github/skills/bdd-testing/references/test-patterns.md`
