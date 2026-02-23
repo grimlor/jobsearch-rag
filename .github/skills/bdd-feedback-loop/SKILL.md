@@ -180,6 +180,8 @@ proceed to the next module in the orchestration doc.
 If any unresolved failures exist that were not logged, stop and complete Step 6
 before proceeding.
 
+**Logged deviations do not authorize proceeding.** A deviation that cannot be resolved after three attempts — including deviations caused by spec-mandated mock boundaries — requires a human decision before the module is considered complete. Do not advance to the next module. Present the unresolved deviations and wait.
+
 The orchestration doc defines the module order. Do not reorder modules without
 updating the orchestration doc.
 
