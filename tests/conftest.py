@@ -2,33 +2,36 @@
 
 This conftest provides:
 
-1. **Output guard** — makes the real ``output/`` directory read-only so
-   tests that forget to use ``tmp_path`` get an immediate ``PermissionError``.
+1. **Output redirect** — per-test ``autouse`` fixture that redirects all
+   application output paths (output/jds/, output/results.md,
+   output/results.csv, data/logs/, data/decisions/) to subdirectories of
+   ``tmp_path``.  Tests actively write to isolated tmp directories.
 
 2. **Shared I/O-boundary fixtures** — ``mock_embedder`` (Embedder with
    stubbed Ollama methods), ``vector_store`` (real ChromaDB backed by
-   ``tmp_path``), and ``decision_recorder`` (real recorder wired to the
-   above).  Individual test files may shadow these with local fixtures
-   that use different return values.
+   ``tmp_path``), and ``decision_recorder`` (real recorder wired to
+   the above).  Individual test files may shadow these with local
+   fixtures that use different return values.
 
 3. **Runner-layer factories** — ``make_settings``, ``make_listing``,
    ``make_runner_with_mocks``, and ``mock_board_io`` provide the
    foundational infrastructure for pipeline orchestration tests.
    All runner construction uses real VectorStore and DecisionRecorder;
    only Ollama network I/O (Embedder, Scorer) and browser I/O (adapter,
-   session) are mocked.
+   session) are mocked.  The ``mock_embedder`` fixture is reused — the factory
+   does not create its own local mock.
 """
 
 from __future__ import annotations
 
-import contextlib
-import stat
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import jobsearch_rag.logging as _logging_mod
+import jobsearch_rag.rag.decisions as _decisions_mod
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.config import (
     BoardConfig,
@@ -45,9 +48,7 @@ from jobsearch_rag.rag.scorer import ScoreResult
 from jobsearch_rag.rag.store import VectorStore
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-_PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
+    pass
 
 # Canonical fake embedding used across test files.  Individual tests that
 # need a different vector can define their own constant.
@@ -67,19 +68,22 @@ def mock_embedder() -> Embedder:
     ``__init__`` (which would create an ``ollama.AsyncClient``).  All
     async methods are replaced with ``AsyncMock`` stubs that return
     deterministic values.
+
+    Use for any test class whose MOCK BOUNDARY includes:
+        Mock: mock_embedder fixture (Ollama HTTP)
     """
-    embedder = Embedder.__new__(Embedder)
-    embedder.base_url = "http://localhost:11434"
-    embedder.embed_model = "nomic-embed-text"
-    embedder.llm_model = "mistral:7b"
-    embedder.max_retries = 3
-    embedder.base_delay = 0.0
-    embedder.embed = AsyncMock(return_value=EMBED_FAKE)  # type: ignore[method-assign]
-    embedder.classify = AsyncMock(  # type: ignore[method-assign]
+    mock_embedder = Embedder.__new__(Embedder)
+    mock_embedder.base_url = "http://localhost:11434"
+    mock_embedder.embed_model = "nomic-embed-text"
+    mock_embedder.llm_model = "mistral:7b"
+    mock_embedder.max_retries = 3
+    mock_embedder.base_delay = 0.0
+    mock_embedder.embed = AsyncMock(return_value=EMBED_FAKE)  # type: ignore[method-assign]
+    mock_embedder.classify = AsyncMock(  # type: ignore[method-assign]
         return_value='{"disqualified": false}',
     )
-    embedder.health_check = AsyncMock()  # type: ignore[method-assign]
-    return embedder
+    mock_embedder.health_check = AsyncMock()  # type: ignore[method-assign]
+    return mock_embedder
 
 
 @pytest.fixture
@@ -200,17 +204,18 @@ def make_listing():
 
 
 @pytest.fixture
-def make_runner_with_mocks(tmp_path: Path):
+def make_runner_with_mocks(tmp_path: Path, mock_embedder: Embedder):
     """Factory fixture — returns a callable that produces a wired PipelineRunner.
 
     VectorStore and DecisionRecorder use **real** instances backed by
-    ``tmp_path``.  Embedder and Scorer are mocked because they make network
-    I/O to Ollama.
+    ``tmp_path``.  The ``mock_embedder`` fixture is reused for Ollama I/O;
+    Scorer is mocked.
 
     When ``populate_store=True`` (default), minimal documents are seeded into
     the ``resume``, ``role_archetypes``, and ``global_positive_signals``
-    collections so that auto-indexing is skipped.  Pass ``populate_store=False``
-    for tests that verify the auto-index behaviour.
+    collections via the public ``VectorStore.add_documents`` API before the
+    runner is constructed, so auto-indexing is skipped.  Pass
+    ``populate_store=False`` for tests that verify the auto-index behaviour.
 
     Returns ``(runner, mock_embedder, mock_scorer)``.
 
@@ -238,10 +243,12 @@ def make_runner_with_mocks(tmp_path: Path):
         settings: Settings,
         *,
         populate_store: bool = True,
-    ) -> tuple[PipelineRunner, MagicMock, MagicMock]:
-        mock_embedder = MagicMock()
-        mock_embedder.health_check = AsyncMock()
-        mock_embedder.embed = AsyncMock(return_value=EMBED_FAKE)
+    ) -> tuple[PipelineRunner, Embedder, MagicMock]:
+        # Build a real VectorStore from the settings path — seed it via
+        # the public API *before* the runner is constructed.
+        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        if populate_store:
+            _populate(store)
 
         mock_scorer = MagicMock()
         mock_scorer.score = AsyncMock(
@@ -256,11 +263,9 @@ def make_runner_with_mocks(tmp_path: Path):
         with (
             patch("jobsearch_rag.pipeline.runner.Embedder", return_value=mock_embedder),
             patch("jobsearch_rag.pipeline.runner.Scorer", return_value=mock_scorer),
+            patch("jobsearch_rag.pipeline.runner.VectorStore", return_value=store),
         ):
             runner = PipelineRunner(settings)
-
-        if populate_store:
-            _populate(runner._store)
 
         return runner, mock_embedder, mock_scorer
 
@@ -318,38 +323,36 @@ def mock_board_io():
 
 
 # ---------------------------------------------------------------------------
-# Output safety guard
+# Output redirect — per-test isolation
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True, scope="session")
-def _guard_real_output_dir() -> Iterator[None]:
-    """Make the real output/ directory read-only during tests.
+@pytest.fixture(autouse=True)
+def redirect_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redirect all application output paths to ``tmp_path`` subdirectories.
 
-    Restores original permissions after the session, even on failure.
-    If the directory does not exist the guard is silently skipped —
-    CI environments may not have it.
+    Redirected paths:
+        output/          → tmp_path/output/
+        output/jds/      → tmp_path/output/jds/
+        data/logs/       → tmp_path/logs/
+        data/decisions/  → tmp_path/decisions/
+
+    Applied automatically to every test — never bypass it.
     """
-    if not _PROJECT_OUTPUT.is_dir():
-        yield
-        return
+    out_dir = tmp_path / "output"
+    jds_dir = out_dir / "jds"
+    log_dir = tmp_path / "logs"
+    decisions_dir = tmp_path / "decisions"
 
-    # Save original permissions for output/ and key subdirs
-    dirs_to_guard = [_PROJECT_OUTPUT]
-    for child in _PROJECT_OUTPUT.iterdir():
-        if child.is_dir():
-            dirs_to_guard.append(child)
+    for d in (out_dir, jds_dir, log_dir, decisions_dir):
+        d.mkdir(parents=True, exist_ok=True)
 
-    original_modes: dict[Path, int] = {}
-    for d in dirs_to_guard:
-        original_modes[d] = d.stat().st_mode
-        # Remove write permission (owner, group, other)
-        d.chmod(original_modes[d] & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
+    # Redirect OutputConfig default so any Settings built without
+    # make_settings still lands in tmp_path.
+    monkeypatch.setattr(OutputConfig, "output_dir", str(out_dir))
 
-    try:
-        yield
-    finally:
-        # Restore original permissions
-        for d, mode in original_modes.items():
-            with contextlib.suppress(OSError):
-                d.chmod(mode)
+    # Redirect file-logging default directory.
+    monkeypatch.setattr(_logging_mod, "DEFAULT_LOG_DIR", str(log_dir))
+
+    # Redirect decision recorder default directory.
+    monkeypatch.setattr(_decisions_mod, "_DECISIONS_DIR", decisions_dir)

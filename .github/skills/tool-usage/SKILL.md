@@ -19,8 +19,11 @@ Use specialized VS Code tools instead of terminal commands. This is not a prefer
 | Search code | `semantic_search`, `grep_search` | `grep`, `find` in terminal |
 | Find files | `file_search`, `list_dir` | `ls`, `find` in terminal |
 | Git status | `get_changed_files` | `git status`, `git diff` |
+| Run Python snippets | `pylanceRunCodeSnippet` | `python` / `uv run python` in terminal |
 
 **Running tests via terminal is not permitted** except for the coverage exception below. The `runTests` tool handles test environment setup, path configuration, and output formatting that raw `pytest` commands will get wrong or miss entirely. Any session step that would otherwise run `python -m pytest ...` or `pytest ...` in the terminal must use `runTests` instead — no exceptions, including quick sanity checks.
+
+**Python snippets via `pylanceRunCodeSnippet`:** When you need to execute a Python script — bulk renames via regex, data transformations, one-off computations, or any throwaway code — use `pylanceRunCodeSnippet` instead of running `python` or `uv run python` in the terminal. It is faster, uses the workspace's configured Python environment automatically, and returns structured output. Reserve the terminal for commands that are not Python (shell utilities, package managers, build tools).
 
 **Coverage exception:** `runTests` is a VS Code Test Explorer integration and cannot pass arbitrary flags like `--cov` or `--cov-report`. When the explicit goal is generating a coverage report (not just running tests), use the terminal:
 

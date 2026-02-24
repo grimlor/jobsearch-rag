@@ -39,6 +39,17 @@ class AdapterRegistry:
         return cls._registry[board_name]()
 
     @classmethod
+    def unregister(cls, board_name: str) -> None:
+        """Remove the adapter registered under *board_name*.
+
+        Raises :class:`ValueError` if *board_name* is not registered.
+        """
+        if board_name not in cls._registry:
+            msg = f"No adapter registered for board: '{board_name}'"
+            raise ValueError(msg)
+        del cls._registry[board_name]
+
+    @classmethod
     def list_registered(cls) -> list[str]:
         """Return all registered board name strings."""
         return list(cls._registry.keys())
