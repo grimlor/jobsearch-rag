@@ -82,14 +82,8 @@ Refer to `.github/skills/bdd-testing/SKILL.md` and
 
 ### Step 4 — Run Pylance
 
-After implementing each test file, run the Pylance type checker.
-
-```bash
-# Pylance is the VS Code language server; for CLI equivalent:
-pyright tests/test_<module>.py
-# or via mypy if pyright is unavailable:
-mypy tests/test_<module>.py --ignore-missing-imports
-```
+After implementing each test file, run the `get_errors` tool on the test file.
+Do not use `pyright` or `mypy` at the terminal — this violates the tool-usage skill.
 
 For each reported error, attempt to resolve it. If an error cannot be resolved
 after three attempts, log it as a deviation (Step 6) and continue to the next
