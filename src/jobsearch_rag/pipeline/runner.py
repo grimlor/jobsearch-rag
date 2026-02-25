@@ -140,6 +140,10 @@ class PipelineRunner:
             except ActionableError as exc:
                 logger.error("Board '%s' failed entirely: %s", board_name, exc.error)
                 return board_name, [], 0
+            except Exception as exc:
+                wrapped = ActionableError.from_exception(exc, board_name, "board_search")
+                logger.error("Board '%s' failed entirely: %s", board_name, wrapped.error)
+                return board_name, [], 0
 
         results = await asyncio.gather(*[_search_one(b) for b in board_names])
 
@@ -301,6 +305,17 @@ class PipelineRunner:
                         exc.error,
                     )
                     continue
+                except Exception as exc:
+                    wrapped = ActionableError.from_exception(
+                        exc, board_name, f"search:{search_url}"
+                    )
+                    logger.warning(
+                        "Search failed for %s @ %s: %s",
+                        board_name,
+                        search_url,
+                        wrapped.error,
+                    )
+                    continue
 
                 # Extract details for each listing (skip if already enriched)
                 for listing in results:
@@ -327,10 +342,14 @@ class PipelineRunner:
                             exc.error,
                         )
                         failed += 1
-                    except Exception:
-                        logger.exception(
-                            "Unexpected error extracting %s",
+                    except Exception as exc:
+                        wrapped = ActionableError.from_exception(
+                            exc, listing.url, "extract_detail"
+                        )
+                        logger.error(
+                            "Unexpected error extracting %s: %s",
                             listing.url,
+                            wrapped.error,
                         )
                         failed += 1
 
