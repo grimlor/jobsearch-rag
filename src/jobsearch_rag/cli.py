@@ -435,6 +435,8 @@ def handle_rescore(args: argparse.Namespace) -> None:
         scorer=scorer,
         ranker=ranker,
         base_salary=settings.scoring.base_salary,
+        comp_bands=settings.scoring.comp_bands,
+        missing_comp_score=settings.scoring.missing_comp_score,
     )
 
     jd_dir = Path(settings.output.output_dir) / "jds"

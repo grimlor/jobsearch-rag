@@ -60,7 +60,11 @@ See: BDD Specifications — scoring.md
 # ScoringConfig(archetype_weight=0.5, fit_weight=0.3, history_weight=0.2,
 #               comp_weight=0.15, negative_weight=0.4, culture_weight=0.2,
 #               base_salary=220_000, disqualify_on_llm_flag=True,
-#               min_score_threshold=0.45)
+#               min_score_threshold=0.45,
+#               comp_bands=DEFAULT_COMP_BANDS, missing_comp_score=0.5)
+#
+# CompBand(ratio: float, score: float)
+# DEFAULT_COMP_BANDS: list[CompBand]  — [(1.0, 1.0), (0.90, 0.7), (0.77, 0.4), (0.68, 0.0)]
 # ---------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -75,7 +79,12 @@ import pytest
 from conftest import EMBED_FAKE
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
-from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
+from jobsearch_rag.rag.comp_parser import (
+    DEFAULT_COMP_BANDS,
+    CompBand,
+    compute_comp_score,
+    parse_compensation,
+)
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
 
@@ -1929,6 +1938,78 @@ class TestCompensationParsing:
             f"Expected comp_source='estimated', got {result.comp_source!r}"
         )
 
+    def test_range_near_false_positive_context_is_filtered(self) -> None:
+        """
+        Given a range pattern near false-positive context words like 'revenue'
+        When parsed
+        Then the result is None (the range is not treated as a salary)
+        """
+        # Given: dollar range near "revenue" context
+        text = "Annual revenue of $50,000 - $80,000 in Q4 sales."
+
+        # When: parsed
+        result = parse_compensation(text)
+
+        # Then: filtered as false positive
+        assert result is None, (
+            f"Range near 'revenue' should be filtered. Got: {result}"
+        )
+
+    def test_hourly_range_is_annualized_via_2080(self) -> None:
+        """
+        Given a JD with an hourly range like "$80 - $120/hr"
+        When parsed
+        Then both comp_min and comp_max are annualized via x2080
+        """
+        # Given: hourly range (suffix after the second value)
+        text = "Rate: $80 - $120/hr depending on experience."
+
+        # When: parsed
+        result = parse_compensation(text)
+
+        # Then: both endpoints annualized
+        assert result is not None, "Expected a CompResult, got None"
+        assert result.comp_min == pytest.approx(80.0 * 2080, abs=1.0), (
+            f"comp_min should be 80*2080={80.0 * 2080}. Got {result.comp_min}"
+        )
+        assert result.comp_max == pytest.approx(120.0 * 2080, abs=1.0), (
+            f"comp_max should be 120*2080={120.0 * 2080}. Got {result.comp_max}"
+        )
+
+    def test_range_below_salary_floor_returns_none(self) -> None:
+        """
+        Given a range with both values below the salary floor ($10)
+        When parsed
+        Then the result is None (below minimum salary floor)
+        """
+        # Given: range below floor
+        text = "Pays $5 - $8 per widget."
+
+        # When: parsed
+        result = parse_compensation(text)
+
+        # Then: filtered by salary floor
+        assert result is None, (
+            f"Range $5-$8 should be below salary floor. Got: {result}"
+        )
+
+    def test_single_value_below_salary_floor_returns_none(self) -> None:
+        """
+        Given a single dollar value below the salary floor ($10)
+        When parsed
+        Then the result is None (below minimum salary floor)
+        """
+        # Given: single value below floor
+        text = "Only $5 per unit."
+
+        # When: parsed
+        result = parse_compensation(text)
+
+        # Then: filtered by salary floor
+        assert result is None, (
+            f"Single value $5 should be below salary floor. Got: {result}"
+        )
+
 
 # ============================================================================
 # TestCompensationScoring
@@ -1937,22 +2018,29 @@ class TestCompensationParsing:
 
 class TestCompensationScoring:
     """
-    REQUIREMENT: comp_score is a continuous signal relative to a configurable
-    base_salary target, not a binary gate.
+    REQUIREMENT: comp_score is a continuous signal relative to configurable
+    base_salary and comp_bands targets, not a binary gate.
 
     WHO: The ranker consuming comp_score to nudge final ranking;
-         the operator tuning base_salary in settings.toml
+         the operator tuning base_salary and comp_bands in settings.toml
     WHAT: comp_max at or above base_salary produces 1.0; comp_max below
           the minimum threshold produces 0.0; the curve is linear within
-          each band; missing compensation produces 0.5 (neutral);
-          base_salary is read from settings; comp_score is in [0.0, 1.0]
+          each band; missing compensation produces a configurable neutral
+          score (default 0.5); base_salary and band boundaries are read
+          from settings; comp_score is in [0.0, 1.0]; when comp_bands
+          are absent from config, the system uses documented defaults;
+          custom comp_bands shift the scoring curve accordingly
     WHY: Compensation as a continuous taste signal lets well-paying roles
-         float up without hard-gating potential stepping-stone roles
+         float up without hard-gating potential stepping-stone roles.
+         Configurable bands let the operator tune sensitivity without
+         code changes — e.g. tighten bands when money matters more,
+         or widen them for exploratory searches
 
     MOCK BOUNDARY:
         Mock:  nothing — comp scoring is pure computation
-        Real:  Scorer.compute_comp_score() called directly with float inputs
-               and a Settings instance constructed from a real TOML tmp_path file
+        Real:  compute_comp_score() called directly with float inputs
+               and CompBand / missing_comp_score parameters;
+               Settings instance constructed from a real TOML tmp_path file
         Never: Mock the scorer or Settings; verify the band boundaries by
                calling compute_comp_score() with inputs at and around each boundary
     """
@@ -2109,19 +2197,19 @@ class TestCompensationScoring:
             f"comp_max well below 68% of base should score 0.0. Got {score:.4f}"
         )
 
-    def test_missing_comp_data_scores_05_neutral(self) -> None:
+    def test_missing_comp_data_scores_neutral(self) -> None:
         """
         Given comp_max is None (missing compensation)
-        When compute_comp_score() is called
-        Then the result is 0.5 (neutral)
+        When compute_comp_score() is called with default missing_comp_score
+        Then the result is 0.5 (the default neutral score)
         """
-        # Given: None comp_max
+        # Given: None comp_max, default missing_comp_score
         # When: computed
         score = compute_comp_score(None, self.BASE)
 
-        # Then: 0.5
+        # Then: 0.5 (default neutral)
         assert score == pytest.approx(0.5, abs=0.01), (
-            f"Missing comp data should score 0.5 (neutral). Got {score:.4f}"
+            f"Missing comp data should score 0.5 (default neutral). Got {score:.4f}"
         )
 
     def test_base_salary_is_read_from_settings_not_hardcoded(self) -> None:
@@ -2187,8 +2275,8 @@ class TestCompensationScoring:
         When compute_comp_score() is called for both
         Then the scores are close (no large discontinuity)
         """
-        # Given: boundary ratios from the band spec
-        boundaries = [1.0, 0.90, 0.77, 0.68]
+        # Given: boundary ratios from the default band config
+        boundaries = [band.ratio for band in DEFAULT_COMP_BANDS]
         max_gap = 0.05  # maximum allowed jump at a boundary
 
         for ratio in boundaries:
@@ -2204,6 +2292,90 @@ class TestCompensationScoring:
             assert gap <= max_gap, (
                 f"Discontinuity at boundary {ratio}: "
                 f"above={score_above:.4f}, below={score_below:.4f}, gap={gap:.4f} > {max_gap}"
+            )
+
+    def test_comp_bands_are_read_from_config_not_hardcoded(self) -> None:
+        """
+        Given custom comp_bands with different boundaries than the defaults
+        When compute_comp_score() is called at the default 90% boundary
+        Then the score differs from the default-bands score at that point
+        """
+        # Given: custom bands with a single steep band (80% -> 0.0, 100% -> 1.0)
+        custom_bands = [CompBand(ratio=1.0, score=1.0), CompBand(ratio=0.80, score=0.0)]
+        comp_max = self.BASE * 0.90  # 90% of base
+
+        # When: computed with default bands vs custom bands
+        score_default = compute_comp_score(comp_max, self.BASE)
+        score_custom = compute_comp_score(
+            comp_max, self.BASE, comp_bands=custom_bands
+        )
+
+        # Then: scores differ because band boundaries differ
+        assert score_default != pytest.approx(score_custom, abs=0.01), (
+            f"Custom comp_bands should produce a different score at 90% of base. "
+            f"Default: {score_default:.4f}, Custom: {score_custom:.4f}"
+        )
+
+    def test_custom_comp_bands_change_scoring_curve(self) -> None:
+        """
+        Given a tight custom band set (95% -> 0.0, 100% -> 1.0)
+        When compute_comp_score() is called at 90% of base
+        Then the score is 0.0 (below the custom floor)
+        """
+        # Given: tight bands — anything below 95% scores 0.0
+        tight_bands = [CompBand(ratio=1.0, score=1.0), CompBand(ratio=0.95, score=0.0)]
+        comp_max = self.BASE * 0.90  # 90% of base — below the tight floor
+
+        # When: computed with tight bands
+        score = compute_comp_score(comp_max, self.BASE, comp_bands=tight_bands)
+
+        # Then: 0.0 — below the custom minimum band
+        assert score == pytest.approx(0.0, abs=0.01), (
+            f"comp_max at 90% with tight bands (floor=95%) should score 0.0. Got {score:.4f}"
+        )
+
+    def test_missing_comp_score_is_configurable(self) -> None:
+        """
+        Given a custom missing_comp_score of 0.3
+        When compute_comp_score() is called with None comp_max
+        Then the result is 0.3 (not the default 0.5)
+        """
+        # Given: custom missing_comp_score
+        custom_neutral = 0.3
+
+        # When: computed with None comp_max
+        score = compute_comp_score(None, self.BASE, missing_comp_score=custom_neutral)
+
+        # Then: returns the custom neutral score
+        assert score == pytest.approx(0.3, abs=0.01), (
+            f"Custom missing_comp_score=0.3 should return 0.3 for None. Got {score:.4f}"
+        )
+
+    def test_default_comp_bands_match_original_behavior(self) -> None:
+        """
+        Given the default comp_bands are passed explicitly
+        When compute_comp_score() is called at several reference points
+        Then the scores match the original hardcoded behavior exactly
+        """
+        # Given: reference points with known scores under original behavior
+        reference_points = [
+            (self.BASE * 1.0, 1.0),     # at base → 1.0
+            (self.BASE * 0.90, 0.7),    # at 90% → 0.7
+            (self.BASE * 0.77, 0.4),    # at 77% → 0.4
+            (self.BASE * 0.68, 0.0),    # at 68% → 0.0
+            (self.BASE * 0.50, 0.0),    # below floor → 0.0
+        ]
+
+        for comp_max, expected_score in reference_points:
+            # When: computed with explicit default bands
+            score = compute_comp_score(
+                comp_max, self.BASE, comp_bands=DEFAULT_COMP_BANDS
+            )
+
+            # Then: matches original behavior
+            assert score == pytest.approx(expected_score, abs=0.01), (
+                f"Default bands at comp_max={comp_max:.0f} should score "
+                f"{expected_score:.1f}. Got {score:.4f}"
             )
 
 

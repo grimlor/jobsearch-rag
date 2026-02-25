@@ -13,10 +13,12 @@ typed fields for each section: ``boards``, ``scoring``, ``ollama``,
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from jobsearch_rag.errors import ActionableError
+from jobsearch_rag.rag.comp_parser import DEFAULT_COMP_BANDS, CompBand
 
 # ---------------------------------------------------------------------------
 # Config dataclasses
@@ -47,6 +49,8 @@ class ScoringConfig:
     base_salary: float = 220_000
     disqualify_on_llm_flag: bool = True
     min_score_threshold: float = 0.45
+    comp_bands: list[CompBand] = field(default_factory=lambda: list(DEFAULT_COMP_BANDS))
+    missing_comp_score: float = 0.5
 
 
 @dataclass
@@ -134,20 +138,67 @@ def load_settings(path: str | Path = DEFAULT_SETTINGS_PATH) -> Settings:
     return _validate(data, filepath)
 
 
+# ---------------------------------------------------------------------------
+# Typed TOML extraction helpers
+# ---------------------------------------------------------------------------
+# tomllib.loads() returns dict[str, Any], but these helpers let us keep
+# dict[str, object] in our signatures (no Any — per CONTRIBUTING.md) while
+# safely narrowing the dynamic TOML values through isinstance guards.
+
+
+def _get_float(section: dict[str, object], key: str, default: float) -> float:
+    """Extract a float from a TOML section, falling back to *default*."""
+    raw = section.get(key, default)
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    return default
+
+
+def _get_int(section: dict[str, object], key: str, default: int) -> int:
+    """Extract an int from a TOML section, falling back to *default*."""
+    raw = section.get(key, default)
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return raw
+    return default
+
+
+def _get_opt_str(section: dict[str, object], key: str) -> str | None:
+    """Extract an optional string, returning ``None`` for missing or empty."""
+    raw = section.get(key)
+    if raw is None:
+        return None
+    result = str(raw)
+    return result or None
+
+
+def _section_or_empty(data: dict[str, object], name: str) -> dict[str, object]:
+    """Return an optional TOML section, defaulting to empty dict."""
+    raw = data.get(name)
+    if isinstance(raw, dict):
+        return cast("dict[str, object]", raw)
+    return {}
+
+
 def _validate(data: dict[str, object], filepath: Path) -> Settings:
     """Validate raw TOML data and return a Settings instance."""
 
     # -- boards section ------------------------------------------------------
     boards_section = _require_section(data, "boards", filepath)
-    enabled_boards = _require_field(boards_section, "enabled", "boards", filepath)
-    if not isinstance(enabled_boards, list) or not enabled_boards:
+    raw_enabled = _require_field(boards_section, "enabled", "boards", filepath)
+    if not isinstance(raw_enabled, list) or not raw_enabled:
         raise ActionableError.config(
             field_name="boards.enabled",
             reason="boards.enabled must be a non-empty list of board names",
             suggestion="Add at least one board name to [boards].enabled",
         )
+    enabled_boards: list[str] = [str(b) for b in cast("list[object]", raw_enabled)]
 
-    overnight_boards: list[str] = boards_section.get("overnight_boards", [])  # type: ignore[assignment]
+    raw_overnight = boards_section.get("overnight_boards")
+    overnight_boards: list[str] = (
+        [str(b) for b in cast("list[object]", raw_overnight)]
+        if isinstance(raw_overnight, list)
+        else []
+    )
 
     # Validate each enabled board has a config section
     board_configs: dict[str, BoardConfig] = {}
@@ -158,51 +209,61 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
                 reason=f"Board '{board_name}' is in [boards].enabled but has no [boards.{board_name}] section",
                 suggestion=f"Add a [boards.{board_name}] section with 'searches' and 'max_pages'",
             )
-        board_data = boards_section[board_name]
-        if not isinstance(board_data, dict):
+        raw_board = boards_section[board_name]
+        if not isinstance(raw_board, dict):
             raise ActionableError.config(
                 field_name=f"boards.{board_name}",
-                reason=f"[boards.{board_name}] must be a table, not {type(board_data).__name__}",
+                reason=f"[boards.{board_name}] must be a table, not {type(raw_board).__name__}",
                 suggestion=f"Define [boards.{board_name}] as a TOML table",
             )
-        searches = board_data.get("searches", [])
+        board_data = cast("dict[str, object]", raw_board)
+        searches_raw = board_data.get("searches")
         board_configs[board_name] = BoardConfig(
             name=board_name,
-            searches=list(searches),
-            max_pages=int(board_data.get("max_pages", 3)),
+            searches=(
+                [str(s) for s in cast("list[object]", searches_raw)]
+                if isinstance(searches_raw, list)
+                else []
+            ),
+            max_pages=_get_int(board_data, "max_pages", 3),
             headless=bool(board_data.get("headless", True)),
-            browser_channel=board_data.get("browser_channel") or None,
+            browser_channel=_get_opt_str(board_data, "browser_channel"),
         )
 
     # Also parse overnight board configs if they have sections
     for board_name in overnight_boards:
         if board_name in boards_section and board_name not in board_configs:
-            board_data = boards_section[board_name]
-            if isinstance(board_data, dict):
-                searches = board_data.get("searches", [])
+            raw_board = boards_section[board_name]
+            if isinstance(raw_board, dict):
+                board_data = cast("dict[str, object]", raw_board)
+                searches_raw = board_data.get("searches")
                 board_configs[board_name] = BoardConfig(
                     name=board_name,
-                    searches=list(searches),
-                    max_pages=int(board_data.get("max_pages", 2)),
+                    searches=(
+                        [str(s) for s in cast("list[object]", searches_raw)]
+                        if isinstance(searches_raw, list)
+                        else []
+                    ),
+                    max_pages=_get_int(board_data, "max_pages", 2),
                     headless=bool(board_data.get("headless", False)),
-                    browser_channel=board_data.get("browser_channel") or None,
+                    browser_channel=_get_opt_str(board_data, "browser_channel"),
                 )
 
     # -- scoring section -----------------------------------------------------
-    scoring_data = data.get("scoring", {})
-    if not isinstance(scoring_data, dict):
-        scoring_data = {}
+    scoring_data = _section_or_empty(data, "scoring")
 
     scoring = ScoringConfig(
-        archetype_weight=float(scoring_data.get("archetype_weight", 0.5)),
-        fit_weight=float(scoring_data.get("fit_weight", 0.3)),
-        history_weight=float(scoring_data.get("history_weight", 0.2)),
-        comp_weight=float(scoring_data.get("comp_weight", 0.15)),
-        negative_weight=float(scoring_data.get("negative_weight", 0.4)),
-        culture_weight=float(scoring_data.get("culture_weight", 0.2)),
-        base_salary=float(scoring_data.get("base_salary", 220_000)),
+        archetype_weight=_get_float(scoring_data, "archetype_weight", 0.5),
+        fit_weight=_get_float(scoring_data, "fit_weight", 0.3),
+        history_weight=_get_float(scoring_data, "history_weight", 0.2),
+        comp_weight=_get_float(scoring_data, "comp_weight", 0.15),
+        negative_weight=_get_float(scoring_data, "negative_weight", 0.4),
+        culture_weight=_get_float(scoring_data, "culture_weight", 0.2),
+        base_salary=_get_float(scoring_data, "base_salary", 220_000),
         disqualify_on_llm_flag=bool(scoring_data.get("disqualify_on_llm_flag", True)),
-        min_score_threshold=float(scoring_data.get("min_score_threshold", 0.45)),
+        min_score_threshold=_get_float(scoring_data, "min_score_threshold", 0.45),
+        comp_bands=_parse_comp_bands(scoring_data),
+        missing_comp_score=_get_float(scoring_data, "missing_comp_score", 0.5),
     )
 
     # Validate weight ranges
@@ -236,10 +297,11 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
             suggestion="Set [scoring].base_salary to a positive number",
         )
 
+    # Validate comp_bands
+    _validate_comp_bands(scoring.comp_bands)
+
     # -- ollama section ------------------------------------------------------
-    ollama_data = data.get("ollama", {})
-    if not isinstance(ollama_data, dict):
-        ollama_data = {}
+    ollama_data = _section_or_empty(data, "ollama")
 
     base_url = str(ollama_data.get("base_url", "http://localhost:11434"))
     if not base_url.startswith(("http://", "https://")):
@@ -256,20 +318,16 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
     )
 
     # -- output section ------------------------------------------------------
-    output_data = data.get("output", {})
-    if not isinstance(output_data, dict):
-        output_data = {}
+    output_data = _section_or_empty(data, "output")
 
     output = OutputConfig(
         default_format=str(output_data.get("default_format", "markdown")),
         output_dir=str(output_data.get("output_dir", "./output")),
-        open_top_n=int(output_data.get("open_top_n", 5)),
+        open_top_n=_get_int(output_data, "open_top_n", 5),
     )
 
     # -- chroma section ------------------------------------------------------
-    chroma_data = data.get("chroma", {})
-    if not isinstance(chroma_data, dict):
-        chroma_data = {}
+    chroma_data = _section_or_empty(data, "chroma")
 
     chroma = ChromaConfig(
         persist_dir=str(chroma_data.get("persist_dir", "./data/chroma_db")),
@@ -318,7 +376,7 @@ def _require_section(data: dict[str, object], name: str, filepath: Path) -> dict
             reason=f"Required section [{name}] is missing from {filepath}",
             suggestion=f"Add a [{name}] section to {filepath}",
         )
-    return section
+    return cast("dict[str, object]", section)
 
 
 def _require_field(
@@ -333,3 +391,97 @@ def _require_field(
             suggestion=f"Add '{field_name}' to the [{section_name}] section in {filepath}",
         )
     return value
+
+
+def _parse_comp_bands(scoring_data: dict[str, object]) -> list[CompBand]:
+    """Parse ``[[scoring.comp_bands]]`` array-of-tables from TOML data.
+
+    Returns :data:`DEFAULT_COMP_BANDS` when the key is absent.
+
+    Raises :class:`~jobsearch_rag.errors.ActionableError`:
+      - PARSE if an entry is not a table or is missing ``ratio`` / ``score``
+    """
+    raw_bands = scoring_data.get("comp_bands")
+    if raw_bands is None:
+        return list(DEFAULT_COMP_BANDS)
+
+    if not isinstance(raw_bands, list):
+        raise ActionableError.parse(
+            board="settings",
+            selector="scoring.comp_bands",
+            raw_error=f"Expected a list of tables, got {type(raw_bands).__name__}",
+            suggestion=(
+                "Define comp_bands as an array of tables: "
+                "[[scoring.comp_bands]] with ratio and score keys"
+            ),
+        )
+
+    band_entries = cast("list[object]", raw_bands)
+    bands: list[CompBand] = []
+    for idx, raw_entry in enumerate(band_entries):
+        if not isinstance(raw_entry, dict):
+            raise ActionableError.parse(
+                board="settings",
+                selector=f"scoring.comp_bands[{idx}]",
+                raw_error=f"Expected a table, got {type(raw_entry).__name__}",
+                suggestion="Each [[scoring.comp_bands]] entry must be a TOML table with ratio and score",
+            )
+        entry = cast("dict[str, object]", raw_entry)
+        if "ratio" not in entry or "score" not in entry:
+            raise ActionableError.parse(
+                board="settings",
+                selector=f"scoring.comp_bands[{idx}]",
+                raw_error=f"Missing required key(s): {{'ratio', 'score'}} - got {set(entry.keys())}",
+                suggestion="Each [[scoring.comp_bands]] entry must have both 'ratio' and 'score'",
+            )
+        bands.append(CompBand(
+            ratio=_get_float(entry, "ratio", 0.0),
+            score=_get_float(entry, "score", 0.0),
+        ))
+
+    return bands
+
+
+def _validate_comp_bands(bands: list[CompBand]) -> None:
+    """Validate that comp bands are well-formed.
+
+    Rules:
+    - At least one band is required.
+    - Ratios must be in descending order (highest first).
+    - Ratios must be >= 0.
+    - Scores must be in [0.0, 1.0].
+
+    Raises :class:`~jobsearch_rag.errors.ActionableError` (VALIDATION)
+    on the first violation found.
+    """
+    if not bands:
+        raise ActionableError.validation(
+            field_name="scoring.comp_bands",
+            reason="comp_bands list is empty — at least one band is required",
+            suggestion="Add at least one [[scoring.comp_bands]] entry with ratio and score",
+        )
+
+    for idx, band in enumerate(bands):
+        if band.ratio < 0:
+            raise ActionableError.validation(
+                field_name=f"scoring.comp_bands[{idx}].ratio",
+                reason=f"is {band.ratio} — must be >= 0",
+                suggestion="Set ratio to a non-negative number (e.g. 0.90)",
+            )
+        if band.score < 0.0 or band.score > 1.0:
+            raise ActionableError.validation(
+                field_name=f"scoring.comp_bands[{idx}].score",
+                reason=f"is {band.score} — must be between 0.0 and 1.0",
+                suggestion="Set score to a value in [0.0, 1.0]",
+            )
+
+    for i in range(1, len(bands)):
+        if bands[i].ratio >= bands[i - 1].ratio:
+            raise ActionableError.validation(
+                field_name="scoring.comp_bands",
+                reason=(
+                    f"bands are not in descending ratio order — "
+                    f"band[{i - 1}].ratio={bands[i - 1].ratio} is not > band[{i}].ratio={bands[i].ratio}"
+                ),
+                suggestion="Order [[scoring.comp_bands]] entries from highest ratio to lowest",
+            )

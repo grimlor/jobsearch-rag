@@ -18,13 +18,16 @@ Three collections serve distinct scoring purposes:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import chromadb
 from chromadb.errors import NotFoundError
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 class VectorStore:
@@ -176,7 +179,7 @@ class VectorStore:
         self,
         collection_name: str,
         *,
-        query_embedding: list[float],
+        query_embedding: Sequence[float],
         n_results: int = 5,
     ) -> dict[str, Any]:
         """Find the *n_results* most similar documents to *query_embedding*.
@@ -197,7 +200,7 @@ class VectorStore:
 
         effective_n = min(n_results, count)
         result = collection.query(
-            query_embeddings=[query_embedding],  # type: ignore[arg-type]
+            query_embeddings=[query_embedding],
             n_results=effective_n,
             include=["documents", "metadatas", "distances"],
         )

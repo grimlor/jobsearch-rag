@@ -269,7 +269,7 @@ rule referenced by name in the production code.
 After all spec tests pass, run:
 
 ```bash
-pytest --cov=jobsearch_rag --cov-report=term-missing tests/
+pytest --cov=<package> --cov-report=term-missing tests/
 ```
 
 Every uncovered line triggers the question: *"Which requirement is this line serving?"*
@@ -282,6 +282,8 @@ requirements, not optional extras:
 | **Defensive guard code** | Protects against misuse — empty input, wrong types, boundary values | `if not full_text.strip(): raise ValidationError(...)` |
 | **Graceful degradation** | Soft failures the system absorbs rather than raising | Missing `decisions` collection returns empty list, not error |
 | **Conditional formatting** | Display logic that varies by state | DQ warning line only appears when `disqualified=True` |
+
+**"Pre-existing" is not a category.** Whether a line existed before your changes is irrelevant — if it is uncovered after your work, it is uncovered. The only valid dispositions are: real requirement (write the spec), dead code (remove it), or over-engineering (remove it). "It was already there" is not a disposition.
 
 For each uncovered line: keep it and write the spec, or remove it if it has no
 justifying requirement.

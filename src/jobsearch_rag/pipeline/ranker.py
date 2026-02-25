@@ -37,7 +37,7 @@ class RankedListing:
     listing: JobListing
     scores: ScoreResult
     final_score: float
-    duplicate_boards: list[str] = field(default_factory=list)
+    duplicate_boards: list[str] = field(default_factory=lambda: [])
 
     def score_explanation(self) -> str:
         """Human-readable score breakdown for export output.

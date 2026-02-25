@@ -11,7 +11,10 @@ Spec doc: BDD Specifications — configuration.md
 #            global_rubric_path="config/global_rubric.toml")
 #   ScoringConfig(archetype_weight=0.5, fit_weight=0.3, history_weight=0.2,
 #                 comp_weight=0.15, negative_weight=0.4, culture_weight=0.2,
-#                 base_salary=220_000, disqualify_on_llm_flag=True, min_score_threshold=0.45)
+#                 base_salary=220_000, disqualify_on_llm_flag=True, min_score_threshold=0.45,
+#                 comp_bands=DEFAULT_COMP_BANDS, missing_comp_score=0.5)
+#   CompBand(ratio: float, score: float)
+#   DEFAULT_COMP_BANDS: list[CompBand] — [(1.0, 1.0), (0.90, 0.7), (0.77, 0.4), (0.68, 0.0)]
 #   OllamaConfig(base_url="http://localhost:11434", llm_model="mistral:7b",
 #                embed_model="nomic-embed-text")
 #   OutputConfig(default_format="markdown", output_dir="./output", open_top_n=5)
@@ -557,4 +560,653 @@ searches = ["https://testboard.com/search"]
         )
         assert exc_info.value.suggestion is not None, (
             "Error should include a suggestion for creating or fixing the rubric path"
+        )
+
+    def test_comp_bands_default_when_absent_from_config(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        When the scoring section omits comp_bands
+        Then it defaults to the documented default bands
+        """
+        # Given: valid TOML without comp_bands specified
+        toml_path = _write_valid_toml(tmp_path)
+
+        # When: settings are loaded
+        settings = load_settings(toml_path)
+
+        # Then: comp_bands matches the documented defaults
+        bands = settings.scoring.comp_bands
+        assert len(bands) == 4, (
+            f"Default comp_bands should have 4 entries, got {len(bands)}"
+        )
+        assert bands[0].ratio == pytest.approx(1.0), (
+            f"First band ratio should be 1.0, got {bands[0].ratio}"
+        )
+        assert bands[0].score == pytest.approx(1.0), (
+            f"First band score should be 1.0, got {bands[0].score}"
+        )
+        assert bands[-1].ratio == pytest.approx(0.68), (
+            f"Last band ratio should be 0.68, got {bands[-1].ratio}"
+        )
+        assert bands[-1].score == pytest.approx(0.0), (
+            f"Last band score should be 0.0, got {bands[-1].score}"
+        )
+
+    def test_missing_comp_score_defaults_to_zero_point_five(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        When the scoring section omits missing_comp_score
+        Then it defaults to 0.5
+        """
+        # Given: valid TOML without missing_comp_score specified
+        toml_path = _write_valid_toml(tmp_path)
+
+        # When: settings are loaded
+        settings = load_settings(toml_path)
+
+        # Then: missing_comp_score is 0.5
+        assert settings.scoring.missing_comp_score == pytest.approx(0.5), (
+            f"missing_comp_score should default to 0.5, "
+            f"got {settings.scoring.missing_comp_score}"
+        )
+
+    def test_comp_bands_must_be_descending_by_ratio(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given comp_bands with non-descending ratios
+        When settings are loaded
+        Then an ActionableError names comp_bands and states they must be descending
+        """
+        # Given: comp_bands in ascending order (invalid)
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+
+[scoring]
+comp_bands = [
+  {{ ratio = 0.68, score = 0.0 }},
+  {{ ratio = 0.77, score = 0.4 }},
+  {{ ratio = 0.90, score = 0.7 }},
+  {{ ratio = 1.00, score = 1.0 }},
+]
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert "comp_bands" in error_msg, (
+            f"Error should name 'comp_bands'. Got: {error_msg}"
+        )
+
+    def test_comp_band_ratio_out_of_range_produces_error(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given a comp_band with ratio < 0
+        When settings are loaded
+        Then an ActionableError names comp_bands and the invalid ratio
+        """
+        # Given: comp_band with negative ratio
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+
+[scoring]
+comp_bands = [
+  {{ ratio = 1.00, score = 1.0 }},
+  {{ ratio = -0.10, score = 0.0 }},
+]
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert "comp_bands" in error_msg, (
+            f"Error should name 'comp_bands'. Got: {error_msg}"
+        )
+
+    def test_comp_band_score_out_of_range_produces_error(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given a comp_band with score > 1.0
+        When settings are loaded
+        Then an ActionableError names comp_bands and the invalid score
+        """
+        # Given: comp_band with score above 1.0
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+
+[scoring]
+comp_bands = [
+  {{ ratio = 1.00, score = 1.5 }},
+  {{ ratio = 0.68, score = 0.0 }},
+]
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert "comp_bands" in error_msg, (
+            f"Error should name 'comp_bands'. Got: {error_msg}"
+        )
+
+    def test_missing_settings_file_names_path_and_suggests_creating_it(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given a path to a settings file that does not exist
+        When settings are loaded
+        Then an ActionableError names the path and suggests creating the file
+        """
+        # Given: nonexistent file path
+        nonexistent = tmp_path / "does_not_exist.toml"
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(nonexistent)
+
+        error_msg = str(exc_info.value)
+        assert "does_not_exist.toml" in error_msg, (
+            f"Error should name the missing file. Got: {error_msg}"
+        )
+        assert exc_info.value.suggestion is not None, (
+            f"Error should include a suggestion. Got suggestion=None for: {error_msg}"
+        )
+
+    def test_malformed_toml_produces_parse_error_with_syntax_detail(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given a settings file with invalid TOML syntax
+        When settings are loaded
+        Then an ActionableError of type PARSE is raised with syntax detail
+        """
+        # Given: broken TOML syntax
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            "[boards\nenabled = broken\n",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert exc_info.value.suggestion is not None, (
+            f"Parse error should include a suggestion. Got: {error_msg}"
+        )
+
+    def test_boards_enabled_as_empty_list_produces_actionable_error(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given boards.enabled is an empty list
+        When settings are loaded
+        Then an ActionableError names boards.enabled
+        """
+        # Given: enabled = []
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = []
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert "boards.enabled" in error_msg, (
+            f"Error should name 'boards.enabled'. Got: {error_msg}"
+        )
+
+    def test_board_section_must_be_table_not_scalar(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given a board section that is a scalar instead of a table
+        When settings are loaded
+        Then an ActionableError names the board and says it must be a table
+        """
+        # Given: board config as scalar
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["badboard"]
+badboard = "not a table"
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert "badboard" in error_msg, (
+            f"Error should name the board 'badboard'. Got: {error_msg}"
+        )
+        assert "table" in error_msg.lower(), (
+            f"Error should mention 'table'. Got: {error_msg}"
+        )
+
+    def test_overnight_boards_are_parsed_when_config_sections_exist(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given an overnight board with its own [boards.<name>] section
+        When settings are loaded
+        Then the overnight board config is parsed into settings.boards
+        """
+        # Given: overnight board with config section
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["dayboard"]
+overnight_boards = ["nightboard"]
+
+[boards.dayboard]
+searches = ["https://dayboard.com/search"]
+
+[boards.nightboard]
+searches = ["https://nightboard.com/search"]
+max_pages = 5
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When
+        settings = load_settings(toml_path)
+
+        # Then: overnight board is in boards dict
+        assert "nightboard" in settings.boards, (
+            f"Expected 'nightboard' in settings.boards. Got: {list(settings.boards.keys())}"
+        )
+        assert settings.boards["nightboard"].max_pages == 5, (
+            f"Expected max_pages=5 for nightboard. Got: {settings.boards['nightboard'].max_pages}"
+        )
+
+    def test_non_dict_scoring_section_defaults_to_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given scoring section is a non-dict value
+        When settings are loaded
+        Then scoring defaults are used (no crash)
+        """
+        # Given: scoring = "not a dict"
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+scoring = "not a dict"
+global_rubric_path = "{rubric}"
+
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+""",
+            encoding="utf-8",
+        )
+
+        # When
+        settings = load_settings(toml_path)
+
+        # Then: scoring uses defaults
+        assert settings.scoring.archetype_weight == pytest.approx(0.5), (
+            f"Expected default archetype_weight=0.5. Got: {settings.scoring.archetype_weight}"
+        )
+
+    def test_non_dict_ollama_section_defaults_to_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given ollama section is a non-dict value
+        When settings are loaded
+        Then ollama defaults are used (no crash)
+        """
+        # Given: ollama = "not a dict"
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+ollama = "not a dict"
+global_rubric_path = "{rubric}"
+
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+""",
+            encoding="utf-8",
+        )
+
+        # When
+        settings = load_settings(toml_path)
+
+        # Then: ollama uses defaults
+        assert settings.ollama.base_url == "http://localhost:11434", (
+            f"Expected default base_url. Got: {settings.ollama.base_url}"
+        )
+
+    def test_non_dict_output_section_defaults_to_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given output section is a non-dict value
+        When settings are loaded
+        Then output defaults are used (no crash)
+        """
+        # Given: output = "not a dict"
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+output = "not a dict"
+global_rubric_path = "{rubric}"
+
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+""",
+            encoding="utf-8",
+        )
+
+        # When
+        settings = load_settings(toml_path)
+
+        # Then: output uses defaults
+        assert settings.output.default_format == "markdown", (
+            f"Expected default format='markdown'. Got: {settings.output.default_format}"
+        )
+
+    def test_non_dict_chroma_section_defaults_to_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given chroma section is a non-dict value
+        When settings are loaded
+        Then chroma defaults are used (no crash)
+        """
+        # Given: chroma = "not a dict"
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+chroma = "not a dict"
+global_rubric_path = "{rubric}"
+
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+""",
+            encoding="utf-8",
+        )
+
+        # When
+        settings = load_settings(toml_path)
+
+        # Then: chroma uses defaults
+        assert settings.chroma.persist_dir == "./data/chroma_db", (
+            f"Expected default persist_dir. Got: {settings.chroma.persist_dir}"
+        )
+
+    def test_boards_section_without_enabled_key_produces_error(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given a [boards] section exists but has no 'enabled' key
+        When settings are loaded
+        Then an ActionableError names boards.enabled as the missing field
+        """
+        # Given: [boards] without enabled
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+overnight_boards = ["someboard"]
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert "enabled" in error_msg, (
+            f"Error should name the missing 'enabled' field. Got: {error_msg}"
+        )
+
+    def test_comp_bands_as_non_list_produces_parse_error(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given comp_bands is a string instead of a list
+        When settings are loaded
+        Then an ActionableError mentions comp_bands and the expected type
+        """
+        # Given: comp_bands as string
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+
+[scoring]
+comp_bands = "not a list"
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert "comp_bands" in error_msg, (
+            f"Error should name 'comp_bands'. Got: {error_msg}"
+        )
+
+    def test_comp_band_entry_must_be_table_not_scalar(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given comp_bands contains scalar entries instead of tables
+        When settings are loaded
+        Then an ActionableError names the entry and says it must be a table
+        """
+        # Given: comp_bands with scalar entries
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+
+[scoring]
+comp_bands = [1, 2, 3]
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert "comp_bands" in error_msg, (
+            f"Error should name 'comp_bands'. Got: {error_msg}"
+        )
+        assert "table" in error_msg.lower(), (
+            f"Error should mention 'table'. Got: {error_msg}"
+        )
+
+    def test_comp_band_entry_missing_required_keys_produces_error(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given a comp_band entry with ratio but no score
+        When settings are loaded
+        Then an ActionableError names the entry and lists missing keys
+        """
+        # Given: comp_band entry missing 'score' key
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+
+[scoring]
+comp_bands = [
+  {{ ratio = 1.0 }},
+]
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert "comp_bands" in error_msg, (
+            f"Error should name 'comp_bands'. Got: {error_msg}"
+        )
+
+    def test_empty_comp_bands_list_produces_validation_error(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given comp_bands is an empty list
+        When settings are loaded
+        Then an ActionableError says at least one band is required
+        """
+        # Given: comp_bands = []
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+
+[scoring]
+comp_bands = []
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When / Then
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(toml_path)
+
+        error_msg = str(exc_info.value)
+        assert "comp_bands" in error_msg, (
+            f"Error should name 'comp_bands'. Got: {error_msg}"
+        )
+        assert "empty" in error_msg.lower() or "at least one" in error_msg.lower(), (
+            f"Error should mention the list is empty. Got: {error_msg}"
         )

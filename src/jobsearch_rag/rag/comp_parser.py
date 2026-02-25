@@ -23,6 +23,27 @@ class CompResult:
     comp_text: str
 
 
+@dataclass(frozen=True)
+class CompBand:
+    """A single comp scoring band boundary.
+
+    Defines a mapping from a salary ratio (comp_max / base_salary) to a
+    comp_score value.  Bands are stored in descending ratio order and
+    linearly interpolated between adjacent entries.
+    """
+
+    ratio: float
+    score: float
+
+
+DEFAULT_COMP_BANDS: list[CompBand] = [
+    CompBand(ratio=1.00, score=1.0),
+    CompBand(ratio=0.90, score=0.7),
+    CompBand(ratio=0.77, score=0.4),
+    CompBand(ratio=0.68, score=0.0),
+]
+
+
 # ---------------------------------------------------------------------------
 # Regex patterns
 # ---------------------------------------------------------------------------
@@ -167,37 +188,62 @@ def parse_compensation(text: str, source: str = "employer") -> CompResult | None
 # ---------------------------------------------------------------------------
 
 
-def compute_comp_score(comp_max: float | None, base_salary: float) -> float:
+def compute_comp_score(
+    comp_max: float | None,
+    base_salary: float,
+    *,
+    comp_bands: list[CompBand] | None = None,
+    missing_comp_score: float = 0.5,
+) -> float:
     """Compute a continuous compensation score in [0.0, 1.0].
 
     The score is based on where ``comp_max`` falls relative to
-    ``base_salary``:
+    ``base_salary``, using configurable band boundaries:
+
+    Default bands (when ``comp_bands`` is ``None``):
 
     - ≥ 100% of base → 1.0
     - 90-100% of base -> 0.7-0.9 (linear interpolation)
     - 77-90% of base -> 0.4-0.7 (linear interpolation)
     - 68-77% of base -> 0.0-0.4 (linear interpolation)
     - < 68% of base → 0.0
-    - Missing (None) → 0.5 (neutral)
+    - Missing (None) → ``missing_comp_score`` (default 0.5, neutral)
 
     This is a *taste signal*, not a gate.  Missing data gets a neutral
     score so it neither rewards nor penalizes.
+
+    Parameters
+    ----------
+    comp_max:
+        Maximum annual compensation parsed from JD, or ``None`` if missing.
+    base_salary:
+        Target base salary from settings.
+    comp_bands:
+        Band boundaries sorted descending by ratio.  Each band maps a
+        ratio (comp_max / base_salary) to a score.  Linearly interpolates
+        between adjacent bands.  ``None`` uses :data:`DEFAULT_COMP_BANDS`.
+    missing_comp_score:
+        Score to return when ``comp_max`` is ``None``.
     """
     if comp_max is None:
-        return 0.5
+        return missing_comp_score
 
+    bands = comp_bands if comp_bands is not None else DEFAULT_COMP_BANDS
     ratio = comp_max / base_salary
 
-    if ratio >= 1.0:
-        return 1.0
-    if ratio >= 0.90:
-        # Linear interpolation: 0.90 → 0.7, 1.00 → 0.9 (then capped at 1.0 above)
-        # score = 0.7 + (ratio - 0.90) / (1.00 - 0.90) * (0.9 - 0.7)
-        return 0.7 + (ratio - 0.90) / 0.10 * 0.2
-    if ratio >= 0.77:
-        # Linear interpolation: 0.77 → 0.4, 0.90 → 0.7
-        return 0.4 + (ratio - 0.77) / 0.13 * 0.3
-    if ratio >= 0.68:
-        # Linear interpolation: 0.68 → 0.0, 0.77 → 0.4
-        return 0.0 + (ratio - 0.68) / 0.09 * 0.4
-    return 0.0
+    # Above the highest band → return the highest band's score
+    if ratio >= bands[0].ratio:
+        return bands[0].score
+
+    # Walk bands pairwise: interpolate between adjacent entries
+    for i in range(len(bands) - 1):
+        upper = bands[i]
+        lower = bands[i + 1]
+        if ratio >= lower.ratio:
+            # Linear interpolation between lower and upper
+            span = upper.ratio - lower.ratio
+            t = (ratio - lower.ratio) / span
+            return lower.score + t * (upper.score - lower.score)
+
+    # Below the lowest band → return the lowest band's score
+    return bands[-1].score

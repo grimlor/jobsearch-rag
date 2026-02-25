@@ -333,6 +333,8 @@ if result.disqualified:
 For each uncovered line, ask: is this a real requirement (write the spec), dead code
 (remove it), or over-engineering (remove it and simplify)?
 
+**"Pre-existing" is not a category.** Whether a line existed before your changes is irrelevant — if it is uncovered after your work, it is uncovered. The only valid dispositions are: real requirement (write the spec), dead code (remove it), or over-engineering (remove it). "It was already there" is not a disposition.
+
 ---
 
 ## Error Testing — Messages, Not Just Types

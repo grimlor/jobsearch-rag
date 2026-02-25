@@ -20,7 +20,12 @@ from typing import TYPE_CHECKING
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker, RankSummary
-from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
+from jobsearch_rag.rag.comp_parser import (
+    DEFAULT_COMP_BANDS,
+    CompBand,
+    compute_comp_score,
+    parse_compensation,
+)
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.scorer import Scorer, ScoreResult
@@ -32,7 +37,7 @@ logger = logging.getLogger(__name__)
 class RescoreResult:
     """Results from a rescore run."""
 
-    ranked_listings: list[RankedListing] = field(default_factory=list)
+    ranked_listings: list[RankedListing] = field(default_factory=lambda: [])
     summary: RankSummary = field(default_factory=RankSummary)
     failed_listings: int = 0
     total_loaded: int = 0
@@ -134,7 +139,7 @@ class Rescorer:
 
     Usage::
 
-        rescorer = Rescorer(scorer=scorer, ranker=ranker, base_salary=220000)
+        rescorer = Rescorer(scorer=scorer, ranker=ranker, base_salary=220000, comp_bands=..., missing_comp_score=0.5)
         result = await rescorer.rescore(jd_dir="output/jds")
     """
 
@@ -144,10 +149,14 @@ class Rescorer:
         scorer: Scorer,
         ranker: Ranker,
         base_salary: float = 220_000,
+        comp_bands: list[CompBand] | None = None,
+        missing_comp_score: float = 0.5,
     ) -> None:
         self._scorer = scorer
         self._ranker = ranker
         self._base_salary = base_salary
+        self._comp_bands = comp_bands if comp_bands is not None else list(DEFAULT_COMP_BANDS)
+        self._missing_comp_score = missing_comp_score
 
     async def rescore(self, jd_dir: str | Path) -> RescoreResult:
         """Load JDs from disk, score, rank, and return results.
@@ -175,6 +184,8 @@ class Rescorer:
                 scores.comp_score = compute_comp_score(
                     listing.comp_max,
                     self._base_salary,
+                    comp_bands=self._comp_bands,
+                    missing_comp_score=self._missing_comp_score,
                 )
                 scored.append((listing, scores))
             except ActionableError as exc:

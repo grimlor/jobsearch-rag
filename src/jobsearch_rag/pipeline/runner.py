@@ -44,11 +44,11 @@ logger = logging.getLogger(__name__)
 class RunResult:
     """Results from a pipeline run, consumed by exporters and CLI."""
 
-    ranked_listings: list[RankedListing] = field(default_factory=list)
+    ranked_listings: list[RankedListing] = field(default_factory=lambda: [])
     summary: RankSummary = field(default_factory=RankSummary)
     failed_listings: int = 0
     skipped_decisions: int = 0
-    boards_searched: list[str] = field(default_factory=list)
+    boards_searched: list[str] = field(default_factory=lambda: [])
 
 
 class PipelineRunner:
@@ -79,6 +79,8 @@ class PipelineRunner:
             min_score_threshold=settings.scoring.min_score_threshold,
         )
         self._base_salary = settings.scoring.base_salary
+        self._comp_bands = settings.scoring.comp_bands
+        self._missing_comp_score = settings.scoring.missing_comp_score
         self._decision_recorder = DecisionRecorder(store=self._store, embedder=self._embedder)
 
     async def run(
@@ -181,7 +183,12 @@ class PipelineRunner:
                     listing.comp_max = comp.comp_max
                     listing.comp_source = comp.comp_source
                     listing.comp_text = comp.comp_text
-                score_result.comp_score = compute_comp_score(listing.comp_max, self._base_salary)
+                score_result.comp_score = compute_comp_score(
+                    listing.comp_max,
+                    self._base_salary,
+                    comp_bands=self._comp_bands,
+                    missing_comp_score=self._missing_comp_score,
+                )
 
                 scored.append((listing, score_result))
                 # Cache the embedding for deduplication

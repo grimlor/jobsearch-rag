@@ -141,7 +141,10 @@ def extract_js_variables(html: str) -> dict[str, Any]:
             "js_variables script tag not found — page structure may have changed",
         )
     try:
-        return json.loads(match.group(1))  # type: ignore[no-any-return]
+        # Any justified: json.loads returns arbitrary JSON structure;
+        # callers narrow fields as needed.
+        result: dict[str, Any] = json.loads(match.group(1))
+        return result
     except json.JSONDecodeError as exc:
         raise ActionableError.parse(
             "ziprecruiter",

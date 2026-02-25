@@ -31,7 +31,7 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
@@ -77,7 +77,11 @@ def build_archetype_embedding_text(archetype: dict[str, object]) -> str:
     """
     description = _normalize_whitespace(str(archetype.get("description", "")))
     raw_signals = archetype.get("signals_positive", [])
-    signals: list[str] = list(raw_signals) if isinstance(raw_signals, list) else []
+    signals: list[str] = (
+        [str(s) for s in cast("list[object]", raw_signals)]
+        if isinstance(raw_signals, list)
+        else []
+    )
     if not signals:
         return description
 

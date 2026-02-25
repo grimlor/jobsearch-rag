@@ -33,7 +33,7 @@ class JobListing:
     comp_max: float | None = None
     comp_source: str | None = None
     comp_text: str | None = None
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, str] = field(default_factory=lambda: {})
 
 
 class JobBoardAdapter(ABC):

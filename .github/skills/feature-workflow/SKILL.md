@@ -1,6 +1,6 @@
 ---
 name: feature-workflow
-description: "Spec-before-code feature development workflow. Use when the user requests a new feature, enhancement, or non-trivial change — anything that adds or modifies behavior, including requests phrased as add, implement, build, create, or start implementation."
+description: "Spec-before-code feature development workflow. Use when the user requests a new feature, enhancement, or non-trivial change — anything that adds or modifies behavior, including requests phrased as add, implement, build, create, refactor, or start implementation."
 ---
 
 # Feature Workflow — Spec Before Code
@@ -9,7 +9,7 @@ description: "Spec-before-code feature development workflow. Use when the user r
 
 Whenever the user requests a new feature, enhancement, or non-trivial change — anything
 that adds or modifies behavior. This includes requests phrased as "add …", "implement …",
-"build …", "create …", "I need …", or "Start implementation".
+"build …", "create …", "refactor …", "I need …", or "Start implementation".
 
 This skill does **NOT** apply to:
 - Bug fixes with a clear cause and obvious one-line fix
@@ -113,8 +113,8 @@ Do not silently fill gaps with undocumented behavior.
 
 1. **Create test classes** from the specs written in Phase 1.
 2. **Follow BDD testing principles** — see the `bdd-testing` skill for conventions.
-3. **Tests must fail** — Run the tests to confirm they fail. If they pass,
-   either the behavior already exists or the tests aren't testing anything.
+3. **Tests must fail** — Run the tests to confirm they fail. Refer to tool-usage skill. 
+   If they pass, either the behavior already exists or the tests aren't testing anything.
 4. **Include failure-mode specs** — An unspecified failure is an unhandled failure.
    Test error paths, edge cases, and boundary conditions.
 
@@ -133,7 +133,7 @@ Do not silently fill gaps with undocumented behavior.
 
 **Goal:** "Is the specification complete?"
 
-1. **Run tests with coverage** for the project's source package.
+1. **Run tests with coverage** for the project's source package. 
 2. **Every uncovered line is an unspecified requirement.** For each:
    - Is this a real requirement? → Write the spec, then keep the code.
    - Is this dead code? → Remove it.
@@ -145,6 +145,8 @@ Three categories routinely surface only at coverage time:
 - **Defensive guard code** — misuse protection
 - **Graceful degradation paths** — soft failures the system absorbs
 - **Conditional formatting branches** — display logic that varies by state
+
+**"Pre-existing" is not a category.** Whether a line existed before your changes is irrelevant — if it is uncovered after your work, it is uncovered. The only valid dispositions are: real requirement (write the spec), dead code (remove it), or over-engineering (remove it). "It was already there" is not a disposition.
 
 ### Phase 5 — Plan Status Update
 

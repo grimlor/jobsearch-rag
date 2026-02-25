@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from playwright.async_api import async_playwright
+from playwright_stealth import Stealth
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
@@ -224,13 +225,8 @@ class SessionManager:
 
         # Apply stealth patches if requested (LinkedIn)
         if self.config.stealth:
-            try:
-                from playwright_stealth import Stealth  # noqa: PLC0415  # optional dependency
-
-                await Stealth().apply_stealth_async(self._context)
-                logger.info("Stealth patches applied for %s", self.config.board_name)
-            except ImportError:
-                logger.warning("playwright-stealth not installed — stealth mode unavailable")
+            await Stealth().apply_stealth_async(self._context)
+            logger.info("Stealth patches applied for %s", self.config.board_name)
 
         return self
 

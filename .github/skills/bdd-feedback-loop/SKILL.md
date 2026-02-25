@@ -10,7 +10,7 @@ description: "Feedback loop procedure for implementing BDD test modules. Use whe
 Whenever implementing tests from a BDD spec document. Each iteration of this loop
 covers one test module: read the spec, implement, verify, audit, log, and hand off.
 
-Do not proceed to the next module if unresolved failures remain from Steps 4 or 5.
+Do not proceed to the next module if unresolved failures remain from Steps 4, 5 or 7.
 
 ---
 
@@ -87,6 +87,8 @@ For each method:
 
 Refer to `.github/skills/bdd-testing/SKILL.md` and
 `.github/skills/bdd-testing/references/test-patterns.md` for all conventions.
+Refer to tool-usage skill for how to use the tools to validate the tests fail 
+as expected.
 
 ---
 
@@ -176,15 +178,38 @@ re-investigation.
 
 ---
 
-### Step 7 — Proceed to Next Module
+### Step 7 - Perform a Coverage Check
 
-If Steps 4 and 5 are both clean (or all remaining failures are logged in Step 6),
-proceed to the next module in the orchestration doc.
+After logging deviations, perform a coverage check on the test file. For each
+uncovered line, determine whether it is:
+- A real requirement that should be added to the spec (write the new scenario in the spec
+  and log the gap as a deviation)
+- Dead code that should be removed (remove it and log the change as a deviation)
+- Over-engineering that should be removed (remove it and log the change as a deviation)
+
+Whether a line existed before your changes is irrelevant — if it is uncovered after your work, it is uncovered. The only valid dispositions are: real requirement (write the spec), dead code (remove it), or over-engineering (remove it). "It was already there" is not a disposition.
+
+**Explicit steps to document uncovered lines:**
+1. Triage all uncovered lines — assign each a disposition
+2. For every "real requirement" disposition: update the BDD spec doc with the new scenario — do not write any tests yet
+3. Present the spec additions to the human for review and wait for explicit approval
+4. Only after approval: write the tests to match the new scenarios
+
+---
+
+### Step 8 — Proceed to Next Module
+
+If Steps 4, 5, and 7 are all clean (or all remaining issues are logged in Step 6),
+the module is complete. Proceed to the next module in the orchestration doc.
 
 If any unresolved failures exist that were not logged, stop and complete Step 6
 before proceeding.
 
-**Logged deviations do not authorize proceeding.** A deviation that cannot be resolved after three attempts — including deviations caused by spec-mandated mock boundaries — requires a human decision before the module is considered complete. Do not advance to the next module. Present the unresolved deviations and wait.
+**Logged deviations do not authorize proceeding.** A deviation that cannot be
+resolved after three attempts — including coverage gaps that cannot be closed,
+spec errors, or mock boundary conflicts — requires a human decision before the
+module is considered complete. Do not advance to the next module. Present the
+unresolved deviations and wait.
 
 The orchestration doc defines the module order. Do not reorder modules without
 updating the orchestration doc.

@@ -71,7 +71,8 @@ The BDD Specifications document contains `TestClass` definitions with method sig
 ## Update Workflow
 
 1. Identify which plan items were completed
-2. Check off completed items in the project plan
-3. Add any new items that were discovered during implementation
-4. Update BDD Specifications if specs were added or modified
-5. Briefly confirm to the user what was updated
+2. Verify coverage before checking off implementation items
+3. Check off completed items in the project plan
+4. Add any new items that were discovered during implementation
+5. Update BDD Specifications if specs were added or modified
+6. Briefly confirm to the user what was updated
