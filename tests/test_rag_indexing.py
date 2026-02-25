@@ -295,6 +295,36 @@ class TestResumeIndexing:
             f"Error should name the missing path. Got: {error_msg}"
         )
 
+    @pytest.mark.asyncio
+    async def test_resume_with_no_section_headings_produces_empty_chunks(
+        self,
+        tmp_path: Path,
+        mock_embedder: Embedder,
+        vector_store: VectorStore,
+    ) -> None:
+        """
+        Given a resume with content but no ## headings
+        When index_resume() is called
+        Then the return value is 0 (no chunks produced)
+        """
+        # Given: a resume that has content but no ## section headings
+        resume_path = tmp_path / "no_headings.md"
+        resume_path.write_text(
+            "# Jane Doe\n\n"
+            "Some content without any second-level headings.\n"
+            "Just a flat document.\n",
+            encoding="utf-8",
+        )
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+
+        # When: index_resume() is called
+        count = await indexer.index_resume(str(resume_path))
+
+        # Then: zero chunks since there are no ## headings to split on
+        assert count == 0, (
+            f"Expected 0 chunks for headingless resume. Got {count}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # TestArchetypeIndexing
@@ -581,6 +611,32 @@ class TestArchetypeIndexing:
         error_msg = str(exc_info.value)
         assert "archetype" in error_msg.lower(), (
             f"Error should mention archetypes. Got: {error_msg}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_missing_archetypes_file_produces_actionable_error(
+        self,
+        tmp_path: Path,
+        mock_embedder: Embedder,
+        vector_store: VectorStore,
+    ) -> None:
+        """
+        Given the archetypes file path does not exist
+        When index_archetypes() is called
+        Then an ActionableError is raised whose message names the missing path
+        """
+        # Given: a path that does not exist
+        missing_path = str(tmp_path / "missing_archetypes.toml")
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+
+        # When: index_archetypes() is called with missing file
+        with pytest.raises(ActionableError) as exc_info:
+            await indexer.index_archetypes(missing_path)
+
+        # Then: the error message names the missing file
+        error_msg = str(exc_info.value)
+        assert "missing_archetypes" in error_msg or "archetypes" in error_msg.lower(), (
+            f"Error should reference the missing archetypes file. Got: {error_msg}"
         )
 
     async def test_reindex_replaces_previous_archetype_content_not_appends(
@@ -1683,4 +1739,115 @@ signals_positive = ["Good signal"]
         )
         assert count == collection_count, (
             f"Return value ({count}) should match collection count ({collection_count})"
+        )
+
+    @pytest.mark.asyncio
+    async def test_malformed_global_rubric_toml_in_negative_context_produces_parse_error(
+        self,
+        tmp_path: Path,
+        mock_embedder: Embedder,
+        vector_store: VectorStore,
+    ) -> None:
+        """
+        Given the global_rubric.toml has invalid TOML syntax
+        When index_negative_signals() is called
+        Then an ActionableError is raised referencing TOML syntax
+        """
+        # Given: malformed rubric, valid archetypes
+        bad_rubric = tmp_path / "bad_rubric.toml"
+        bad_rubric.write_text("[[dimensions]\nbroken syntax")
+        arch_path = tmp_path / "role_archetypes.toml"
+        arch_path.write_text(_VALID_ARCHETYPES_TOML)
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+
+        # When: called with malformed rubric
+        with pytest.raises(ActionableError) as exc_info:
+            await indexer.index_negative_signals(str(bad_rubric), str(arch_path))
+
+        # Then: error references TOML syntax
+        error_msg = str(exc_info.value)
+        assert "TOML" in error_msg or "syntax" in error_msg.lower(), (
+            f"Error should reference TOML syntax. Got: {error_msg}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_missing_archetypes_file_in_negative_context_produces_actionable_error(
+        self,
+        tmp_path: Path,
+        mock_embedder: Embedder,
+        vector_store: VectorStore,
+    ) -> None:
+        """
+        Given the archetypes file does not exist
+        When index_negative_signals() is called
+        Then an ActionableError is raised referencing the missing file
+        """
+        # Given: valid rubric, missing archetypes
+        rubric_path = tmp_path / "global_rubric.toml"
+        rubric_path.write_text(_VALID_RUBRIC_TOML)
+        missing_arch = str(tmp_path / "missing_archetypes.toml")
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+
+        # When: called with missing archetypes
+        with pytest.raises(ActionableError) as exc_info:
+            await indexer.index_negative_signals(str(rubric_path), missing_arch)
+
+        # Then: error references the missing archetypes file
+        error_msg = str(exc_info.value)
+        assert "missing_archetypes" in error_msg or "archetypes" in error_msg.lower(), (
+            f"Error should reference missing archetypes file. Got: {error_msg}"
+        )
+
+
+# ===========================================================================
+# TestVectorStoreInputValidation
+# ===========================================================================
+
+
+class TestVectorStoreInputValidation:
+    """
+    REQUIREMENT: VectorStore.add_documents() validates that all input
+    lists have the same length before touching ChromaDB.
+
+    WHO: Any caller of VectorStore.add_documents()
+    WHAT: Mismatched lengths between ids, documents, embeddings, or metadatas
+          produce an ActionableError before any data is written
+    WHY: ChromaDB can silently corrupt data or raise opaque errors when
+         input lengths don't match; catching early prevents debugging pain
+
+    MOCK BOUNDARY:
+        Mock:  (none — testing a real VectorStore validation guard)
+        Real:  VectorStore backed by tmp ChromaDB
+    """
+
+    def test_mismatched_input_lengths_produce_actionable_error(
+        self,
+        vector_store: VectorStore,
+    ) -> None:
+        """
+        Given ids and documents with different lengths
+        When add_documents() is called
+        Then an ActionableError is raised naming the mismatched fields
+        """
+        # Given: 2 ids but 1 document
+        ids = ["doc-1", "doc-2"]
+        documents = ["Only one document"]
+        embeddings = [[0.1, 0.2], [0.3, 0.4]]
+
+        # When: add_documents() is called with mismatched lengths
+        with pytest.raises(ActionableError) as exc_info:
+            vector_store.add_documents(
+                "test_collection",
+                ids=ids,
+                documents=documents,
+                embeddings=embeddings,
+            )
+
+        # Then: the error names the mismatched fields
+        error_msg = str(exc_info.value)
+        assert "ids" in error_msg.lower() or "documents" in error_msg.lower(), (
+            f"Error should name the mismatched fields. Got: {error_msg}"
+        )
+        assert "length" in error_msg.lower() or "mismatch" in error_msg.lower(), (
+            f"Error should describe a length mismatch. Got: {error_msg}"
         )

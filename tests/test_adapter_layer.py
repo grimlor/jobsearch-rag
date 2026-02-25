@@ -169,6 +169,18 @@ class TestAdapterRegistration:
         # Cleanup
         AdapterRegistry.unregister("decorator_test")
 
+    def test_unregister_unknown_board_names_the_board(self) -> None:
+        """
+        When AdapterRegistry.unregister() is called with a board name that was never registered
+        Then a ValueError is raised whose message includes the unknown board name
+        """
+        # Given: a board name that has never been registered
+        unknown_board = "nonexistent_board_xyz"
+
+        # When: unregister() is called
+        with pytest.raises(ValueError, match=unknown_board):
+            AdapterRegistry.unregister(unknown_board)
+
 
 # ---------------------------------------------------------------------------
 # TestAdapterContract

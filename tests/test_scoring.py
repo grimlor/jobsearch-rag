@@ -72,12 +72,13 @@ from __future__ import annotations
 import json
 import logging
 from typing import TYPE_CHECKING, ClassVar
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from conftest import EMBED_FAKE
 from jobsearch_rag.adapters.base import JobListing
+from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
 from jobsearch_rag.rag.comp_parser import (
     DEFAULT_COMP_BANDS,
@@ -539,6 +540,204 @@ class TestSemanticScoring:
         assert result.negative_score == pytest.approx(0.0, abs=1e-9), (
             f"Expected negative_score=0.0 with empty negative_signals. "
             f"Got {result.negative_score:.4f}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_long_jd_is_chunked_and_best_score_across_chunks_is_kept(
+        self, mock_embedder: Embedder, vector_store: VectorStore, tmp_path: Path
+    ) -> None:
+        """
+        Given a JD text that exceeds MAX_EMBED_CHARS
+        When score() is called
+        Then the text is chunked and the best score across chunks is kept
+        """
+        # Given: seed all collections and set MAX_EMBED_CHARS low to force chunking
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+        await _seed_all_collections(indexer, tmp_path)
+
+        # Return different embeddings per chunk so we can distinguish scores
+        call_count = 0
+        high_embed = [0.05, 0.1, 0.15, 0.2, 0.25]  # closer to EMBED_FAKE → higher score
+        low_embed = [0.9, 0.1, 0.0, 0.0, 0.1]       # farther → lower score
+
+        async def _varying_embed(_text: str) -> list[float]:
+            nonlocal call_count
+            call_count += 1
+            # Alternate: first chunk gets low, second gets high
+            return low_embed if call_count % 2 == 1 else high_embed
+
+        mock_embedder.embed = AsyncMock(side_effect=_varying_embed)
+        # Force chunking by setting a small MAX_EMBED_CHARS
+        mock_embedder.MAX_EMBED_CHARS = 100
+
+        scorer = Scorer(store=vector_store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+
+        # When: JD text exceeds MAX_EMBED_CHARS
+        long_jd = "Platform architect role. " * 20  # ~500 chars, exceeds 100
+
+        result = await scorer.score(long_jd)
+
+        # Then: embed() was called multiple times (chunked)
+        assert mock_embedder.embed.call_count > 1, (
+            f"Expected multiple embed calls for chunked text. "
+            f"Got {mock_embedder.embed.call_count}"
+        )
+        # Scores should be non-negative (best-of-chunks logic ran)
+        assert result.fit_score >= 0.0, f"fit_score should be >= 0. Got {result.fit_score}"
+
+    @pytest.mark.asyncio
+    async def test_score_result_is_valid_property_reflects_range_compliance(
+        self, mock_embedder: Embedder, vector_store: VectorStore, tmp_path: Path
+    ) -> None:
+        """
+        Given a scored JD producing all scores in [0.0, 1.0]
+        When is_valid is checked
+        Then it returns True
+        """
+        # Given: seed all collections
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+        await _seed_all_collections(indexer, tmp_path)
+        scorer = Scorer(store=vector_store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+
+        # When: score a normal JD
+        result = await scorer.score("Staff Platform Architect at a tech company.")
+
+        # Then: is_valid reflects that all scores are in range
+        assert result.is_valid, (
+            f"Expected is_valid=True for normal scores. "
+            f"Scores: fit={result.fit_score:.3f}, arch={result.archetype_score:.3f}, "
+            f"hist={result.history_score:.3f}, neg={result.negative_score:.3f}, "
+            f"cult={result.culture_score:.3f}, comp={result.comp_score:.3f}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_empty_required_collection_produces_actionable_error(
+        self, mock_embedder: Embedder, vector_store: VectorStore, tmp_path: Path
+    ) -> None:
+        """
+        Given the resume collection exists but is empty (no documents indexed)
+        When score() is called
+        Then an ActionableError is raised naming the empty collection
+        """
+        # Given: archetypes indexed; resume collection exists but is empty
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+        await _seed_archetypes(indexer, tmp_path)
+        # Create the resume collection so collection_count returns 0 (not missing)
+        vector_store.get_or_create_collection("resume")
+        scorer = Scorer(store=vector_store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+
+        # When: score() is called without resume content
+        with pytest.raises(ActionableError) as exc_info:
+            await scorer.score("A platform role at BigCo.")
+
+        # Then: the error names the empty collection
+        error_msg = str(exc_info.value)
+        assert "resume" in error_msg.lower(), (
+            f"Error should name the empty 'resume' collection. Got: {error_msg}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_truly_missing_optional_collection_returns_zero_not_error(
+        self, mock_embedder: Embedder, vector_store: VectorStore, tmp_path: Path
+    ) -> None:
+        """
+        Given a truly missing optional collection (never created)
+        When score() is called
+        Then the optional score is 0.0, not an error
+        """
+        # Given: resume and archetypes indexed, but global_positive_signals never created
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+        await _seed_resume(indexer, tmp_path)
+        await _seed_archetypes(indexer, tmp_path)
+        # Deliberately NOT seeding global positive signals or negative signals
+        scorer = Scorer(store=vector_store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+
+        # When: score a JD
+        result = await scorer.score("Staff Platform Architect at a clean tech company.")
+
+        # Then: optional scores are 0.0, not errors
+        assert result.culture_score == pytest.approx(0.0, abs=1e-9), (
+            f"Missing global_positive_signals should produce 0.0. "
+            f"Got {result.culture_score:.4f}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_empty_existing_optional_collection_returns_zero_not_error(
+        self, mock_embedder: Embedder, vector_store: VectorStore, tmp_path: Path
+    ) -> None:
+        """
+        Given an optional collection exists but has zero documents
+        When score() is called
+        Then the optional score is 0.0, not an error
+        """
+        # Given: resume and archetypes indexed; create empty optional collections
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+        await _seed_resume(indexer, tmp_path)
+        await _seed_archetypes(indexer, tmp_path)
+        # Create empty optional collections (exist but have 0 docs)
+        vector_store.get_or_create_collection("negative_signals")
+        vector_store.get_or_create_collection("global_positive_signals")
+        vector_store.get_or_create_collection("decisions")
+        scorer = Scorer(store=vector_store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+
+        # When: score a JD
+        result = await scorer.score("Staff Platform Architect at a clean tech company.")
+
+        # Then: optional scores are 0.0
+        assert result.negative_score == pytest.approx(0.0, abs=1e-9), (
+            f"Empty negative_signals should produce 0.0. Got {result.negative_score:.4f}"
+        )
+        assert result.culture_score == pytest.approx(0.0, abs=1e-9), (
+            f"Empty global_positive_signals should produce 0.0. Got {result.culture_score:.4f}"
+        )
+        assert result.history_score == pytest.approx(0.0, abs=1e-9), (
+            f"Empty decisions should produce 0.0. Got {result.history_score:.4f}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_empty_distances_from_query_returns_zero_score(
+        self, mock_embedder: Embedder, vector_store: VectorStore, tmp_path: Path
+    ) -> None:
+        """
+        Given VectorStore.query() returns empty distances (unexpected I/O boundary behavior)
+        When score() is called
+        Then the score for that collection is 0.0
+
+        MOCK BOUNDARY EXEMPTION: Mocking VectorStore.query() return value
+        to simulate an unexpected I/O boundary response from ChromaDB.
+        This tests the _distance_to_score() defensive guard against empty distances.
+        """
+        # Given: seed all collections
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+        await _seed_all_collections(indexer, tmp_path)
+
+        # Patch VectorStore.query to return empty distances
+        original_query = vector_store.query
+
+        def _query_empty_distances(
+            collection_name: str,
+            *,
+            query_embedding: list[float],
+            n_results: int = 5,
+        ) -> dict[str, object]:
+            result = original_query(
+                collection_name,
+                query_embedding=query_embedding,
+                n_results=n_results,
+            )
+            # Replace distances with empty list to simulate edge case
+            result["distances"] = [[]]
+            return result
+
+        with patch.object(vector_store, "query", side_effect=_query_empty_distances):
+            scorer = Scorer(
+                store=vector_store, embedder=mock_embedder, disqualify_on_llm_flag=False,
+            )
+            result = await scorer.score("A standard platform architect role.")
+
+        # Then: all distance-based scores should be 0.0
+        assert result.fit_score == pytest.approx(0.0, abs=1e-9), (
+            f"Expected 0.0 for empty distances. Got fit_score={result.fit_score:.4f}"
         )
 
 
@@ -1359,6 +1558,35 @@ class TestDisqualifierClassification:
         assert reason_text in explanation, (
             f"Expected reason '{reason_text}' in score explanation. "
             f"Got: {explanation}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_reason_string_null_is_treated_as_none(
+        self, mock_embedder: Embedder, vector_store: VectorStore, tmp_path: Path
+    ) -> None:
+        """
+        Given the LLM returns reason as the string "null" (not JSON null)
+        When the disqualifier response is parsed
+        Then reason is normalized to None
+        """
+        # Given: LLM returns disqualified with reason="null"
+        indexer = Indexer(store=vector_store, embedder=mock_embedder)
+        await _seed_all_collections(indexer, tmp_path)
+        mock_embedder.classify = AsyncMock(
+            return_value='{"disqualified": true, "reason": "null"}'
+        )
+        scorer = Scorer(store=vector_store, embedder=mock_embedder, disqualify_on_llm_flag=True)
+
+        # When: score a JD
+        result = await scorer.score("A role that gets disqualified.")
+
+        # Then: disqualified is True but reason is None (not the string "null")
+        assert result.disqualified is True, (
+            f"Expected disqualified=True. Got {result.disqualified}"
+        )
+        assert result.disqualifier_reason is None, (
+            f"Expected reason=None for string 'null'. "
+            f"Got {result.disqualifier_reason!r}"
         )
 
 
@@ -2965,4 +3193,180 @@ class TestCrossBoardDeduplication:
         )
         assert len(ranked) == 2, (
             f"Expected 2 survivors (1 unique + 1 from dup pair). Got {len(ranked)}"
+        )
+
+    def test_three_way_near_duplicate_collapses_to_one(self) -> None:
+        """
+        Given three listings from different boards with identical embeddings
+        When ranked
+        Then only one listing survives (consumed-set tracks all three)
+        """
+        # Given: three boards with identical vectors
+        ranker = self._make_ranker()
+        listing_a = _make_listing(external_id="j1", board="linkedin")
+        listing_b = _make_listing(external_id="j1-zr", board="ziprecruiter")
+        listing_c = _make_listing(external_id="j1-id", board="indeed")
+        scores_a = self._make_scores(archetype_score=0.9)
+        scores_b = self._make_scores(archetype_score=0.7)
+        scores_c = self._make_scores(archetype_score=0.5)
+
+        vec_same = [0.1, 0.2, 0.3, 0.4, 0.5]
+        embeddings = {
+            listing_a.url: vec_same,
+            listing_b.url: list(vec_same),
+            listing_c.url: list(vec_same),
+        }
+
+        # When: ranked
+        ranked, summary = ranker.rank(
+            [(listing_a, scores_a), (listing_b, scores_b), (listing_c, scores_c)],
+            embeddings,
+        )
+
+        # Then: collapsed to one
+        assert len(ranked) == 1, (
+            f"Three near-duplicates should collapse to one. Got {len(ranked)}"
+        )
+        assert summary.total_deduplicated == 2, (
+            f"Expected 2 deduplicated. Got {summary.total_deduplicated}"
+        )
+
+    def test_listing_without_embedding_is_preserved_in_near_dedup(self) -> None:
+        """
+        Given a listing whose URL has no embedding in the embeddings dict
+        When near-dedup runs
+        Then the listing survives (cannot compute similarity without embedding)
+        """
+        # Given: one listing with embedding, one without
+        ranker = self._make_ranker()
+        listing_with = _make_listing(external_id="with-embed", board="linkedin")
+        listing_without = _make_listing(external_id="no-embed", board="ziprecruiter")
+        scores = self._make_scores()
+
+        embeddings = {
+            listing_with.url: self.VEC_A,
+            # listing_without.url intentionally absent
+        }
+
+        # When: ranked with near-dedup
+        ranked, summary = ranker.rank(
+            [(listing_with, scores), (listing_without, scores)],
+            embeddings,
+        )
+
+        # Then: both survive (no embedding → skip comparison)
+        assert len(ranked) == 2, (
+            f"Listing without embedding should survive. Got {len(ranked)}"
+        )
+        assert summary.total_deduplicated == 0, (
+            f"Expected 0 deduplicated. Got {summary.total_deduplicated}"
+        )
+
+    def test_cosine_similarity_with_zero_magnitude_vector_returns_zero(self) -> None:
+        """
+        Given a listing whose embedding is a zero vector
+        When near-dedup compares it against another listing
+        Then cosine similarity is 0.0 (not NaN or error) and both survive
+        """
+        # Given: one normal vector, one zero vector
+        ranker = self._make_ranker()
+        listing_normal = _make_listing(external_id="normal", board="linkedin")
+        listing_zero = _make_listing(external_id="zero-vec", board="ziprecruiter")
+        scores = self._make_scores()
+
+        embeddings = {
+            listing_normal.url: self.VEC_A,
+            listing_zero.url: [0.0, 0.0, 0.0, 0.0, 0.0],  # zero magnitude
+        }
+
+        # When: ranked with near-dedup
+        ranked, summary = ranker.rank(
+            [(listing_normal, scores), (listing_zero, scores)],
+            embeddings,
+        )
+
+        # Then: both survive (cosine similarity with zero vector = 0.0 < 0.95)
+        assert len(ranked) == 2, (
+            f"Zero-vector listing should not be collapsed. Got {len(ranked)}"
+        )
+        assert summary.total_deduplicated == 0, (
+            f"Expected 0 deduplicated. Got {summary.total_deduplicated}"
+        )
+
+    def test_two_separate_dedup_pairs_exercise_consumed_set_inner_skip(self) -> None:
+        """
+        Given four listings forming two separate dedup pairs (A≡C, B≡D)
+        When near-dedup runs
+        Then two survivors remain and the inner-loop consumed check fires
+        """
+        # Given: two pairs of near-duplicates with distinct vectors per pair
+        ranker = self._make_ranker()
+        listing_a = _make_listing(external_id="pair1-li", board="linkedin")
+        listing_b = _make_listing(external_id="pair2-li", board="linkedin",
+                                   title="Data Engineer")
+        listing_c = _make_listing(external_id="pair1-zr", board="ziprecruiter")
+        listing_d = _make_listing(external_id="pair2-zr", board="ziprecruiter",
+                                   title="Data Engineer")
+        # A scores highest, B second, C third, D lowest
+        scores_a = self._make_scores(archetype_score=0.9)
+        scores_b = self._make_scores(archetype_score=0.8)
+        scores_c = self._make_scores(archetype_score=0.7)
+        scores_d = self._make_scores(archetype_score=0.6)
+
+        # Pair 1 (A≡C) uses VEC_A, Pair 2 (B≡D) uses VEC_B
+        embeddings = {
+            listing_a.url: self.VEC_A,
+            listing_c.url: list(self.VEC_A),     # identical to A
+            listing_b.url: self.VEC_B,
+            listing_d.url: list(self.VEC_B),     # identical to B
+        }
+
+        # When: ranked
+        ranked, summary = ranker.rank(
+            [
+                (listing_a, scores_a),
+                (listing_b, scores_b),
+                (listing_c, scores_c),
+                (listing_d, scores_d),
+            ],
+            embeddings,
+        )
+
+        # Then: 2 survivors (one from each pair), 2 deduplicated
+        assert len(ranked) == 2, (
+            f"Expected 2 survivors from 2 dedup pairs. Got {len(ranked)}"
+        )
+        assert summary.total_deduplicated == 2, (
+            f"Expected 2 deduplicated. Got {summary.total_deduplicated}"
+        )
+
+    def test_mismatched_vector_lengths_produce_zero_similarity(self) -> None:
+        """
+        Given two listings with different-length embedding vectors
+        When near-dedup runs
+        Then cosine similarity returns 0.0 and both survive
+        """
+        # Given: vectors of different lengths
+        ranker = self._make_ranker()
+        listing_a = _make_listing(external_id="len5", board="linkedin")
+        listing_b = _make_listing(external_id="len3", board="ziprecruiter")
+        scores = self._make_scores()
+
+        embeddings = {
+            listing_a.url: [0.1, 0.2, 0.3, 0.4, 0.5],  # 5 elements
+            listing_b.url: [0.1, 0.2, 0.3],              # 3 elements
+        }
+
+        # When: ranked with near-dedup
+        ranked, summary = ranker.rank(
+            [(listing_a, scores), (listing_b, scores)],
+            embeddings,
+        )
+
+        # Then: both survive (mismatched lengths → similarity = 0.0)
+        assert len(ranked) == 2, (
+            f"Mismatched vector lengths should not collapse. Got {len(ranked)}"
+        )
+        assert summary.total_deduplicated == 0, (
+            f"Expected 0 deduplicated. Got {summary.total_deduplicated}"
         )

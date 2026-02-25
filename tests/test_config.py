@@ -1210,3 +1210,111 @@ global_rubric_path = "{rubric}"
         assert "empty" in error_msg.lower() or "at least one" in error_msg.lower(), (
             f"Error should mention the list is empty. Got: {error_msg}"
         )
+
+    def test_non_numeric_weight_value_falls_back_to_default(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given a scoring weight is set to a non-numeric string in TOML
+        When settings are loaded
+        Then the weight falls back to its documented default value
+        """
+        # Given: archetype_weight = "not_a_number" (string instead of float)
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+
+[scoring]
+archetype_weight = "not_a_number"
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When: settings are loaded
+        settings = load_settings(toml_path)
+
+        # Then: archetype_weight falls back to default 0.5
+        assert settings.scoring.archetype_weight == pytest.approx(0.5), (
+            f"Expected default 0.5 for non-numeric weight. "
+            f"Got {settings.scoring.archetype_weight}"
+        )
+
+    def test_boolean_integer_field_falls_back_to_default(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given an integer field is set to a boolean in TOML
+        When settings are loaded
+        Then the field falls back to its documented default
+        (because Python booleans are int subclasses, the guard rejects them)
+        """
+        # Given: max_pages = true (boolean instead of int)
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+max_pages = true
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When: settings are loaded
+        settings = load_settings(toml_path)
+
+        # Then: max_pages falls back to default 3
+        board = settings.boards["testboard"]
+        assert board.max_pages == 3, (
+            f"Expected default 3 for boolean max_pages. Got {board.max_pages}"
+        )
+
+    def test_empty_optional_string_treated_as_none(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given an optional string field is set to an empty string in TOML
+        When settings are loaded
+        Then the field is treated as None
+        """
+        # Given: browser_channel = ""
+        rubric = tmp_path / "global_rubric.toml"
+        rubric.write_text("[rubric]\n", encoding="utf-8")
+        toml_path = tmp_path / "settings.toml"
+        toml_path.write_text(
+            f"""\
+[boards]
+enabled = ["testboard"]
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+browser_channel = ""
+
+global_rubric_path = "{rubric}"
+""",
+            encoding="utf-8",
+        )
+
+        # When: settings are loaded
+        settings = load_settings(toml_path)
+
+        # Then: browser_channel is None
+        board = settings.boards["testboard"]
+        assert board.browser_channel is None, (
+            f"Expected None for empty optional string. Got {board.browser_channel!r}"
+        )
