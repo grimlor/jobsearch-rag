@@ -1,3 +1,9 @@
+"""BDD specs for decision history: metadata queries and decision recording.
+
+Covers: TestVectorStoreMetadataQuery, TestDecisionRecording
+Spec doc: BDD Specifications — decision-history.md
+"""
+
 # Public API surface (from src/jobsearch_rag/rag/decisions.py):
 #   DecisionRecorder(*, store: VectorStore, embedder: Embedder, decisions_dir: str | Path)
 #   recorder.record(*, job_id: str, verdict: str, jd_text: str, board: str,
@@ -18,27 +24,23 @@
 #   ActionableError.index(collection, suggestion=None)
 #   ActionableError.validation(field_name, reason, suggestion=None)
 #   ErrorType.INDEX, ErrorType.VALIDATION, ErrorType.DECISION
-"""BDD specs for decision history: metadata queries and decision recording.
-
-Covers: TestVectorStoreMetadataQuery, TestDecisionRecording
-Spec doc: BDD Specifications — decision-history.md
-"""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
+from conftest import EMBED_FAKE
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.decisions import DecisionRecorder
-from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.store import VectorStore
 
-# Canonical fake embedding — matches conftest.EMBED_FAKE dimensionality.
-EMBED_FAKE: list[float] = [0.1, 0.2, 0.3, 0.4, 0.5]
+if TYPE_CHECKING:
+    from pathlib import Path
 
+    from jobsearch_rag.rag.embedder import Embedder
 
 # ---------------------------------------------------------------------------
 # TestVectorStoreMetadataQuery
@@ -288,8 +290,8 @@ class TestDecisionRecording:
         )
 
         # Then: embed() was called with the JD text only, not enriched
-        mock_embedder.embed.assert_called_with(jd_text)  # type: ignore[union-attr]
-        call_arg = mock_embedder.embed.call_args[0][0]  # type: ignore[union-attr]
+        mock_embedder.embed.assert_called_with(jd_text)  # type: ignore[attr-defined]
+        call_arg = mock_embedder.embed.call_args[0][0]  # type: ignore[attr-defined]
         assert "Operator reasoning" not in call_arg, (
             f"Expected embed text to NOT contain 'Operator reasoning' for empty reason, "
             f"but got: {call_arg!r}"
@@ -321,8 +323,8 @@ class TestDecisionRecording:
 
         # Then: embed() was called with enriched text
         expected_embed_text = f"{jd_text}\n\nOperator reasoning: {reason}"
-        mock_embedder.embed.assert_called_with(expected_embed_text)  # type: ignore[union-attr]
-        call_arg = mock_embedder.embed.call_args[0][0]  # type: ignore[union-attr]
+        mock_embedder.embed.assert_called_with(expected_embed_text)  # type: ignore[attr-defined]
+        call_arg = mock_embedder.embed.call_args[0][0]  # type: ignore[attr-defined]
         assert "Operator reasoning:" in call_arg, (
             f"Expected embed text to contain 'Operator reasoning:', "
             f"but got: {call_arg!r}"

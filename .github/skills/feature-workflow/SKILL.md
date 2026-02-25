@@ -32,36 +32,91 @@ established workflow requires specification before implementation — every time
 Every feature request MUST proceed through these phases in order.
 **Do not skip phases. Do not combine phases. Do not start implementation before tests exist.**
 
-### Phase 1 — Planning (User Stories / Spec)
+### Phase 1 — Spec Gate (Planning)
 
-**Goal:** "Are we building the right thing?"
+**Goal:** "Are we building the right thing?" and "Does a reviewed spec exist?"
+
+Before writing any implementation code, answer these three questions:
+
+1. **Does a spec document exist for this feature?**
+   Look in the project's spec location (BDD Specifications doc, architecture docs,
+   or a feature spec file). A spec exists if it describes WHAT the feature does,
+   WHO uses it, and what the public API surface looks like.
+
+2. **Is the spec complete enough to implement against?**
+   A minimum viable spec must include:
+   - WHAT the feature does (behavior, not implementation)
+   - WHAT it explicitly does NOT do (scope boundary)
+   - The public API surface: method signatures, parameters, return types
+   - At least one scenario per major behavior path (Given / When / Then)
+
+3. **Has the human reviewed the spec?**
+   A spec written in the same session as implementation has not been reviewed.
+   If the spec was just created, stop and wait for human sign-off before
+   proceeding to implementation.
+
+**If the answer to any of these is no — stop. Create or complete the spec first.**
+
+#### If No Spec Exists
 
 1. **Ask clarifying questions** — Do not assume. Identify ambiguity and resolve it.
 2. **Write user stories or scenarios** that describe the feature from the consumer's
    perspective (user, downstream module, AI agent — whoever benefits).
-3. **Create or update the spec** — Add scenarios to the BDD Specifications document
-   (`BDD Specifications.md` in the Obsidian vault) following the format already
-   established there. Each spec class needs:
-   - `REQUIREMENT:` one-line capability statement
-   - `WHO:` the stakeholder
-   - `WHAT:` concrete, testable behavior
-   - `WHY:` what goes wrong if this requirement is missing
-4. **Present the plan to the user for review** before proceeding.
+3. **Create the spec** using this structure:
 
-Reference: `Patterns & Practices/plan-first-agentic-development.md`
+   ```markdown
+   # Spec — <Feature Name>
+
+   ## Overview
+   One paragraph: what this feature does and why it exists.
+
+   ## Out of Scope
+   Explicit list of what this feature does NOT do.
+
+   ## Public API Surface
+   # New symbols this feature will expose:
+   #   ClassName(param: Type, ...) -> ReturnType
+   #   module_function(param: Type) -> ReturnType
+
+   ## Behaviors
+   ### <BehaviorName>
+   REQUIREMENT: <one sentence>
+   WHO: <who depends on this behavior>
+   WHAT: <what the behavior does, observable from outside>
+   WHY: <why is this requirement important? what happens if it's not met?>
+
+   MOCK BOUNDARY:
+       Mock:  <what to stub>
+       Real:  <what must be real>
+       Never: <what must never be mocked>
+
+   Scenarios:
+   - Given <precondition> / When <action> / Then <outcome>
+   ```
+
+4. **Present the spec to the user for review** and wait for explicit approval
+   before proceeding to Phase 2.
+
+#### If the Spec Exists but Has Gaps
+
+Gaps discovered during any phase:
+1. Stop at the point where the gap was discovered
+2. Add the missing behavior to the spec document
+3. Present the gap and proposed spec addition to the human
+4. Wait for approval before continuing
+
+Do not silently fill gaps with undocumented behavior.
 
 ### Phase 2 — BDD Test Specification
 
 **Goal:** "How do we know it works?"
 
 1. **Create test classes** from the specs written in Phase 1.
-2. **Follow BDD testing principles** — see the `bdd-testing` skill for details.
+2. **Follow BDD testing principles** — see the `bdd-testing` skill for conventions.
 3. **Tests must fail** — Run the tests to confirm they fail. If they pass,
    either the behavior already exists or the tests aren't testing anything.
 4. **Include failure-mode specs** — An unspecified failure is an unhandled failure.
    Test error paths, edge cases, and boundary conditions.
-
-Reference: `Patterns & Practices/spec-first-bdd-testing-patterns.md`
 
 ### Phase 3 — Implementation
 
@@ -69,8 +124,8 @@ Reference: `Patterns & Practices/spec-first-bdd-testing-patterns.md`
 
 1. **Write code to make the failing tests pass.** The tests are the specification —
    implementation is done when all tests pass.
-2. **Follow existing code patterns** — ActionableError for errors, factory methods,
-   async patterns, etc. Check existing modules for conventions.
+2. **Follow existing code patterns** — Check existing modules for conventions
+   (error handling patterns, factory methods, async patterns, etc.).
 3. **Do not add behavior that isn't specified by a test.** If you discover a need
    during implementation, go back to Phase 2 and add the spec first.
 
@@ -78,7 +133,7 @@ Reference: `Patterns & Practices/spec-first-bdd-testing-patterns.md`
 
 **Goal:** "Is the specification complete?"
 
-1. **Run tests with coverage:** `pytest --cov=jobsearch_rag --cov-report=term-missing`
+1. **Run tests with coverage** for the project's source package.
 2. **Every uncovered line is an unspecified requirement.** For each:
    - Is this a real requirement? → Write the spec, then keep the code.
    - Is this dead code? → Remove it.
@@ -95,10 +150,11 @@ Three categories routinely surface only at coverage time:
 
 **Goal:** "Record what was done."
 
-1. **Update the Project Plan** (`Project Plan.md` in the Obsidian vault) —
-   check off completed items, add new line items if scope expanded.
-2. **Update the BDD Specifications** if any specs were added or modified during
+1. **Update the project's plan document** — check off completed items, add new
+   line items if scope expanded.
+2. **Update BDD Specifications** if any specs were added or modified during
    implementation (Phase 3 discoveries).
+3. See the `plan-updates` skill for detailed rules on tracking progress.
 
 ---
 
@@ -111,3 +167,15 @@ Three categories routinely surface only at coverage time:
 - **Present each phase's output to the user** before moving to the next phase.
 - **Use the todo list** to track progress through phases — this gives the user
   visibility into where you are in the workflow.
+
+---
+
+## Relationship to Other Skills
+
+- `feature-workflow` (this skill) governs the full lifecycle — spec through plan update
+- `bdd-testing` governs test quality — referenced from Phase 2 and the `bdd-feedback-loop`
+- `bdd-feedback-loop` governs per-module test implementation — used during Phase 2
+- `plan-updates` governs progress tracking — used during Phase 5
+- `tool-usage` is cross-cutting — applies at every phase
+
+The flow: **spec gate → human review → tests → implementation → gaps → spec update → continue**

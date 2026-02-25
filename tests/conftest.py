@@ -24,7 +24,6 @@ This conftest provides:
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -48,7 +47,8 @@ from jobsearch_rag.rag.scorer import ScoreResult
 from jobsearch_rag.rag.store import VectorStore
 
 if TYPE_CHECKING:
-    pass
+    from collections.abc import Callable
+    from pathlib import Path
 
 # Canonical fake embedding used across test files.  Individual tests that
 # need a different vector can define their own constant.
@@ -117,7 +117,7 @@ def decision_recorder(
 
 
 @pytest.fixture
-def make_settings(tmp_path: Path):
+def make_settings(tmp_path: Path) -> Callable[..., Settings]:
     """Factory fixture — returns a callable that produces a Settings instance.
 
     The ChromaDB persist directory is always rooted under ``tmp_path`` so
@@ -170,7 +170,7 @@ def make_settings(tmp_path: Path):
 
 
 @pytest.fixture
-def make_listing():
+def make_listing() -> Callable[..., JobListing]:
     """Factory fixture — returns a callable that produces a JobListing instance.
 
     Defaults produce a fully populated listing with non-empty ``full_text``
@@ -204,7 +204,7 @@ def make_listing():
 
 
 @pytest.fixture
-def make_runner_with_mocks(tmp_path: Path, mock_embedder: Embedder):
+def make_runner_with_mocks(tmp_path: Path, mock_embedder: Embedder) -> Callable[..., tuple[PipelineRunner, Embedder, MagicMock]]:
     """Factory fixture — returns a callable that produces a wired PipelineRunner.
 
     VectorStore and DecisionRecorder use **real** instances backed by
@@ -273,7 +273,7 @@ def make_runner_with_mocks(tmp_path: Path, mock_embedder: Embedder):
 
 
 @pytest.fixture
-def mock_board_io():
+def mock_board_io() -> Callable[..., tuple[MagicMock, MagicMock, MagicMock]]:
     """Factory fixture — returns a callable that produces mocked browser I/O boundaries.
 
     Creates a mock adapter, session, and registry representing the three

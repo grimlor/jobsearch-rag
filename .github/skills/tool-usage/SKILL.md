@@ -7,6 +7,32 @@ description: "Development tool preferences and execution patterns. Use when choo
 
 Standard tool-vs-terminal decision framework for this repository.
 
+## Prerequisites
+
+The tool-first approach below depends on these VS Code extensions feeding diagnostics into the Problems panel (surfaced by `get_errors`):
+
+| Extension | ID | Purpose |
+|---|---|---|
+| Pylance | `ms-python.vscode-pylance` | Type-checking (strict mode), unused imports, type-ignore validation |
+| Ruff | `charliermarsh.ruff` | Lint rules from `pyproject.toml` (TC, RUF, E, W, F, I, N, UP, B, SIM) |
+| Mypy Type Checker | `matangover.mypy` | mypy diagnostics via dmypy daemon |
+
+**Required settings** (User or Workspace):
+
+- `python.analysis.typeCheckingMode`: `"strict"`
+- `python.analysis.diagnosticSeverityOverrides`: `reportUnusedImport: "error"`, `reportUnusedVariable: "error"`, `reportUnnecessaryTypeIgnoreComment: "error"`, `reportUnknownMemberType: "none"`
+- `ruff.configurationPreference`: `"filesystemFirst"` (uses `pyproject.toml` rules)
+- `ruff.fixAll`: `true`
+- `mypy.dmypyExecutable`: absolute path to `.venv/bin/dmypy` (set in workspace `.vscode/settings.json` for portability)
+
+Without these extensions and settings, `get_errors` will not cover the full lint/type surface and terminal fallbacks become necessary.
+
+### Known gap — Ruff severity
+
+The Ruff extension hardcodes diagnostic severity in `_get_severity()`: only `F821`, `E902`, and `E999` are reported as **Error**; every other rule is **Warning**. The `get_errors` tool only returns error-severity diagnostics—so most Ruff findings (TC, RUF, SIM, UP, N, B, etc.) are invisible to it.
+
+**Impact:** `get_errors` reliably covers Pylance (strict) and mypy (all errors), but **not** the full Ruff rule set. After completing edits, run `task check` in the terminal to catch any Ruff warnings that `get_errors` missed. This is the one accepted exception to the tool-first rule above.
+
 ## Tool-First Approach
 
 Use specialized VS Code tools instead of terminal commands. This is not a preference — it is a requirement. Tools provide structured output, integrated error reporting, and correct path resolution that raw terminal commands do not.
@@ -15,7 +41,7 @@ Use specialized VS Code tools instead of terminal commands. This is not a prefer
 |------|--------------|----------|
 | Read/edit files | `read_file`, `replace_string_in_file`, `create_file` | `cat`, `sed`, `echo` |
 | Run tests | `runTests` tool | `pytest` in terminal |
-| Check errors | `get_errors` tool | Manual inspection |
+| Check errors | `get_errors` tool (Pylance + mypy; partial Ruff) | `mypy` in terminal — but see Ruff gap below |
 | Search code | `semantic_search`, `grep_search` | `grep`, `find` in terminal |
 | Find files | `file_search`, `list_dir` | `ls`, `find` in terminal |
 | Git status | `get_changed_files` | `git status`, `git diff` |
@@ -28,10 +54,12 @@ Use specialized VS Code tools instead of terminal commands. This is not a prefer
 **Coverage exception:** `runTests` is a VS Code Test Explorer integration and cannot pass arbitrary flags like `--cov` or `--cov-report`. When the explicit goal is generating a coverage report (not just running tests), use the terminal:
 
 ```bash
-uv run pytest --cov=src/jobsearch_rag --cov-report=term-missing tests/
+uv run pytest --cov=<package> --cov-report=term-missing tests/
 ```
 
 This exception applies only to deliberate coverage reporting steps, not to routine test runs during development.
+
+**Linting via `get_errors`:** The VS Code Problems panel aggregates diagnostics from three sources: Pylance (strict type-checking), Ruff (lint rules from `pyproject.toml`), and mypy (via dmypy daemon). However, `get_errors` only returns error-severity diagnostics. Pylance and mypy report at error severity, so they are fully covered. Ruff only reports three rules as errors (F821, E902, E999) — all other Ruff findings are warnings and invisible to `get_errors`. After completing edits, run `task check` in the terminal to catch any Ruff warnings. Do not run `mypy` in the terminal; `get_errors` already covers it.
 
 ## When Terminal Is Appropriate
 
@@ -41,6 +69,7 @@ This exception applies only to deliberate coverage reporting steps, not to routi
 - **Environment setup**: Python venv configuration, Azure CLI auth
 - **Databricks CLI**: Workspace deployment, notebook sync
 - **Coverage reporting**: `pytest --cov` when generating a coverage report (see above)
+- **Ruff lint sweep**: `task check` after edits are complete, to catch Ruff warnings invisible to `get_errors` (see Known gap above)
 - **Commands with no tool equivalent**: When no specialized tool exists
 
 `pytest` for general test runs is not on this list. It has a tool equivalent — `runTests` — and that tool must be used.

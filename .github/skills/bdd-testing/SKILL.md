@@ -366,10 +366,6 @@ an unhandled failure. For every feature, the spec must cover:
 
 ## Reference Documents
 
-For the full philosophy and rationale behind these practices:
-- `Patterns & Practices/BDD_TESTING_PRINCIPLES.md`
-- `Patterns & Practices/spec-first-bdd-testing-patterns.md`
-
 For detailed implementation examples including mock boundary contracts, tautology
 anti-patterns, assertion quality, test data, and conftest infrastructure:
 - `.github/skills/bdd-testing/references/test-patterns.md`

@@ -1,3 +1,10 @@
+"""BDD specs for RAG indexing: resume chunking, archetype synthesis, and signal indexing.
+
+Covers: TestResumeIndexing, TestArchetypeIndexing, TestArchetypeEmbeddingSynthesis,
+        TestGlobalRubricLoading, TestGlobalPositiveSignalIndexing, TestNegativeSignalIndexing
+Spec doc: BDD Specifications — rag-indexing.md
+"""
+
 # Public API surface (from src/jobsearch_rag/rag/indexer.py):
 #   build_archetype_embedding_text(archetype: dict[str, object]) -> str  (module-level)
 #   Indexer(store: VectorStore, mock_embedder: Embedder)
@@ -17,23 +24,21 @@
 #   ActionableError.config(field_name, reason, suggestion)
 #   ActionableError.parse(board, selector, raw_error, suggestion)
 #   ActionableError.validation(field_name, reason, suggestion)
-"""BDD specs for RAG indexing: resume chunking, archetype synthesis, and signal indexing.
-
-Covers: TestResumeIndexing, TestArchetypeIndexing, TestArchetypeEmbeddingSynthesis,
-        TestGlobalRubricLoading, TestGlobalPositiveSignalIndexing, TestNegativeSignalIndexing
-Spec doc: BDD Specifications — rag-indexing.md
-"""
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from jobsearch_rag.errors import ActionableError
-from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer, build_archetype_embedding_text
-from jobsearch_rag.rag.store import VectorStore
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from jobsearch_rag.rag.embedder import Embedder
+    from jobsearch_rag.rag.store import VectorStore
 
 # ---------------------------------------------------------------------------
 # Helpers — TOML content generators
@@ -662,7 +667,7 @@ class TestArchetypeEmbeddingSynthesis:
         Then each signal appears with a prefix marker
         """
         # Given: an archetype with positive signals
-        archetype = {
+        archetype: dict[str, object] = {
             "description": "Platform engineer role.",
             "signals_positive": ["Kubernetes", "Terraform"],
         }
@@ -685,7 +690,7 @@ class TestArchetypeEmbeddingSynthesis:
              (they are indexed separately into the negative_signals collection)
         """
         # Given: an archetype with negative signals
-        archetype = {
+        archetype: dict[str, object] = {
             "description": "Platform engineer role.",
             "signals_negative": ["Front-end only", "No infrastructure scope"],
         }
@@ -728,7 +733,7 @@ class TestArchetypeEmbeddingSynthesis:
         Then the result does not contain a negative signal section
         """
         # Given: signals_positive present but no signals_negative
-        archetype = {
+        archetype: dict[str, object] = {
             "description": "Platform engineer role.",
             "signals_positive": ["Kubernetes"],
         }
@@ -765,7 +770,7 @@ class TestArchetypeEmbeddingSynthesis:
         Then those fields do not appear in the synthesis result
         """
         # Given: an archetype with scoring metadata fields
-        archetype = {
+        archetype: dict[str, object] = {
             "description": "Platform engineer role.",
             "preference_weight": 1.0,
             "minimum_target": 0.6,
@@ -1447,7 +1452,7 @@ signals_positive = ["Good signal"]
         # When: index_negative_signals() is called
         count = await indexer.index_negative_signals(str(rubric_path), str(arch_path))
 
-        # Then: 4 negative signals from archetypes (2 per archetype × 2 archetypes)
+        # Then: 4 negative signals from archetypes (2 per archetype x 2 archetypes)
         assert count == 4, (
             f"Expected 4 negative signal docs from archetypes "
             f"(Platform Engineer: 2, Data Engineer: 2), got {count}"

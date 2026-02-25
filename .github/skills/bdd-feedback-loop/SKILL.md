@@ -63,6 +63,16 @@ test file, for traceability:
 
 Implement each test class and method exactly as specified in the spec doc.
 
+**File creation is always incremental. Do not attempt to write the entire test
+file in a single tool call — doing so will cause a timeout and produce no output.**
+
+The required sequence for every module:
+1. Create the file with the header (module docstring, API surface comment,
+   imports, and any shared helpers) using `create_file`. No test classes yet.
+2. Add one test class at a time using `replace_string_in_file`.
+   A single tool call must contain exactly one test class — no more.
+3. Repeat step 2 until all test classes from the spec are in the file.
+
 For each class:
 1. Copy the REQUIREMENT / WHO / WHAT / WHY docstring from the spec
 2. Copy the MOCK BOUNDARY contract from the spec

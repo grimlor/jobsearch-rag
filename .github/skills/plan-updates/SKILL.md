@@ -1,6 +1,6 @@
 ---
 name: plan-updates
-description: "Tracking progress in project artifacts. Use after completing implementation work, when the user asks to update project status, or when reviewing what has been done vs. what remains."
+description: "Progress tracking in project artifacts. Use after completing implementation work (Phase 5 of the feature workflow), or when the user asks to update project status."
 ---
 
 # Plan Updates — Tracking Progress in Project Artifacts
@@ -15,17 +15,18 @@ done vs. what remains.
 
 ## Artifacts to Update
 
-### 1. Project Plan (`Project Plan.md`)
+### 1. Project Plan
 
-**Location:** Obsidian vault at `Portfolio Projects/JobSearch-RAG/Project Plan.md`
+**Location:** The project's plan document — typically a Markdown file with checkbox
+lists organized by phase. Look for it in the `.copilot/work plans/` directory,
+project root, or ask the user for the location.
 
-The Project Plan tracks implementation progress with checkbox lists organized by phase.
 Each phase has a heading like `### Phase N — Description` followed by checkboxes:
 
 ```markdown
 ### Phase 4c — Operational Resilience
-- [x] File logging — persist logs to `data/logs/` alongside stderr output
-- [x] ZipRecruiter throttle detection — recognize "error while loading this job" as rate limiting
+- [x] File logging — persist logs alongside stderr output
+- [x] Throttle detection — recognize rate limiting signals
 - [ ] Some future item not yet implemented
 ```
 
@@ -35,15 +36,17 @@ Each phase has a heading like `### Phase N — Description` followed by checkbox
 - Append the phase marker (e.g., `✅`) to the phase heading when all items are checked
 - If a new phase is needed, follow the existing naming convention (`Phase Na`, `Phase Nb`, etc.)
 - Include the BDD spec file and test count when checking off test-related items
-  (e.g., `BDD specs: \`test_comp_parser.py\` (22 tests), \`test_comp_scoring.py\` (15 tests)`)
+  (e.g., `BDD specs: test_comp_parser.py (22 tests), test_comp_scoring.py (15 tests)`)
 - Brief descriptions should explain WHAT was built and WHERE in the codebase
 
-### 2. BDD Specifications (`BDD Specifications.md`)
+### 2. BDD Specifications
 
-**Location:** Obsidian vault at `Portfolio Projects/JobSearch-RAG/BDD Specifications.md`
+**Location:** The project's BDD specifications document — a canonical listing of all
+behavioral contracts. Look for it alongside the project plan, or in a `specs/` or
+`tests/` directory.
 
-The BDD Specifications document is the canonical listing of all behavioral contracts.
-It contains `TestClass` definitions with method signatures (no bodies — just `... `).
+The BDD Specifications document contains `TestClass` definitions with method signatures
+(no bodies — just `...`).
 
 **Rules:**
 - Add new spec classes during Phase 1 (planning) of the feature workflow
@@ -52,7 +55,7 @@ It contains `TestClass` definitions with method signatures (no bodies — just `
   its spec should exist here
 - Follow the existing format: class docstring with REQUIREMENT/WHO/WHAT/WHY,
   then method signatures with `...` bodies
-- Group specs under the appropriate section heading (Adapter Layer, RAG Pipeline, etc.)
+- Group specs under the appropriate section heading for the project's structure
 
 ---
 
@@ -68,7 +71,7 @@ It contains `TestClass` definitions with method signatures (no bodies — just `
 ## Update Workflow
 
 1. Identify which plan items were completed
-2. Check off completed items in `Project Plan.md`
+2. Check off completed items in the project plan
 3. Add any new items that were discovered during implementation
-4. Update `BDD Specifications.md` if specs were added or modified
+4. Update BDD Specifications if specs were added or modified
 5. Briefly confirm to the user what was updated

@@ -1,3 +1,9 @@
+"""BDD specs for the adapter layer: registration, interface contract, and data contract.
+
+Covers: TestAdapterRegistration, TestAdapterContract, TestJobListingDataContract
+Spec doc: BDD Specifications — adapter-layer.md
+"""
+
 # Public API surface (from src/jobsearch_rag/adapters/):
 #   AdapterRegistry.register(adapter_class) -> type[JobBoardAdapter]  (classmethod/decorator)
 #   AdapterRegistry.get(board_name: str) -> JobBoardAdapter            (classmethod)
@@ -11,23 +17,17 @@
 #              posted_at=None, raw_html=None, comp_min=None, comp_max=None,
 #              comp_source=None, comp_text=None, metadata=field(default_factory=dict))
 #   ZipRecruiterAdapter — concrete, board_name="ziprecruiter"
-"""BDD specs for the adapter layer: registration, interface contract, and data contract.
-
-Covers: TestAdapterRegistration, TestAdapterContract, TestJobListingDataContract
-Spec doc: BDD Specifications — adapter-layer.md
-"""
 
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.adapters.registry import AdapterRegistry
 from jobsearch_rag.adapters.ziprecruiter import ZipRecruiterAdapter
-
 
 # ---------------------------------------------------------------------------
 # TestAdapterRegistration
@@ -114,18 +114,18 @@ class TestAdapterRegistration:
             def board_name(self) -> str:
                 return "duplicate_test"
 
-            async def authenticate(self, page: object) -> None: ...  # type: ignore[override]
-            async def search(self, page: object, query: str, max_pages: int = 3) -> list[JobListing]: return []  # type: ignore[override]
-            async def extract_detail(self, page: object, listing: JobListing) -> JobListing: return listing  # type: ignore[override]
+            async def authenticate(self, page: object) -> None: ...
+            async def search(self, page: object, query: str, max_pages: int = 3) -> list[JobListing]: return []
+            async def extract_detail(self, page: object, listing: JobListing) -> JobListing: return listing
 
         class SecondAdapter(JobBoardAdapter):
             @property
             def board_name(self) -> str:
                 return "duplicate_test"
 
-            async def authenticate(self, page: object) -> None: ...  # type: ignore[override]
-            async def search(self, page: object, query: str, max_pages: int = 3) -> list[JobListing]: return []  # type: ignore[override]
-            async def extract_detail(self, page: object, listing: JobListing) -> JobListing: return listing  # type: ignore[override]
+            async def authenticate(self, page: object) -> None: ...
+            async def search(self, page: object, query: str, max_pages: int = 3) -> list[JobListing]: return []
+            async def extract_detail(self, page: object, listing: JobListing) -> JobListing: return listing
 
         AdapterRegistry.register(FirstAdapter)
 
@@ -153,9 +153,9 @@ class TestAdapterRegistration:
             def board_name(self) -> str:
                 return "decorator_test"
 
-            async def authenticate(self, page: object) -> None: ...  # type: ignore[override]
-            async def search(self, page: object, query: str, max_pages: int = 3) -> list[JobListing]: return []  # type: ignore[override]
-            async def extract_detail(self, page: object, listing: JobListing) -> JobListing: return listing  # type: ignore[override]
+            async def authenticate(self, page: object) -> None: ...
+            async def search(self, page: object, query: str, max_pages: int = 3) -> list[JobListing]: return []
+            async def extract_detail(self, page: object, listing: JobListing) -> JobListing: return listing
 
         # When: register() is used as a decorator
         returned_cls = AdapterRegistry.register(DecoratorTestAdapter)

@@ -1,3 +1,9 @@
+"""BDD specs for configuration loading and validation.
+
+Covers: TestSettingsValidation
+Spec doc: BDD Specifications — configuration.md
+"""
+
 # Public API surface (from src/jobsearch_rag/config.py):
 #   load_settings(path: str | Path = DEFAULT_SETTINGS_PATH) -> Settings
 #   Settings(enabled_boards, overnight_boards, boards, scoring, ollama, output, chroma,
@@ -14,20 +20,18 @@
 #   ActionableError — raised on config/validation/parse errors with:
 #     .error (str), .error_type (ErrorType), .suggestion (str|None),
 #     .troubleshooting (Troubleshooting|None with .steps list)
-"""BDD specs for configuration loading and validation.
-
-Covers: TestSettingsValidation
-Spec doc: BDD Specifications — configuration.md
-"""
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from jobsearch_rag.config import Settings, load_settings
 from jobsearch_rag.errors import ActionableError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _write_valid_toml(tmp_path: Path) -> Path:
@@ -113,7 +117,7 @@ class TestSettingsValidation:
         self, tmp_path: Path
     ) -> None:
         """
-        Given a scoring weight set to 1.5 (above the valid 0.0–1.0 range)
+        Given a scoring weight set to 1.5 (above the valid 0.0-1.0 range)
         When settings are loaded
         Then an ActionableError names the weight field and states the valid range
         """
@@ -156,7 +160,7 @@ global_rubric_path = "{rubric}"
         self, tmp_path: Path
     ) -> None:
         """
-        Given a scoring weight set to -0.1 (below the valid 0.0–1.0 range)
+        Given a scoring weight set to -0.1 (below the valid 0.0-1.0 range)
         When settings are loaded
         Then an ActionableError names the weight field and states the valid range
         """
@@ -449,7 +453,7 @@ global_rubric_path = "{rubric}"
         self, tmp_path: Path
     ) -> None:
         """
-        Given culture_weight is set to 1.5 (above the 0.0–1.0 range)
+        Given culture_weight is set to 1.5 (above the 0.0-1.0 range)
         When settings are loaded
         Then an ActionableError names the culture_weight field
         """
@@ -486,7 +490,7 @@ global_rubric_path = "{rubric}"
         self, tmp_path: Path
     ) -> None:
         """
-        Given negative_weight is set to 2.0 (above the 0.0–1.0 range)
+        Given negative_weight is set to 2.0 (above the 0.0-1.0 range)
         When settings are loaded
         Then an ActionableError names the negative_weight field
         """
