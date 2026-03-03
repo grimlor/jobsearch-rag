@@ -89,6 +89,18 @@ class TestYourFeature:
 4. **Docstrings on every test method.** One sentence explaining what the
    test proves. This makes test output readable as a specification.
 
+5. **Diagnostic assertion messages.** Every `assert` must include a
+   message explaining what went wrong:
+   ```python
+   # ✅ Good
+   assert result is not None, "Expected non-None result from query"
+   assert score > 0.5, f"Expected score > 0.5 for qualified role, got {score}"
+
+   # ❌ Bad
+   assert result is not None
+   assert score > 0.5
+   ```
+
 ### Fixtures
 
 HTML fixtures live in `tests/fixtures/`. When adding a new board adapter:
@@ -99,7 +111,7 @@ HTML fixtures live in `tests/fixtures/`. When adding a new board adapter:
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for system design, the adapter
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system design, the adapter
 pattern, and how the pieces connect.
 
 ### Adding a Board Adapter
@@ -115,10 +127,11 @@ picks it up automatically via the registry.
 
 ## Commit Messages
 
-Use clear, imperative commit messages:
+Follow [Conventional Commits](https://www.conventionalcommits.org/).
+See `.github/skills/conventional-commits/SKILL.md` for the full format.
 
 ```
-Add WeWorkRemotely adapter with fixture-based tests
+feat(scraper): add WeWorkRemotely adapter with fixture-based tests
 
 - Implement search pagination and JD extraction
 - Add HTML fixtures for search results and detail page
