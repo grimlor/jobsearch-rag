@@ -13,6 +13,10 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -20,29 +24,31 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Set up Python 3.13
-        run: uv python install 3.13
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: uv sync --extra dev
 
       - name: Lint with ruff
+        if: matrix.python-version == '3.13'
         run: uv run ruff check src/ tests/
 
       - name: Type check with mypy
+        if: matrix.python-version == '3.13'
         run: uv run mypy src/
 
       - name: Run tests with coverage
         run: uv run pytest --cov=jobsearch_rag --cov-report=term-missing --cov-report=json
 
       - name: Extract coverage percentage
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && matrix.python-version == '3.13'
         run: |
           COVERAGE=$(python -c "import json; print(int(json.load(open('coverage.json'))['totals']['percent_covered']))")
           echo "COVERAGE_PCT=$COVERAGE" >> $GITHUB_ENV
 
       - name: Update coverage badge
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && matrix.python-version == '3.13'
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GIST_SECRET }}

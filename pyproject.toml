@@ -7,7 +7,7 @@ name = "jobsearch-rag"
 version = "0.1.0"
 description = "Local LLM + RAG pipeline for intelligent job search filtering"
 readme = "README.md"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.12,<3.14"
 license = { text = "PolyForm-Noncommercial-1.0.0" }
 authors = [{ name = "grimlor" }]
 
@@ -50,7 +50,7 @@ check  = "task lint && task type && task test"
 # Ruff
 # ---------------------------------------------------------------------------
 [tool.ruff]
-target-version = "py313"
+target-version = "py312"
 line-length = 99
 src = ["src", "tests"]
 
@@ -86,7 +86,7 @@ indent-style = "space"
 # Mypy
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -112,3 +112,21 @@ markers = [
     "integration: marks tests requiring live services (Ollama, browser)",
     "live: marks tests requiring live external sites (ZipRecruiter, etc.)",
 ]
+
+# ---------------------------------------------------------------------------
+# python-semantic-release
+# ---------------------------------------------------------------------------
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+version_variables = []
+commit_message = "chore(release): {version}"
+tag_format = "v{version}"
+branch = "main"
+build_command = ""
+upload_to_pypi = false
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = ["feat", "fix", "perf", "refactor", "docs", "style", "test", "build", "ci", "chore"]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]
