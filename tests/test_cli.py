@@ -781,7 +781,8 @@ class TestExportCommand:
         with patch(
             "jobsearch_rag.cli.load_settings",
             return_value=_make_settings(
-                str(tmp_path / "chroma"), output_dir=str(tmp_path),
+                str(tmp_path / "chroma"),
+                output_dir=str(tmp_path),
             ),
         ):
             args = argparse.Namespace(format="markdown")
@@ -803,7 +804,8 @@ class TestExportCommand:
         with patch(
             "jobsearch_rag.cli.load_settings",
             return_value=_make_settings(
-                str(tmp_path / "chroma"), output_dir=str(tmp_path),
+                str(tmp_path / "chroma"),
+                output_dir=str(tmp_path),
             ),
         ):
             args = argparse.Namespace(format="csv")
@@ -824,7 +826,8 @@ class TestExportCommand:
             patch(
                 "jobsearch_rag.cli.load_settings",
                 return_value=_make_settings(
-                    str(tmp_path / "chroma"), output_dir=str(tmp_path),
+                    str(tmp_path / "chroma"),
+                    output_dir=str(tmp_path),
                 ),
             ),
             pytest.raises(SystemExit) as exc_info,
@@ -1181,9 +1184,9 @@ class TestReviewJdLoading:
             opened_path = mock_open.call_args[0][0]
 
         # Then: It opened the slug-based JD file, not external_id.md
-        assert slug_name in opened_path, (
-            f"Expected slug-based filename '{slug_name}' in opened path, got: {opened_path}"
-        )
+        assert (
+            slug_name in opened_path
+        ), f"Expected slug-based filename '{slug_name}' in opened path, got: {opened_path}"
 
 
 # ---------------------------------------------------------------------------
@@ -1269,7 +1272,8 @@ class TestReviewCommandHandler:
         (out_dir / "jds").mkdir()
 
         settings = _make_settings(
-            str(tmp_path / "chroma"), output_dir=str(out_dir),
+            str(tmp_path / "chroma"),
+            output_dir=str(out_dir),
         )
 
         recorder = MagicMock()
@@ -1426,9 +1430,9 @@ class TestReviewCommandHandler:
         # Then: recorder received the JD body as jd_text
         review["recorder"].record.assert_called_once()
         call_kwargs = review["recorder"].record.call_args.kwargs
-        assert "Lead the platform team" in call_kwargs["jd_text"], (
-            f"Expected JD body in jd_text, got: {call_kwargs['jd_text']!r}"
-        )
+        assert (
+            "Lead the platform team" in call_kwargs["jd_text"]
+        ), f"Expected JD body in jd_text, got: {call_kwargs['jd_text']!r}"
 
     def test_verdict_without_reason_prints_short_confirmation(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -1717,12 +1721,12 @@ class TestRescoreCommand:
             out_dir = Path(tmpdir) / "output"
 
             output = capsys.readouterr().out
-            assert "Exported Markdown" in output, (
-                f"Expected Markdown export confirmation in output: {output!r}"
-            )
-            assert "Exported CSV" in output, (
-                f"Expected CSV export confirmation in output: {output!r}"
-            )
+            assert (
+                "Exported Markdown" in output
+            ), f"Expected Markdown export confirmation in output: {output!r}"
+            assert (
+                "Exported CSV" in output
+            ), f"Expected CSV export confirmation in output: {output!r}"
             assert (out_dir / "results.md").exists(), "results.md should be created"
             assert (out_dir / "results.csv").exists(), "results.csv should be created"
 
@@ -1758,9 +1762,9 @@ class TestRescoreCommand:
             out_dir = Path(tmpdir) / "output"
 
             output = capsys.readouterr().out
-            assert "Exported JDs" in output, (
-                f"Expected JD export confirmation in output: {output!r}"
-            )
+            assert (
+                "Exported JDs" in output
+            ), f"Expected JD export confirmation in output: {output!r}"
             jd_dir = out_dir / "jds"
             assert jd_dir.exists(), "jds/ directory should be created"
             jd_files = list(jd_dir.glob("*.md"))

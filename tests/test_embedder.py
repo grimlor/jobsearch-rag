@@ -132,9 +132,9 @@ class TestEmbedding:
 
             call_args = mock_client.embed.call_args
             sent_text = call_args.kwargs.get("input") or call_args[1].get("input")
-            assert len(sent_text) < len(long_text), (
-                f"Text should be truncated. Sent {len(sent_text)} chars of {len(long_text)}"
-            )
+            assert len(sent_text) < len(
+                long_text
+            ), f"Text should be truncated. Sent {len(sent_text)} chars of {len(long_text)}"
 
     async def test_embed_truncation_preserves_head_and_tail(self, embedder: Embedder) -> None:
         """Truncation keeps head (title/overview) AND tail (hands-on work, comp).
@@ -155,21 +155,21 @@ class TestEmbedding:
             sent_text = call_args.kwargs.get("input") or call_args[1].get("input")
 
             # Head is preserved
-            assert sent_text.startswith("HEAD_SIGNAL_"), (
-                f"Truncation should preserve head. Got: {sent_text[:50]}..."
-            )
+            assert sent_text.startswith(
+                "HEAD_SIGNAL_"
+            ), f"Truncation should preserve head. Got: {sent_text[:50]}..."
             # Tail is preserved
-            assert sent_text.endswith("TAIL_SIGNAL_"), (
-                f"Truncation should preserve tail. Got: ...{sent_text[-50:]}"
-            )
+            assert sent_text.endswith(
+                "TAIL_SIGNAL_"
+            ), f"Truncation should preserve tail. Got: ...{sent_text[-50:]}"
             # A truncation marker separates head and tail
-            assert "\u2026" in sent_text, (
-                "Truncated text should contain an ellipsis marker between head and tail"
-            )
+            assert (
+                "\u2026" in sent_text
+            ), "Truncated text should contain an ellipsis marker between head and tail"
             # Budget is respected — sent text is shorter than input
-            assert len(sent_text) < len(long_text), (
-                f"Text should be truncated. Sent {len(sent_text)} of {len(long_text)}"
-            )
+            assert len(sent_text) < len(
+                long_text
+            ), f"Text should be truncated. Sent {len(sent_text)} of {len(long_text)}"
 
     async def test_embed_text_within_limit_is_not_truncated(self, embedder: Embedder) -> None:
         """Text within the context window limit is passed through unchanged."""

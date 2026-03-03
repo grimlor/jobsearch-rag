@@ -70,10 +70,10 @@ class CSVExporter:
                         f"{r.scores.culture_score:.4f}",
                         f"{r.scores.negative_score:.4f}",
                         f"{r.listing.comp_min:.0f}"
-                        if isinstance(r.listing.comp_min, (int, float))
+                        if isinstance(r.listing.comp_min, int | float)
                         else "",
                         f"{r.listing.comp_max:.0f}"
-                        if isinstance(r.listing.comp_max, (int, float))
+                        if isinstance(r.listing.comp_max, int | float)
                         else "",
                         r.scores.disqualified,
                         r.scores.disqualifier_reason or "",

@@ -455,15 +455,15 @@ class TestArchetypeEmbeddingSynthesis:
             "signals_positive": ["Cross-team influence", "API governance"],
         }
         result = build_archetype_embedding_text(archetype)
-        assert "Distributed systems architect." in result, (
-            f"Description missing from synthesized text: {result!r}"
-        )
-        assert "Cross-team influence" in result, (
-            f"Signal 'Cross-team influence' missing from synthesized text: {result!r}"
-        )
-        assert "API governance" in result, (
-            f"Signal 'API governance' missing from synthesized text: {result!r}"
-        )
+        assert (
+            "Distributed systems architect." in result
+        ), f"Description missing from synthesized text: {result!r}"
+        assert (
+            "Cross-team influence" in result
+        ), f"Signal 'Cross-team influence' missing from synthesized text: {result!r}"
+        assert (
+            "API governance" in result
+        ), f"Signal 'API governance' missing from synthesized text: {result!r}"
 
     def test_synthesis_normalizes_description_whitespace(self) -> None:
         """Extra whitespace in the description is normalized before synthesis."""
@@ -472,9 +472,9 @@ class TestArchetypeEmbeddingSynthesis:
             "signals_positive": ["Signal A"],
         }
         result = build_archetype_embedding_text(archetype)
-        assert "  " not in result.split("\n")[0], (
-            f"Double spaces remain in description: {result!r}"
-        )
+        assert (
+            "  " not in result.split("\n")[0]
+        ), f"Double spaces remain in description: {result!r}"
 
     def test_synthesis_without_signals_returns_description_only(self) -> None:
         """An archetype with no signals_positive returns just the normalized description."""
@@ -495,12 +495,12 @@ class TestArchetypeEmbeddingSynthesis:
         await indexer.index_archetypes(str(archetypes_with_signals_path))
         result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
         doc = result["documents"][0]
-        assert "Cross-team architecture ownership" in doc, (
-            f"Positive signal missing from stored document: {doc!r}"
-        )
-        assert "distributed systems" in doc.lower(), (
-            f"Description content missing from stored document: {doc!r}"
-        )
+        assert (
+            "Cross-team architecture ownership" in doc
+        ), f"Positive signal missing from stored document: {doc!r}"
+        assert (
+            "distributed systems" in doc.lower()
+        ), f"Description content missing from stored document: {doc!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -628,9 +628,9 @@ class TestNegativeSignalIndexing:
         assert metadatas is not None, "Expected metadatas in collection result"
         for meta in metadatas:
             source = str(meta.get("source", ""))
-            assert source.startswith(("rubric:", "archetype:")), (
-                f"Signal source should start with 'rubric:' or 'archetype:', got: {source!r}"
-            )
+            assert source.startswith(
+                ("rubric:", "archetype:")
+            ), f"Signal source should start with 'rubric:' or 'archetype:', got: {source!r}"
 
     async def test_reindex_replaces_previous_signals(
         self,
@@ -687,12 +687,12 @@ class TestNegativeSignalIndexing:
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_negative_signals(str(rubric_path), str(bad_toml))
         err = exc_info.value
-        assert err.error_type == ErrorType.PARSE, (
-            f"Expected PARSE error for malformed archetypes TOML, got {err.error_type}"
-        )
-        assert "role_archetypes" in err.error.lower() or "syntax" in err.error.lower(), (
-            f"Error should mention the file or syntax issue: {err.error!r}"
-        )
+        assert (
+            err.error_type == ErrorType.PARSE
+        ), f"Expected PARSE error for malformed archetypes TOML, got {err.error_type}"
+        assert (
+            "role_archetypes" in err.error.lower() or "syntax" in err.error.lower()
+        ), f"Error should mention the file or syntax issue: {err.error!r}"
 
     async def test_zero_signals_from_both_sources_returns_empty_collection(
         self, indexer: Indexer, store: VectorStore, tmp_path: Path
@@ -714,6 +714,6 @@ class TestNegativeSignalIndexing:
 
         count = await indexer.index_negative_signals(str(empty_rubric), str(empty_archetypes))
         assert count == 0, f"Expected 0 negative signals when both sources are empty, got {count}"
-        assert store.collection_count("negative_signals") == 0, (
-            "Collection should be empty when no negative signals exist"
-        )
+        assert (
+            store.collection_count("negative_signals") == 0
+        ), "Collection should be empty when no negative signals exist"

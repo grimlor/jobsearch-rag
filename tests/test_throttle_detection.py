@@ -77,7 +77,8 @@ def _listing_to_card(listing: JobListing) -> dict[str, Any]:
         "company": {"name": listing.company},
         "location": {"displayName": listing.location},
         "rawCanonicalZipJobPageUrl": listing.url.replace(
-            "https://www.ziprecruiter.com", "",
+            "https://www.ziprecruiter.com",
+            "",
         ),
     }
     short_desc = listing.metadata.get("short_description", "")
@@ -221,12 +222,12 @@ class TestThrottleDetection:
 
         # Filter out click delays (small) from backoff delays (larger)
         backoff_waits = [d for d in backoff_delays if d >= 2.0]
-        assert len(backoff_waits) >= 2, (
-            f"Expected at least 2 backoff waits, got {len(backoff_waits)}: {backoff_delays}"
-        )
-        assert backoff_waits[1] > backoff_waits[0], (
-            f"Second backoff ({backoff_waits[1]}) should be longer than first ({backoff_waits[0]})"
-        )
+        assert (
+            len(backoff_waits) >= 2
+        ), f"Expected at least 2 backoff waits, got {len(backoff_waits)}: {backoff_delays}"
+        assert (
+            backoff_waits[1] > backoff_waits[0]
+        ), f"Second backoff ({backoff_waits[1]}) should be longer than first ({backoff_waits[0]})"
 
     # --- Retry exhaustion and skip ------------------------------------
 

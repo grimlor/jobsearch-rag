@@ -435,9 +435,9 @@ searches = ["https://example.org/search"]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
             settings = load_settings(path)
-            assert settings.scoring.negative_weight == 0.4, (
-                f"Expected negative_weight default 0.4, got {settings.scoring.negative_weight}"
-            )
+            assert (
+                settings.scoring.negative_weight == 0.4
+            ), f"Expected negative_weight default 0.4, got {settings.scoring.negative_weight}"
 
     def test_negative_weight_above_range_names_the_field_and_valid_range(self) -> None:
         """A negative_weight > 1.0 produces an error naming the field so the operator knows which value to fix."""
@@ -447,12 +447,12 @@ searches = ["https://example.org/search"]
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
             err = exc_info.value
-            assert err.error_type == ErrorType.VALIDATION, (
-                f"Expected VALIDATION error, got {err.error_type}"
-            )
-            assert "negative_weight" in err.error, (
-                f"Error should name negative_weight. Got: {err.error}"
-            )
+            assert (
+                err.error_type == ErrorType.VALIDATION
+            ), f"Expected VALIDATION error, got {err.error_type}"
+            assert (
+                "negative_weight" in err.error
+            ), f"Error should name negative_weight. Got: {err.error}"
             assert err.suggestion is not None
             assert err.troubleshooting is not None
 
@@ -464,12 +464,12 @@ searches = ["https://example.org/search"]
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
             err = exc_info.value
-            assert err.error_type == ErrorType.VALIDATION, (
-                f"Expected VALIDATION error, got {err.error_type}"
-            )
-            assert "negative_weight" in err.error, (
-                f"Error should name negative_weight. Got: {err.error}"
-            )
+            assert (
+                err.error_type == ErrorType.VALIDATION
+            ), f"Expected VALIDATION error, got {err.error_type}"
+            assert (
+                "negative_weight" in err.error
+            ), f"Error should name negative_weight. Got: {err.error}"
             assert err.suggestion is not None
             assert err.troubleshooting is not None
 
@@ -485,9 +485,9 @@ searches = ["https://example.org/search"]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
             settings = load_settings(path)
-            assert settings.global_rubric_path == "config/global_rubric.toml", (
-                f"Expected default global_rubric_path, got {settings.global_rubric_path}"
-            )
+            assert (
+                settings.global_rubric_path == "config/global_rubric.toml"
+            ), f"Expected default global_rubric_path, got {settings.global_rubric_path}"
 
     def test_missing_global_rubric_path_names_field_and_creation_guidance(self) -> None:
         """A non-existent global_rubric_path raises CONFIG error naming the field and recovery path."""
@@ -497,12 +497,12 @@ searches = ["https://example.org/search"]
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
             err = exc_info.value
-            assert err.error_type == ErrorType.CONFIG, (
-                f"Expected CONFIG error, got {err.error_type}"
-            )
-            assert "global_rubric_path" in err.error, (
-                f"Error should name global_rubric_path. Got: {err.error}"
-            )
+            assert (
+                err.error_type == ErrorType.CONFIG
+            ), f"Expected CONFIG error, got {err.error_type}"
+            assert (
+                "global_rubric_path" in err.error
+            ), f"Error should name global_rubric_path. Got: {err.error}"
             assert err.suggestion is not None
             assert err.troubleshooting is not None
 
@@ -518,9 +518,9 @@ searches = ["https://example.org/search"]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
             settings = load_settings(path)
-            assert settings.scoring.culture_weight == 0.2, (
-                f"Expected culture_weight default 0.2, got {settings.scoring.culture_weight}"
-            )
+            assert (
+                settings.scoring.culture_weight == 0.2
+            ), f"Expected culture_weight default 0.2, got {settings.scoring.culture_weight}"
 
     def test_culture_weight_above_range_names_the_field_and_valid_range(self) -> None:
         """A culture_weight > 1.0 produces an error naming the field so the operator knows which value to fix."""
@@ -535,12 +535,12 @@ searches = ["https://example.org/search"]
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
             err = exc_info.value
-            assert err.error_type == ErrorType.VALIDATION, (
-                f"Expected VALIDATION error, got {err.error_type}"
-            )
-            assert "culture_weight" in err.error, (
-                f"Error should name culture_weight. Got: {err.error}"
-            )
+            assert (
+                err.error_type == ErrorType.VALIDATION
+            ), f"Expected VALIDATION error, got {err.error_type}"
+            assert (
+                "culture_weight" in err.error
+            ), f"Error should name culture_weight. Got: {err.error}"
             assert err.suggestion is not None
             assert err.troubleshooting is not None
 
@@ -555,9 +555,9 @@ searches = ["https://example.org/search"]
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
             err = exc_info.value
-            assert err.error_type == ErrorType.VALIDATION, (
-                f"Expected VALIDATION error, got {err.error_type}"
-            )
-            assert "culture_weight" in err.error, (
-                f"Error should name culture_weight. Got: {err.error}"
-            )
+            assert (
+                err.error_type == ErrorType.VALIDATION
+            ), f"Expected VALIDATION error, got {err.error_type}"
+            assert (
+                "culture_weight" in err.error
+            ), f"Error should name culture_weight. Got: {err.error}"

@@ -222,12 +222,12 @@ class TestMarkdownExport:
         out = tmp_path / "results.md"
         MarkdownExporter().export([listing], str(out), summary=_summary())
         content = out.read_text()
-        assert "Culture" in content, (
-            f"culture_score should appear in markdown output. Got: {content}"
-        )
-        assert "0.65" in content, (
-            f"culture_score value 0.65 should appear in output. Got: {content}"
-        )
+        assert (
+            "Culture" in content
+        ), f"culture_score should appear in markdown output. Got: {content}"
+        assert (
+            "0.65" in content
+        ), f"culture_score value 0.65 should appear in output. Got: {content}"
 
     def test_score_explanation_includes_negative_score(self, tmp_path: Path) -> None:
         """The score explanation includes negative_score for penalty signal transparency."""
@@ -241,12 +241,12 @@ class TestMarkdownExport:
         out = tmp_path / "results.md"
         MarkdownExporter().export([listing], str(out), summary=_summary())
         content = out.read_text()
-        assert "Negative" in content, (
-            f"negative_score should appear in markdown output. Got: {content}"
-        )
-        assert "0.25" in content, (
-            f"negative_score value 0.25 should appear in output. Got: {content}"
-        )
+        assert (
+            "Negative" in content
+        ), f"negative_score should appear in markdown output. Got: {content}"
+        assert (
+            "0.25" in content
+        ), f"negative_score value 0.25 should appear in output. Got: {content}"
 
     def test_run_summary_appears_at_top_of_output(self, tmp_path: Path) -> None:
         """The run summary header appears before any listing, providing immediate run context."""

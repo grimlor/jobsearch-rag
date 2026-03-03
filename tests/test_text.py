@@ -29,9 +29,9 @@ class TestSlugify:
         """
         result = slugify("Senior Staff Engineer")
 
-        assert result == "senior-staff-engineer", (
-            f"Expected lowercase hyphenated slug, got {result!r}"
-        )
+        assert (
+            result == "senior-staff-engineer"
+        ), f"Expected lowercase hyphenated slug, got {result!r}"
 
     def test_special_characters_are_stripped(self) -> None:
         """
@@ -40,9 +40,9 @@ class TestSlugify:
         """
         result = slugify("Senior Staff Engineer — Platform (Remote)")
 
-        assert result == "senior-staff-engineer-platform-remote", (
-            f"Expected special chars stripped, got {result!r}"
-        )
+        assert (
+            result == "senior-staff-engineer-platform-remote"
+        ), f"Expected special chars stripped, got {result!r}"
 
     def test_underscores_collapse_to_single_hyphen(self) -> None:
         """
@@ -124,6 +124,6 @@ class TestSlugify:
         filename = f"{rank:03d}_{slugify(company)}_{slugify(title)}.md"
 
         # Then
-        assert filename == "007_acme-corp_staff-engineer-platform.md", (
-            f"Expected JD filename convention, got {filename!r}"
-        )
+        assert (
+            filename == "007_acme-corp_staff-engineer-platform.md"
+        ), f"Expected JD filename convention, got {filename!r}"

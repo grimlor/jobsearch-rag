@@ -234,9 +234,9 @@ class TestOllamaContract:
         dist_similar = cosine_distance(vec_arch, vec_similar)
         dist_unrelated = cosine_distance(vec_arch, vec_unrelated)
 
-        assert dist_similar < dist_unrelated, (
-            f"Similar texts should be closer: {dist_similar:.4f} vs {dist_unrelated:.4f}"
-        )
+        assert (
+            dist_similar < dist_unrelated
+        ), f"Similar texts should be closer: {dist_similar:.4f} vs {dist_unrelated:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -277,9 +277,9 @@ class TestChromaDBContract:
         )
         distances = results["distances"][0]
         assert len(distances) == 1
-        assert distances[0] == pytest.approx(0.0, abs=1e-5), (
-            f"Identical vector should have ~0 distance, got {distances[0]}"
-        )
+        assert distances[0] == pytest.approx(
+            0.0, abs=1e-5
+        ), f"Identical vector should have ~0 distance, got {distances[0]}"
 
     async def test_dissimilar_documents_have_higher_distance(
         self, store: VectorStore, embedder: Embedder
@@ -409,9 +409,9 @@ class TestEndToEndScoring:
             "systems infrastructure for cloud-native applications"
         )
 
-        assert result.is_valid, (
-            f"fit={result.fit_score}, arch={result.archetype_score}, hist={result.history_score}"
-        )
+        assert (
+            result.is_valid
+        ), f"fit={result.fit_score}, arch={result.archetype_score}, hist={result.history_score}"
         assert result.fit_score > 0.0, "Matching JD should have non-zero fit"
         assert result.archetype_score > 0.0, "Matching JD should have non-zero archetype"
         assert result.history_score == 0.0, "No decisions indexed, history should be 0"
@@ -633,9 +633,9 @@ class TestLiveZipRecruiterPipeline:
             pytest.skip(f"Browser session failed: {exc}")
 
         # --- Structural assertions about ZipRecruiter extraction ---
-        assert len(listings) >= self.MIN_LISTINGS, (
-            f"Expected ≥{self.MIN_LISTINGS} listings, got {len(listings)}"
-        )
+        assert (
+            len(listings) >= self.MIN_LISTINGS
+        ), f"Expected ≥{self.MIN_LISTINGS} listings, got {len(listings)}"
 
         for listing in listings:
             assert listing.board == "ziprecruiter"
@@ -685,9 +685,9 @@ class TestLiveZipRecruiterPipeline:
             assert 0.0 <= result.archetype_score <= 1.0
             assert 0.0 <= result.comp_score <= 1.0
             # Fit and archetype should be non-zero for real JDs
-            assert result.fit_score > 0.0, (
-                f"Zero fit score for '{listing.title}' — embedding may have failed"
-            )
+            assert (
+                result.fit_score > 0.0
+            ), f"Zero fit score for '{listing.title}' — embedding may have failed"
             assert result.archetype_score > 0.0, f"Zero archetype score for '{listing.title}'"
 
         # --- Step 5: Rank ---
@@ -706,9 +706,9 @@ class TestLiveZipRecruiterPipeline:
 
         # Rankings should be in descending order
         scores = [r.final_score for r in ranked]
-        assert scores == sorted(scores, reverse=True), (
-            f"Rankings not in descending order: {scores}"
-        )
+        assert scores == sorted(
+            scores, reverse=True
+        ), f"Rankings not in descending order: {scores}"
 
         # All final scores should be positive (we set threshold=0.0)
         for r in ranked:
@@ -730,23 +730,23 @@ class TestLiveZipRecruiterPipeline:
         assert "ziprecruiter" in md_content
         # Every ranked listing's title should appear in the MD
         for r in ranked:
-            assert r.listing.title in md_content, (
-                f"'{r.listing.title}' missing from Markdown export"
-            )
+            assert (
+                r.listing.title in md_content
+            ), f"'{r.listing.title}' missing from Markdown export"
 
         # CSV export assertions
         csv_content = Path(csv_path).read_text()
         assert "title,company,board" in csv_content
         csv_lines = csv_content.strip().split("\n")
         # Header + data rows
-        assert len(csv_lines) == len(ranked) + 1, (
-            f"CSV should have {len(ranked)} data rows, got {len(csv_lines) - 1}"
-        )
+        assert (
+            len(csv_lines) == len(ranked) + 1
+        ), f"CSV should have {len(ranked)} data rows, got {len(csv_lines) - 1}"
 
         # JD file export assertions
-        assert len(jd_paths) == len(ranked), (
-            f"Expected {len(ranked)} JD files, got {len(jd_paths)}"
-        )
+        assert len(jd_paths) == len(
+            ranked
+        ), f"Expected {len(ranked)} JD files, got {len(jd_paths)}"
         for jd_path in jd_paths:
             jd_content = jd_path.read_text()
             assert "## Score" in jd_content
