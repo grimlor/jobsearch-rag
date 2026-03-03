@@ -24,6 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "mypy>=1.13,<2",
+    "pre-commit>=4,<5",
     "pytest>=8,<9",
     "pytest-asyncio>=0.24,<1",
     "pytest-cov>=6,<7",
@@ -42,6 +43,7 @@ lint   = "uv run ruff check --fix src/ tests/"
 format = "uv run ruff format src/ tests/"
 type   = "uv run mypy src/ tests/"
 test   = "uv run pytest tests/ -v"
+cov    = "uv run pytest tests/ --cov=jobsearch_rag --cov-report=term-missing"
 check  = "task lint && task type && task test"
 
 # ---------------------------------------------------------------------------
