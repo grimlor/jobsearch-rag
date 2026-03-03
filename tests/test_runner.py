@@ -22,6 +22,7 @@ from jobsearch_rag.config import (
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.scorer import ScoreResult
+from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.store import VectorStore
@@ -29,8 +30,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-EMBED_FAKE = [0.1, 0.2, 0.3, 0.4, 0.5]
 
 
 def _make_settings(
@@ -811,7 +810,8 @@ class TestAutoIndex:
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
             runner, _, mock_scorer = _make_runner_with_mocks(
-                settings, populate_store=False,
+                settings,
+                populate_store=False,
             )
 
             call_order: list[str] = []

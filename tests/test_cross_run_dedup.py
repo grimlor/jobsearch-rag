@@ -25,12 +25,11 @@ from jobsearch_rag.config import (
     Settings,
 )
 from jobsearch_rag.pipeline.runner import PipelineRunner
+from tests.constants import EMBED_FAKE
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-EMBED_FAKE = [0.1, 0.2, 0.3, 0.4, 0.5]
 
 
 def _make_settings(tmpdir: str) -> Settings:

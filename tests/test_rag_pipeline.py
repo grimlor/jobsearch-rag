@@ -20,12 +20,10 @@ from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
 from jobsearch_rag.rag.store import VectorStore
+from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-
-# Re-exported from conftest for use in OllamaConnectivity assertions
-EMBED_FAKE = [0.1, 0.2, 0.3, 0.4, 0.5]
 
 
 # mock_embedder is provided by conftest.py (Embedder.__new__ + stubbed I/O)
@@ -476,9 +474,9 @@ class TestNegativeScoring:
 
         scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
         result = await scorer.score("Any JD text")
-        assert result.negative_score == 0.0, (
-            f"Expected negative_score 0.0 when collection missing, got {result.negative_score}"
-        )
+        assert (
+            result.negative_score == 0.0
+        ), f"Expected negative_score 0.0 when collection missing, got {result.negative_score}"
 
     async def test_negative_score_is_zero_when_collection_empty(
         self, store: VectorStore, mock_embedder: Embedder
@@ -504,9 +502,9 @@ class TestNegativeScoring:
 
         scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
         result = await scorer.score("Any JD text")
-        assert result.negative_score == 0.0, (
-            f"Expected negative_score 0.0 for empty collection, got {result.negative_score}"
-        )
+        assert (
+            result.negative_score == 0.0
+        ), f"Expected negative_score 0.0 for empty collection, got {result.negative_score}"
 
     async def test_negative_score_returned_in_score_result(
         self, store: VectorStore, mock_embedder: Embedder
@@ -538,9 +536,9 @@ class TestNegativeScoring:
         scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
         result = await scorer.score("Some JD about adtech platform")
         assert hasattr(result, "negative_score"), "ScoreResult should have negative_score field"
-        assert 0.0 <= result.negative_score <= 1.0, (
-            f"negative_score should be in [0.0, 1.0], got {result.negative_score}"
-        )
+        assert (
+            0.0 <= result.negative_score <= 1.0
+        ), f"negative_score should be in [0.0, 1.0], got {result.negative_score}"
 
 
 # ---------------------------------------------------------------------------
@@ -610,9 +608,9 @@ signals_positive = ["strategic thinking", "cross-org influence"]
             collection_name="global_positive_signals",
             ids=["pos-altitude"],
         )
-        assert docs["metadatas"][0]["source"] == "Altitude", (
-            f"Expected source 'Altitude', got {docs['metadatas'][0].get('source')}"
-        )
+        assert (
+            docs["metadatas"][0]["source"] == "Altitude"
+        ), f"Expected source 'Altitude', got {docs['metadatas'][0].get('source')}"
 
     async def test_reindex_replaces_global_positive_collection_not_appends(
         self, indexer: Indexer, store: VectorStore
@@ -631,9 +629,9 @@ signals_positive = ["strategic"]
         count1 = store.collection_count("global_positive_signals")
         await indexer.index_global_positive_signals(path)
         count2 = store.collection_count("global_positive_signals")
-        assert count2 == count1, (
-            f"Re-indexing should replace, not append. Count went from {count1} to {count2}"
-        )
+        assert (
+            count2 == count1
+        ), f"Re-indexing should replace, not append. Count went from {count1} to {count2}"
 
     async def test_dimension_without_signals_positive_produces_no_document(
         self, indexer: Indexer, store: VectorStore
@@ -731,12 +729,12 @@ signals_negative = ["equity-only compensation", "unpaid position"]
         with pytest.raises(ActionableError) as exc_info:
             await indexer.index_global_positive_signals(path)
         err = exc_info.value
-        assert err.error_type == ErrorType.PARSE, (
-            f"Expected PARSE error for malformed rubric TOML, got {err.error_type}"
-        )
-        assert "global_rubric" in err.error.lower() or "syntax" in err.error.lower(), (
-            f"Error should mention the file or syntax issue: {err.error!r}"
-        )
+        assert (
+            err.error_type == ErrorType.PARSE
+        ), f"Expected PARSE error for malformed rubric TOML, got {err.error_type}"
+        assert (
+            "global_rubric" in err.error.lower() or "syntax" in err.error.lower()
+        ), f"Error should mention the file or syntax issue: {err.error!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -785,9 +783,9 @@ class TestCultureScoring:
 
         scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
         result = await scorer.score("Any JD text")
-        assert result.culture_score == 0.0, (
-            f"Expected culture_score 0.0 when collection missing, got {result.culture_score}"
-        )
+        assert (
+            result.culture_score == 0.0
+        ), f"Expected culture_score 0.0 when collection missing, got {result.culture_score}"
 
     async def test_culture_score_is_float_between_zero_and_one(
         self, store: VectorStore, mock_embedder: Embedder
@@ -818,12 +816,12 @@ class TestCultureScoring:
 
         scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
         result = await scorer.score("A strategic platform architect role")
-        assert isinstance(result.culture_score, float), (
-            f"culture_score should be float, got {type(result.culture_score)}"
-        )
-        assert 0.0 <= result.culture_score <= 1.0, (
-            f"culture_score should be in [0.0, 1.0], got {result.culture_score}"
-        )
+        assert isinstance(
+            result.culture_score, float
+        ), f"culture_score should be float, got {type(result.culture_score)}"
+        assert (
+            0.0 <= result.culture_score <= 1.0
+        ), f"culture_score should be in [0.0, 1.0], got {result.culture_score}"
 
     async def test_culture_score_returned_in_score_result(
         self, store: VectorStore, mock_embedder: Embedder
@@ -874,9 +872,9 @@ class TestCultureScoring:
             final_score=0.75,
         )
         explanation = ranked.score_explanation()
-        assert "Culture: 0.65" in explanation, (
-            f"culture_score should appear in explanation. Got: {explanation}"
-        )
+        assert (
+            "Culture: 0.65" in explanation
+        ), f"culture_score should appear in explanation. Got: {explanation}"
 
     async def test_culture_weight_is_read_from_settings_not_hardcoded(self) -> None:
         """The Ranker accepts culture_weight as a parameter, not hardcoded."""
@@ -889,9 +887,9 @@ class TestCultureScoring:
             negative_weight=0.4,
             min_score_threshold=0.0,
         )
-        assert ranker.culture_weight == 0.2, (
-            f"Expected culture_weight 0.2, got {ranker.culture_weight}"
-        )
+        assert (
+            ranker.culture_weight == 0.2
+        ), f"Expected culture_weight 0.2, got {ranker.culture_weight}"
 
     async def test_high_culture_score_raises_final_score(self) -> None:
         """A high culture_score increases the final score via culture_weight."""
@@ -924,9 +922,9 @@ class TestCultureScoring:
         )
         final_no = ranker.compute_final_score(scores_no_culture)
         final_with = ranker.compute_final_score(scores_with_culture)
-        assert final_with > final_no, (
-            f"High culture_score should raise final. No culture: {final_no}, With: {final_with}"
-        )
+        assert (
+            final_with > final_no
+        ), f"High culture_score should raise final. No culture: {final_no}, With: {final_with}"
 
     async def test_empty_global_positive_collection_returns_zero_culture_score(
         self, store: VectorStore, mock_embedder: Embedder
@@ -952,9 +950,9 @@ class TestCultureScoring:
 
         scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
         result = await scorer.score("Any JD text")
-        assert result.culture_score == 0.0, (
-            f"Expected culture_score 0.0 for empty collection, got {result.culture_score}"
-        )
+        assert (
+            result.culture_score == 0.0
+        ), f"Expected culture_score 0.0 for empty collection, got {result.culture_score}"
 
     async def test_score_explanation_includes_all_six_component_values(self) -> None:
         """The explanation string shows all six components: archetype, fit, culture, history, comp, negative."""

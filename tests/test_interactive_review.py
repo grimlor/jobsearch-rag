@@ -19,6 +19,7 @@ from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.review import ReviewSession
 from jobsearch_rag.rag.scorer import ScoreResult
+from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.decisions import DecisionRecorder
@@ -68,9 +69,6 @@ def _make_ranked(
     return RankedListing(listing=listing, scores=scores, final_score=final_score)
 
 
-EMBED_FAKE: list[float] = [0.1, 0.2, 0.3, 0.4, 0.5]
-
-
 def _seed_decisions(
     store: VectorStore,
     decided_ids: set[str],
@@ -83,16 +81,18 @@ def _seed_decisions(
             ids=[f"decision-{jid}"],
             documents=["Seeded JD text."],
             embeddings=[EMBED_FAKE],
-            metadatas=[{
-                "job_id": jid,
-                "verdict": "yes",
-                "board": "test",
-                "title": "Seeded",
-                "company": "Test Corp",
-                "scoring_signal": "true",
-                "reason": "",
-                "recorded_at": "2024-01-01T00:00:00+00:00",
-            }],
+            metadatas=[
+                {
+                    "job_id": jid,
+                    "verdict": "yes",
+                    "board": "test",
+                    "title": "Seeded",
+                    "company": "Test Corp",
+                    "scoring_signal": "true",
+                    "reason": "",
+                    "recorded_at": "2024-01-01T00:00:00+00:00",
+                }
+            ],
         )
 
 
@@ -101,7 +101,8 @@ class TestInteractiveReview:
     in a single interactive session rather than one-at-a-time CLI calls."""
 
     def test_review_loads_latest_results_in_ranked_order(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """Results are presented in descending score order — the operator
         sees the best matches first."""
@@ -135,7 +136,8 @@ class TestInteractiveReview:
         assert undecided[0].listing.external_id == "undecided-1"
 
     def test_listing_display_shows_rank_title_company_score(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """Each listing display includes rank position, title, company,
         and final score so the operator has the essential context."""
@@ -149,7 +151,8 @@ class TestInteractiveReview:
         assert "0.88" in output
 
     def test_listing_display_shows_component_score_breakdown(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """The display includes individual component scores so the operator
         can see why a listing ranked where it did."""
@@ -163,7 +166,8 @@ class TestInteractiveReview:
         assert "0.60" in output  # comp
 
     def test_listing_display_shows_comp_range_when_available(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """Compensation range is shown when the comp parser found data,
         helping the operator assess financial fit at a glance."""
@@ -176,7 +180,8 @@ class TestInteractiveReview:
 
     @pytest.mark.asyncio
     async def test_yes_verdict_records_via_decision_recorder(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """Entering 'y' records a 'yes' verdict through DecisionRecorder."""
         ranked = _make_ranked(external_id="job-1")
@@ -191,7 +196,8 @@ class TestInteractiveReview:
 
     @pytest.mark.asyncio
     async def test_verdict_with_reason_passes_reason_to_recorder(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """When the operator provides a reason, it is forwarded to DecisionRecorder
         so both the verdict and the reasoning are persisted."""
@@ -207,7 +213,8 @@ class TestInteractiveReview:
 
     @pytest.mark.asyncio
     async def test_verdict_without_reason_passes_empty_string(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """When the operator skips the reason prompt, an empty string is
         passed — the field is always present but never required."""
@@ -222,7 +229,8 @@ class TestInteractiveReview:
 
     @pytest.mark.asyncio
     async def test_no_verdict_records_via_decision_recorder(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """Entering 'n' records a 'no' verdict."""
         ranked = _make_ranked(external_id="job-2")
@@ -236,7 +244,8 @@ class TestInteractiveReview:
 
     @pytest.mark.asyncio
     async def test_maybe_verdict_records_via_decision_recorder(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """Entering 'm' records a 'maybe' verdict."""
         ranked = _make_ranked(external_id="job-3")
@@ -249,7 +258,8 @@ class TestInteractiveReview:
         assert decision["verdict"] == "maybe"
 
     def test_skip_advances_without_recording(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """Entering 's' advances to the next listing without recording
         any verdict — the listing remains undecided for future review."""
@@ -262,7 +272,8 @@ class TestInteractiveReview:
 
     @pytest.mark.asyncio
     async def test_open_launches_jd_file_in_system_viewer(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """Entering 'o' opens the JD file in the system default viewer
         so the operator can read the full description."""
@@ -279,7 +290,8 @@ class TestInteractiveReview:
 
     @pytest.mark.asyncio
     async def test_quit_preserves_all_previously_recorded_verdicts(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """Quitting mid-review does not roll back or lose any verdicts
         that were recorded before the quit — each verdict is persisted
@@ -298,7 +310,8 @@ class TestInteractiveReview:
         assert decision_recorder.get_decision("quit-before") is None
 
     def test_progress_indicator_shows_current_position_and_total(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """Progress display shows e.g. '[3/28]' so the operator knows
         how far through the review they are."""
@@ -325,7 +338,8 @@ class TestInteractiveReview:
         # Message is handled by CLI; session just returns empty list
 
     def test_no_results_file_prints_message_and_exits(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """When there are no ranked listings at all, the review reports
         'no results found' and exits cleanly."""
@@ -344,7 +358,8 @@ class TestListingDisplayDisqualified:
     so the operator knows the listing was flagged before deciding."""
 
     def test_disqualified_listing_shows_warning_in_display(
-        self, decision_recorder: DecisionRecorder,
+        self,
+        decision_recorder: DecisionRecorder,
     ) -> None:
         """When a listing has disqualified=True, the formatted display
         includes a '⚠ DISQUALIFIED: {reason}' line."""

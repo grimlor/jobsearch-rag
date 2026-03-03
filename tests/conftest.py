@@ -25,15 +25,12 @@ import pytest
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.store import VectorStore
+from tests.constants import EMBED_FAKE as EMBED_FAKE  # re-export for fixtures below
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
 _PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
-
-# Canonical fake embedding used across test files.  Individual tests that
-# need a different vector can define their own constant.
-EMBED_FAKE: list[float] = [0.1, 0.2, 0.3, 0.4, 0.5]
 
 
 # ---------------------------------------------------------------------------
