@@ -1,4 +1,4 @@
-"""Actionable error hierarchy for the Job Search RAG Assistant.
+r"""Actionable error hierarchy for the Job Search RAG Assistant.
 
 Errors are classified by **recovery path**, not by origin.
 Each error type carries structured guidance for three audiences:
@@ -6,23 +6,33 @@ Each error type carries structured guidance for three audiences:
   - The human operator (``suggestion`` + ``troubleshooting`` steps)
   - An AI agent (``ai_guidance`` with concrete next actions)
 
-See: actionable-error-philosophy.md and actionable-error-handling-patterns.md
+\Built on the ``actionable-errors`` shared library, extended with
+RAG-specific error types and domain-aware factory methods.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+
+from actionable_errors import ActionableError as _ActionableError
+
+# Re-export base types from the shared library so every consumer
+# can keep importing from ``jobsearch_rag.errors``.
+from actionable_errors import AIGuidance, Troubleshooting
+
+__all__ = ["AIGuidance", "ActionableError", "ErrorType", "Troubleshooting"]
 
 # ---------------------------------------------------------------------------
-# Error classification
+# RAG-specific error classification
 # ---------------------------------------------------------------------------
 
 
 class ErrorType(StrEnum):
-    """Recovery-path categories — what to *do*, not where it came from."""
+    """Recovery-path categories — what to *do*, not where it came from.
+
+    Extends the base ``actionable_errors.ErrorType`` with RAG-specific
+    values (EMBEDDING, INDEX, PARSE, DECISION).
+    """
 
     AUTHENTICATION = "authentication"
     CONFIG = "config"
@@ -36,96 +46,22 @@ class ErrorType(StrEnum):
 
 
 # ---------------------------------------------------------------------------
-# Guidance dataclasses
+# RAG-specific actionable error
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class AIGuidance:
-    """Machine-readable guidance for an AI agent consuming this error."""
-
-    action_required: str
-    command: str | None = None
-    discovery_tool: str | None = None
-    checks: list[str] | None = None
-    steps: list[str] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        result: dict[str, Any] = {"action_required": self.action_required}
-        if self.command is not None:
-            result["command"] = self.command
-        if self.discovery_tool is not None:
-            result["discovery_tool"] = self.discovery_tool
-        if self.checks is not None:
-            result["checks"] = self.checks
-        if self.steps is not None:
-            result["steps"] = self.steps
-        return result
-
-
-@dataclass(frozen=True)
-class Troubleshooting:
-    """Sequential, human-readable recovery steps for the operator."""
-
-    steps: list[str]
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"steps": self.steps}
-
-
-# ---------------------------------------------------------------------------
-# Base actionable error
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class ActionableError(Exception):
+class ActionableError(_ActionableError):
     """Structured error with embedded recovery guidance.
 
-    Use the factory classmethods rather than constructing directly —
-    they encode domain knowledge so callers don't have to.
+    Inherits dataclass fields, ``__post_init__``, ``to_dict()``, and
+    serialization from the shared library.  Factory classmethods below
+    encode RAG domain knowledge so callers don't have to.
     """
-
-    error: str
-    error_type: ErrorType
-    service: str
-
-    success: bool = field(default=False, init=False)
-    suggestion: str | None = None
-    ai_guidance: AIGuidance | None = None
-    troubleshooting: Troubleshooting | None = None
-    context: dict[str, Any] | None = None
-    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-
-    # Make it work as a real exception
-    def __post_init__(self) -> None:
-        super().__init__(self.error)
-
-    # -- serialisation -------------------------------------------------------
-
-    def to_dict(self) -> dict[str, Any]:
-        """Compact JSON-ready dict — ``None`` values are excluded."""
-        result: dict[str, Any] = {
-            "success": self.success,
-            "error": self.error,
-            "error_type": self.error_type.value,
-            "service": self.service,
-            "timestamp": self.timestamp,
-        }
-        if self.suggestion is not None:
-            result["suggestion"] = self.suggestion
-        if self.ai_guidance is not None:
-            result["ai_guidance"] = self.ai_guidance.to_dict()
-        if self.troubleshooting is not None:
-            result["troubleshooting"] = self.troubleshooting.to_dict()
-        if self.context is not None:
-            result["context"] = self.context
-        return result
 
     # -- factory methods -----------------------------------------------------
 
     @classmethod
-    def authentication(
+    def authentication(  # type: ignore[override]
         cls,
         board: str,
         raw_error: str,
@@ -187,7 +123,7 @@ class ActionableError(Exception):
         )
 
     @classmethod
-    def connection(
+    def connection(  # type: ignore[override]
         cls,
         service: str,
         url: str,
@@ -349,7 +285,7 @@ class ActionableError(Exception):
         )
 
     @classmethod
-    def validation(
+    def validation(  # type: ignore[override]
         cls,
         field_name: str,
         reason: str,
