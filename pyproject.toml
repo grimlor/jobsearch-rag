@@ -106,7 +106,10 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-m 'not integration and not live'"
+python_files = ["*_test.py", "test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers -m 'not integration and not live'"
 markers = [
     "integration: marks tests requiring live services (Ollama, browser)",
     "live: marks tests requiring live external sites (ZipRecruiter, etc.)",

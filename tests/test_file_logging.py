@@ -22,7 +22,16 @@ if TYPE_CHECKING:
 
 
 class TestFileLogging:
-    """Run logs are persisted to disk for post-run diagnosis."""
+    """
+    REQUIREMENT: Run logs are persisted to disk for post-run diagnosis.
+
+    WHO: The operator diagnosing a failed or unexpected pipeline run
+    WHAT: Each run creates a timestamped log file under the configured
+          logs directory; log content is formatted with timestamps and
+          levels for machine-parseable post-mortem analysis
+    WHY: Without persistent file logs, transient console output is lost
+         after the terminal closes, making post-run diagnosis impossible
+    """
 
     def test_run_creates_log_file_in_data_logs_directory(self, tmp_path: Path) -> None:
         """A log file appears under the specified logs directory after

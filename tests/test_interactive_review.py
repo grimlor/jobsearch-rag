@@ -97,8 +97,18 @@ def _seed_decisions(
 
 
 class TestInteractiveReview:
-    """The operator can review and decide on all undecided listings
-    in a single interactive session rather than one-at-a-time CLI calls."""
+    """
+    REQUIREMENT: The operator can review and decide on all undecided
+    listings in a single interactive session.
+
+    WHO: The operator reviewing search results after a pipeline run
+    WHAT: Undecided listings are presented in descending score order;
+          already-decided listings are excluded; each listing displays
+          rank, title, company, and score for informed decision-making
+    WHY: Without batch review, the operator must invoke individual CLI
+         commands per listing, making the review workflow impractical
+         for large result sets
+    """
 
     def test_review_loads_latest_results_in_ranked_order(
         self,
@@ -354,8 +364,16 @@ class TestInteractiveReview:
 
 
 class TestListingDisplayDisqualified:
-    """Disqualified listings show a visible warning in the review display
-    so the operator knows the listing was flagged before deciding."""
+    """
+    REQUIREMENT: Disqualified listings show a visible warning in the
+    review display.
+
+    WHO: The operator reviewing a listing that was auto-disqualified
+    WHAT: When a listing has disqualified=True, the formatted display
+          includes a warning indicator and the disqualification reason
+    WHY: Without a visible warning, the operator may unknowingly spend
+         time evaluating a role that was already flagged as unsuitable
+    """
 
     def test_disqualified_listing_shows_warning_in_display(
         self,

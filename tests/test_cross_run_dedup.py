@@ -78,8 +78,18 @@ def _mock_recorder(decided_ids: set[str] | None = None) -> MagicMock:
 
 
 class TestCrossRunDedup:
-    """Re-searching does not re-process listings that already
-    have a recorded decision."""
+    """
+    REQUIREMENT: Re-searching does not re-process listings that already
+    have a recorded decision.
+
+    WHO: The pipeline runner performing a follow-up search
+    WHAT: Listings whose job_id already has a recorded decision are
+          excluded from scoring — no Ollama compute is wasted on
+          previously decided roles
+    WHY: Without deduplication, repeated searches would re-score and
+         re-present listings the operator has already acted on,
+         wasting compute and operator time
+    """
 
     @pytest.mark.asyncio
     async def test_listing_with_existing_decision_is_excluded_from_scoring(
