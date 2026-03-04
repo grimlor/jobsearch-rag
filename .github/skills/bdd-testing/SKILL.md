@@ -13,6 +13,89 @@ specs (Phase 4).
 
 ---
 
+## Foundational Principle — System Specification, Not Unit Testing
+
+We are not testing units in isolation. We are **specifying a system**.
+
+The system under test is the full call chain from the public entry point down to the
+I/O boundary. Every layer of the system runs for real — Layer 3 composes Layer 2,
+which composes Layer 1, all the way down to the process/network/hardware edge. The
+only mock is at that edge.
+
+This means:
+
+- **Inter-layer interactions are the point.** If Layer 3 calls Layer 2 which calls
+  Layer 1, all three run for real. Mocking Layer 1 from a Layer 3 test would hide
+  integration defects — the very bugs that matter most.
+- **The mock boundary is where the system ends**, not where a module ends. A function
+  in our codebase is part of the system regardless of which module or layer it lives
+  in. `subprocess.run` is not part of our system. `discover_repositories` is, even
+  though it calls `subprocess.run`.
+- **The exception is foundational pure functions.** Functions with no system
+  dependencies (e.g., URL parsers, math, config validation) can be tested directly
+  with no mocks at all — they have no I/O to mock and no layers to compose.
+
+```python
+# ✅ System specification — all layers run for real, only subprocess is mocked
+def test_cached_context_produces_correct_pr_context(self, tmp_path):
+    # Given: a real .git directory, subprocess returns a valid remote URL
+    (tmp_path / ".git").mkdir()
+    mock_git = MagicMock(returncode=0, stdout="https://dev.azure.com/Org/Proj/_git/Repo\n")
+    with patch("ado_workflows.discovery.subprocess.run", return_value=mock_git):
+        RepositoryContext.set(str(tmp_path))  # Layer 2 calls Layer 1 for real
+
+    # When: Layer 3 entry point is called — exercises Layer 2 caching for real
+    ctx = AzureDevOpsPRContext.from_pr_id(42)
+
+    # Then: result reflects the full system's behavior
+    assert ctx.organization == "Org"
+
+# ❌ Unit testing — mocks our own code, hides integration bugs
+def test_cached_context_produces_correct_pr_context(self):
+    fake_info = {"name": "Repo", "organization": "Org", ...}
+    with patch("ado_workflows.pr.RepositoryContext.get", return_value=fake_info):
+        ctx = AzureDevOpsPRContext.from_pr_id(42)
+    assert ctx.organization == "Org"  # proves nothing — you wrote both sides
+```
+
+The second test is a tautology: you hand-craft a dict and then verify you can read it
+back. It cannot catch mismatches between what `RepositoryContext.get()` actually returns
+and what `from_pr_id()` expects — which is exactly the class of bug that matters.
+
+### What counts as an I/O boundary?
+
+The boundary is where the **system** ends and the **environment** begins:
+
+| I/O boundary (mock these) | Part of the system (never mock) |
+|---|---|
+| `subprocess.run` — spawns a process | `discover_repositories` — our function that calls subprocess |
+| `requests.get` — HTTP call | `fetch_pr_details` — our function that calls requests |
+| `Connection.query` — database wire call | `RepositoryContext.get` — our caching logic over discovery |
+| `os.getcwd` — process-level state | `os.path.exists` with `tmp_path` — use real filesystem instead |
+
+If you find yourself mocking a function in your own codebase, stop. Trace the call
+chain to the actual I/O operation and mock that instead. Use `tmp_path` for real
+filesystem structure so that `os.path.exists`, `os.listdir`, and `os.path.isdir` all
+run against real directories.
+
+---
+
+## The Hierarchy
+
+BDD in this repo has three levels. Each level answers a different question:
+
+| Level | Form | Question Answered |
+|---|---|---|
+| **Test class** | REQUIREMENT / WHO / WHAT / WHY | What user story does this group prove? |
+| **Test method** | Given / When / Then scenario | Under what specific conditions does the behavior occur? |
+| **Test body** | Given / When / Then comments | How is the scenario implemented in code? |
+
+The class captures the user story. The WHAT field enumerates which scenarios are needed
+to prove it — if WHAT is well-written, the list of required test methods should follow
+from it directly. Each method then specifies one of those scenarios in full.
+
+---
+
 ## Test Organization
 
 Tests are organized by **consumer requirement**, not by code structure or persona.
@@ -34,6 +117,22 @@ class TestDeveloperFeatures:
 A single test file may contain multiple requirement classes. Group related requirements
 in one file when they exercise the same module. The file-level docstring should explain
 which BDD spec classes it covers.
+
+---
+
+## The Three-Part Contract
+
+Every test method requires all three of the following. None substitutes for the others:
+
+| Part | Purpose | Serves |
+|---|---|---|
+| **Method name** | The claim — behavior stated as a fact | Scanability; test output |
+| **Given / When / Then docstring** | The scenario — explicit conditions and observable outcome | Precision; review; spec traceability |
+| **Given / When / Then body comments** | The structure — setup, action, assertion delineated | Readability; maintenance |
+
+A good name without a docstring leaves the scenario ambiguous. A docstring without
+body comments buries the structure in undifferentiated code. All three are required
+on every test method.
 
 ---
 
@@ -62,22 +161,74 @@ class TestAdapterRegistration:
 | **WHAT** | Concrete, testable behavior | What observable behavior proves it? |
 | **WHY** | Business/operational justification | What goes wrong if it's missing? |
 
+The WHAT field is the bridge between the user story and the test methods. Each clause
+in WHAT should correspond to one or more test methods. If a test method cannot be
+traced to a clause in WHAT, either the test is speculative or WHAT is incomplete.
+
 ---
 
-## Method-Level Docstrings — Scenario Format
+## Mock Boundary Contract (REQUIRED per class)
 
-This repo uses the **scenario ("When / Then")** format for individual test docstrings,
-with persona context from the class-level WHO field:
+Every test class must include a MOCK BOUNDARY declaration immediately after the
+WHO/WHAT/WHY block. This is not optional annotation — it is the contract that
+prevents the most common violations.
 
 ```python
-def test_unregistered_board_name_error_names_the_board_and_lists_available(self):
+class TestSemanticScoring:
     """
-    When an unregistered board name is requested
-    Then the error message names the missing board and lists available options
+    REQUIREMENT: ...
+    WHO: ...
+    WHAT: ...
+    WHY: ...
+
+    MOCK BOUNDARY:
+        Mock:  mock_embedder fixture (Ollama HTTP — the only I/O boundary)
+        Real:  Scorer instance, ChromaDB via vector_store fixture, tmp_path filesystem
+        Never: Construct ScoreResult directly — always obtain via scorer.score(listing)
     """
 ```
 
-**Do not mix** user-story and scenario formats within this repository.
+The three lines answer:
+- **Mock** — what is patched and which fixture to use
+- **Real** — what runs for real (computation, filesystem, embedded DB)
+- **Never** — what must not be constructed or mocked directly
+
+If a test class has no I/O, the Mock line reads `Mock: nothing — this class tests
+pure computation`. This is still required so the intent is explicit.
+
+---
+
+## Method-Level Docstrings — Given / When / Then (REQUIRED)
+
+Every test method MUST have a Given / When / Then docstring.
+
+**Given is required in the docstring** when the precondition is the distinguishing
+condition of the scenario — when it is specifically what makes this test different from
+the others in the class.
+
+**Given may be omitted from the docstring** when the precondition is the default state
+established by conftest fixtures and is the same for all tests in the class. In that
+case the body comment `# Given:` still appears in the test body.
+
+```python
+# Given required — the non-trivial precondition is the point of the test
+def test_extraction_error_on_one_listing_does_not_abort_others(self):
+    """
+    Given a batch where one listing raises an extraction error
+    When the runner processes the batch
+    Then the remaining listings are scored and returned
+    """
+
+# Given omitted — default fixture state, same for all tests in this class
+def test_registered_adapter_is_retrievable_by_board_name(self):
+    """
+    When a registered board name is requested from the registry
+    Then the correct adapter class is returned
+    """
+```
+
+Do not mix user-story ("As a … I want … So that …") and scenario ("Given / When /
+Then") formats within this repository. Use scenario format only.
 
 ---
 
@@ -99,24 +250,191 @@ def test_multiply_by_2080(self): ...
 
 ---
 
-## Test Body Structure
+## Test Body Structure — Given / When / Then (REQUIRED)
 
-Use Given / When / Then comments to delineate the three phases. See [test-patterns.md](references/test-patterns.md) for full examples of:
+Every test method body MUST use Given / When / Then comments to delineate
+the three phases.
 
-- Given / When / Then body structure
-- Assertion quality (diagnostic messages required)
-- Mocking rules (I/O boundaries only, real instances for computation)
-- Test markers (`@pytest.mark.integration`, `@pytest.mark.live`)
-- Error testing (verify message content, not just type)
-- Failure-mode specs (coverage of error paths and edge cases)
-- Coverage as complete specification
+```python
+def test_registered_adapter_is_retrievable_by_board_name(self):
+    """
+    When a registered board name is requested from the registry
+    Then the correct adapter class is returned
+    """
+    # Given: an adapter registered under a known board name
+    registry = AdapterRegistry()
+    registry.register("ziprecruiter", ZipRecruiterAdapter)
+
+    # When: the board name is looked up
+    adapter_cls = registry.get("ziprecruiter")
+
+    # Then: the correct adapter class is returned
+    assert adapter_cls is ZipRecruiterAdapter, (
+        f"Expected ZipRecruiterAdapter, got {adapter_cls}"
+    )
+```
+
+---
+
+## Assertion Quality (REQUIRED on every assertion)
+
+Every assertion MUST include a diagnostic message. Bare assertions are prohibited.
+
+```python
+# ✅ Shows expected vs actual
+assert result.fit_score == pytest.approx(0.74, abs=0.05), (
+    f"fit_score out of range. Expected ~0.74, got {result.fit_score:.4f}. "
+    f"Full scores: {result}"
+)
+
+# ✅ Loop assertions include the failing item
+for i, chunk in enumerate(chunks):
+    assert len(chunk) <= MAX_EMBED_CHARS, (
+        f"Chunk {i} exceeds max length. "
+        f"Expected <= {MAX_EMBED_CHARS}, got {len(chunk)}: ...{chunk[-60:]!r}"
+    )
+
+# ❌ Bare assertion — failure is opaque
+assert result.is_valid
+assert len(items) == 3
+```
+
+---
+
+## Test Data
+
+Test data should be representative — close enough to real-world values that
+failures mean something. Placeholder strings like `"t"` for title or `"f"` for
+full_text produce opaque failures and hide bugs where the implementation uses
+the field content.
+
+Magic numbers are acceptable when their meaning is stated:
+
+```python
+# ✅ Magic number explained in comment
+expected_chunks = 3  # resume has 3 sections: Experience, Skills, Education
+
+# ✅ Magic number explained in assertion message
+assert len(results) == 3, (
+    "Expected 3 results (Bronze/Silver/Gold tier) "
+    f"but got {len(results)}: {[r.title for r in results]}"
+)
+
+# ❌ Unexplained magic number
+assert result == 0.7
+assert len(chunks) == 4
+```
+
+Extract constants only when a value appears multiple times or encodes a business
+rule referenced by name in the production code.
+
+---
+
+## Coverage = Complete Specification
+
+100% coverage means every line of production code has a spec justifying it.
+After all spec tests pass, run:
+
+```bash
+pytest --cov=<package> --cov-report=term-missing tests/
+```
+
+Every uncovered line triggers the question: *"Which requirement is this line serving?"*
+
+Three categories of requirements surface only at coverage time — they are real
+requirements, not optional extras:
+
+| Category | Description | Example |
+|---|---|---|
+| **Defensive guard code** | Protects against misuse — empty input, wrong types, boundary values | `if not full_text.strip(): raise ValidationError(...)` |
+| **Graceful degradation** | Soft failures the system absorbs rather than raising | Missing `decisions` collection returns empty list, not error |
+| **Conditional formatting** | Display logic that varies by state | DQ warning line only appears when `disqualified=True` |
+
+**"Pre-existing" is not a category.** Whether a line existed before your changes is irrelevant — if it is uncovered after your work, it is uncovered. The only valid dispositions are: real requirement (write the spec), dead code (remove it), or over-engineering (remove it). "It was already there" is not a disposition.
+
+For each uncovered line: keep it and write the spec, or remove it if it has no
+justifying requirement.
+
+---
+
+## Reading `src/` — Public API Discovery Only
+
+Before writing any test for a module, read the relevant `src/` files to discover
+the real public API: method signatures, return types, constructor parameters,
+and which names are public vs. private (`_` prefix).
+
+**This is the only permitted reason to read `src/` during test writing.**
+
+```python
+# ✅ Correct use of src/ knowledge — discovered scorer.score() returns ScoreResult
+result = scorer.score(listing)
+assert result.fit_score > 0.5, (...)
+
+# ❌ Wrong — used src/ to find an internal function to mock
+with patch("mypackage.internal._compute_chunks") as mock_chunks:
+    ...
+```
+
+If a failure condition cannot be induced through public API inputs alone, that is
+a signal the condition may be dead code — flag it in the deviation log rather
+than patching around it.
+
+---
+
+## Public APIs Only — No Private Imports
+
+Tests must **never** import `_`-prefixed names from production modules.
+
+```python
+# ❌ Testing private internals
+from mypackage.pipeline.processor import _parse_header
+
+# ✅ Testing through the public API
+from mypackage.pipeline.processor import load_files
+```
+
+If a private function's logic seems worth testing directly, that is a signal it
+should be promoted to its own module — not a justification to import it.
+
+---
+
+## Error Testing — Messages, Not Just Types
+
+When testing error paths, verify message content, not just that an exception was raised:
+
+```python
+# ✅ Tests the message the operator actually sees
+with pytest.raises(ActionableError) as exc_info:
+    registry.get("nonexistent_board")
+
+assert "nonexistent_board" in str(exc_info.value), (
+    f"Error should name the missing board. Got: {exc_info.value}"
+)
+
+# ❌ Only confirms an exception occurred
+with pytest.raises(ActionableError):
+    registry.get("nonexistent_board")
+```
+
+Errors in this repo should follow the ActionableError pattern where applicable.
+
+---
+
+## Failure-Mode Specs Are Mandatory
+
+Failure-mode specs are as important as happy-path specs. An unspecified failure is
+an unhandled failure. For every feature, the spec must cover:
+
+- Missing or malformed input
+- External service unavailable
+- Invalid configuration
+- Boundary values
+- Partial failure (one item in a batch fails, others continue)
 
 ---
 
 ## Reference Documents
 
-For the full philosophy and rationale behind these practices:
-- `Patterns & Practices/BDD_TESTING_PRINCIPLES.md`
-- `Patterns & Practices/spec-first-bdd-testing-patterns.md`
-- `Patterns & Practices/actionable-error-handling-patterns.md`
-- `Patterns & Practices/actionable-error-philosophy.md`
+For detailed implementation examples including mock boundary contracts, tautology
+anti-patterns, assertion quality, test data, and conftest infrastructure:
+- `.github/skills/bdd-testing/references/test-patterns.md`
