@@ -34,9 +34,9 @@ jobs:
         if: matrix.python-version == '3.13'
         run: uv run ruff check src/ tests/
 
-      - name: Type check with mypy
+      - name: Type check with pyright
         if: matrix.python-version == '3.13'
-        run: uv run mypy src/
+        run: uv run pyright src/ tests/
 
       - name: Run tests with coverage
         run: uv run pytest --cov=jobsearch_rag --cov-report=term-missing --cov-report=json

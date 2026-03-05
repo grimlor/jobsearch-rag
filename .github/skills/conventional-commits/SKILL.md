@@ -1,4 +1,3 @@
-```skill
 ---
 name: conventional-commits
 description: "Commit message format rules. Use whenever staging, committing, or describing changes — including when the user asks to commit, when preparing a PR, or when writing a changelog entry."
@@ -46,14 +45,14 @@ Every commit message follows [Conventional Commits v1.0.0](https://www.conventio
 
 A breaking change triggers a **major** bump (0.2.0 → 1.0.0). Signal it with either:
 
-- `!` after the type/scope: `feat!: redesign session format`
+- `!` after the type/scope: `feat!: redesign workflow format`
 - A `BREAKING CHANGE:` footer in the body:
 
 ```
-feat: redesign session format
+feat: redesign workflow format
 
-BREAKING CHANGE: Session JSON schema now uses `evaluations` instead of `results`.
-Existing session files must be migrated.
+BREAKING CHANGE: Step headers now use `####` instead of `###`.
+Existing workflows must be updated.
 ```
 
 ### Scope (optional)
@@ -61,21 +60,15 @@ Existing session files must be migrated.
 Scope narrows the area of change. Use the module or subsystem name:
 
 ```
-feat(scraper): add ZipRecruiter board support
-fix(scoring): handle missing rubric fields gracefully
-test(indexing): add RAG retrieval assertions
-ci(release): add python-semantic-release workflow
+feat(auth): add OAuth2 token refresh
+fix(api): handle missing query parameter gracefully
+test(models): add validation assertions
+ci(release): add semantic-release workflow
 ```
 
-Common scopes for this project:
-- `scraper` — job board scraping and browser automation
-- `scoring` — rubric evaluation and score fusion
-- `indexing` — RAG indexing and ChromaDB operations
-- `adapter` — board adapter registry and implementations
-- `config` — settings, rubrics, role archetypes
-- `export` — results export (CSV, Markdown)
-- `session` — session management and persistence
-- `deps` — dependency updates
+Define scopes based on your project's module structure. Good scopes are
+short, stable names that map to subsystems or directories — e.g., `api`,
+`auth`, `models`, `cli`, `config`, `deps`, `release`.
 
 ### Description (required)
 
@@ -99,29 +92,28 @@ Explain *what* and *why*, not *how*. Wrap at 72 characters.
 ## Examples
 
 ```
-feat: add get_workflow_template tool
+feat(auth): add OAuth2 token refresh
 
-The agent needs a way to learn the workflow format after a one-click
-install. This tool returns the template with format spec, skeleton,
-and a concrete example — all from a resource file that ships inside
-the package.
+Access tokens now refresh automatically when they expire within
+5 minutes of a request. This prevents 401 errors during long
+running operations without requiring manual re-authentication.
 
 Refs: #42
 ```
 
 ```
-fix(scoring): handle empty rubric sections without crashing
+fix(api): handle missing query parameter without crashing
 
-Previously, a role archetype with an empty skills section caused a
-KeyError in the score calculator. Now it returns a zero score and
-logs a warning.
+Previously, an empty `filter` parameter caused a TypeError in
+the query builder. Now it defaults to an empty dict and logs
+a warning.
 ```
 
 ```
-ci(release): add python-semantic-release workflow
+ci(release): add semantic-release workflow
 
 Automates version bumping and GitHub Release creation on push to
-master. Reads conventional commit history since the last tag and
+main. Reads conventional commit history since the last tag and
 determines the appropriate semver increment.
 ```
 
@@ -130,14 +122,15 @@ docs: update README with installation instructions
 ```
 
 ```
-test(indexing): add RAG retrieval assertions
+test(models): add input validation assertions
 ```
 
 ```
-build(deps): bump playwright from 1.40.0 to 1.42.0
+build(deps): bump fastapi from 0.109.0 to 0.110.0
 
-BREAKING CHANGE: playwright 1.42.0 removes the deprecated sync API.
-All browser automation has been updated to use async.
+BREAKING CHANGE: 0.110.0 removes the deprecated `on_event`
+lifecycle hook. All startup handlers have been migrated to
+`lifespan` context managers.
 ```
 
 ---
@@ -157,9 +150,8 @@ All browser automation has been updated to use async.
 
 ## Why This Exists
 
-`python-semantic-release` reads commit messages to determine version bumps
+Semantic release tools (e.g., `semantic-release`, `python-semantic-release`,
+`release-please`) read commit messages to determine version bumps
 automatically. Without consistent conventional commits, the automation cannot
 determine whether a change is a feature, fix, or breaking change — and either
 bumps incorrectly or not at all.
-
-```

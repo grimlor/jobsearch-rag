@@ -1,11 +1,8 @@
 """Interactive review tests — batch decision recording on undecided listings.
 
-Maps to BDD spec: TestInteractiveReview
-
-Tests verify that the ``review`` command loads latest search results in
-ranked order, skips already-decided listings, displays scores and
-component breakdowns, records verdicts immediately via DecisionRecorder,
-shows progress, and preserves verdicts on quit.
+Spec classes:
+    TestInteractiveReview — ranked review workflow, verdict recording, progress
+    TestListingDisplayDisqualified — disqualification warning in review display
 """
 
 from __future__ import annotations
@@ -108,185 +105,272 @@ class TestInteractiveReview:
     WHY: Without batch review, the operator must invoke individual CLI
          commands per listing, making the review workflow impractical
          for large result sets
+
+    MOCK BOUNDARY:
+        Mock: webbrowser.open (I/O boundary, 1 test)
+        Real: ReviewSession, DecisionRecorder, VectorStore (via conftest tmpdir)
+        Never: Patch ReviewSession internals or DecisionRecorder
     """
 
     def test_review_loads_latest_results_in_ranked_order(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Results are presented in descending score order — the operator
-        sees the best matches first."""
+        """
+        GIVEN listings with different scores
+        WHEN a ReviewSession is created
+        THEN undecided listings are in descending score order.
+        """
+        # Given: three listings with different scores
         high = _make_ranked(title="High Score", final_score=0.95, external_id="h1")
         low = _make_ranked(title="Low Score", final_score=0.55, external_id="l1")
         mid = _make_ranked(title="Mid Score", final_score=0.75, external_id="m1")
 
+        # When: create session and get undecided
         session = ReviewSession(
             ranked_listings=[low, high, mid],
             recorder=decision_recorder,
         )
-        # Undecided should be in ranked (descending) order
         undecided = session.undecided_listings()
-        assert [r.listing.title for r in undecided] == ["High Score", "Mid Score", "Low Score"]
+
+        # Then: ordered descending by score
+        assert [r.listing.title for r in undecided] == [
+            "High Score",
+            "Mid Score",
+            "Low Score",
+        ], "Listings should be in descending score order"
 
     def test_already_decided_listings_are_excluded(
         self,
         vector_store: VectorStore,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Listings with an existing decision are skipped so the operator
-        only sees roles that still need a verdict."""
+        """
+        GIVEN listings where some already have decisions
+        WHEN undecided_listings() is called
+        THEN only undecided listings are returned.
+        """
+        # Given: one decided, one undecided
         r1 = _make_ranked(external_id="decided-1")
         r2 = _make_ranked(external_id="undecided-1")
-
         _seed_decisions(vector_store, decided_ids={"decided-1"})
-        session = ReviewSession(ranked_listings=[r1, r2], recorder=decision_recorder)
 
+        # When: get undecided
+        session = ReviewSession(ranked_listings=[r1, r2], recorder=decision_recorder)
         undecided = session.undecided_listings()
-        assert len(undecided) == 1
-        assert undecided[0].listing.external_id == "undecided-1"
+
+        # Then: only undecided listing remains
+        assert len(undecided) == 1, "Should return only undecided listings"
+        assert undecided[0].listing.external_id == "undecided-1", "Should be the undecided listing"
 
     def test_listing_display_shows_rank_title_company_score(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Each listing display includes rank position, title, company,
-        and final score so the operator has the essential context."""
+        """
+        GIVEN a ranked listing
+        WHEN format_listing() is called
+        THEN the output includes rank, title, company, and score.
+        """
+        # Given: a ranked listing
         ranked = _make_ranked(title="Staff Architect", company="TechCo", final_score=0.88)
         session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+
+        # When: format the listing
         output = session.format_listing(ranked, rank=1, total=5)
 
-        assert "1" in output  # rank
-        assert "Staff Architect" in output
-        assert "TechCo" in output
-        assert "0.88" in output
+        # Then: essential context is present
+        assert "1" in output, "Should include rank"
+        assert "Staff Architect" in output, "Should include title"
+        assert "TechCo" in output, "Should include company"
+        assert "0.88" in output, "Should include score"
 
     def test_listing_display_shows_component_score_breakdown(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """The display includes individual component scores so the operator
-        can see why a listing ranked where it did."""
+        """
+        GIVEN a ranked listing with individual component scores
+        WHEN format_listing() is called
+        THEN all component scores appear in the output.
+        """
+        # Given: listing with specific component scores
         ranked = _make_ranked(fit=0.85, archetype=0.90, history=0.50, comp=0.60)
         session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+
+        # When: format the listing
         output = session.format_listing(ranked, rank=1, total=1)
 
-        assert "0.85" in output  # fit
-        assert "0.90" in output  # archetype
-        assert "0.50" in output  # history
-        assert "0.60" in output  # comp
+        # Then: all component scores present
+        assert "0.85" in output, "Should include fit score"
+        assert "0.90" in output, "Should include archetype score"
+        assert "0.50" in output, "Should include history score"
+        assert "0.60" in output, "Should include comp score"
 
     def test_listing_display_shows_comp_range_when_available(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Compensation range is shown when the comp parser found data,
-        helping the operator assess financial fit at a glance."""
+        """
+        GIVEN a listing with compensation data
+        WHEN format_listing() is called
+        THEN the compensation range appears in the output.
+        """
+        # Given: listing with comp range
         ranked = _make_ranked(comp_min=180_000, comp_max=250_000)
         session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+
+        # When: format the listing
         output = session.format_listing(ranked, rank=1, total=1)
 
-        assert "180" in output  # comp_min (may be formatted)
-        assert "250" in output  # comp_max
+        # Then: comp range visible
+        assert "180" in output, "Should include comp_min"
+        assert "250" in output, "Should include comp_max"
 
     @pytest.mark.asyncio
     async def test_yes_verdict_records_via_decision_recorder(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Entering 'y' records a 'yes' verdict through DecisionRecorder."""
+        """
+        GIVEN a review session with a listing
+        WHEN 'y' verdict is recorded
+        THEN the decision is persisted with verdict='yes'.
+        """
+        # Given: session with one listing
         ranked = _make_ranked(external_id="job-1")
         session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
 
+        # When: record 'y' verdict
         await session.record_verdict(ranked, "y")
 
+        # Then: decision persisted
         decision = decision_recorder.get_decision("job-1")
-        assert decision is not None
-        assert decision["verdict"] == "yes"
-        assert decision["job_id"] == "job-1"
+        assert decision is not None, "Decision should be persisted"
+        assert decision["verdict"] == "yes", "Verdict should be 'yes'"
+        assert decision["job_id"] == "job-1", "Job ID should match"
 
     @pytest.mark.asyncio
     async def test_verdict_with_reason_passes_reason_to_recorder(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """When the operator provides a reason, it is forwarded to DecisionRecorder
-        so both the verdict and the reasoning are persisted."""
+        """
+        GIVEN a review session with a listing
+        WHEN a 'no' verdict with a reason is recorded
+        THEN the reason is persisted alongside the verdict.
+        """
+        # Given: session with one listing
         ranked = _make_ranked(external_id="job-reason")
         session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
 
+        # When: record 'n' with reason
         await session.record_verdict(ranked, "n", reason="Requires 5 years Kubernetes experience")
 
+        # Then: verdict and reason persisted
         decision = decision_recorder.get_decision("job-reason")
-        assert decision is not None
-        assert decision["verdict"] == "no"
-        assert decision["reason"] == "Requires 5 years Kubernetes experience"
+        assert decision is not None, "Decision should be persisted"
+        assert decision["verdict"] == "no", "Verdict should be 'no'"
+        assert (
+            decision["reason"] == "Requires 5 years Kubernetes experience"
+        ), "Reason should match"
 
     @pytest.mark.asyncio
     async def test_verdict_without_reason_passes_empty_string(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """When the operator skips the reason prompt, an empty string is
-        passed — the field is always present but never required."""
+        """
+        GIVEN a review session with a listing
+        WHEN a verdict is recorded without a reason
+        THEN an empty string is stored as the reason.
+        """
+        # Given: session with one listing
         ranked = _make_ranked(external_id="job-noreason")
         session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
 
+        # When: record 'y' without reason
         await session.record_verdict(ranked, "y")
 
+        # Then: reason is empty string
         decision = decision_recorder.get_decision("job-noreason")
-        assert decision is not None
-        assert decision["reason"] == ""
+        assert decision is not None, "Decision should be persisted"
+        assert decision["reason"] == "", "Reason should be empty string when not provided"
 
     @pytest.mark.asyncio
     async def test_no_verdict_records_via_decision_recorder(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Entering 'n' records a 'no' verdict."""
+        """
+        GIVEN a review session with a listing
+        WHEN 'n' verdict is recorded
+        THEN the decision is persisted with verdict='no'.
+        """
+        # Given: session with one listing
         ranked = _make_ranked(external_id="job-2")
         session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
 
+        # When: record 'n' verdict
         await session.record_verdict(ranked, "n")
 
+        # Then: 'no' decision persisted
         decision = decision_recorder.get_decision("job-2")
-        assert decision is not None
-        assert decision["verdict"] == "no"
+        assert decision is not None, "Decision should be persisted"
+        assert decision["verdict"] == "no", "Verdict should be 'no'"
 
     @pytest.mark.asyncio
     async def test_maybe_verdict_records_via_decision_recorder(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Entering 'm' records a 'maybe' verdict."""
+        """
+        GIVEN a review session with a listing
+        WHEN 'm' verdict is recorded
+        THEN the decision is persisted with verdict='maybe'.
+        """
+        # Given: session with one listing
         ranked = _make_ranked(external_id="job-3")
         session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
 
+        # When: record 'm' verdict
         await session.record_verdict(ranked, "m")
 
+        # Then: 'maybe' decision persisted
         decision = decision_recorder.get_decision("job-3")
-        assert decision is not None
-        assert decision["verdict"] == "maybe"
+        assert decision is not None, "Decision should be persisted"
+        assert decision["verdict"] == "maybe", "Verdict should be 'maybe'"
 
     def test_skip_advances_without_recording(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Entering 's' advances to the next listing without recording
-        any verdict — the listing remains undecided for future review."""
+        """
+        GIVEN a review session
+        WHEN the operator enters 's' (skip)
+        THEN no verdict is recorded and the listing remains undecided.
+        """
+        # Given: session with one listing
         ranked = _make_ranked(external_id="skip-me")
         session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
 
-        # 's' should not trigger record
+        # When: check if 's' should record
         result = session.should_record("s")
-        assert result is False
+
+        # Then: skip does not record
+        assert result is False, "'s' should not trigger recording"
 
     @pytest.mark.asyncio
     async def test_open_launches_jd_file_in_system_viewer(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Entering 'o' opens the JD file in the system default viewer
-        so the operator can read the full description."""
+        """
+        GIVEN a listing with a JD file
+        WHEN 'o' (open) is invoked
+        THEN the system default viewer is launched via webbrowser.open.
+        """
+        # Given: session with jd_dir configured
         ranked = _make_ranked(external_id="open-me")
         session = ReviewSession(
             ranked_listings=[ranked],
@@ -294,8 +378,11 @@ class TestInteractiveReview:
             jd_dir="output/jds",
         )
 
+        # When: open listing
         with patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_open:
             session.open_listing(ranked)
+
+            # Then: webbrowser.open called
             mock_open.assert_called_once()
 
     @pytest.mark.asyncio
@@ -303,59 +390,90 @@ class TestInteractiveReview:
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Quitting mid-review does not roll back or lose any verdicts
-        that were recorded before the quit — each verdict is persisted
-        immediately when entered."""
+        """
+        GIVEN verdicts recorded during a review session
+        WHEN the operator quits mid-review
+        THEN all previously recorded verdicts are preserved.
+        """
+        # Given: session with three listings
         r1 = _make_ranked(external_id="keep-1")
         r2 = _make_ranked(external_id="keep-2")
         r3 = _make_ranked(external_id="quit-before")
         session = ReviewSession(ranked_listings=[r1, r2, r3], recorder=decision_recorder)
 
-        # Record two verdicts then simulate quit
+        # When: record two verdicts then simulate quit
         await session.record_verdict(r1, "y")
         await session.record_verdict(r2, "n")
         # Don't record r3 — simulates quitting
-        assert decision_recorder.get_decision("keep-1") is not None
-        assert decision_recorder.get_decision("keep-2") is not None
-        assert decision_recorder.get_decision("quit-before") is None
+
+        # Then: first two verdicts persist, third is absent
+        assert decision_recorder.get_decision("keep-1") is not None, "First verdict should persist"
+        assert (
+            decision_recorder.get_decision("keep-2") is not None
+        ), "Second verdict should persist"
+        assert (
+            decision_recorder.get_decision("quit-before") is None
+        ), "Unrecorded listing should be absent"
 
     def test_progress_indicator_shows_current_position_and_total(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """Progress display shows e.g. '[3/28]' so the operator knows
-        how far through the review they are."""
+        """
+        GIVEN a review session with 28 listings
+        WHEN format_progress(current=3, total=28) is called
+        THEN the output contains '[3/28]'.
+        """
+        # Given: session with 28 listings
         session = ReviewSession(
             ranked_listings=[_make_ranked(external_id=f"p{i}") for i in range(28)],
             recorder=decision_recorder,
         )
+
+        # When: format progress at position 3
         progress = session.format_progress(current=3, total=28)
-        assert "[3/28]" in progress
+
+        # Then: progress indicator present
+        assert "[3/28]" in progress, "Should show current/total progress"
 
     def test_no_undecided_listings_prints_message_and_exits(
         self,
         vector_store: VectorStore,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """When all listings have decisions, the review prints a
-        'nothing to review' message and exits cleanly."""
+        """
+        GIVEN all listings already have decisions
+        WHEN undecided_listings() is called
+        THEN an empty list is returned.
+        """
+        # Given: all listings decided
         r1 = _make_ranked(external_id="done-1")
         _seed_decisions(vector_store, decided_ids={"done-1"})
         session = ReviewSession(ranked_listings=[r1], recorder=decision_recorder)
 
+        # When: get undecided
         undecided = session.undecided_listings()
-        assert len(undecided) == 0
-        # Message is handled by CLI; session just returns empty list
+
+        # Then: empty list
+        assert len(undecided) == 0, "Should have no undecided listings"
 
     def test_no_results_file_prints_message_and_exits(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """When there are no ranked listings at all, the review reports
-        'no results found' and exits cleanly."""
+        """
+        GIVEN no ranked listings exist
+        WHEN undecided_listings() is called
+        THEN an empty list is returned.
+        """
+        # Given: empty session
         session = ReviewSession(ranked_listings=[], recorder=decision_recorder)
+
+        # When: get undecided
         undecided = session.undecided_listings()
-        assert len(undecided) == 0
+
+        # Then: empty
+        assert len(undecided) == 0, "Should have no listings"
 
 
 # ---------------------------------------------------------------------------
@@ -373,20 +491,32 @@ class TestListingDisplayDisqualified:
           includes a warning indicator and the disqualification reason
     WHY: Without a visible warning, the operator may unknowingly spend
          time evaluating a role that was already flagged as unsuitable
+
+    MOCK BOUNDARY:
+        Mock: nothing — pure display formatting
+        Real: ReviewSession.format_listing, RankedListing construction
+        Never: Patch format internals
     """
 
     def test_disqualified_listing_shows_warning_in_display(
         self,
         decision_recorder: DecisionRecorder,
     ) -> None:
-        """When a listing has disqualified=True, the formatted display
-        includes a '⚠ DISQUALIFIED: {reason}' line."""
+        """
+        GIVEN a listing with disqualified=True and a reason
+        WHEN format_listing() is called
+        THEN the output includes a '⚠ DISQUALIFIED' warning with the reason.
+        """
+        # Given: disqualified listing
         ranked = _make_ranked(
             disqualified=True,
             disqualifier_reason="Requires active security clearance",
         )
         session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+
+        # When: format the listing
         output = session.format_listing(ranked, rank=1, total=1)
 
-        assert "\u26a0 DISQUALIFIED" in output
-        assert "Requires active security clearance" in output
+        # Then: warning and reason present
+        assert "⚠ DISQUALIFIED" in output, "Should show disqualification warning"
+        assert "Requires active security clearance" in output, "Should show reason"

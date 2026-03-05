@@ -134,7 +134,7 @@ preference signal over time.
 # Individual checks
 uv run task lint          # ruff check --fix
 uv run task format        # ruff format
-uv run task type          # mypy strict
+uv run task type          # pyright type checking
 uv run task test          # pytest -v
 
 # All checks at once

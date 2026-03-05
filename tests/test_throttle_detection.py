@@ -148,34 +148,60 @@ class TestThrottleDetection:
           increasing delays, and listings are skipped after max retries
     WHY: Without throttle detection, error messages would be indexed as
          JD content, corrupting scoring results
+
+    MOCK BOUNDARY:
+        Mock:  Playwright page/locator (browser I/O), Cloudflare wait
+               (network I/O), asyncio.sleep (time I/O)
+        Real:  ZipRecruiterAdapter.search, is_throttle_response,
+               extract_js_variables, parse_job_cards, card_to_listing,
+               extract_jd_text — all parsing/detection logic runs for real
+        Never: Patch is_throttle_response or internal adapter methods
     """
 
     # --- Pure detection ------------------------------------------------
 
     def test_ziprecruiter_error_message_is_not_treated_as_valid_jd(self) -> None:
         """
-        When the canonical ZR throttle text is checked
+        Given the canonical ZipRecruiter throttle error message
+        When the text is checked for throttle response
         Then it is recognized as a throttle response
         """
-        assert is_throttle_response(_THROTTLE_TEXT) is True
+        # Given: the canonical ZipRecruiter throttle error message
+        text = _THROTTLE_TEXT
+
+        # When / Then: it is recognized as a throttle response
+        assert (
+            is_throttle_response(text) is True
+        ), f"Expected throttle text to be detected. Input: {text!r}"
 
     def test_non_throttle_error_text_is_not_misidentified_as_throttle(self) -> None:
         """
-        When legitimate JD text is checked
-        Then it is not falsely flagged as a throttle response
+        Given legitimate JD text and text mentioning 'error'
+        When the text is checked for throttle response
+        Then neither is falsely flagged as a throttle response
         """
-        assert is_throttle_response(_REAL_JD) is False
-        # A JD that happens to mention 'error' should not trigger detection
-        assert is_throttle_response("Handle error reporting in production systems. " * 5) is False
+        # Given: legitimate JD content
+        real_jd = _REAL_JD
+        error_mention = "Handle error reporting in production systems. " * 5
+
+        # When / Then: neither is misidentified as a throttle response
+        assert (
+            is_throttle_response(real_jd) is False
+        ), f"Real JD text was falsely flagged as throttle. Input starts: {real_jd[:80]!r}"
+        assert (
+            is_throttle_response(error_mention) is False
+        ), "JD mentioning 'error' was falsely flagged as throttle"
 
     # --- Backoff behavior through search() ----------------------------
 
     @pytest.mark.asyncio
     async def test_throttle_detection_triggers_backoff_delay(self) -> None:
         """
-        When a throttle response is detected during search
-        Then the adapter waits before retrying
+        Given a listing that throttles once then returns real JD
+        When the adapter encounters the throttle during search
+        Then it waits before retrying
         """
+        # Given: a listing that throttles once then returns real JD
         adapter = ZipRecruiterAdapter()
         listing = _make_listing()
 
@@ -187,18 +213,24 @@ class TestThrottleDetection:
             _patch_search_to_click_through([listing], panel_mock) as page,
             patch(f"{_ZR}.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
+            # When: search encounters a throttle then succeeds on retry
             await adapter.search(page, _SEARCH_URL, max_pages=1)
-            # click delay + backoff delay
-            assert mock_sleep.call_count >= 2
+
+            # Then: sleep was called for click delay + backoff delay
+            assert (
+                mock_sleep.call_count >= 2
+            ), f"Expected at least 2 sleep calls (click + backoff), got {mock_sleep.call_count}"
 
     @pytest.mark.asyncio
     async def test_backoff_delay_increases_exponentially_on_consecutive_throttles(
         self,
     ) -> None:
         """
+        Given two listings that each throttle once before succeeding
         When consecutive throttle responses occur across listings
         Then the second backoff wait is longer than the first
         """
+        # Given: two listings, each throttled once before succeeding
         adapter = ZipRecruiterAdapter()
         listing1 = _make_listing(external_id="zr-1")
         listing2 = _make_listing(external_id="zr-2")
@@ -218,9 +250,10 @@ class TestThrottleDetection:
             _patch_search_to_click_through([listing1, listing2], panel_mock) as page,
             patch(f"{_ZR}.asyncio.sleep", side_effect=capture_sleep),
         ):
+            # When: search processes both listings
             await adapter.search(page, _SEARCH_URL, max_pages=1)
 
-        # Filter out click delays (small) from backoff delays (larger)
+        # Then: backoff delays increase exponentially
         backoff_waits = [d for d in backoff_delays if d >= 2.0]
         assert (
             len(backoff_waits) >= 2
@@ -234,9 +267,11 @@ class TestThrottleDetection:
     @pytest.mark.asyncio
     async def test_listing_is_skipped_after_max_retry_attempts(self) -> None:
         """
+        Given a listing that always returns throttle text
         When the retry limit is exceeded
         Then the listing is skipped with empty or fallback full_text
         """
+        # Given: a listing that always returns throttle text
         adapter = ZipRecruiterAdapter()
         listing = _make_listing()
 
@@ -248,18 +283,25 @@ class TestThrottleDetection:
             _patch_search_to_click_through([listing], panel_mock) as page,
             patch(f"{_ZR}.asyncio.sleep", new_callable=AsyncMock),
         ):
+            # When: search exhausts retries
             results = await adapter.search(page, _SEARCH_URL, max_pages=1)
 
+        # Then: the listing has empty or fallback full_text (not throttle text)
         assert not results[0].full_text.strip() or results[0].full_text == (
             f"{listing.title} at {listing.company}. "
+        ), (
+            f"Expected empty or fallback text after retry exhaustion, "
+            f"got: {results[0].full_text[:100]!r}"
         )
 
     @pytest.mark.asyncio
     async def test_skipped_listing_increments_failed_count(self) -> None:
         """
-        When a listing exhausts retries
+        Given a listing that always returns throttle text
+        When the listing exhausts retries
         Then it is counted as a failed extraction
         """
+        # Given: a listing that always returns throttle text
         adapter = ZipRecruiterAdapter()
         listing = _make_listing()
 
@@ -271,10 +313,16 @@ class TestThrottleDetection:
             _patch_search_to_click_through([listing], panel_mock) as page,
             patch(f"{_ZR}.asyncio.sleep", new_callable=AsyncMock),
         ):
+            # When: search exhausts retries
             results = await adapter.search(page, _SEARCH_URL, max_pages=1)
 
-        # After max retries, full_text should be empty (treated as failed)
-        assert not results[0].full_text.strip() or "short_description" not in results[0].metadata
+        # Then: the listing is treated as a failed extraction
+        assert (
+            not results[0].full_text.strip() or "short_description" not in results[0].metadata
+        ), (
+            f"Expected listing to be treated as failed (empty text or no short_description). "
+            f"full_text: {results[0].full_text[:100]!r}, metadata keys: {list(results[0].metadata.keys())}"
+        )
 
     # --- Logging ------------------------------------------------------
 
@@ -282,9 +330,11 @@ class TestThrottleDetection:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """
-        When a throttle event occurs
+        Given a listing that always returns throttle text
+        When a throttle event occurs during search
         Then it is logged at WARNING with the listing identifier
         """
+        # Given: a listing that always returns throttle text
         adapter = ZipRecruiterAdapter()
         listing = _make_listing()
 
@@ -297,13 +347,17 @@ class TestThrottleDetection:
             caplog.at_level(logging.WARNING),
             patch(f"{_ZR}.asyncio.sleep", new_callable=AsyncMock),
         ):
+            # When: search encounters throttle responses
             _asyncio.run(adapter.search(page, _SEARCH_URL, max_pages=1))
 
+        # Then: throttle warning is logged with listing identifier
         throttle_logs = [r for r in caplog.records if "throttl" in r.message.lower()]
         assert len(throttle_logs) >= 1, "No throttle warning logged"
-        # Log should mention the listing identifier
         log_text = " ".join(r.message for r in throttle_logs)
-        assert listing.external_id in log_text or listing.url in log_text
+        assert listing.external_id in log_text or listing.url in log_text, (
+            f"Throttle log should mention listing ID '{listing.external_id}' or "
+            f"URL '{listing.url}'. Got: {log_text}"
+        )
 
     # --- Recovery after backoff ---------------------------------------
 
@@ -312,9 +366,11 @@ class TestThrottleDetection:
         self,
     ) -> None:
         """
+        Given a listing that throttles once then returns real JD
         When extraction succeeds after a throttle backoff
         Then the listing full_text contains the real JD content
         """
+        # Given: a listing that throttles once then returns real JD
         adapter = ZipRecruiterAdapter()
         listing = _make_listing()
 
@@ -326,18 +382,24 @@ class TestThrottleDetection:
             _patch_search_to_click_through([listing], panel_mock) as page,
             patch(f"{_ZR}.asyncio.sleep", new_callable=AsyncMock),
         ):
+            # When: search retries successfully after backoff
             results = await adapter.search(page, _SEARCH_URL, max_pages=1)
 
-        assert results[0].full_text.strip() == _REAL_JD.strip()
+        # Then: the listing contains the real JD content
+        assert (
+            results[0].full_text.strip() == _REAL_JD.strip()
+        ), f"Expected real JD after backoff recovery. Got: {results[0].full_text[:100]!r}"
 
     # --- Timeout + late throttle detection ----------------------------
 
     @pytest.mark.asyncio
     async def test_timeout_with_late_throttle_text_triggers_backoff(self) -> None:
         """
-        When wait_for times out but the panel rendered throttle text
-        Then the adapter detects the late throttle and retries with backoff
+        Given wait_for times out on first attempt with throttle text in the panel
+        When the adapter checks the panel after timeout
+        Then it detects the late throttle and retries with backoff
         """
+        # Given: wait_for times out on first attempt, panel shows throttle text
         adapter = ZipRecruiterAdapter()
         listing = _make_listing()
 
@@ -349,16 +411,22 @@ class TestThrottleDetection:
             _patch_search_to_click_through([listing], panel_mock) as page,
             patch(f"{_ZR}.asyncio.sleep", new_callable=AsyncMock),
         ):
+            # When: search detects late throttle and retries
             results = await adapter.search(page, _SEARCH_URL, max_pages=1)
 
-        assert results[0].full_text.strip() == _REAL_JD.strip()
+        # Then: the retry succeeds with real JD content
+        assert (
+            results[0].full_text.strip() == _REAL_JD.strip()
+        ), f"Expected real JD after late-throttle retry. Got: {results[0].full_text[:100]!r}"
 
     @pytest.mark.asyncio
     async def test_late_throttle_exhausts_retries_then_falls_back(self) -> None:
         """
-        When wait_for always times out and late panel reads always show throttle
+        Given a listing with a short_description fallback that always throttles
+        When wait_for always times out and panel reads show throttle text
         Then all retries are exhausted and fallback text is used
         """
+        # Given: a listing with a short_description fallback, always throttled
         adapter = ZipRecruiterAdapter()
         listing = _make_listing()
         listing.metadata["short_description"] = "Fallback desc"
@@ -371,18 +439,25 @@ class TestThrottleDetection:
             _patch_search_to_click_through([listing], panel_mock) as page,
             patch(f"{_ZR}.asyncio.sleep", new_callable=AsyncMock),
         ):
+            # When: search exhausts all retries
             results = await adapter.search(page, _SEARCH_URL, max_pages=1)
 
-        assert "Fallback desc" in results[0].full_text
+        # Then: fallback short_description is used as full_text
+        assert "Fallback desc" in results[0].full_text, (
+            f"Expected fallback 'Fallback desc' in full_text after retry exhaustion. "
+            f"Got: {results[0].full_text[:100]!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_timeout_without_throttle_text_falls_back_immediately(
         self,
     ) -> None:
         """
-        When wait_for times out and late panel read also fails
-        Then the adapter falls back without retrying
+        Given a listing where both wait_for and inner_text fail
+        When the adapter attempts to read the panel after timeout
+        Then it falls back to short_description without retrying
         """
+        # Given: a listing where both wait_for and inner_text fail
         adapter = ZipRecruiterAdapter()
         listing = _make_listing()
         listing.metadata["short_description"] = "Short desc for fallback"
@@ -395,6 +470,11 @@ class TestThrottleDetection:
             _patch_search_to_click_through([listing], panel_mock) as page,
             patch(f"{_ZR}.asyncio.sleep", new_callable=AsyncMock),
         ):
+            # When: search encounters timeout with no throttle text available
             results = await adapter.search(page, _SEARCH_URL, max_pages=1)
 
-        assert "Short desc for fallback" in results[0].full_text
+        # Then: falls back to short_description immediately (no retry)
+        assert "Short desc for fallback" in results[0].full_text, (
+            f"Expected 'Short desc for fallback' in full_text after immediate fallback. "
+            f"Got: {results[0].full_text[:100]!r}"
+        )

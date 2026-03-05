@@ -1,10 +1,10 @@
-"""Tests for CDP-based browser launch in SessionManager.
+"""CDP-based browser launch tests — SessionManager subprocess and cleanup.
 
-BDD-style tests exercising the CDP launch path through SessionManager's
-public API (``__aenter__`` / ``__aexit__``).  Only I/O boundaries are
-mocked: subprocess, playwright, urllib, filesystem, shutil.
-
-Run: ``uv run pytest tests/test_session_cdp.py -v``
+Spec classes:
+    TestSessionConfigCDP — config carries CDP channel selection
+    TestSessionManagerCDP — CDP launch, connect, cleanup, and fallback
+    TestSessionManagerEdgeCases — uninitialised manager and binary resolution
+    TestThrottle — rate-limiting sleep within configured bounds
 """
 
 from __future__ import annotations
@@ -85,17 +85,36 @@ class TestSessionConfigCDP:
           browser_channel enables CDP subprocess launch
     WHY: Cloudflare-protected sites require CDP mode to bypass
          automation detection flags
+
+    MOCK BOUNDARY:
+        Mock:  nothing — pure config construction
+        Real:  SessionConfig dataclass
+        Never: Patch SessionConfig internals
     """
 
     def test_browser_channel_defaults_to_none(self) -> None:
-        """Default config uses Playwright-managed mode."""
+        """
+        GIVEN a SessionConfig with no browser_channel specified
+        WHEN the config is created
+        THEN browser_channel defaults to None (Playwright-managed mode).
+        """
+        # Given/When: config with no channel
         config = SessionConfig(board_name="test")
-        assert config.browser_channel is None
+
+        # Then: defaults to None
+        assert config.browser_channel is None, "browser_channel should default to None"
 
     def test_browser_channel_set_to_msedge(self) -> None:
-        """Setting browser_channel enables CDP launch mode."""
+        """
+        GIVEN a SessionConfig with browser_channel='msedge'
+        WHEN the config is created
+        THEN browser_channel is set to 'msedge' (CDP launch mode).
+        """
+        # Given/When: config with msedge channel
         config = SessionConfig(board_name="test", browser_channel="msedge")
-        assert config.browser_channel == "msedge"
+
+        # Then: channel is preserved
+        assert config.browser_channel == "msedge", "browser_channel should be 'msedge'"
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -116,6 +135,14 @@ class TestSessionManagerCDP:
           channel is set
     WHY: Cloudflare detects Playwright's --enable-automation flag and
          navigator.webdriver — CDP mode bypasses both
+
+    MOCK BOUNDARY:
+        Mock:  subprocess.Popen (process I/O), urllib.request.urlopen
+               (CDP polling), async_playwright (browser API), shutil
+               (filesystem cleanup), tempfile (temp dir)
+        Real:  SessionManager.__aenter__/__aexit__, SessionConfig,
+               _find_browser_binary, new_page, save_storage_state
+        Never: Patch _find_browser_binary internals or config construction
     """
 
     @pytest.fixture()
@@ -136,7 +163,12 @@ class TestSessionManagerCDP:
     async def test_cdp_launches_subprocess_and_connects(
         self, cdp_config: SessionConfig, tmp_path: Path
     ) -> None:
-        """CDP mode launches browser via subprocess and connects over CDP."""
+        """
+        GIVEN a CDP config with a valid browser binary
+        WHEN SessionManager is entered
+        THEN the browser is launched via CDP and Playwright connects over CDP.
+        """
+        # Given: fake binary and mock Playwright
         fake_binary = tmp_path / "edge"
         fake_binary.touch()
 
@@ -158,13 +190,14 @@ class TestSessionManagerCDP:
             ),
             _patch_playwright(mock_pw),
         ):
+            # When: enter the session manager
             manager = SessionManager(cdp_config)
             await manager.__aenter__()
 
-            # Verify Playwright connected via CDP (not standard launch)
+            # Then: Playwright connected via CDP, not standard launch
             mock_pw.chromium.connect_over_cdp.assert_called_once()
             mock_pw.chromium.launch.assert_not_called()
-            # Verify initial blank page was closed
+            # Then: initial blank page was closed
             blank_page.close.assert_awaited_once()
 
             await manager.__aexit__(None, None, None)
@@ -172,7 +205,12 @@ class TestSessionManagerCDP:
     async def test_cdp_subprocess_receives_correct_flags(
         self, cdp_config: SessionConfig, tmp_path: Path
     ) -> None:
-        """The subprocess command includes --remote-debugging-port, --user-data-dir, --no-first-run."""
+        """
+        GIVEN a CDP config with headless=False
+        WHEN the browser subprocess is launched
+        THEN the command includes --remote-debugging-port, --user-data-dir, --no-first-run.
+        """
+        # Given: fake binary and mock Playwright
         fake_binary = tmp_path / "edge"
         fake_binary.touch()
 
@@ -192,20 +230,31 @@ class TestSessionManagerCDP:
             ),
             _patch_playwright(mock_pw),
         ):
+            # When: enter the session manager
             manager = SessionManager(cdp_config)
             await manager.__aenter__()
 
+            # Then: subprocess command has correct flags
             mock_popen.assert_called_once()
             cmd = mock_popen.call_args[0][0]
-            assert any("--remote-debugging-port=" in arg for arg in cmd)
-            assert any("--user-data-dir=" in arg for arg in cmd)
-            assert "--no-first-run" in cmd
-            assert "--headless=new" not in cmd  # headless=False
+            assert any(
+                "--remote-debugging-port=" in arg for arg in cmd
+            ), "Command should include --remote-debugging-port"
+            assert any(
+                "--user-data-dir=" in arg for arg in cmd
+            ), "Command should include --user-data-dir"
+            assert "--no-first-run" in cmd, "Command should include --no-first-run"
+            assert "--headless=new" not in cmd, "headless=False should not add --headless=new"
 
             await manager.__aexit__(None, None, None)
 
     async def test_cdp_headless_adds_headless_flag(self, tmp_path: Path) -> None:
-        """When headless=True + CDP, --headless=new is added to subprocess args."""
+        """
+        GIVEN a CDP config with headless=True
+        WHEN the browser subprocess is launched
+        THEN --headless=new is added to the subprocess args.
+        """
+        # Given: headless CDP config
         config = SessionConfig(
             board_name="test",
             headless=True,
@@ -230,20 +279,25 @@ class TestSessionManagerCDP:
             ),
             _patch_playwright(mock_pw),
         ):
+            # When: enter the session manager
             manager = SessionManager(config)
             await manager.__aenter__()
 
+            # Then: headless flag present
             cmd = mock_popen.call_args[0][0]
-            assert "--headless=new" in cmd
+            assert "--headless=new" in cmd, "headless=True should add --headless=new"
 
             await manager.__aexit__(None, None, None)
 
     async def test_binary_resolved_via_shutil_which_fallback(self, tmp_path: Path) -> None:
-        """If _BROWSER_PATHS has no match, shutil.which is used as fallback."""
-        # shutil.which returns a real-looking path; subprocess.Popen is
-        # the I/O boundary that actually launches the browser.
+        """
+        GIVEN no match in _BROWSER_PATHS for the channel
+        WHEN shutil.which finds the binary on PATH
+        THEN the which-resolved binary is used for the subprocess.
+        """
+        # Given: shutil.which returns a valid binary
         which_binary = str(tmp_path / "msedge")
-        Path(which_binary).touch()  # must exist for _find_browser_binary
+        Path(which_binary).touch()
 
         config = SessionConfig(
             board_name="test",
@@ -263,23 +317,31 @@ class TestSessionManagerCDP:
             ),
             _patch_playwright(mock_pw),
         ):
+            # When: enter the session manager
             manager = SessionManager(config)
             await manager.__aenter__()
 
-            # Verify the which-resolved binary was used in the Popen command
+            # Then: which-resolved binary was used
             cmd = mock_popen.call_args[0][0]
-            assert cmd[0] == which_binary
+            assert cmd[0] == which_binary, f"Expected binary '{which_binary}', got '{cmd[0]}'"
 
             await manager.__aexit__(None, None, None)
 
     async def test_standard_launch_when_no_channel(self, playwright_config: SessionConfig) -> None:
-        """Without browser_channel, standard Playwright launch is used."""
+        """
+        GIVEN a config with no browser_channel set
+        WHEN SessionManager is entered
+        THEN standard Playwright launch is used instead of CDP.
+        """
+        # Given: mock Playwright
         mock_pw = _mock_playwright(connect_over_cdp=True)
 
         with _patch_playwright(mock_pw):
+            # When: enter the session manager
             manager = SessionManager(playwright_config)
             await manager.__aenter__()
 
+            # Then: standard launch used, CDP not attempted
             mock_pw.chromium.launch.assert_called_once_with(headless=True)
             mock_pw.chromium.connect_over_cdp.assert_not_called()
 
@@ -288,7 +350,12 @@ class TestSessionManagerCDP:
     async def test_cdp_missing_binary_tells_operator_which_browser_to_install(
         self, cdp_config: SessionConfig
     ) -> None:
-        """A missing browser binary tells the operator which browser to install."""
+        """
+        GIVEN no browser binary found for the configured channel
+        WHEN SessionManager is entered
+        THEN an ActionableError tells the operator which browser to install.
+        """
+        # Given: no binary available
         mock_pw = _mock_playwright()
 
         with (
@@ -296,16 +363,24 @@ class TestSessionManagerCDP:
             patch("shutil.which", return_value=None),
             _patch_playwright(mock_pw),
         ):
+            # When/Then: entering raises ActionableError
             manager = SessionManager(cdp_config)
             with pytest.raises(ActionableError) as exc_info:
                 await manager.__aenter__()
+
+            # Then: error provides install guidance
             err = exc_info.value
-            assert "Could not find" in err.error
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert "Could not find" in err.error, "Error should say browser not found"
+            assert err.suggestion is not None, "Should include a suggestion"
+            assert err.troubleshooting is not None, "Should include troubleshooting"
 
     async def test_cdp_cleanup_terminates_subprocess(self, tmp_path: Path) -> None:
-        """Exiting the context manager sends SIGTERM to the CDP subprocess."""
+        """
+        GIVEN a running CDP subprocess
+        WHEN SessionManager __aexit__ is called
+        THEN SIGTERM is sent and the temp directory is cleaned up.
+        """
+        # Given: config and mock subprocess
         config = SessionConfig(
             board_name="test",
             headless=False,
@@ -340,16 +415,22 @@ class TestSessionManagerCDP:
             _patch_playwright(mock_pw),
             patch("jobsearch_rag.adapters.session.shutil.rmtree") as mock_rmtree,
         ):
+            # When: enter and exit the session manager
             manager = SessionManager(config)
             await manager.__aenter__()
             await manager.__aexit__(None, None, None)
 
-            # _terminate_process sends SIGTERM on running process
+            # Then: SIGTERM sent and temp dir cleaned
             mock_proc.send_signal.assert_called_once()
             mock_rmtree.assert_called_once_with(tmpdir, ignore_errors=True)
 
     async def test_cdp_cleanup_kills_on_sigterm_timeout(self, tmp_path: Path) -> None:
-        """If SIGTERM doesn't work, __aexit__ escalates to SIGKILL."""
+        """
+        GIVEN a CDP subprocess that doesn't respond to SIGTERM
+        WHEN __aexit__ is called and SIGTERM times out
+        THEN the process is escalated to SIGKILL.
+        """
+        # Given: config and mock subprocess that ignores SIGTERM
         config = SessionConfig(
             board_name="test",
             headless=False,
@@ -385,14 +466,21 @@ class TestSessionManagerCDP:
             _patch_playwright(mock_pw),
             patch("jobsearch_rag.adapters.session.shutil.rmtree"),
         ):
+            # When: enter and exit
             manager = SessionManager(config)
             await manager.__aenter__()
             await manager.__aexit__(None, None, None)
 
+            # Then: escalated to SIGKILL
             mock_proc.kill.assert_called_once()
 
     async def test_cdp_cleanup_noop_when_process_already_exited(self, tmp_path: Path) -> None:
-        """No signals sent if the browser subprocess already exited."""
+        """
+        GIVEN a CDP subprocess that has already exited
+        WHEN __aexit__ is called
+        THEN no signals are sent to the process.
+        """
+        # Given: config and mock subprocess that already exited
         config = SessionConfig(
             board_name="test",
             headless=False,
@@ -424,14 +512,21 @@ class TestSessionManagerCDP:
             _patch_playwright(mock_pw),
             patch("jobsearch_rag.adapters.session.shutil.rmtree"),
         ):
+            # When: enter and exit
             manager = SessionManager(config)
             await manager.__aenter__()
             await manager.__aexit__(None, None, None)
 
+            # Then: no signal sent to already-exited process
             mock_proc.send_signal.assert_not_called()
 
     async def test_cdp_timeout_raises_timeout_error(self, tmp_path: Path) -> None:
-        """When the CDP endpoint never responds, entering SessionManager raises TimeoutError."""
+        """
+        GIVEN a CDP endpoint that never responds
+        WHEN SessionManager is entered
+        THEN a TimeoutError is raised.
+        """
+        # Given: config and mock where CDP never starts
         config = SessionConfig(
             board_name="test",
             headless=False,
@@ -455,21 +550,78 @@ class TestSessionManagerCDP:
                 "jobsearch_rag.adapters.session.tempfile.mkdtemp",
                 return_value=tmpdir,
             ),
-            # _wait_for_cdp is an I/O boundary (network polling) — mock it to
-            # raise immediately rather than waiting 15 s for the real timeout.
+            # When: _wait_for_cdp times out
             patch(
                 "jobsearch_rag.adapters.session._wait_for_cdp",
                 side_effect=TimeoutError("CDP endpoint did not start"),
             ),
             _patch_playwright(mock_pw),
             patch("jobsearch_rag.adapters.session.shutil.rmtree"),
+            # Then: TimeoutError is raised
             pytest.raises(TimeoutError, match="did not start"),
         ):
             manager = SessionManager(config)
             await manager.__aenter__()
 
+    async def test_cdp_wait_retries_then_times_out(self, tmp_path: Path) -> None:
+        """
+        GIVEN a CDP endpoint that never becomes available
+        WHEN _wait_for_cdp retries and the deadline expires
+        THEN a TimeoutError is raised with the CDP URL in the message.
+        """
+        # Given: CDP config with urlopen always failing and a clock that
+        #        expires the deadline on the second poll
+        config = SessionConfig(
+            board_name="test",
+            headless=False,
+            browser_channel="msedge",
+        )
+        fake_binary = tmp_path / "edge"
+        fake_binary.touch()
+        tmpdir = str(tmp_path / "cdp_profile")
+        Path(tmpdir).mkdir()
+
+        mock_pw = _mock_playwright()
+
+        # Simulate a clock: first call sets deadline, second is within bounds
+        # (triggers sleep retry), third exceeds deadline (triggers timeout)
+        mock_loop = MagicMock()
+        mock_loop.time = MagicMock(side_effect=[0.0, 1.0, 100.0])
+
+        with (
+            patch(
+                "jobsearch_rag.adapters.session._BROWSER_PATHS",
+                {"msedge": [str(fake_binary)]},
+            ),
+            patch("shutil.which", return_value=None),
+            patch("jobsearch_rag.adapters.session.subprocess.Popen"),
+            patch(
+                "jobsearch_rag.adapters.session.tempfile.mkdtemp",
+                return_value=tmpdir,
+            ),
+            patch(
+                "jobsearch_rag.adapters.session.urllib.request.urlopen",
+                side_effect=OSError("Connection refused"),
+            ),
+            patch(
+                "jobsearch_rag.adapters.session.asyncio.get_event_loop",
+                return_value=mock_loop,
+            ),
+            patch(
+                "jobsearch_rag.adapters.session.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+            _patch_playwright(mock_pw),
+            patch("jobsearch_rag.adapters.session.shutil.rmtree"),
+            pytest.raises(TimeoutError, match="did not start"),
+        ):
+            # When: SessionManager enters and _wait_for_cdp runs for real
+            manager = SessionManager(config)
+            await manager.__aenter__()
+
     async def test_new_page_without_context_raises_runtime_error(self) -> None:
-        """GIVEN a SessionManager that has not been entered as a context manager
+        """
+        GIVEN a SessionManager that has not been entered as a context manager
         WHEN new_page is called
         THEN a RuntimeError is raised.
         """
@@ -479,7 +631,8 @@ class TestSessionManagerCDP:
             await manager.new_page()
 
     async def test_save_storage_state_without_context_raises_runtime_error(self) -> None:
-        """GIVEN a SessionManager that has not been entered as a context manager
+        """
+        GIVEN a SessionManager that has not been entered as a context manager
         WHEN save_storage_state is called
         THEN a RuntimeError is raised.
         """
@@ -489,7 +642,8 @@ class TestSessionManagerCDP:
             await manager.save_storage_state()
 
     async def test_save_storage_state_persists_cookies_to_disk(self, tmp_path: Path) -> None:
-        """GIVEN an active session with cookies
+        """
+        GIVEN an active session with cookies
         WHEN save_storage_state is called
         THEN cookies are written to the storage state path as JSON.
         """
@@ -512,7 +666,8 @@ class TestSessionManagerCDP:
             await manager.__aexit__(None, None, None)
 
     def test_has_storage_state_returns_true_when_file_exists(self, tmp_path: Path) -> None:
-        """GIVEN a persisted session file exists on disk
+        """
+        GIVEN a persisted session file exists on disk
         WHEN has_storage_state is called
         THEN it returns True.
         """
@@ -525,7 +680,8 @@ class TestSessionManagerCDP:
             assert manager.has_storage_state() is True
 
     def test_has_storage_state_returns_false_when_no_file(self) -> None:
-        """GIVEN no persisted session file exists
+        """
+        GIVEN no persisted session file exists
         WHEN has_storage_state is called
         THEN it returns False.
         """
@@ -534,7 +690,8 @@ class TestSessionManagerCDP:
         assert manager.has_storage_state() is False
 
     async def test_stealth_patches_applied_when_stealth_enabled(self, tmp_path: Path) -> None:
-        """GIVEN stealth mode is enabled in the config
+        """
+        GIVEN stealth mode is enabled in the config
         WHEN the session is entered
         THEN playwright-stealth patches are applied to the context.
         """
@@ -558,7 +715,8 @@ class TestSessionManagerCDP:
             await manager.__aexit__(None, None, None)
 
     async def test_stealth_import_error_logs_warning(self, tmp_path: Path) -> None:
-        """GIVEN stealth mode is enabled but playwright-stealth is not installed
+        """
+        GIVEN stealth mode is enabled but playwright-stealth is not installed
         WHEN the session is entered
         THEN the session still starts and a warning is logged.
         """
@@ -582,7 +740,8 @@ class TestSessionManagerCDP:
             await manager.__aexit__(None, None, None)
 
     async def test_new_page_returns_page_when_context_active(self) -> None:
-        """GIVEN a SessionManager that has been entered as a context manager
+        """
+        GIVEN a SessionManager that has been entered as a context manager
         WHEN new_page is called
         THEN a new page is returned from the browser context.
         """
@@ -601,18 +760,41 @@ class TestSessionManagerCDP:
 
 
 class TestSessionManagerEdgeCases:
-    """Additional coverage for SessionManager edge cases."""
+    """REQUIREMENT: SessionManager handles edge cases gracefully.
+
+    WHO: The pipeline runner encountering unusual states
+    WHAT: Uninitialised manager __aexit__ is a no-op; missing first
+          binary path is skipped in favor of the next valid one
+    WHY: Graceful degradation prevents crashes from unusual but
+         possible runtime states
+
+    MOCK BOUNDARY:
+        Mock:  subprocess.Popen (process I/O), urllib (CDP polling),
+               async_playwright (browser API), tempfile/shutil (filesystem)
+        Real:  SessionManager.__aenter__/__aexit__, _find_browser_binary
+        Never: Patch binary resolution logic directly
+    """
 
     async def test_aexit_on_uninitialised_manager_is_noop(self) -> None:
-        """__aexit__ on a SessionManager that was never entered does not raise."""
+        """
+        GIVEN a SessionManager that was never entered
+        WHEN __aexit__ is called
+        THEN no error is raised (graceful no-op).
+        """
+        # Given: uninitialised manager
         config = SessionConfig(board_name="test", headless=True)
         manager = SessionManager(config)
-        # context, browser, playwright are all None
+
+        # When/Then: __aexit__ is a no-op
         await manager.__aexit__(None, None, None)
 
     async def test_cdp_skips_nonexistent_binary_and_uses_next(self, tmp_path: Path) -> None:
-        """When the first known path doesn't exist, __aenter__ skips it
-        and launches the CDP subprocess with the next valid binary."""
+        """
+        GIVEN _BROWSER_PATHS with a non-existent first path and a valid second
+        WHEN SessionManager is entered
+        THEN the non-existent path is skipped and the second binary is used.
+        """
+        # Given: second binary exists, first does not
         second = tmp_path / "edge-second"
         second.touch()
 
@@ -632,6 +814,7 @@ class TestSessionManagerEdgeCases:
             ),
             _patch_playwright(mock_pw),
         ):
+            # When: enter the session manager
             config = SessionConfig(
                 board_name="test",
                 headless=False,
@@ -640,9 +823,9 @@ class TestSessionManagerEdgeCases:
             manager = SessionManager(config)
             await manager.__aenter__()
 
-            # The Popen command should use the second binary
+            # Then: second binary was used
             cmd = mock_popen.call_args[0][0]
-            assert cmd[0] == str(second)
+            assert cmd[0] == str(second), f"Expected '{second}', got '{cmd[0]}'"
 
             await manager.__aexit__(None, None, None)
 
@@ -653,10 +836,16 @@ class TestThrottle:
     WHO: The pipeline runner calling throttle between requests
     WHAT: throttle sleeps for a duration between the adapter's rate_limit_seconds bounds
     WHY: Without throttling, rapid requests trigger anti-bot protections
+
+    MOCK BOUNDARY:
+        Mock:  asyncio.sleep (time I/O)
+        Real:  throttle, random duration calculation
+        Never: Patch random.uniform directly
     """
 
     async def test_throttle_sleeps_within_rate_limit_bounds(self) -> None:
-        """GIVEN an adapter with rate_limit_seconds = (0.5, 1.0)
+        """
+        GIVEN an adapter with rate_limit_seconds = (0.5, 1.0)
         WHEN throttle is called
         THEN asyncio.sleep is called with a duration between 0.5 and 1.0.
         """

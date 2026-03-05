@@ -2,6 +2,13 @@
 
 Maps to BDD specs: TestCollectionLifecycle, TestDocumentOperations,
 TestSimilarityQuery, TestStoreErrors
+
+Spec classes:
+    TestCollectionLifecycle
+    TestDocumentOperations
+    TestSimilarityQuery
+    TestStoreErrors
+    TestMetadataQuery
 """
 
 from __future__ import annotations
@@ -80,36 +87,85 @@ class TestCollectionLifecycle:
           reflects the current state accurately
     WHY: Stale or phantom collections lead to scoring against outdated data —
          a silent correctness bug that's hard to diagnose
+
+    MOCK BOUNDARY:
+        Mock: nothing — uses real ChromaDB via tmpdir
+        Real: VectorStore, get_or_create_collection, reset_collection, collection_count
+        Never: Patch ChromaDB internals
     """
 
     def test_get_or_create_returns_collection(self, store: VectorStore) -> None:
-        """A new collection is created on first call to get_or_create_collection."""
+        """
+        GIVEN an empty store
+        WHEN get_or_create_collection is called
+        THEN a new collection is created and returned.
+        """
+        # When: create a collection
         collection = store.get_or_create_collection("new_collection")
-        assert collection is not None
+
+        # Then: collection is returned
+        assert collection is not None, "Should return a usable collection"
 
     def test_get_or_create_is_idempotent(self, store: VectorStore) -> None:
-        """Calling get_or_create_collection twice returns the same collection, not a duplicate."""
+        """
+        GIVEN a collection already created
+        WHEN get_or_create_collection is called again with the same name
+        THEN the same collection is returned, not a duplicate.
+        """
+        # Given: first creation
         c1 = store.get_or_create_collection("same_name")
+
+        # When: second creation with same name
         c2 = store.get_or_create_collection("same_name")
-        assert c1.name == c2.name
+
+        # Then: same collection returned
+        assert c1.name == c2.name, "Should return the same collection, not a duplicate"
 
     def test_new_collection_has_zero_documents(self, store: VectorStore) -> None:
-        """A freshly created collection has a document count of zero."""
+        """
+        GIVEN a freshly created collection
+        WHEN collection_count is checked
+        THEN the document count is zero.
+        """
+        # Given: new collection
         store.get_or_create_collection("empty")
-        assert store.collection_count("empty") == 0
+
+        # Then: count is zero
+        assert store.collection_count("empty") == 0, "New collection should have zero documents"
 
     def test_collection_count_reflects_added_documents(self, populated_store: VectorStore) -> None:
-        """Document count matches the number of documents added."""
-        assert populated_store.collection_count("test_collection") == 3
+        """
+        GIVEN a collection with 3 documents added
+        WHEN collection_count is checked
+        THEN it returns 3.
+        """
+        # Then: count matches added documents
+        assert (
+            populated_store.collection_count("test_collection") == 3
+        ), "Count should match number of added documents"
 
     def test_reset_drops_all_documents(self, populated_store: VectorStore) -> None:
-        """Resetting a collection drops all its documents, returning count to zero."""
+        """
+        GIVEN a populated collection
+        WHEN reset_collection is called
+        THEN all documents are dropped and count returns to zero.
+        """
+        # When: reset the collection
         populated_store.reset_collection("test_collection")
-        assert populated_store.collection_count("test_collection") == 0
+
+        # Then: count is zero
+        assert (
+            populated_store.collection_count("test_collection") == 0
+        ), "Reset should drop all documents"
 
     def test_reset_nonexistent_collection_does_not_raise(self, store: VectorStore) -> None:
-        """Resetting a collection that doesn't exist is a safe no-op."""
-        store.reset_collection("never_existed")  # Should not raise
+        """
+        GIVEN a collection name that doesn't exist
+        WHEN reset_collection is called
+        THEN it is a safe no-op — no exception is raised.
+        """
+        # When/Then: reset non-existent collection (should not raise)
+        store.reset_collection("never_existed")
 
 
 # ---------------------------------------------------------------------------
@@ -126,21 +182,49 @@ class TestDocumentOperations:
           is preserved and queryable
     WHY: Duplicate documents inflate similarity results; lost metadata
          prevents score explanation and debugging
+
+    MOCK BOUNDARY:
+        Mock: nothing — uses real ChromaDB via tmpdir
+        Real: VectorStore.add_documents, get_documents, collection_count
+        Never: Patch ChromaDB internals or embedding storage
     """
 
     def test_documents_are_retrievable_by_id(self, populated_store: VectorStore) -> None:
-        """Documents added to a collection can be retrieved by their IDs."""
+        """
+        GIVEN a populated collection
+        WHEN get_documents is called with a specific ID
+        THEN the matching document is returned.
+        """
+        # When: retrieve by ID
         result = populated_store.get_documents("test_collection", ids=["doc-1"])
-        assert len(result["documents"]) == 1
-        assert "Staff Platform Architect" in result["documents"][0]
+
+        # Then: document is returned
+        assert len(result["documents"]) == 1, "Should return exactly one document"
+        assert (
+            "Staff Platform Architect" in result["documents"][0]
+        ), "Returned document should match the original"
 
     def test_metadata_is_preserved(self, populated_store: VectorStore) -> None:
-        """Metadata attached to a document is preserved and retrievable."""
+        """
+        GIVEN a document added with metadata
+        WHEN retrieved by ID
+        THEN the metadata is preserved and correct.
+        """
+        # When: retrieve document
         result = populated_store.get_documents("test_collection", ids=["doc-3"])
-        assert result["metadatas"][0]["section"] == "skills"
+
+        # Then: metadata preserved
+        assert (
+            result["metadatas"][0]["section"] == "skills"
+        ), "Metadata should be preserved on retrieval"
 
     def test_add_with_duplicate_id_updates_document(self, populated_store: VectorStore) -> None:
-        """Adding a document with an existing ID updates it rather than creating a duplicate."""
+        """
+        GIVEN a document already in the collection
+        WHEN add_documents is called with the same ID
+        THEN it updates rather than creating a duplicate.
+        """
+        # When: add with existing ID
         populated_store.add_documents(
             collection_name="test_collection",
             ids=["doc-1"],
@@ -148,14 +232,23 @@ class TestDocumentOperations:
             embeddings=[EMBED_1],
             metadatas=[{"source": "resume", "section": "updated"}],
         )
-        assert populated_store.collection_count("test_collection") == 3
+
+        # Then: count unchanged, document updated
+        assert (
+            populated_store.collection_count("test_collection") == 3
+        ), "Duplicate ID should update, not append"
         result = populated_store.get_documents("test_collection", ids=["doc-1"])
-        assert "Updated" in result["documents"][0]
+        assert "Updated" in result["documents"][0], "Document text should be updated"
 
     def test_add_documents_with_mismatched_lengths_names_the_mismatch(
         self, store: VectorStore
     ) -> None:
-        """Mismatched lengths produce a VALIDATION error naming the mismatch so the caller can fix it."""
+        """
+        GIVEN mismatched lengths between IDs and documents
+        WHEN add_documents is called
+        THEN a VALIDATION error is raised naming the mismatch.
+        """
+        # When/Then: mismatched lengths raise ActionableError
         with pytest.raises(ActionableError) as exc_info:
             store.add_documents(
                 collection_name="test_collection",
@@ -163,10 +256,12 @@ class TestDocumentOperations:
                 documents=["one", "two"],  # 2 docs but only 1 id
                 embeddings=[EMBED_1, EMBED_2],
             )
+
+        # Then: error is VALIDATION with guidance
         err = exc_info.value
-        assert err.error_type == ErrorType.VALIDATION
-        assert err.suggestion is not None
-        assert err.troubleshooting is not None
+        assert err.error_type == ErrorType.VALIDATION, "Error type should be VALIDATION"
+        assert err.suggestion is not None, "Should include a suggestion"
+        assert err.troubleshooting is not None, "Should include troubleshooting"
 
 
 # ---------------------------------------------------------------------------
@@ -184,57 +279,98 @@ class TestSimilarityQuery:
           empty collection returns an empty result
     WHY: Incorrect similarity ordering would silently invert job rankings —
          the most dangerous class of bug in the system
+
+    MOCK BOUNDARY:
+        Mock: nothing — uses real ChromaDB via tmpdir
+        Real: VectorStore.query, similarity ranking, distance computation
+        Never: Patch ChromaDB query internals or distance functions
     """
 
     def test_query_returns_most_similar_document_first(self, populated_store: VectorStore) -> None:
-        """Querying with architect-like vector returns the architect document first."""
+        """
+        GIVEN a populated collection with directional embeddings
+        WHEN querying with an architect-like vector
+        THEN the architect document is returned first.
+        """
+        # When: query with architect-direction vector
         results = populated_store.query(
             collection_name="test_collection",
-            query_embedding=EMBED_1,  # architect direction
+            query_embedding=EMBED_1,
             n_results=3,
         )
-        # doc-1 (architect) should be most similar to EMBED_1
-        assert results["ids"][0][0] == "doc-1"
+
+        # Then: doc-1 (architect) is most similar
+        assert results["ids"][0][0] == "doc-1", "Architect document should be most similar"
 
     def test_query_returns_similarity_distances(self, populated_store: VectorStore) -> None:
-        """Query results include distance scores as a list of floats."""
+        """
+        GIVEN a populated collection
+        WHEN a similarity query is run
+        THEN results include distance scores as a list of floats.
+        """
+        # When: query
         results = populated_store.query(
             collection_name="test_collection",
             query_embedding=EMBED_1,
             n_results=2,
         )
+
+        # Then: distances are floats
         distances = results["distances"][0]
-        assert len(distances) == 2
-        assert all(isinstance(d, float) for d in distances)
+        assert len(distances) == 2, "Should return 2 distance values"
+        assert all(isinstance(d, float) for d in distances), "Distances should be floats"
 
     def test_n_results_limits_output(self, populated_store: VectorStore) -> None:
-        """Requesting fewer results than available limits the output correctly."""
+        """
+        GIVEN a collection with 3 documents
+        WHEN querying with n_results=1
+        THEN only 1 result is returned.
+        """
+        # When: query with limit
         results = populated_store.query(
             collection_name="test_collection",
             query_embedding=EMBED_1,
             n_results=1,
         )
-        assert len(results["ids"][0]) == 1
+
+        # Then: exactly 1 result
+        assert len(results["ids"][0]) == 1, "Should return exactly 1 result"
 
     def test_query_empty_collection_returns_empty(self, store: VectorStore) -> None:
-        """Querying an empty collection returns an empty result, not an error."""
+        """
+        GIVEN an empty collection
+        WHEN a similarity query is run
+        THEN an empty result is returned, not an error.
+        """
+        # Given: empty collection
         store.get_or_create_collection("empty")
+
+        # When: query empty collection
         results = store.query(
             collection_name="empty",
             query_embedding=EMBED_1,
             n_results=5,
         )
-        assert results["ids"][0] == []
+
+        # Then: empty results
+        assert results["ids"][0] == [], "Empty collection should return empty results"
 
     def test_query_includes_document_text_and_metadata(self, populated_store: VectorStore) -> None:
-        """Query results include the original document text and metadata."""
+        """
+        GIVEN a populated collection
+        WHEN a similarity query is run
+        THEN results include the original document text and metadata.
+        """
+        # When: query
         results = populated_store.query(
             collection_name="test_collection",
             query_embedding=EMBED_1,
             n_results=1,
         )
-        assert results["documents"][0][0] is not None
-        assert results["metadatas"][0][0] is not None
+
+        # Then: document and metadata present
+        assert results["documents"][0][0] is not None, "Document text should be included"
+        assert results["metadatas"][0][0] is not None, "Metadata should be included"
 
 
 # ---------------------------------------------------------------------------
@@ -251,56 +387,89 @@ class TestStoreErrors:
           raises a CONFIG error
     WHY: Generic exceptions force operators to read stack traces —
          actionable errors tell them exactly what to fix
+
+    MOCK BOUNDARY:
+        Mock: nothing — uses real ChromaDB via tmpdir
+        Real: VectorStore error paths, ActionableError classification
+        Never: Patch error construction or ErrorType enum
     """
 
     def test_query_nonexistent_collection_tells_operator_to_run_index(
         self, store: VectorStore
     ) -> None:
-        """Querying a nonexistent collection tells the operator to run the index command."""
+        """
+        GIVEN a collection that doesn't exist
+        WHEN query is called
+        THEN an INDEX error is raised telling the operator to run the index command.
+        """
+        # When/Then: query nonexistent collection raises ActionableError
         with pytest.raises(ActionableError) as exc_info:
             store.query(
                 collection_name="nonexistent",
                 query_embedding=EMBED_1,
                 n_results=5,
             )
+
+        # Then: error is INDEX with guidance
         err = exc_info.value
-        assert err.error_type == ErrorType.INDEX
-        assert err.suggestion is not None
-        assert err.troubleshooting is not None
-        assert len(err.troubleshooting.steps) > 0
+        assert err.error_type == ErrorType.INDEX, "Error type should be INDEX"
+        assert err.suggestion is not None, "Should include a suggestion"
+        assert err.troubleshooting is not None, "Should include troubleshooting"
+        assert len(err.troubleshooting.steps) > 0, "Troubleshooting should have steps"
 
     def test_index_error_names_collection_and_provides_guidance(self, store: VectorStore) -> None:
-        """The INDEX error names the collection and provides step-by-step guidance."""
+        """
+        GIVEN a nonexistent collection
+        WHEN query is called
+        THEN the INDEX error names the collection and provides step-by-step guidance.
+        """
+        # When/Then: query nonexistent collection
         with pytest.raises(ActionableError) as exc_info:
             store.query(
                 collection_name="nonexistent",
                 query_embedding=EMBED_1,
                 n_results=5,
             )
+
+        # Then: error names the collection
         err = exc_info.value
-        assert "nonexistent" in err.error
-        assert err.suggestion is not None
-        assert err.troubleshooting is not None
+        assert "nonexistent" in err.error, "Error should name the collection"
+        assert err.suggestion is not None, "Should include a suggestion"
+        assert err.troubleshooting is not None, "Should include troubleshooting"
 
     def test_get_documents_nonexistent_collection_provides_guidance(
         self, store: VectorStore
     ) -> None:
-        """Getting documents from a nonexistent collection provides actionable guidance."""
+        """
+        GIVEN a nonexistent collection
+        WHEN get_documents is called
+        THEN an INDEX error is raised with actionable guidance.
+        """
+        # When/Then: get from nonexistent collection
         with pytest.raises(ActionableError) as exc_info:
             store.get_documents("nonexistent", ids=["doc-1"])
+
+        # Then: error is INDEX with guidance
         err = exc_info.value
-        assert err.error_type == ErrorType.INDEX
-        assert err.suggestion is not None
-        assert err.troubleshooting is not None
+        assert err.error_type == ErrorType.INDEX, "Error type should be INDEX"
+        assert err.suggestion is not None, "Should include a suggestion"
+        assert err.troubleshooting is not None, "Should include troubleshooting"
 
     def test_collection_count_nonexistent_provides_guidance(self, store: VectorStore) -> None:
-        """Checking count of a nonexistent collection provides actionable guidance."""
+        """
+        GIVEN a nonexistent collection
+        WHEN collection_count is called
+        THEN an INDEX error is raised with actionable guidance.
+        """
+        # When/Then: count nonexistent collection
         with pytest.raises(ActionableError) as exc_info:
             store.collection_count("nonexistent")
+
+        # Then: error is INDEX with guidance
         err = exc_info.value
-        assert err.error_type == ErrorType.INDEX
-        assert err.suggestion is not None
-        assert err.troubleshooting is not None
+        assert err.error_type == ErrorType.INDEX, "Error type should be INDEX"
+        assert err.suggestion is not None, "Should include a suggestion"
+        assert err.troubleshooting is not None, "Should include troubleshooting"
 
 
 # ---------------------------------------------------------------------------
@@ -316,16 +485,22 @@ class TestMetadataQuery:
           nonexistent collections raise an actionable INDEX error
     WHY: The disqualifier prompt needs past 'no' reasons to learn the operator's
          personal rejection patterns — metadata queries make this possible
+
+    MOCK BOUNDARY:
+        Mock: nothing — uses real ChromaDB via tmpdir
+        Real: VectorStore.get_by_metadata, add_documents, metadata filtering
+        Never: Patch ChromaDB metadata internals
     """
 
     def test_get_by_metadata_returns_matching_documents(
         self, populated_store: VectorStore
     ) -> None:
-        """GIVEN a collection with mixed metadata values
+        """
+        GIVEN a collection with mixed metadata values
         WHEN get_by_metadata filters on a specific value
         THEN only matching documents are returned.
         """
-        # Add documents with different verdict metadata
+        # Given: documents with different verdict metadata
         populated_store.add_documents(
             collection_name="decisions",
             ids=["decision-1", "decision-2", "decision-3"],
@@ -337,23 +512,29 @@ class TestMetadataQuery:
                 {"verdict": "no", "reason": "fully on-site"},
             ],
         )
+
+        # When: filter by verdict=no
         results = populated_store.get_by_metadata(
             "decisions",
             where={"verdict": "no"},
             include=["metadatas"],
         )
-        assert len(results["ids"]) == 2
+
+        # Then: only 'no' verdicts returned
+        assert len(results["ids"]) == 2, "Should return 2 matching documents"
         reasons = [m["reason"] for m in results["metadatas"]]
-        assert "on-call required" in reasons
-        assert "fully on-site" in reasons
+        assert "on-call required" in reasons, "First reason should match"
+        assert "fully on-site" in reasons, "Second reason should match"
 
     def test_get_by_metadata_returns_empty_when_no_match(
         self, populated_store: VectorStore
     ) -> None:
-        """GIVEN a collection with documents
+        """
+        GIVEN a collection with documents
         WHEN get_by_metadata filters on a value that matches nothing
         THEN an empty result is returned.
         """
+        # Given: a collection with only 'yes' verdicts
         populated_store.add_documents(
             collection_name="decisions",
             ids=["decision-only-yes"],
@@ -361,22 +542,33 @@ class TestMetadataQuery:
             embeddings=[EMBED_1],
             metadatas=[{"verdict": "yes", "reason": ""}],
         )
+
+        # When: filter by verdict=no
         results = populated_store.get_by_metadata(
             "decisions",
             where={"verdict": "no"},
             include=["metadatas"],
         )
-        assert len(results["ids"]) == 0
+
+        # Then: no documents match
+        assert len(results["ids"]) == 0, "Should return no matching documents"
 
     def test_get_by_metadata_nonexistent_collection_raises_index_error(
         self, store: VectorStore
     ) -> None:
-        """Querying metadata on a nonexistent collection raises an actionable INDEX error."""
+        """
+        GIVEN a nonexistent collection
+        WHEN get_by_metadata is called
+        THEN an actionable INDEX error is raised.
+        """
+        # When/Then: metadata query on nonexistent collection
         with pytest.raises(ActionableError) as exc_info:
             store.get_by_metadata(
                 "nonexistent_collection",
                 where={"verdict": "no"},
             )
+
+        # Then: error is INDEX with suggestion
         err = exc_info.value
-        assert err.error_type == ErrorType.INDEX
-        assert err.suggestion is not None
+        assert err.error_type == ErrorType.INDEX, "Error type should be INDEX"
+        assert err.suggestion is not None, "Should include a suggestion"

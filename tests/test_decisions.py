@@ -1,6 +1,9 @@
 """Decision history tests.
 
 Maps to BDD spec: TestDecisionRecording
+
+Spec classes:
+    TestDecisionRecording
 """
 
 from __future__ import annotations
@@ -61,12 +64,22 @@ class TestDecisionRecording:
     WHY: If 'no' decisions contributed to scoring, roles similar to rejected ones
          would score lower — but the signal we want is 'what did I like',
          not 'what did I reject' (rejections have too many confounding reasons)
+
+    MOCK BOUNDARY:
+        Mock: Embedder.embed (Ollama API call), VectorStore in edge-case tests (ChromaDB)
+        Real: DecisionRecorder, VectorStore (via tmpdir for main tests), JSONL file I/O
+        Never: Patch DecisionRecorder internals or verdict classification logic
     """
 
     async def test_yes_verdict_is_stored_in_history_collection(
         self, recorder: DecisionRecorder
     ) -> None:
-        """A 'yes' verdict is persisted and becomes part of the history signal for future scoring."""
+        """
+        GIVEN a recorder with an empty history
+        WHEN a 'yes' verdict is recorded
+        THEN the decision is persisted and becomes part of the history signal for future scoring.
+        """
+        # When: record a yes verdict
         await recorder.record(
             job_id="zr-123",
             verdict="yes",
@@ -75,13 +88,20 @@ class TestDecisionRecording:
             title="Staff Architect",
             company="Acme",
         )
+
+        # Then: decision is retrievable with correct verdict and scoring flag
         decision = recorder.get_decision("zr-123")
-        assert decision is not None
-        assert decision["verdict"] == "yes"
-        assert decision["scoring_signal"] == "true"
+        assert decision is not None, "Decision should be retrievable after recording"
+        assert decision["verdict"] == "yes", "Verdict should be stored as 'yes'"
+        assert decision["scoring_signal"] == "true", "Yes verdict should contribute to scoring"
 
     async def test_reason_is_stored_in_chromadb_metadata(self, recorder: DecisionRecorder) -> None:
-        """An optional reason is persisted alongside the verdict so the operator's reasoning is preserved."""
+        """
+        GIVEN a verdict with an explicit reason
+        WHEN the decision is recorded
+        THEN the reason is persisted alongside the verdict so the operator's reasoning is preserved.
+        """
+        # When: record a verdict with a reason
         await recorder.record(
             job_id="zr-reason",
             verdict="no",
@@ -91,12 +111,21 @@ class TestDecisionRecording:
             company="OnSite Corp",
             reason="Requires on-site 5 days/week, no remote option",
         )
+
+        # Then: reason is preserved in the decision metadata
         decision = recorder.get_decision("zr-reason")
-        assert decision is not None
-        assert decision["reason"] == "Requires on-site 5 days/week, no remote option"
+        assert decision is not None, "Decision should be retrievable after recording"
+        assert (
+            decision["reason"] == "Requires on-site 5 days/week, no remote option"
+        ), "Reason should be stored verbatim"
 
     async def test_empty_reason_stored_when_not_provided(self, recorder: DecisionRecorder) -> None:
-        """When no reason is given, an empty string is stored — the field is always present."""
+        """
+        GIVEN a verdict with no reason provided
+        WHEN the decision is recorded
+        THEN an empty string is stored — the field is always present.
+        """
+        # When: record a verdict without a reason
         await recorder.record(
             job_id="zr-noreason",
             verdict="yes",
@@ -105,19 +134,25 @@ class TestDecisionRecording:
             title="Staff Architect",
             company="Remote Co",
         )
+
+        # Then: reason field contains empty string
         decision = recorder.get_decision("zr-noreason")
-        assert decision is not None
-        assert decision["reason"] == ""
+        assert decision is not None, "Decision should be retrievable after recording"
+        assert decision["reason"] == "", "Reason should default to empty string when not provided"
 
     async def test_reason_enriches_embedding_vector(
         self, recorder: DecisionRecorder, mock_embedder: Embedder
     ) -> None:
-        """GIVEN a verdict with a reason
+        """
+        GIVEN a verdict with a reason
         WHEN the decision is recorded
         THEN the embedder receives JD text + reason so the vector captures operator intent.
         """
+        # Given: a JD and an explicit reason
         jd = "Staff Platform Architect role at Acme Corp."
         reason = "Fully remote with architecture leadership"
+
+        # When: record is called with both
         await recorder.record(
             job_id="zr-enrich",
             verdict="yes",
@@ -125,6 +160,8 @@ class TestDecisionRecording:
             board="ziprecruiter",
             reason=reason,
         )
+
+        # Then: embedder receives enriched text
         mock_embedder.embed.assert_called_once_with(  # type: ignore[attr-defined]
             f"{jd}\n\nOperator reasoning: {reason}"
         )
@@ -132,23 +169,34 @@ class TestDecisionRecording:
     async def test_empty_reason_does_not_enrich_embedding(
         self, recorder: DecisionRecorder, mock_embedder: Embedder
     ) -> None:
-        """GIVEN a verdict with no reason
+        """
+        GIVEN a verdict with no reason
         WHEN the decision is recorded
         THEN the embedder receives only the bare JD text — no enrichment suffix.
         """
+        # Given: a JD with no reason
         jd = "Staff Platform Architect role at Acme Corp."
+
+        # When: record is called without a reason
         await recorder.record(
             job_id="zr-bare",
             verdict="yes",
             jd_text=jd,
             board="ziprecruiter",
         )
+
+        # Then: embedder receives bare JD text only
         mock_embedder.embed.assert_called_once_with(jd)  # type: ignore[attr-defined]
 
     async def test_no_verdict_is_stored_but_excluded_from_scoring_signal(
         self, recorder: DecisionRecorder
     ) -> None:
-        """A 'no' verdict is recorded for audit but does not influence history_score — rejections have confounding reasons."""
+        """
+        GIVEN a 'no' verdict
+        WHEN the decision is recorded
+        THEN it is stored for audit but excluded from history_score — rejections have confounding reasons.
+        """
+        # When: record a 'no' verdict
         await recorder.record(
             job_id="zr-456",
             verdict="no",
@@ -157,15 +205,22 @@ class TestDecisionRecording:
             title="SRE",
             company="Other Co",
         )
+
+        # Then: decision stored with scoring_signal=false
         decision = recorder.get_decision("zr-456")
-        assert decision is not None
-        assert decision["verdict"] == "no"
-        assert decision["scoring_signal"] == "false"
+        assert decision is not None, "Decision should be retrievable after recording"
+        assert decision["verdict"] == "no", "Verdict should be stored as 'no'"
+        assert decision["scoring_signal"] == "false", "No verdict should be excluded from scoring"
 
     async def test_maybe_verdict_is_stored_but_excluded_from_scoring_signal(
         self, recorder: DecisionRecorder
     ) -> None:
-        """A 'maybe' verdict is recorded but excluded from scoring — only clear 'yes' signals are useful."""
+        """
+        GIVEN a 'maybe' verdict
+        WHEN the decision is recorded
+        THEN it is stored but excluded from scoring — only clear 'yes' signals are useful.
+        """
+        # When: record a 'maybe' verdict
         await recorder.record(
             job_id="zr-789",
             verdict="maybe",
@@ -174,15 +229,24 @@ class TestDecisionRecording:
             title="Ambiguous Role",
             company="Maybe Co",
         )
+
+        # Then: decision stored with scoring_signal=false
         decision = recorder.get_decision("zr-789")
-        assert decision is not None
-        assert decision["verdict"] == "maybe"
-        assert decision["scoring_signal"] == "false"
+        assert decision is not None, "Decision should be retrievable after recording"
+        assert decision["verdict"] == "maybe", "Verdict should be stored as 'maybe'"
+        assert (
+            decision["scoring_signal"] == "false"
+        ), "Maybe verdict should be excluded from scoring"
 
     async def test_unknown_job_id_names_the_id_and_suggests_checking_latest_output(
         self, recorder: DecisionRecorder
     ) -> None:
-        """An invalid verdict names the ID and suggests checking the latest output."""
+        """
+        GIVEN an invalid verdict value
+        WHEN the decision is recorded
+        THEN a DECISION error is raised naming the ID and suggesting the operator check the latest output.
+        """
+        # When/Then: invalid verdict raises ActionableError
         with pytest.raises(ActionableError) as exc_info:
             await recorder.record(
                 job_id="zr-000",
@@ -190,36 +254,59 @@ class TestDecisionRecording:
                 jd_text="Some text.",
                 board="test",
             )
+
+        # Then: error contains actionable guidance
         err = exc_info.value
-        assert err.error_type == ErrorType.DECISION
-        assert err.suggestion is not None
-        assert err.troubleshooting is not None
+        assert err.error_type == ErrorType.DECISION, "Error type should be DECISION"
+        assert err.suggestion is not None, "Error should include a suggestion"
+        assert err.troubleshooting is not None, "Error should include troubleshooting steps"
 
     async def test_history_collection_count_increases_after_each_decision(
         self, recorder: DecisionRecorder
     ) -> None:
-        """Each new decision adds one document to the history collection, growing the signal over time."""
+        """
+        GIVEN an empty history collection
+        WHEN decisions are recorded
+        THEN the history count increases by one for each decision.
+        """
+        # Given: initial count
         initial = recorder.history_count()
+
+        # When: first decision recorded
         await recorder.record(
             job_id="job-a",
             verdict="yes",
             jd_text="First role description.",
             board="test",
         )
-        assert recorder.history_count() == initial + 1
 
+        # Then: count increased by 1
+        assert (
+            recorder.history_count() == initial + 1
+        ), "Count should increase by 1 after first decision"
+
+        # When: second decision recorded
         await recorder.record(
             job_id="job-b",
             verdict="no",
             jd_text="Second role description.",
             board="test",
         )
-        assert recorder.history_count() == initial + 2
+
+        # Then: count increased by 2 total
+        assert (
+            recorder.history_count() == initial + 2
+        ), "Count should increase by 2 after second decision"
 
     async def test_duplicate_decision_on_same_job_id_overwrites_not_appends(
         self, recorder: DecisionRecorder
     ) -> None:
-        """Changing a verdict on the same job replaces the previous decision rather than duplicating it."""
+        """
+        GIVEN a decision already recorded for a job_id
+        WHEN the same job_id is recorded again with a different verdict
+        THEN the previous decision is overwritten rather than duplicated.
+        """
+        # Given: initial decision recorded
         await recorder.record(
             job_id="zr-dup",
             verdict="maybe",
@@ -228,23 +315,31 @@ class TestDecisionRecording:
         )
         count_after_first = recorder.history_count()
 
-        # Change verdict — should overwrite, not append
+        # When: same job_id recorded with different verdict
         await recorder.record(
             job_id="zr-dup",
             verdict="yes",
             jd_text="A role I was unsure about.",
             board="ziprecruiter",
         )
-        assert recorder.history_count() == count_after_first  # no increase
 
+        # Then: count unchanged and verdict updated
+        assert (
+            recorder.history_count() == count_after_first
+        ), "Duplicate should overwrite, not append"
         decision = recorder.get_decision("zr-dup")
-        assert decision is not None
-        assert decision["verdict"] == "yes"
+        assert decision is not None, "Decision should still be retrievable"
+        assert decision["verdict"] == "yes", "Verdict should be updated to 'yes'"
 
     async def test_empty_jd_text_tells_operator_to_provide_content(
         self, recorder: DecisionRecorder
     ) -> None:
-        """Empty JD text produces a VALIDATION error telling the operator to provide content."""
+        """
+        GIVEN a verdict with whitespace-only JD text
+        WHEN the decision is recorded
+        THEN a VALIDATION error is raised telling the operator to provide content.
+        """
+        # When/Then: empty JD text raises ActionableError
         with pytest.raises(ActionableError) as exc_info:
             await recorder.record(
                 job_id="zr-empty",
@@ -252,21 +347,30 @@ class TestDecisionRecording:
                 jd_text="   ",
                 board="ziprecruiter",
             )
+
+        # Then: error is VALIDATION with actionable guidance
         err = exc_info.value
-        assert err.error_type == ErrorType.VALIDATION
-        assert err.suggestion is not None
-        assert err.troubleshooting is not None
+        assert err.error_type == ErrorType.VALIDATION, "Error type should be VALIDATION"
+        assert err.suggestion is not None, "Error should include a suggestion"
+        assert err.troubleshooting is not None, "Error should include troubleshooting steps"
 
     async def test_reason_is_written_to_jsonl_audit_log(
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
-        """The reason field appears in the daily JSONL audit file alongside the verdict."""
+        """
+        GIVEN a verdict with a reason
+        WHEN the decision is recorded
+        THEN the reason field appears in the daily JSONL audit file alongside the verdict.
+        """
 
         with tempfile.TemporaryDirectory() as decisions_dir:
+            # Given: a recorder with a fresh decisions directory
             store.get_or_create_collection("decisions")
             rec = DecisionRecorder(
                 store=store, embedder=mock_embedder, decisions_dir=decisions_dir
             )
+
+            # When: record a decision with a reason
             await rec.record(
                 job_id="zr-audit",
                 verdict="no",
@@ -276,23 +380,27 @@ class TestDecisionRecording:
                 company="Corp",
                 reason="No remote option",
             )
-            # Read the JSONL file
+
+            # Then: JSONL file contains the reason
             jsonl_files = list(Path(decisions_dir).glob("*.jsonl"))
-            assert len(jsonl_files) == 1
+            assert len(jsonl_files) == 1, "Exactly one JSONL audit file should exist"
             records = [
                 json_mod.loads(line) for line in jsonl_files[0].read_text().strip().splitlines()
             ]
-            assert len(records) == 1
-            assert records[0]["reason"] == "No remote option"
+            assert len(records) == 1, "JSONL file should contain exactly one record"
+            assert (
+                records[0]["reason"] == "No remote option"
+            ), "Reason should be preserved in JSONL audit log"
 
     def test_get_decision_returns_none_when_collection_missing(
         self, mock_embedder: Embedder
     ) -> None:
-        """GIVEN a store with no decisions collection
+        """
+        GIVEN a store with no decisions collection
         WHEN get_decision() is called
         THEN None is returned instead of raising.
         """
-
+        # Given: a store that raises on get_documents
         mock_store = MagicMock()
         mock_store.get_documents.side_effect = ActionableError(
             error="Collection not found",
@@ -300,29 +408,39 @@ class TestDecisionRecording:
             service="chromadb",
         )
         recorder = DecisionRecorder(store=mock_store, embedder=mock_embedder)
-        assert recorder.get_decision("nonexistent-job") is None
+
+        # When/Then: get_decision returns None gracefully
+        assert (
+            recorder.get_decision("nonexistent-job") is None
+        ), "Should return None when collection is missing"
 
     def test_get_decision_returns_none_when_no_results_found(
         self, mock_embedder: Embedder
     ) -> None:
-        """GIVEN a decisions collection that exists but has no matching document
+        """
+        GIVEN a decisions collection that exists but has no matching document
         WHEN get_decision() is called
         THEN None is returned.
         """
-
+        # Given: a store that returns empty results
         mock_store = MagicMock()
         mock_store.get_documents.return_value = {"ids": [], "metadatas": []}
         recorder = DecisionRecorder(store=mock_store, embedder=mock_embedder)
-        assert recorder.get_decision("unknown-id") is None
+
+        # When/Then: get_decision returns None
+        assert (
+            recorder.get_decision("unknown-id") is None
+        ), "Should return None when no matching document exists"
 
     def test_history_count_returns_zero_when_collection_missing(
         self, mock_embedder: Embedder
     ) -> None:
-        """GIVEN a store where the decisions collection does not exist
+        """
+        GIVEN a store where the decisions collection does not exist
         WHEN history_count() is called
         THEN 0 is returned instead of raising.
         """
-
+        # Given: a store that raises on collection_count
         mock_store = MagicMock()
         mock_store.collection_count.side_effect = ActionableError(
             error="Collection not found",
@@ -330,4 +448,6 @@ class TestDecisionRecording:
             service="chromadb",
         )
         recorder = DecisionRecorder(store=mock_store, embedder=mock_embedder)
-        assert recorder.history_count() == 0
+
+        # When/Then: history_count returns 0 gracefully
+        assert recorder.history_count() == 0, "Should return 0 when collection is missing"

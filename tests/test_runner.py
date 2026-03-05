@@ -861,7 +861,8 @@ class TestAutoIndex:
             assert "score" in call_order, "Scoring should still run after auto-index"
 
     async def test_collection_empty_returns_true_when_store_raises(self) -> None:
-        """GIVEN store has no collections (collection_count raises ActionableError)
+        """
+        GIVEN store has no collections (collection_count raises ActionableError)
         WHEN _ensure_indexed checks collections
         THEN the collection is treated as empty and auto-indexing runs.
         """
@@ -904,7 +905,8 @@ class TestCompEnrichment:
     """
 
     async def test_listing_with_salary_text_gets_comp_fields_populated(self) -> None:
-        """GIVEN a listing whose full_text contains a salary range
+        """
+        GIVEN a listing whose full_text contains a salary range
         WHEN the pipeline runner scores it
         THEN comp_min, comp_max, comp_source, and comp_text are set on the listing.
         """

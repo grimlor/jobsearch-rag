@@ -1,6 +1,13 @@
 """Configuration validation tests.
 
 Maps to BDD spec: TestSettingsValidation
+
+Tests verify that configuration errors are caught at startup with
+actionable messages, valid configs load successfully, and optional
+fields use documented defaults.
+
+Spec classes:
+    TestSettingsValidation
 """
 
 from __future__ import annotations
@@ -66,54 +73,101 @@ class TestSettingsValidation:
          far more costly than a startup validation failure — and an error
          that says "validation failed" without telling the operator what
          to fix is nearly as costly as a mid-run crash
+
+    MOCK BOUNDARY:
+        Mock:  nothing — uses real filesystem via tempfile.TemporaryDirectory
+        Real:  load_settings, TOML parsing, validation, ActionableError
+        Never: Patch config internals — exercise the real validation stack
     """
 
     def test_missing_boards_section_names_the_field_and_tells_operator_to_add_it(self) -> None:
-        """A missing [boards] section produces an error that names the field and tells the operator to add it."""
+        """
+        Given a settings file missing the [boards] section
+        When load_settings is called
+        Then the error names 'boards' and includes recovery guidance
+        """
+        # Given: settings TOML with no [boards] section
         bad_toml = """\
 [scoring]
 archetype_weight = 0.5
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error identifies the missing section with recovery guidance
             err = exc_info.value
-            assert err.error_type == ErrorType.CONFIG
-            assert "boards" in err.error.lower()
-            assert err.suggestion is not None
-            assert "boards" in err.suggestion.lower()
-            assert err.troubleshooting is not None
-            assert len(err.troubleshooting.steps) > 0
+            assert (
+                err.error_type == ErrorType.CONFIG
+            ), f"Expected CONFIG error, got {err.error_type}"
+            assert "boards" in err.error.lower(), f"Error should name 'boards'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert (
+                "boards" in err.suggestion.lower()
+            ), f"Suggestion should mention 'boards'. Got: {err.suggestion}"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
+            assert len(err.troubleshooting.steps) > 0, "Troubleshooting has no steps"
 
     def test_weight_above_range_names_the_field_and_valid_range(self) -> None:
-        """A weight > 1.0 produces an error naming the field so the operator knows which value to fix."""
+        """
+        Given archetype_weight is set to 1.5 (above valid range)
+        When load_settings is called
+        Then the error names 'archetype_weight' and includes guidance
+        """
+        # Given: archetype_weight exceeds valid range [0.0, 1.0]
         bad_toml = _VALID_SETTINGS.replace("archetype_weight = 0.5", "archetype_weight = 1.5")
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error identifies the out-of-range field
             err = exc_info.value
-            assert err.error_type == ErrorType.VALIDATION
-            assert "archetype_weight" in err.error
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert (
+                err.error_type == ErrorType.VALIDATION
+            ), f"Expected VALIDATION error, got {err.error_type}"
+            assert (
+                "archetype_weight" in err.error
+            ), f"Error should name 'archetype_weight'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_weight_below_range_names_the_field_and_valid_range(self) -> None:
-        """A negative weight produces an error naming the field so the operator knows which value to fix."""
+        """
+        Given fit_weight is set to -0.1 (below valid range)
+        When load_settings is called
+        Then the error names 'fit_weight' and includes guidance
+        """
+        # Given: fit_weight is negative (below valid range [0.0, 1.0])
         bad_toml = _VALID_SETTINGS.replace("fit_weight = 0.3", "fit_weight = -0.1")
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error identifies the out-of-range field
             err = exc_info.value
-            assert err.error_type == ErrorType.VALIDATION
-            assert "fit_weight" in err.error
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert (
+                err.error_type == ErrorType.VALIDATION
+            ), f"Expected VALIDATION error, got {err.error_type}"
+            assert "fit_weight" in err.error, f"Error should name 'fit_weight'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_missing_board_config_names_the_board_and_section_to_add(self) -> None:
-        """A board in [boards.enabled] with no config section produces an error naming the board and section to add."""
+        """
+        Given a board listed in enabled that has no config section
+        When load_settings is called
+        Then the error names the missing board and tells operator to add it
+        """
+        # Given: 'nonexistent_board' in enabled but no [boards.nonexistent_board]
         bad_toml = """\
 [boards]
 enabled = ["nonexistent_board"]
@@ -131,43 +185,87 @@ persist_dir = "./data/chroma_db"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error names the missing board
             err = exc_info.value
-            assert err.error_type == ErrorType.CONFIG
-            assert "nonexistent_board" in err.error
-            assert err.suggestion is not None
-            assert "nonexistent_board" in err.suggestion
-            assert err.troubleshooting is not None
+            assert (
+                err.error_type == ErrorType.CONFIG
+            ), f"Expected CONFIG error, got {err.error_type}"
+            assert (
+                "nonexistent_board" in err.error
+            ), f"Error should name 'nonexistent_board'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert (
+                "nonexistent_board" in err.suggestion
+            ), f"Suggestion should name the board. Got: {err.suggestion}"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_ollama_url_without_scheme_suggests_adding_http_prefix(self) -> None:
-        """A URL without http:// scheme produces an error suggesting the operator add the prefix."""
+        """
+        Given the Ollama URL lacks an http:// scheme
+        When load_settings is called
+        Then the error mentions 'scheme' and suggests adding the prefix
+        """
+        # Given: base_url missing scheme
         bad_toml = _VALID_SETTINGS.replace(
             'base_url = "http://localhost:11434"',
             'base_url = "localhost:11434"',
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error identifies the scheme issue
             err = exc_info.value
-            assert err.error_type == ErrorType.VALIDATION
-            assert "scheme" in err.error.lower()
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert (
+                err.error_type == ErrorType.VALIDATION
+            ), f"Expected VALIDATION error, got {err.error_type}"
+            assert (
+                "scheme" in err.error.lower()
+            ), f"Error should mention 'scheme'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_valid_settings_load_without_error(self) -> None:
-        """A well-formed settings.toml loads successfully and is usable by the pipeline."""
+        """
+        When a well-formed settings.toml is loaded
+        Then all fields are parsed and accessible
+        """
+        # Given: a complete, valid settings file
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, _VALID_SETTINGS)
+
+            # When: settings are loaded
             settings = load_settings(path)
-            assert settings.enabled_boards == ["testboard"]
-            assert settings.scoring.archetype_weight == 0.5
-            assert settings.ollama.base_url == "http://localhost:11434"
-            assert settings.chroma.persist_dir == "./data/chroma_db"
+
+            # Then: key fields are accessible
+            assert settings.enabled_boards == [
+                "testboard"
+            ], f"Expected ['testboard'], got {settings.enabled_boards}"
+            assert (
+                settings.scoring.archetype_weight == 0.5
+            ), f"Expected archetype_weight=0.5, got {settings.scoring.archetype_weight}"
+            assert (
+                settings.ollama.base_url == "http://localhost:11434"
+            ), f"Expected base_url='http://localhost:11434', got {settings.ollama.base_url}"
+            assert (
+                settings.chroma.persist_dir == "./data/chroma_db"
+            ), f"Expected persist_dir='./data/chroma_db', got {settings.chroma.persist_dir}"
 
     def test_optional_fields_use_documented_defaults_when_absent(self) -> None:
-        """Omitted optional fields fall back to documented defaults rather than None or zero."""
+        """
+        Given a minimal settings file with only required fields
+        When load_settings is called
+        Then optional fields use their documented defaults
+        """
+        # Given: minimal TOML with only boards config
         minimal_toml = """\
 [boards]
 enabled = ["testboard"]
@@ -177,34 +275,71 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
-            # Scoring defaults
-            assert settings.scoring.archetype_weight == 0.5
-            assert settings.scoring.fit_weight == 0.3
-            assert settings.scoring.history_weight == 0.2
-            assert settings.scoring.min_score_threshold == 0.45
-            # Ollama defaults
-            assert settings.ollama.base_url == "http://localhost:11434"
-            assert settings.ollama.llm_model == "mistral:7b"
-            # Output defaults
-            assert settings.output.default_format == "markdown"
-            assert settings.output.open_top_n == 5
-            # Board defaults
-            assert settings.boards["testboard"].browser_channel is None
+
+            # Then: scoring defaults are applied
+            assert (
+                settings.scoring.archetype_weight == 0.5
+            ), f"Expected archetype_weight default 0.5, got {settings.scoring.archetype_weight}"
+            assert (
+                settings.scoring.fit_weight == 0.3
+            ), f"Expected fit_weight default 0.3, got {settings.scoring.fit_weight}"
+            assert (
+                settings.scoring.history_weight == 0.2
+            ), f"Expected history_weight default 0.2, got {settings.scoring.history_weight}"
+            assert (
+                settings.scoring.min_score_threshold == 0.45
+            ), f"Expected min_score_threshold default 0.45, got {settings.scoring.min_score_threshold}"
+            # Then: ollama defaults are applied
+            assert (
+                settings.ollama.base_url == "http://localhost:11434"
+            ), f"Expected base_url default, got {settings.ollama.base_url}"
+            assert (
+                settings.ollama.llm_model == "mistral:7b"
+            ), f"Expected llm_model default, got {settings.ollama.llm_model}"
+            # Then: output defaults are applied
+            assert (
+                settings.output.default_format == "markdown"
+            ), f"Expected default_format='markdown', got {settings.output.default_format}"
+            assert (
+                settings.output.open_top_n == 5
+            ), f"Expected open_top_n default 5, got {settings.output.open_top_n}"
+            # Then: board defaults are applied
+            assert (
+                settings.boards["testboard"].browser_channel is None
+            ), f"Expected browser_channel=None, got {settings.boards['testboard'].browser_channel}"
 
     def test_browser_channel_is_parsed_from_board_config(self) -> None:
-        """A browser_channel value in the board section is parsed and available on BoardConfig."""
+        """
+        Given a board config with browser_channel = 'msedge'
+        When load_settings is called
+        Then the browser_channel value is accessible on BoardConfig
+        """
+        # Given: settings with browser_channel in the board section
         channel_toml = _VALID_SETTINGS.replace(
             "headless = true",
             'headless = true\nbrowser_channel = "msedge"',
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, channel_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
-            assert settings.boards["testboard"].browser_channel == "msedge"
+
+            # Then: browser_channel is parsed
+            assert (
+                settings.boards["testboard"].browser_channel == "msedge"
+            ), f"Expected browser_channel='msedge', got {settings.boards['testboard'].browser_channel}"
 
     def test_comp_weight_defaults_to_zero_point_fifteen_when_absent(self) -> None:
-        """comp_weight defaults to 0.15 when not specified in settings.toml."""
+        """
+        Given comp_weight is not specified in settings.toml
+        When load_settings is called
+        Then comp_weight defaults to 0.15
+        """
+        # Given: minimal TOML without comp_weight
         minimal_toml = """\
 [boards]
 enabled = ["testboard"]
@@ -214,11 +349,22 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
-            assert settings.scoring.comp_weight == 0.15
+
+            # Then: comp_weight uses the default
+            assert (
+                settings.scoring.comp_weight == 0.15
+            ), f"Expected comp_weight default 0.15, got {settings.scoring.comp_weight}"
 
     def test_base_salary_defaults_to_220000_when_absent(self) -> None:
-        """base_salary defaults to 220000 when not specified in settings.toml."""
+        """
+        Given base_salary is not specified in settings.toml
+        When load_settings is called
+        Then base_salary defaults to 220000
+        """
+        # Given: minimal TOML without base_salary
         minimal_toml = """\
 [boards]
 enabled = ["testboard"]
@@ -228,66 +374,121 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
-            assert settings.scoring.base_salary == 220_000
+
+            # Then: base_salary uses the default
+            assert (
+                settings.scoring.base_salary == 220_000
+            ), f"Expected base_salary default 220000, got {settings.scoring.base_salary}"
 
     def test_negative_base_salary_names_the_field_and_constraint(self) -> None:
-        """A negative base_salary produces an error naming the field and the positive-number constraint."""
-        bad_toml = _VALID_SETTINGS + "\nbase_salary = -50000\n"
-        # Insert base_salary into [scoring] section
+        """
+        Given base_salary is set to -50000
+        When load_settings is called
+        Then the error names 'base_salary' and the positive-number constraint
+        """
+        # Given: negative base_salary in scoring section
         bad_toml = _VALID_SETTINGS.replace(
             "min_score_threshold = 0.45",
             "min_score_threshold = 0.45\nbase_salary = -50000",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error identifies the invalid field
             err = exc_info.value
-            assert err.error_type == ErrorType.VALIDATION
-            assert "base_salary" in err.error
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert (
+                err.error_type == ErrorType.VALIDATION
+            ), f"Expected VALIDATION error, got {err.error_type}"
+            assert "base_salary" in err.error, f"Error should name 'base_salary'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_missing_file_tells_operator_to_create_settings(self) -> None:
-        """A missing settings file produces an error suggesting the operator create or copy from example."""
+        """
+        Given the settings file does not exist
+        When load_settings is called
+        Then the error says 'not found' with creation guidance
+        """
+        # Given: a nonexistent settings path
         with tempfile.TemporaryDirectory() as tmpdir:
             missing = Path(tmpdir) / "nonexistent.toml"
+
+            # When: load is attempted
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(missing)
+
+            # Then: error identifies the missing file
             err = exc_info.value
-            assert err.error_type == ErrorType.CONFIG
-            assert "not found" in err.error.lower()
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert (
+                err.error_type == ErrorType.CONFIG
+            ), f"Expected CONFIG error, got {err.error_type}"
+            assert (
+                "not found" in err.error.lower()
+            ), f"Error should say 'not found'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_malformed_toml_identifies_syntax_error_and_suggests_fix(self) -> None:
-        """Invalid TOML syntax produces a PARSE error with a suggestion to fix the syntax."""
+        """
+        Given the settings file contains invalid TOML syntax
+        When load_settings is called
+        Then a PARSE error is raised with a fix suggestion
+        """
+        # Given: syntactically broken TOML
         bad_toml = "[boards\nenabled = broken"
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: load is attempted
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: PARSE error with guidance
             err = exc_info.value
-            assert err.error_type == ErrorType.PARSE
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert err.error_type == ErrorType.PARSE, f"Expected PARSE error, got {err.error_type}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_empty_enabled_boards_tells_operator_to_add_board_names(self) -> None:
-        """An empty boards.enabled list produces an error telling the operator to add board names."""
+        """
+        Given boards.enabled is an empty list
+        When load_settings is called
+        Then the error names 'boards.enabled' and tells operator to add names
+        """
+        # Given: empty enabled list
         bad_toml = _VALID_SETTINGS.replace('enabled = ["testboard"]', "enabled = []")
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error names the empty field
             err = exc_info.value
-            assert err.error_type == ErrorType.CONFIG
-            assert "boards.enabled" in err.error
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert (
+                err.error_type == ErrorType.CONFIG
+            ), f"Expected CONFIG error, got {err.error_type}"
+            assert (
+                "boards.enabled" in err.error
+            ), f"Error should name 'boards.enabled'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_board_section_not_a_table_tells_operator_to_define_as_table(self) -> None:
-        """A scalar board value (not a table) produces an error telling the operator to define it as a TOML table."""
+        """
+        Given a board value is a scalar instead of a TOML table
+        When load_settings is called
+        Then the error mentions 'table' and tells operator to restructure
+        """
+        # Given: board defined as a string instead of a table
         bad_toml = """\
 [boards]
 enabled = ["testboard"]
@@ -295,19 +496,27 @@ testboard = "not a table"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error mentions the table requirement
             err = exc_info.value
-            assert err.error_type == ErrorType.CONFIG
-            assert "table" in err.error.lower()
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert (
+                err.error_type == ErrorType.CONFIG
+            ), f"Expected CONFIG error, got {err.error_type}"
+            assert "table" in err.error.lower(), f"Error should mention 'table'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_overnight_board_configs_are_parsed(self) -> None:
-        """GIVEN a settings file with overnight_boards that have config sections
-        WHEN load_settings is called
-        THEN overnight boards have parsed BoardConfig entries.
         """
+        Given a settings file with overnight_boards that have config sections
+        When load_settings is called
+        Then overnight boards have parsed BoardConfig entries
+        """
+        # Given: settings with an overnight board config
         overnight_toml = """\
 [boards]
 enabled = ["testboard"]
@@ -323,16 +532,28 @@ headless = false
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, overnight_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
-            assert "nightboard" in settings.boards
-            assert settings.boards["nightboard"].max_pages == 5
-            assert settings.boards["nightboard"].headless is False
+
+            # Then: overnight board config is accessible
+            assert (
+                "nightboard" in settings.boards
+            ), f"Expected 'nightboard' in boards. Got: {list(settings.boards.keys())}"
+            assert (
+                settings.boards["nightboard"].max_pages == 5
+            ), f"Expected max_pages=5, got {settings.boards['nightboard'].max_pages}"
+            assert (
+                settings.boards["nightboard"].headless is False
+            ), f"Expected headless=False, got {settings.boards['nightboard'].headless}"
 
     def test_scoring_section_non_dict_uses_defaults(self) -> None:
-        """GIVEN scoring is a scalar instead of a table
-        WHEN load_settings is called
-        THEN scoring uses default values.
         """
+        Given scoring is a scalar instead of a table
+        When load_settings is called
+        Then scoring uses default values
+        """
+        # Given: scoring defined as a string
         bad_toml = """\
 scoring = "not a dict"
 
@@ -344,14 +565,22 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
-            assert settings.scoring.archetype_weight == 0.5
+
+            # Then: scoring falls back to defaults
+            assert (
+                settings.scoring.archetype_weight == 0.5
+            ), f"Expected default archetype_weight=0.5, got {settings.scoring.archetype_weight}"
 
     def test_ollama_section_non_dict_uses_defaults(self) -> None:
-        """GIVEN ollama is a scalar instead of a table
-        WHEN load_settings is called
-        THEN ollama uses default values.
         """
+        Given ollama is a scalar instead of a table
+        When load_settings is called
+        Then ollama uses default values
+        """
+        # Given: ollama defined as a string
         bad_toml = """\
 ollama = "not a dict"
 
@@ -363,14 +592,22 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
-            assert settings.ollama.base_url == "http://localhost:11434"
+
+            # Then: ollama falls back to defaults
+            assert (
+                settings.ollama.base_url == "http://localhost:11434"
+            ), f"Expected default base_url, got {settings.ollama.base_url}"
 
     def test_output_section_non_dict_uses_defaults(self) -> None:
-        """GIVEN output is a scalar instead of a table
-        WHEN load_settings is called
-        THEN output uses default values.
         """
+        Given output is a scalar instead of a table
+        When load_settings is called
+        Then output uses default values
+        """
+        # Given: output defined as a string
         bad_toml = """\
 output = "not a dict"
 
@@ -382,14 +619,22 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
-            assert settings.output.default_format == "markdown"
+
+            # Then: output falls back to defaults
+            assert (
+                settings.output.default_format == "markdown"
+            ), f"Expected default default_format='markdown', got {settings.output.default_format}"
 
     def test_chroma_section_non_dict_uses_defaults(self) -> None:
-        """GIVEN chroma is a scalar instead of a table
-        WHEN load_settings is called
-        THEN chroma uses default values.
         """
+        Given chroma is a scalar instead of a table
+        When load_settings is called
+        Then chroma uses default values
+        """
+        # Given: chroma defined as a string
         bad_toml = """\
 chroma = "not a dict"
 
@@ -401,11 +646,22 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
-            assert settings.chroma.persist_dir == "./data/chroma_db"
+
+            # Then: chroma falls back to defaults
+            assert (
+                settings.chroma.persist_dir == "./data/chroma_db"
+            ), f"Expected default persist_dir, got {settings.chroma.persist_dir}"
 
     def test_missing_enabled_field_tells_operator_which_field_to_add(self) -> None:
-        """A missing 'enabled' field produces an error naming the field so the operator knows what to add."""
+        """
+        Given the 'enabled' field is missing from [boards]
+        When load_settings is called
+        Then the error names 'enabled' and tells operator to add it
+        """
+        # Given: boards section without 'enabled' field
         bad_toml = """\
 [boards]
 overnight_boards = []
@@ -415,16 +671,27 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error names the missing field
             err = exc_info.value
-            assert err.error_type == ErrorType.CONFIG
-            assert "enabled" in err.error.lower()
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert (
+                err.error_type == ErrorType.CONFIG
+            ), f"Expected CONFIG error, got {err.error_type}"
+            assert "enabled" in err.error.lower(), f"Error should name 'enabled'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_negative_weight_defaults_to_zero_point_four_when_absent(self) -> None:
-        """negative_weight defaults to 0.4 when not specified in settings.toml."""
+        """
+        Given negative_weight is not specified in settings.toml
+        When load_settings is called
+        Then negative_weight defaults to 0.4
+        """
+        # Given: minimal TOML without negative_weight
         minimal_toml = """\
 [boards]
 enabled = ["testboard"]
@@ -434,18 +701,31 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
+
+            # Then: negative_weight uses the default
             assert (
                 settings.scoring.negative_weight == 0.4
             ), f"Expected negative_weight default 0.4, got {settings.scoring.negative_weight}"
 
     def test_negative_weight_above_range_names_the_field_and_valid_range(self) -> None:
-        """A negative_weight > 1.0 produces an error naming the field so the operator knows which value to fix."""
+        """
+        Given negative_weight is set to 1.5 (above valid range)
+        When load_settings is called
+        Then the error names 'negative_weight' and includes guidance
+        """
+        # Given: negative_weight exceeds valid range
         bad_toml = _VALID_SETTINGS.replace("negative_weight = 0.4", "negative_weight = 1.5")
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error identifies the out-of-range field
             err = exc_info.value
             assert (
                 err.error_type == ErrorType.VALIDATION
@@ -453,16 +733,25 @@ searches = ["https://example.org/search"]
             assert (
                 "negative_weight" in err.error
             ), f"Error should name negative_weight. Got: {err.error}"
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_negative_weight_below_range_names_the_field_and_valid_range(self) -> None:
-        """A negative negative_weight produces an error naming the field so the operator knows which value to fix."""
+        """
+        Given negative_weight is set to -0.1 (below valid range)
+        When load_settings is called
+        Then the error names 'negative_weight' and includes guidance
+        """
+        # Given: negative_weight is below valid range
         bad_toml = _VALID_SETTINGS.replace("negative_weight = 0.4", "negative_weight = -0.1")
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error identifies the out-of-range field
             err = exc_info.value
             assert (
                 err.error_type == ErrorType.VALIDATION
@@ -470,11 +759,16 @@ searches = ["https://example.org/search"]
             assert (
                 "negative_weight" in err.error
             ), f"Error should name negative_weight. Got: {err.error}"
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_global_rubric_path_defaults_when_absent(self) -> None:
-        """global_rubric_path defaults to 'config/global_rubric.toml' when not specified."""
+        """
+        Given global_rubric_path is not specified
+        When load_settings is called
+        Then it defaults to 'config/global_rubric.toml'
+        """
+        # Given: minimal TOML without global_rubric_path
         minimal_toml = """\
 [boards]
 enabled = ["testboard"]
@@ -484,30 +778,48 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
+
+            # Then: default path is used
             assert (
                 settings.global_rubric_path == "config/global_rubric.toml"
             ), f"Expected default global_rubric_path, got {settings.global_rubric_path}"
 
     def test_missing_global_rubric_path_names_field_and_creation_guidance(self) -> None:
-        """A non-existent global_rubric_path raises CONFIG error naming the field and recovery path."""
+        """
+        Given global_rubric_path points to a nonexistent file
+        When load_settings is called
+        Then a CONFIG error names the field with recovery guidance
+        """
+        # Given: global_rubric_path pointing to a nonexistent file
         bad_toml = 'global_rubric_path = "/nonexistent/global_rubric.toml"\n\n' + _VALID_SETTINGS
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error identifies the missing rubric file
             err = exc_info.value
             assert (
                 err.error_type == ErrorType.CONFIG
             ), f"Expected CONFIG error, got {err.error_type}"
             assert (
                 "global_rubric_path" in err.error
-            ), f"Error should name global_rubric_path. Got: {err.error}"
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            ), f"Error should name 'global_rubric_path'. Got: {err.error}"
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_culture_weight_defaults_to_zero_point_two_when_absent(self) -> None:
-        """culture_weight defaults to 0.2 when not specified in settings.toml."""
+        """
+        Given culture_weight is not specified in settings.toml
+        When load_settings is called
+        Then culture_weight defaults to 0.2
+        """
+        # Given: minimal TOML without culture_weight
         minimal_toml = """\
 [boards]
 enabled = ["testboard"]
@@ -517,23 +829,34 @@ searches = ["https://example.org/search"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
+
+            # When: settings are loaded
             settings = load_settings(path)
+
+            # Then: culture_weight uses the default
             assert (
                 settings.scoring.culture_weight == 0.2
             ), f"Expected culture_weight default 0.2, got {settings.scoring.culture_weight}"
 
     def test_culture_weight_above_range_names_the_field_and_valid_range(self) -> None:
-        """A culture_weight > 1.0 produces an error naming the field so the operator knows which value to fix."""
-        bad_toml = _VALID_SETTINGS + "\n" + "culture_weight = 1.5\n"
-        # Insert culture_weight into the scoring section
+        """
+        Given culture_weight is set to 1.5 (above valid range)
+        When load_settings is called
+        Then the error names 'culture_weight' and includes guidance
+        """
+        # Given: culture_weight exceeds valid range
         bad_toml = _VALID_SETTINGS.replace(
             "negative_weight = 0.4",
             "negative_weight = 0.4\nculture_weight = 1.5",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error identifies the out-of-range field
             err = exc_info.value
             assert (
                 err.error_type == ErrorType.VALIDATION
@@ -541,19 +864,28 @@ searches = ["https://example.org/search"]
             assert (
                 "culture_weight" in err.error
             ), f"Error should name culture_weight. Got: {err.error}"
-            assert err.suggestion is not None
-            assert err.troubleshooting is not None
+            assert err.suggestion is not None, "Missing suggestion"
+            assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_culture_weight_below_range_names_the_field_and_valid_range(self) -> None:
-        """A negative culture_weight produces an error naming the field so the operator knows which value to fix."""
+        """
+        Given culture_weight is set to -0.1 (below valid range)
+        When load_settings is called
+        Then the error names 'culture_weight' and includes guidance
+        """
+        # Given: culture_weight is below valid range
         bad_toml = _VALID_SETTINGS.replace(
             "negative_weight = 0.4",
             "negative_weight = 0.4\nculture_weight = -0.1",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
+
+            # When: the settings are loaded
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
+
+            # Then: error identifies the out-of-range field
             err = exc_info.value
             assert (
                 err.error_type == ErrorType.VALIDATION

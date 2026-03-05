@@ -41,9 +41,9 @@ Before beginning any work, post a message to the user that includes:
 
 Example:
 
-> **Task:** Implement test coverage for the scoring module.
+> **Task:** Implement test coverage for the validation module.
 > **Skills loaded:** tool-usage, bdd-testing, bdd-feedback-loop
-> **Skills excluded:** feature-workflow (no new feature branch needed),
+> **Skills excluded:** feature-workflow (no new feature being added),
 > plan-updates (no plan doc changes required)
 
 Do not begin work until this confirmation is posted.

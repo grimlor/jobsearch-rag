@@ -1,6 +1,6 @@
 ---
 name: bdd-feedback-loop
-description: "Feedback loop procedure for implementing BDD test modules. Use when implementing a spec doc — covering one test module from spec to Pylance-clean, self-audited output."
+description: "Feedback loop procedure for implementing BDD test modules. Use when implementing a spec doc — covering one test module from spec to Pyright-clean, self-audited output."
 ---
 
 # BDD Feedback Loop — Test Implementation Procedure
@@ -51,10 +51,10 @@ Record the discovered API surface as a brief comment block at the top of the
 test file, for traceability:
 
 ```python
-# Public API surface (from src/jobsearch_rag/rag/scorer.py):
-#   Scorer(embedder: Embedder, store: VectorStore, config: Settings)
-#   scorer.score(listing: JobListing) -> ScoreResult
-#   scorer.compute_comp_score(comp_max: float | None, base: float) -> float
+# Public API surface (from src/myapp/services/processor.py):
+#   Processor(client: Client, store: DataStore, config: Settings)
+#   processor.process(item: Item) -> Result
+#   processor.compute_score(value: float | None, baseline: float) -> float
 ```
 
 ---
@@ -92,15 +92,19 @@ as expected.
 
 ---
 
-### Step 4 — Run Pylance
+### Step 4 — Run Type Checks
 
-After implementing each test file, run the `get_errors` tool on the test file.
-Do not use `pyright` or `mypy` at the terminal — this violates the tool-usage skill.
+After implementing each test file:
 
-For each reported error, attempt to resolve it. If an error cannot be resolved
-after three attempts, log it as a deviation (Step 6) and continue to the next
-error. Once all errors have been iterated, if any remain unresolved, do not
-proceed to the next module — the module is blocked pending human review.
+1. Run the `get_errors` tool on the test file to surface Pylance diagnostics.
+2. Then run `pyright` in the terminal on the test file — Pylance does not surface
+   all Pyright diagnostics through `get_errors`.
+
+For each reported error from either step, attempt to resolve it. If an error
+cannot be resolved after three attempts, log it as a deviation (Step 6) and
+continue to the next error. Once all errors have been iterated, if any remain
+unresolved, do not proceed to the next module — the module is blocked pending
+human review.
 
 Common issues to fix:
 - Missing imports (module not imported at top of file)
@@ -148,22 +152,22 @@ anything that prevented full compliance with the spec or with the BDD principles
 Append to the module's deviation log section in the orchestration doc:
 
 ```
-## Deviations — test_scorer.py
+## Deviations — test_processor.py
 
-### [DEVIATION] TestSemanticScoring.test_culture_score_penalizes_negative_signals
+### [DEVIATION] TestScoringBehavior.test_negative_signals_penalize_score
 Could not induce negative_score > 0.3 through public API alone. The production
 code path requires at least 3 documents in the negative_signals collection, but
-the vector_store fixture only seeds 1. The test currently seeds manually via
+the store fixture only seeds 1. The test currently seeds manually via
 store.add() — this bypasses the indexer but is the only path available.
 Recommendation: add a multi-document fixture to conftest, or expose a
-batch-seed method on VectorStore.
+batch-seed method on DataStore.
 
-### [DEVIATION] TestCompScoring — entire class
-compute_comp_score() is not exposed as a public method on Scorer. It appears
-to be internal. All comp scoring tests currently call the private method
-_compute_comp_score() directly, violating Principle 9.
+### [DEVIATION] TestScoreComputation — entire class
+compute_score() is not exposed as a public method on Processor. It appears
+to be internal. All computation tests currently call the private method
+_compute_score() directly, violating the public API rule.
 Recommendation: either promote to public API or test exclusively through
-scorer.score() with real comp data in the listing.
+processor.process() with appropriate input data.
 ```
 
 A deviation log entry must include:

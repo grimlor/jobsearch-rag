@@ -290,5 +290,5 @@ populated. The rest of the pipeline will pick it up automatically.
 | Vector store | ChromaDB | Embedded, persistent, no server required |
 | Config | TOML | Human-readable, easy to extend per board |
 | Lint/format | ruff | Fast, replaces flake8 + isort + black |
-| Type checking | mypy (strict) | Catches contract violations at dev time |
+| Type checking | pyright | Catches contract violations at dev time |
 | Testing | pytest + pytest-asyncio | Async adapter tests, auto mode |

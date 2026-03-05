@@ -984,7 +984,8 @@ class TestSearchBrowserFailure:
     def test_webbrowser_open_failure_prints_error_message(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """GIVEN a search with --open-top that triggers a browser exception
+        """
+        GIVEN a search with --open-top that triggers a browser exception
         WHEN webbrowser.open raises
         THEN the error is printed and the search completes.
         """
@@ -1029,7 +1030,8 @@ class TestExportMissing:
     def test_export_format_not_found_prints_helpful_message(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """GIVEN results exist as markdown but not csv
+        """
+        GIVEN results exist as markdown but not csv
         WHEN export --format csv is run
         THEN a message explains the format was not found.
         """
@@ -1066,7 +1068,8 @@ class TestResetCommand:
     def test_reset_all_collections_clears_all_known_collections(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """GIVEN no --collection flag
+        """
+        GIVEN no --collection flag
         WHEN handle_reset is run
         THEN all known collections are reset.
         """
@@ -1085,7 +1088,8 @@ class TestResetCommand:
         assert mock_store.reset_collection.call_count > 0
 
     def test_reset_single_collection(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """GIVEN --collection=resume
+        """
+        GIVEN --collection=resume
         WHEN handle_reset is run
         THEN only the 'resume' collection is reset.
         """
@@ -1106,7 +1110,8 @@ class TestResetCommand:
     def test_reset_with_clear_output_removes_output_dir(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """GIVEN --clear-output flag
+        """
+        GIVEN --clear-output flag
         WHEN handle_reset is run
         THEN the output directory is removed and recreated.
         """
@@ -1433,6 +1438,31 @@ class TestReviewCommandHandler:
         assert (
             "Lead the platform team" in call_kwargs["jd_text"]
         ), f"Expected JD body in jd_text, got: {call_kwargs['jd_text']!r}"
+
+    def test_jd_file_without_marker_yields_empty_full_text(
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """
+        Given a JD file that exists but lacks the '## Job Description' marker
+        When the operator records a verdict
+        Then full_text is empty (no crash, graceful degradation).
+        """
+        # Given: a JD file with no marker section
+        self._write_csv(review["csv_path"], [self._csv_row()])
+        jd_dir = review["out_dir"] / "jds"
+        jd_file = jd_dir / "001_acme-corp_staff-architect.md"
+        jd_file.write_text("# Staff Architect\n\nSome summary without the marker.")
+
+        # When: handle_review is called and user approves
+        with patch("builtins.input", side_effect=["y", ""]):
+            handle_review(review["args"])
+
+        # Then: recorder received empty jd_text
+        review["recorder"].record.assert_called_once()
+        call_kwargs = review["recorder"].record.call_args.kwargs
+        assert (
+            call_kwargs["jd_text"] == ""
+        ), f"Expected empty jd_text when marker absent, got: {call_kwargs['jd_text']!r}"
 
     def test_verdict_without_reason_prints_short_confirmation(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
