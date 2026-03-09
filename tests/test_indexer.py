@@ -916,7 +916,7 @@ class TestNegativeSignalIndexing:
         await indexer.index_negative_signals(str(rubric_path), str(archetypes_with_signals_path))
 
         # When: retrieve all metadata
-        collection = store._get_existing_collection("negative_signals")
+        collection = store.get_or_create_collection("negative_signals")
         result = collection.get(include=["metadatas"])
         metadatas = result["metadatas"]
 

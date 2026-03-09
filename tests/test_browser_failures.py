@@ -570,10 +570,13 @@ class TestLinkedInDetectionResponse:
         page.goto = AsyncMock()
 
         # When: detection fires
-        with pytest.raises(ActionableError):
+        with pytest.raises(ActionableError) as exc_info:
             asyncio.run(check_linkedin_detection(page))
 
-        # Then: no navigation was attempted
+        # Then: error names the detection trigger and no navigation was attempted
+        assert "authwall" in str(
+            exc_info.value
+        ), f"Expected 'authwall' in error message, got: {exc_info.value}"
         page.goto.assert_not_called()
 
     def test_session_invalidation_redirect_to_login_raises_authentication_error(self) -> None:

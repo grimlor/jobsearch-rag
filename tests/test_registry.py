@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import typing
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 import pytest
 
@@ -77,9 +81,13 @@ def _make_listing(
 
 
 @pytest.fixture(autouse=True)
-def _clean_registry() -> None:
-    """Reset the registry before each test to prevent cross-contamination."""
+def _clean_registry() -> Iterator[None]:
+    """Reset the registry before each test, restoring original state after."""
+    saved = dict(AdapterRegistry._registry)
     AdapterRegistry._registry.clear()
+    yield
+    AdapterRegistry._registry.clear()
+    AdapterRegistry._registry.update(saved)
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +167,7 @@ class TestAdapterRegistration:
         # Given: two distinct classes for the same board
         cls_v1 = _make_adapter_class("ziprecruiter")
         cls_v2 = _make_adapter_class("ziprecruiter")
-        assert cls_v1 is not cls_v2  # precondition: distinct classes
+        assert cls_v1 is not cls_v2, "Precondition: cls_v1 and cls_v2 must be distinct classes"
 
         # When: register both
         AdapterRegistry.register(cls_v1)
@@ -497,7 +505,7 @@ class TestStubAdapterContract:
         _STUB_BOARDS,
         ids=["linkedin", "indeed", "weworkremotely"],
     )
-    @pytest.mark.xfail(reason="Adapter not yet implemented", raises=NotImplementedError)
+    @pytest.mark.xfail(reason="Adapter not yet implemented")
     def test_stub_authenticate_completes_on_valid_session(
         self, _name: str, adapter_cls: type[JobBoardAdapter]
     ) -> None:
@@ -518,7 +526,7 @@ class TestStubAdapterContract:
         _STUB_BOARDS,
         ids=["linkedin", "indeed", "weworkremotely"],
     )
-    @pytest.mark.xfail(reason="Adapter not yet implemented", raises=NotImplementedError)
+    @pytest.mark.xfail(reason="Adapter not yet implemented")
     def test_stub_search_returns_list_of_job_listings(
         self, _name: str, adapter_cls: type[JobBoardAdapter]
     ) -> None:
@@ -544,7 +552,7 @@ class TestStubAdapterContract:
         _STUB_BOARDS,
         ids=["linkedin", "indeed", "weworkremotely"],
     )
-    @pytest.mark.xfail(reason="Adapter not yet implemented", raises=NotImplementedError)
+    @pytest.mark.xfail(reason="Adapter not yet implemented")
     def test_stub_extract_detail_populates_full_text(
         self, _name: str, adapter_cls: type[JobBoardAdapter]
     ) -> None:

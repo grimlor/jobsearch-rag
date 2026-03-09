@@ -137,6 +137,10 @@ class TestSemanticScoring:
         Mock:  Embedder.embed + Embedder.classify (Ollama HTTP API via conftest mock_embedder)
         Real:  Scorer.score, VectorStore (ChromaDB via tmp_path), ScoreResult
         Never: Construct ScoreResult directly — always obtain via scorer.score()
+        Exception: test_query_returning_no_distances wraps store.query to inject
+                   empty distances — ChromaDB cannot naturally return empty distances
+                   from a populated collection, so interception is needed to exercise
+                   the defensive _distance_to_score([]) → 0.0 path
     """
 
     async def test_all_scores_are_floats_between_zero_and_one(self, scorer: Scorer) -> None:

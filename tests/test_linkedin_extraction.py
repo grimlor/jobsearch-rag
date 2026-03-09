@@ -32,7 +32,6 @@ from jobsearch_rag.errors import ActionableError
 
 _XFAIL = pytest.mark.xfail(
     reason="LinkedIn adapter not yet implemented",
-    raises=NotImplementedError,
 )
 
 

@@ -523,7 +523,7 @@ class TestSessionManagerCDP:
     async def test_cdp_timeout_raises_timeout_error(self, tmp_path: Path) -> None:
         """
         GIVEN a CDP endpoint that never responds
-        WHEN SessionManager is entered
+        WHEN SessionManager is entered and _wait_for_cdp exhausts its deadline
         THEN a TimeoutError is raised.
         """
         # Given: config and mock where CDP never starts
@@ -539,6 +539,11 @@ class TestSessionManagerCDP:
 
         mock_pw = _mock_playwright()
 
+        # Simulate a clock that immediately expires the deadline:
+        # first call (sets deadline), second call (exceeds it)
+        mock_loop = MagicMock()
+        mock_loop.time = MagicMock(side_effect=[0.0, 100.0])
+
         with (
             patch(
                 "jobsearch_rag.adapters.session._BROWSER_PATHS",
@@ -550,16 +555,25 @@ class TestSessionManagerCDP:
                 "jobsearch_rag.adapters.session.tempfile.mkdtemp",
                 return_value=tmpdir,
             ),
-            # When: _wait_for_cdp times out
+            # Mock I/O boundaries: urlopen always refuses, clock immediately expires
             patch(
-                "jobsearch_rag.adapters.session._wait_for_cdp",
-                side_effect=TimeoutError("CDP endpoint did not start"),
+                "jobsearch_rag.adapters.session.urllib.request.urlopen",
+                side_effect=OSError("Connection refused"),
+            ),
+            patch(
+                "jobsearch_rag.adapters.session.asyncio.get_event_loop",
+                return_value=mock_loop,
+            ),
+            patch(
+                "jobsearch_rag.adapters.session.asyncio.sleep",
+                new_callable=AsyncMock,
             ),
             _patch_playwright(mock_pw),
             patch("jobsearch_rag.adapters.session.shutil.rmtree"),
-            # Then: TimeoutError is raised
             pytest.raises(TimeoutError, match="did not start"),
         ):
+            # When/Then: SessionManager enters, _wait_for_cdp runs for real
+            # and raises TimeoutError because the clock immediately expires
             manager = SessionManager(config)
             await manager.__aenter__()
 
@@ -615,7 +629,8 @@ class TestSessionManagerCDP:
             patch("jobsearch_rag.adapters.session.shutil.rmtree"),
             pytest.raises(TimeoutError, match="did not start"),
         ):
-            # When: SessionManager enters and _wait_for_cdp runs for real
+            # When/Then: SessionManager enters, _wait_for_cdp retries once
+            # then raises TimeoutError when the clock exceeds the deadline
             manager = SessionManager(config)
             await manager.__aenter__()
 
@@ -625,8 +640,11 @@ class TestSessionManagerCDP:
         WHEN new_page is called
         THEN a RuntimeError is raised.
         """
+        # Given: uninitialised manager
         config = SessionConfig(board_name="test", headless=True)
         manager = SessionManager(config)
+
+        # When/Then: new_page raises RuntimeError
         with pytest.raises(RuntimeError, match="not entered"):
             await manager.new_page()
 
@@ -636,8 +654,11 @@ class TestSessionManagerCDP:
         WHEN save_storage_state is called
         THEN a RuntimeError is raised.
         """
+        # Given: uninitialised manager
         config = SessionConfig(board_name="test", headless=True)
         manager = SessionManager(config)
+
+        # When/Then: save_storage_state raises RuntimeError
         with pytest.raises(RuntimeError, match="not entered"):
             await manager.save_storage_state()
 
@@ -647,6 +668,7 @@ class TestSessionManagerCDP:
         WHEN save_storage_state is called
         THEN cookies are written to the storage state path as JSON.
         """
+        # Given: mock Playwright with cookie data
         config = SessionConfig(board_name="test", headless=True)
         mock_pw = _mock_playwright(connect_over_cdp=False)
         mock_context = mock_pw.chromium.launch.return_value.new_context.return_value
@@ -656,13 +678,18 @@ class TestSessionManagerCDP:
             _patch_playwright(mock_pw),
             patch("jobsearch_rag.adapters.session._STORAGE_DIR", tmp_path),
         ):
+            # When: enter session and save storage state
             manager = SessionManager(config)
             await manager.__aenter__()
             result = await manager.save_storage_state()
-            assert result.exists()
+
+            # Then: session file exists on disk with correct cookie data
+            assert result.exists(), "Storage state file should be written to disk"
 
             saved = json.loads(result.read_text())
-            assert saved["cookies"][0]["name"] == "session"
+            assert (
+                saved["cookies"][0]["name"] == "session"
+            ), f"Expected cookie name 'session', got {saved['cookies'][0].get('name')}"
             await manager.__aexit__(None, None, None)
 
     def test_has_storage_state_returns_true_when_file_exists(self, tmp_path: Path) -> None:
@@ -671,13 +698,18 @@ class TestSessionManagerCDP:
         WHEN has_storage_state is called
         THEN it returns True.
         """
+        # Given: session file exists on disk
         config = SessionConfig(board_name="test", headless=True)
         with patch("jobsearch_rag.adapters.session._STORAGE_DIR", tmp_path):
             state_file = config.storage_state_path
             state_file.parent.mkdir(parents=True, exist_ok=True)
             state_file.write_text("{}")
+
+            # When/Then: has_storage_state returns True
             manager = SessionManager(config)
-            assert manager.has_storage_state() is True
+            assert (
+                manager.has_storage_state() is True
+            ), "has_storage_state should return True when session file exists"
 
     def test_has_storage_state_returns_false_when_no_file(self) -> None:
         """
@@ -685,9 +717,14 @@ class TestSessionManagerCDP:
         WHEN has_storage_state is called
         THEN it returns False.
         """
+        # Given/When: no session file on disk
         config = SessionConfig(board_name="nonexistent_board_xyz", headless=True)
         manager = SessionManager(config)
-        assert manager.has_storage_state() is False
+
+        # Then: has_storage_state returns False
+        assert (
+            manager.has_storage_state() is False
+        ), "has_storage_state should return False when no session file exists"
 
     async def test_stealth_patches_applied_when_stealth_enabled(self, tmp_path: Path) -> None:
         """
@@ -695,6 +732,7 @@ class TestSessionManagerCDP:
         WHEN the session is entered
         THEN playwright-stealth patches are applied to the context.
         """
+        # Given: stealth config with mock stealth module
         config = SessionConfig(board_name="linkedin", headless=True, stealth=True)
         mock_pw = _mock_playwright(connect_over_cdp=False)
         mock_stealth = MagicMock()
@@ -709,8 +747,11 @@ class TestSessionManagerCDP:
                 {"playwright_stealth": MagicMock(Stealth=mock_stealth)},
             ),
         ):
+            # When: enter the session
             manager = SessionManager(config)
             await manager.__aenter__()
+
+            # Then: stealth patches were applied
             mock_stealth_instance.apply_stealth_async.assert_called_once()
             await manager.__aexit__(None, None, None)
 
@@ -720,6 +761,7 @@ class TestSessionManagerCDP:
         WHEN the session is entered
         THEN the session still starts and a warning is logged.
         """
+        # Given: stealth config with playwright_stealth import rigged to fail
         config = SessionConfig(board_name="linkedin", headless=True, stealth=True)
         mock_pw = _mock_playwright(connect_over_cdp=False)
 
@@ -734,8 +776,8 @@ class TestSessionManagerCDP:
             _patch_playwright(mock_pw),
             patch("builtins.__import__", side_effect=_raise_import_error),
         ):
+            # When/Then: entering does not raise — stealth failure is graceful
             manager = SessionManager(config)
-            # Should not raise — stealth failure is graceful
             await manager.__aenter__()
             await manager.__aexit__(None, None, None)
 
@@ -745,6 +787,7 @@ class TestSessionManagerCDP:
         WHEN new_page is called
         THEN a new page is returned from the browser context.
         """
+        # Given: mock Playwright with a new page stub
         config = SessionConfig(board_name="test", headless=True)
         mock_pw = _mock_playwright(connect_over_cdp=False)
         mock_context = mock_pw.chromium.launch.return_value.new_context.return_value
@@ -752,10 +795,13 @@ class TestSessionManagerCDP:
         mock_context.new_page = AsyncMock(return_value=mock_page)
 
         with _patch_playwright(mock_pw):
+            # When: enter session and request a new page
             manager = SessionManager(config)
             await manager.__aenter__()
             page = await manager.new_page()
-            assert page is mock_page
+
+            # Then: page returned from the browser context
+            assert page is mock_page, "new_page should return a page from the browser context"
             await manager.__aexit__(None, None, None)
 
 
@@ -849,6 +895,7 @@ class TestThrottle:
         WHEN throttle is called
         THEN asyncio.sleep is called with a duration between 0.5 and 1.0.
         """
+        # Given: adapter with rate limit bounds
         mock_adapter = MagicMock()
         mock_adapter.rate_limit_seconds = (0.5, 1.0)
         mock_adapter.board_name = "testboard"
@@ -856,6 +903,9 @@ class TestThrottle:
         with patch(
             "jobsearch_rag.adapters.session.asyncio.sleep", new_callable=AsyncMock
         ) as mock_sleep:
+            # When: throttle is called
             duration = await throttle(mock_adapter)
-            assert 0.5 <= duration <= 1.0
+
+            # Then: duration is within bounds and sleep was called
+            assert 0.5 <= duration <= 1.0, f"Expected duration between 0.5 and 1.0, got {duration}"
             mock_sleep.assert_called_once_with(duration)

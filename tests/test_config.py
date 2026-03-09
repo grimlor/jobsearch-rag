@@ -235,7 +235,8 @@ persist_dir = "./data/chroma_db"
 
     def test_valid_settings_load_without_error(self) -> None:
         """
-        When a well-formed settings.toml is loaded
+        Given a complete, valid settings.toml file
+        When the settings are loaded
         Then all fields are parsed and accessible
         """
         # Given: a complete, valid settings file

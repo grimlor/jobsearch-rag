@@ -6,22 +6,23 @@ Maps to BDD specs: TestJdFileLoading, TestRescoreWorkflow
 from __future__ import annotations
 
 import textwrap
-from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from jobsearch_rag.rag.store import VectorStore
+
 import pytest
 
-from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.pipeline.rescorer import (
     Rescorer,
     RescoreResult,
     load_jd_files,
 )
-from jobsearch_rag.rag.scorer import ScoreResult
+from jobsearch_rag.rag.scorer import Scorer
+from tests.constants import EMBED_FAKE
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -79,45 +80,102 @@ class TestJdFileLoading:
           return an empty list
     WHY: Without correct JD loading, rescoring would fail silently or produce
          garbled results — the operator would have to re-run full browser sessions
+
+    MOCK BOUNDARY:
+        Mock: (none — pure function tests on load_jd_files)
+        Real: load_jd_files, filesystem via tmp_path
+        Never: Patch file I/O or markdown parsing internals
     """
 
     def test_loads_listing_from_valid_jd_file(self, jd_dir: Path) -> None:
-        """A well-formed JD file is loaded into a JobListing with all metadata."""
+        """
+        GIVEN a directory with a well-formed JD markdown file
+        WHEN load_jd_files() reads the directory
+        THEN a JobListing is returned with all metadata fields populated.
+        """
+        # When: load JD files
         listings = load_jd_files(jd_dir)
-        assert len(listings) == 1
+
+        # Then: one listing with all metadata
+        assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
         listing = listings[0]
-        assert listing.title == "Staff Platform Architect"
-        assert listing.company == "Acme Corp"
-        assert listing.board == "ziprecruiter"
-        assert listing.url == "https://example.org/job/42"
-        assert listing.location == "Remote"
+        assert (
+            listing.title == "Staff Platform Architect"
+        ), f"Expected 'Staff Platform Architect', got {listing.title!r}"
+        assert listing.company == "Acme Corp", f"Expected 'Acme Corp', got {listing.company!r}"
+        assert listing.board == "ziprecruiter", f"Expected 'ziprecruiter', got {listing.board!r}"
+        assert (
+            listing.url == "https://example.org/job/42"
+        ), f"Expected URL to match, got {listing.url!r}"
+        assert listing.location == "Remote", f"Expected 'Remote', got {listing.location!r}"
 
     def test_listing_full_text_contains_jd_body(self, jd_dir: Path) -> None:
-        """The loaded listing's full_text contains the JD body text."""
+        """
+        GIVEN a JD file with a Job Description section
+        WHEN load_jd_files() parses it
+        THEN the listing's full_text contains the JD body text.
+        """
+        # When: load the listing
         listings = load_jd_files(jd_dir)
-        assert "Staff Platform Architect to lead" in listings[0].full_text
-        assert "Kubernetes and Terraform" in listings[0].full_text
+
+        # Then: full_text includes JD content
+        assert (
+            "Staff Platform Architect to lead" in listings[0].full_text
+        ), f"Expected JD opening in full_text, got {listings[0].full_text[:100]!r}"
+        assert (
+            "Kubernetes and Terraform" in listings[0].full_text
+        ), f"Expected tech keywords in full_text, got {listings[0].full_text[:100]!r}"
 
     def test_external_id_derived_from_url(self, jd_dir: Path) -> None:
-        """The external_id is extracted from the last URL path segment."""
+        """
+        GIVEN a JD file with a URL ending in /42
+        WHEN load_jd_files() parses it
+        THEN the external_id is '42'.
+        """
+        # When: load the listing
         listings = load_jd_files(jd_dir)
-        assert listings[0].external_id == "42"
+
+        # Then: external_id is the last URL segment
+        assert (
+            listings[0].external_id == "42"
+        ), f"Expected external_id '42', got {listings[0].external_id!r}"
 
     def test_nonexistent_directory_returns_empty_list(self, tmp_path: Path) -> None:
-        """A non-existent directory returns an empty list, not an error."""
+        """
+        GIVEN a path that does not exist
+        WHEN load_jd_files() is called
+        THEN an empty list is returned.
+        """
+        # When: load from non-existent path
         listings = load_jd_files(tmp_path / "does-not-exist")
-        assert listings == []
+
+        # Then: empty list, no error
+        assert listings == [], f"Expected empty list, got {listings}"
 
     def test_file_without_jd_body_is_skipped(self, tmp_path: Path) -> None:
-        """A JD file missing the '## Job Description' section is silently skipped."""
+        """
+        GIVEN a JD file missing the '## Job Description' section
+        WHEN load_jd_files() reads it
+        THEN the file is silently skipped.
+        """
+        # Given: a JD file with no body section
         d = tmp_path / "jds"
         d.mkdir()
         (d / "001_no-body.md").write_text("# Title\n\n**Company:** Co\n")
+
+        # When: load JD files
         listings = load_jd_files(d)
-        assert listings == []
+
+        # Then: no listings (file skipped)
+        assert listings == [], f"Expected empty list for body-less file, got {listings}"
 
     def test_missing_metadata_uses_defaults(self, tmp_path: Path) -> None:
-        """A JD file with only a body still loads with default metadata values."""
+        """
+        GIVEN a JD file with only a body and no metadata headers
+        WHEN load_jd_files() parses it
+        THEN default values are used for missing fields.
+        """
+        # Given: minimal JD with no metadata
         d = tmp_path / "jds"
         d.mkdir()
         content = textwrap.dedent("""\
@@ -126,13 +184,26 @@ class TestJdFileLoading:
             Some job description text here.
         """)
         (d / "minimal.md").write_text(content)
+
+        # When: load JD files
         listings = load_jd_files(d)
-        assert len(listings) == 1
-        assert listings[0].company == "Unknown"
-        assert listings[0].board == "unknown"
+
+        # Then: listing loaded with defaults
+        assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
+        assert (
+            listings[0].company == "Unknown"
+        ), f"Expected default company 'Unknown', got {listings[0].company!r}"
+        assert (
+            listings[0].board == "unknown"
+        ), f"Expected default board 'unknown', got {listings[0].board!r}"
 
     def test_multiple_jd_files_loaded_in_sorted_order(self, tmp_path: Path) -> None:
-        """Multiple JD files are loaded in filename-sorted order."""
+        """
+        GIVEN a directory with multiple JD files numbered 001, 002, 003
+        WHEN load_jd_files() reads the directory
+        THEN listings are returned in filename-sorted order.
+        """
+        # Given: three JD files with numeric prefixes
         d = tmp_path / "jds"
         d.mkdir()
         for i, (title, company) in enumerate(
@@ -151,12 +222,21 @@ class TestJdFileLoading:
             (d / f"{i:03d}_{company.lower()}_{title.lower().replace(' ', '-')}.md").write_text(
                 content
             )
+
+        # When: load all JD files
         listings = load_jd_files(d)
-        assert len(listings) == 3
-        # Sorted by filename: 001, 002, 003
-        assert listings[0].title == "Role B"
-        assert listings[1].title == "Role A"
-        assert listings[2].title == "Role C"
+
+        # Then: sorted by filename (001, 002, 003)
+        assert len(listings) == 3, f"Expected 3 listings, got {len(listings)}"
+        assert (
+            listings[0].title == "Role B"
+        ), f"Expected 'Role B' first (001_), got {listings[0].title!r}"
+        assert (
+            listings[1].title == "Role A"
+        ), f"Expected 'Role A' second (002_), got {listings[1].title!r}"
+        assert (
+            listings[2].title == "Role C"
+        ), f"Expected 'Role C' third (003_), got {listings[2].title!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -175,22 +255,43 @@ class TestRescoreWorkflow:
     WHY: Without rescoring, the operator would need to re-run full browser
          sessions after every archetype or rubric tweak — a 20-minute wait
          instead of seconds
+
+    MOCK BOUNDARY:
+        Mock: Embedder I/O (embed, classify, health_check — Ollama HTTP)
+        Real: Scorer, VectorStore (ChromaDB in tmp_path), Ranker, Rescorer,
+              load_jd_files, RescoreResult
+        Never: Patch Scorer, Ranker, or Rescorer internals
     """
 
-    def _make_mock_scorer(self, scores: dict[str, Any] | None = None) -> MagicMock:
-        """Create a mock Scorer that returns controlled ScoreResult values."""
-        default = ScoreResult(
-            fit_score=0.8,
-            archetype_score=0.7,
-            history_score=0.5,
-            negative_score=0.1,
-            disqualified=False,
+    @staticmethod
+    def _make_scorer(store: VectorStore, mock_embedder: object) -> Scorer:
+        """Create a real Scorer wired to a populated store and I/O-stubbed embedder."""
+        return Scorer(
+            store=store,
+            embedder=mock_embedder,  # type: ignore[arg-type]
+            disqualify_on_llm_flag=False,
         )
-        mock = MagicMock()
-        mock.score = AsyncMock(return_value=scores or default)
-        return mock
 
-    def _make_ranker(self) -> Ranker:
+    @staticmethod
+    def _populate_store(store: VectorStore) -> None:
+        """Seed a VectorStore with resume and archetype collections."""
+        store.add_documents(
+            collection_name="resume",
+            ids=["resume-summary"],
+            documents=["Principal architect specializing in distributed systems."],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"source": "resume", "section": "Summary"}],
+        )
+        store.add_documents(
+            collection_name="role_archetypes",
+            ids=["archetype-staff"],
+            documents=["Staff Platform Architect: distributed systems."],
+            embeddings=[EMBED_FAKE],
+            metadatas=[{"name": "Staff Platform Architect", "source": "role_archetypes"}],
+        )
+
+    @staticmethod
+    def _make_ranker() -> Ranker:
         """Create a real Ranker with default weights."""
         return Ranker(
             archetype_weight=0.5,
@@ -201,47 +302,86 @@ class TestRescoreWorkflow:
             min_score_threshold=0.0,
         )
 
-    @pytest.mark.asyncio()
-    async def test_rescore_returns_ranked_listings(self, jd_dir: Path) -> None:
-        """Rescoring a directory with JD files returns ranked results."""
-        scorer = self._make_mock_scorer()
+    async def test_rescore_returns_ranked_listings(
+        self, jd_dir: Path, vector_store: VectorStore, mock_embedder: object
+    ) -> None:
+        """
+        GIVEN a directory with valid JD files and a populated scoring stack
+        WHEN the Rescorer processes the directory
+        THEN it returns ranked listings with no failures.
+        """
+        # Given: store populated with resume + archetypes
+        self._populate_store(vector_store)
+        scorer = self._make_scorer(vector_store, mock_embedder)
         ranker = self._make_ranker()
         rescorer = Rescorer(scorer=scorer, ranker=ranker)
-        result = await rescorer.rescore(str(jd_dir))
-        assert result.total_loaded == 1
-        assert len(result.ranked_listings) == 1
-        assert result.failed_listings == 0
 
-    @pytest.mark.asyncio()
-    async def test_rescore_empty_directory_returns_empty_result(self, tmp_path: Path) -> None:
-        """Rescoring an empty directory returns an empty RescoreResult."""
-        scorer = self._make_mock_scorer()
+        # When: rescore the JD directory
+        result = await rescorer.rescore(str(jd_dir))
+
+        # Then: one listing loaded, ranked, no failures
+        assert result.total_loaded == 1, f"Expected 1 loaded, got {result.total_loaded}"
+        assert (
+            len(result.ranked_listings) == 1
+        ), f"Expected 1 ranked listing, got {len(result.ranked_listings)}"
+        assert result.failed_listings == 0, f"Expected 0 failures, got {result.failed_listings}"
+
+    async def test_rescore_empty_directory_returns_empty_result(
+        self, tmp_path: Path, vector_store: VectorStore, mock_embedder: object
+    ) -> None:
+        """
+        GIVEN a non-existent JD directory
+        WHEN the Rescorer processes it
+        THEN an empty RescoreResult is returned.
+        """
+        # Given: scorer with populated store (irrelevant — no JDs to score)
+        self._populate_store(vector_store)
+        scorer = self._make_scorer(vector_store, mock_embedder)
         ranker = self._make_ranker()
         rescorer = Rescorer(scorer=scorer, ranker=ranker)
+
+        # When: rescore a non-existent directory
         result = await rescorer.rescore(str(tmp_path / "empty"))
-        assert result.total_loaded == 0
-        assert len(result.ranked_listings) == 0
 
-    @pytest.mark.asyncio()
-    async def test_rescore_counts_failed_listings(self, jd_dir: Path) -> None:
-        """Scoring failures are counted in failed_listings and don't crash the run."""
-        scorer = MagicMock()
-        scorer.score = AsyncMock(
-            side_effect=ActionableError.connection(
-                "ollama", "localhost:11434", "Connection refused"
-            )
-        )
+        # Then: empty result
+        assert result.total_loaded == 0, f"Expected 0 loaded, got {result.total_loaded}"
+        assert (
+            len(result.ranked_listings) == 0
+        ), f"Expected 0 ranked listings, got {len(result.ranked_listings)}"
+
+    async def test_rescore_counts_failed_listings(
+        self, jd_dir: Path, vector_store: VectorStore, mock_embedder: object
+    ) -> None:
+        """
+        GIVEN a Scorer whose store lacks the required resume collection
+        WHEN the Rescorer attempts to score JD files
+        THEN failures are counted and the run completes without crashing.
+        """
+        # Given: empty store (no resume collection) → Scorer.score raises ActionableError
+        scorer = self._make_scorer(vector_store, mock_embedder)
         ranker = self._make_ranker()
         rescorer = Rescorer(scorer=scorer, ranker=ranker)
-        result = await rescorer.rescore(str(jd_dir))
-        assert result.total_loaded == 1
-        assert result.failed_listings == 1
-        assert len(result.ranked_listings) == 0
 
-    @pytest.mark.asyncio()
+        # When: rescore the JD directory
+        result = await rescorer.rescore(str(jd_dir))
+
+        # Then: listing was loaded but scoring failed
+        assert result.total_loaded == 1, f"Expected 1 loaded, got {result.total_loaded}"
+        assert result.failed_listings == 1, f"Expected 1 failure, got {result.failed_listings}"
+        assert (
+            len(result.ranked_listings) == 0
+        ), f"Expected 0 ranked listings, got {len(result.ranked_listings)}"
+
     async def test_rescore_result_has_default_fields(self) -> None:
-        """A fresh RescoreResult has sensible defaults."""
+        """
+        GIVEN no arguments
+        WHEN a fresh RescoreResult is created
+        THEN all fields have sensible zero/empty defaults.
+        """
+        # When: create a default RescoreResult
         result = RescoreResult()
-        assert result.total_loaded == 0
-        assert result.failed_listings == 0
-        assert result.ranked_listings == []
+
+        # Then: all fields are zeroed
+        assert result.total_loaded == 0, f"Expected 0 loaded, got {result.total_loaded}"
+        assert result.failed_listings == 0, f"Expected 0 failures, got {result.failed_listings}"
+        assert result.ranked_listings == [], f"Expected empty list, got {result.ranked_listings}"

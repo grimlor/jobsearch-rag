@@ -12,7 +12,7 @@ import json as json_mod
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -66,8 +66,8 @@ class TestDecisionRecording:
          not 'what did I reject' (rejections have too many confounding reasons)
 
     MOCK BOUNDARY:
-        Mock: Embedder.embed (Ollama API call), VectorStore in edge-case tests (ChromaDB)
-        Real: DecisionRecorder, VectorStore (via tmpdir for main tests), JSONL file I/O
+        Mock: Embedder.embed (Ollama API call)
+        Real: DecisionRecorder, VectorStore (via tmpdir), JSONL file I/O
         Never: Patch DecisionRecorder internals or verdict classification logic
     """
 
@@ -400,19 +400,15 @@ class TestDecisionRecording:
         WHEN get_decision() is called
         THEN None is returned instead of raising.
         """
-        # Given: a store that raises on get_documents
-        mock_store = MagicMock()
-        mock_store.get_documents.side_effect = ActionableError(
-            error="Collection not found",
-            error_type=ErrorType.INDEX,
-            service="chromadb",
-        )
-        recorder = DecisionRecorder(store=mock_store, embedder=mock_embedder)
+        # Given: a fresh store with no decisions collection
+        with tempfile.TemporaryDirectory() as tmpdir:
+            empty_store = VectorStore(persist_dir=tmpdir)
+            recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
-        # When/Then: get_decision returns None gracefully
-        assert (
-            recorder.get_decision("nonexistent-job") is None
-        ), "Should return None when collection is missing"
+            # When/Then: get_decision returns None gracefully
+            assert (
+                recorder.get_decision("nonexistent-job") is None
+            ), "Should return None when collection is missing"
 
     def test_get_decision_returns_none_when_no_results_found(
         self, mock_embedder: Embedder
@@ -422,15 +418,16 @@ class TestDecisionRecording:
         WHEN get_decision() is called
         THEN None is returned.
         """
-        # Given: a store that returns empty results
-        mock_store = MagicMock()
-        mock_store.get_documents.return_value = {"ids": [], "metadatas": []}
-        recorder = DecisionRecorder(store=mock_store, embedder=mock_embedder)
+        # Given: a store with an empty decisions collection
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VectorStore(persist_dir=tmpdir)
+            store.get_or_create_collection("decisions")
+            recorder = DecisionRecorder(store=store, embedder=mock_embedder)
 
-        # When/Then: get_decision returns None
-        assert (
-            recorder.get_decision("unknown-id") is None
-        ), "Should return None when no matching document exists"
+            # When/Then: get_decision returns None
+            assert (
+                recorder.get_decision("unknown-id") is None
+            ), "Should return None when no matching document exists"
 
     def test_history_count_returns_zero_when_collection_missing(
         self, mock_embedder: Embedder
@@ -440,14 +437,10 @@ class TestDecisionRecording:
         WHEN history_count() is called
         THEN 0 is returned instead of raising.
         """
-        # Given: a store that raises on collection_count
-        mock_store = MagicMock()
-        mock_store.collection_count.side_effect = ActionableError(
-            error="Collection not found",
-            error_type=ErrorType.INDEX,
-            service="chromadb",
-        )
-        recorder = DecisionRecorder(store=mock_store, embedder=mock_embedder)
+        # Given: a fresh store with no decisions collection
+        with tempfile.TemporaryDirectory() as tmpdir:
+            empty_store = VectorStore(persist_dir=tmpdir)
+            recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
-        # When/Then: history_count returns 0 gracefully
-        assert recorder.history_count() == 0, "Should return 0 when collection is missing"
+            # When/Then: history_count returns 0 gracefully
+            assert recorder.history_count() == 0, "Should return 0 when collection is missing"

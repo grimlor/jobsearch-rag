@@ -908,15 +908,11 @@ class TestAuthenticate:
         adapter = ZipRecruiterAdapter()
         page = _make_mock_page(title="Just a moment...")
 
-        # When/Then: raises after timeout
+        # When/Then: raises after timeout (asyncio.sleep mocked so 15 iterations are instant)
         with (
             patch(
                 "jobsearch_rag.adapters.ziprecruiter.asyncio.sleep",
                 new_callable=AsyncMock,
-            ),
-            patch(
-                "jobsearch_rag.adapters.ziprecruiter._CF_WAIT_TIMEOUT",
-                1,
             ),
             pytest.raises(ActionableError) as exc_info,
         ):
@@ -1161,17 +1157,9 @@ class TestSearch:
         WHEN search is called with max_pages=3
         THEN pagination stops after 2 pages with only page 1 listings.
         """
+        # Given: page 1 has cards, page 2 has zero cards
         adapter = ZipRecruiterAdapter()
-        # First page returns cards, second page returns empty
         fixture_html = _SERP_FIXTURE.read_text()
-        # Override maxPages to allow multi-page
-        empty_html = fixture_html.replace('"maxPages": 1', '"maxPages": 3')
-        # Second page has no cards
-        empty_html.replace('"jobCards": [', '"jobCards": [').replace(
-            '"hydrateJobCardsResponse"',
-            '"hydrateJobCardsResponse"',
-        )
-        # Simpler: just return fixture for page 1, then empty for page 2
         no_cards_fixture = (
             "<html><head><title>Jobs</title></head><body>"
             '<script id="js_variables" type="application/json">'
@@ -1200,12 +1188,14 @@ class TestSearch:
             ]
         )
 
+        # When: search is called with max_pages=3
         with patch(
             "jobsearch_rag.adapters.ziprecruiter.random.uniform",
             return_value=0.0,
         ):
             listings = await adapter.search(page, "https://zr.com/search", max_pages=3)
 
+        # Then: pagination stops after page 1 (2 goto calls: page 1 + page 2 with no cards)
         assert call_count["goto"] == 2, f"Expected 2 page navigations, got {call_count['goto']}"
         assert len(listings) == 3, f"Expected 3 listings from page 1 only, got {len(listings)}"
 
@@ -1307,6 +1297,7 @@ class TestSearch:
         WHEN search is called with max_pages=2
         THEN page 2 URL appends '&page=2'.
         """
+        # Given: a fixture with maxPages=2 and a query URL containing '?'
         adapter = ZipRecruiterAdapter()
         fixture_html = _SERP_FIXTURE.read_text().replace('"maxPages": 1', '"maxPages": 2')
         empty_fixture = (
@@ -1344,14 +1335,20 @@ class TestSearch:
             "[data-testid='job-details-scroll-container']": mock_panel,
         }[sel]
 
+        # When: search is called with max_pages=2
         with patch(
             "jobsearch_rag.adapters.ziprecruiter.random.uniform",
             return_value=0.0,
         ):
             await adapter.search(page, "https://zr.com/search?q=architect", max_pages=2)
 
-        assert goto_urls[0] == "https://zr.com/search?q=architect"
-        assert goto_urls[1] == "https://zr.com/search?q=architect&page=2"
+        # Then: page 2 URL appends '&page=2' since URL already has '?'
+        assert (
+            goto_urls[0] == "https://zr.com/search?q=architect"
+        ), f"Expected page 1 URL unchanged, got {goto_urls[0]}"
+        assert (
+            goto_urls[1] == "https://zr.com/search?q=architect&page=2"
+        ), f"Expected '&page=2' appended, got {goto_urls[1]}"
 
     @pytest.mark.asyncio
     async def test_search_card_index_exceeds_dom_count(self) -> None:
@@ -1387,6 +1384,7 @@ class TestSearch:
         WHEN search paginates to page 2
         THEN '?page=2' is used as the separator.
         """
+        # Given: a query URL without '?' (no query string)
         adapter = ZipRecruiterAdapter()
         fixture_html = _SERP_FIXTURE.read_text().replace('"maxPages": 1', '"maxPages": 2')
         empty_fixture = (
@@ -1409,14 +1407,17 @@ class TestSearch:
         page.goto = _track_goto
         page.content = AsyncMock(side_effect=[fixture_html, empty_fixture])
 
+        # When: search paginates to page 2
         with patch(
             "jobsearch_rag.adapters.ziprecruiter.random.uniform",
             return_value=0.0,
         ):
             await adapter.search(page, "https://zr.com/search", max_pages=2)
 
-        # No '?' in query → uses '?' separator
-        assert goto_urls[1] == "https://zr.com/search?page=2"
+        # Then: '?page=2' is used since URL has no existing query string
+        assert (
+            goto_urls[1] == "https://zr.com/search?page=2"
+        ), f"Expected '?page=2' separator, got {goto_urls[1]}"
 
     @pytest.mark.asyncio
     async def test_search_first_card_not_prepopulated_when_no_jd_in_js_vars(self) -> None:

@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
+from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.config import (
     BoardConfig,
@@ -26,6 +26,9 @@ from jobsearch_rag.config import (
 )
 from jobsearch_rag.pipeline.runner import PipelineRunner
 from tests.constants import EMBED_FAKE
+
+if TYPE_CHECKING:
+    from jobsearch_rag.rag.store import VectorStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -44,7 +47,7 @@ def _make_settings(tmpdir: str) -> Settings:
                 headless=True,
             ),
         },
-        scoring=ScoringConfig(),
+        scoring=ScoringConfig(disqualify_on_llm_flag=False),
         ollama=OllamaConfig(),
         output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
         chroma=ChromaConfig(persist_dir=tmpdir),
@@ -67,14 +70,119 @@ def _make_listing(
     )
 
 
-def _mock_recorder(decided_ids: set[str] | None = None) -> MagicMock:
-    """Create a mock DecisionRecorder that knows about decided_ids."""
-    recorder = MagicMock()
-    decided = decided_ids or set()
-    recorder.get_decision = MagicMock(
-        side_effect=lambda jid: {"verdict": "yes"} if jid in decided else None
+def _make_runner_with_real_stack(
+    settings: Settings,
+    *,
+    populate_store: bool = True,
+) -> tuple[PipelineRunner, AsyncMock]:
+    """Create a PipelineRunner with real Embedder/Scorer and mocked Ollama client.
+
+    The only mock is ``ollama_sdk.AsyncClient`` — the I/O boundary where
+    our system ends and the network begins.
+
+    Returns ``(runner, mock_client)``.
+    """
+    mock_client = AsyncMock()
+
+    # health_check calls client.list()
+    model_embed = MagicMock()
+    model_embed.model = settings.ollama.embed_model
+    model_llm = MagicMock()
+    model_llm.model = settings.ollama.llm_model
+    list_response = MagicMock()
+    list_response.models = [model_embed, model_llm]
+    mock_client.list.return_value = list_response
+
+    # embed() calls client.embed()
+    embed_response = MagicMock()
+    embed_response.embeddings = [EMBED_FAKE]
+    mock_client.embed.return_value = embed_response
+
+    with patch(
+        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+        return_value=mock_client,
+    ):
+        runner = PipelineRunner(settings)
+
+    if populate_store:
+        _populate_store(runner._store)
+
+    return runner, mock_client
+
+
+def _populate_store(store: VectorStore) -> None:
+    """Seed the three required collections so auto-indexing is skipped."""
+    for name in ("resume", "role_archetypes", "global_positive_signals"):
+        store.add_documents(
+            name,
+            ids=[f"{name}-seed"],
+            documents=[f"Seed document for {name}"],
+            embeddings=[EMBED_FAKE],
+        )
+
+
+def _seed_decision(store: VectorStore, job_id: str, verdict: str = "yes") -> None:
+    """Pre-record a decision into the real VectorStore decisions collection."""
+    store.add_documents(
+        collection_name="decisions",
+        ids=[f"decision-{job_id}"],
+        documents=["Previously decided JD text."],
+        embeddings=[EMBED_FAKE],
+        metadatas=[
+            {
+                "job_id": job_id,
+                "verdict": verdict,
+                "board": "testboard",
+                "title": "Old Role",
+                "company": "OldCo",
+                "scoring_signal": "true" if verdict == "yes" else "false",
+                "reason": "",
+                "recorded_at": "2026-01-01T00:00:00+00:00",
+            }
+        ],
     )
-    return recorder
+
+
+def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
+    """Create a mock Playwright I/O boundary for real SessionManager.
+
+    Returns ``(mock_async_playwright, mock_page)``.
+    """
+    mock_page = MagicMock()
+
+    mock_context = MagicMock()
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+    mock_context.storage_state = AsyncMock(return_value={"cookies": [], "origins": []})
+    mock_context.close = AsyncMock()
+
+    mock_browser = MagicMock()
+    mock_browser.new_context = AsyncMock(return_value=mock_context)
+    mock_browser.close = AsyncMock()
+
+    mock_pw = MagicMock()
+    mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+    mock_pw.stop = AsyncMock()
+
+    mock_pw_cm = MagicMock()
+    mock_pw_cm.start = AsyncMock(return_value=mock_pw)
+
+    mock_async_pw = MagicMock(return_value=mock_pw_cm)
+
+    return mock_async_pw, mock_page
+
+
+def _make_test_adapter(
+    *,
+    search_results: list[JobListing] | None = None,
+) -> MagicMock:
+    """Create a test adapter for the real AdapterRegistry."""
+    adapter = MagicMock()
+    adapter.board_name = "testboard"
+    adapter.rate_limit_seconds = (0.0, 0.0)
+    adapter.authenticate = AsyncMock()
+    adapter.search = AsyncMock(return_value=search_results if search_results is not None else [])
+    adapter.extract_detail = AsyncMock()
+    return adapter
 
 
 class TestCrossRunDedup:
@@ -89,228 +197,216 @@ class TestCrossRunDedup:
     WHY: Without deduplication, repeated searches would re-score and
          re-present listings the operator has already acted on,
          wasting compute and operator time
+
+    MOCK BOUNDARY:
+        Mock:  ollama_sdk.AsyncClient (Ollama API),
+               async_playwright (Playwright browser library)
+        Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
+               DecisionRecorder, AdapterRegistry, SessionManager, throttle
+        Never: Construct ScoreResult directly — always obtained via real Scorer.score()
     """
 
-    @pytest.mark.asyncio
     async def test_listing_with_existing_decision_is_excluded_from_scoring(
         self,
     ) -> None:
-        """A listing whose job_id is already in the decisions collection
-        is skipped entirely — no Ollama compute wasted on re-scoring."""
+        """
+        Given a decision for "already-decided" pre-seeded in the store,
+        When run() processes listings including "already-decided" and "brand-new",
+        Then only the new listing triggers Ollama embed calls.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: runner with a pre-seeded decision for "already-decided"
             settings = _make_settings(tmpdir)
-            runner = PipelineRunner(settings)
-            runner._decision_recorder = _mock_recorder({"already-decided"})
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            _seed_decision(runner._store, "already-decided")
 
             decided_listing = _make_listing(external_id="already-decided")
             new_listing = _make_listing(external_id="brand-new")
 
-            with (
-                patch.object(runner, "_search_board", new_callable=AsyncMock) as mock_search,
-                patch.object(runner._embedder, "health_check", new_callable=AsyncMock),
-                patch.object(runner, "_ensure_indexed", new_callable=AsyncMock),
-                patch.object(runner._scorer, "score", new_callable=AsyncMock) as mock_score,
-                patch.object(runner._embedder, "embed", new_callable=AsyncMock) as mock_embed,
-            ):
-                mock_search.return_value = ([decided_listing, new_listing], 0)
-                mock_score.return_value = MagicMock(
-                    fit_score=0.8,
-                    archetype_score=0.7,
-                    history_score=0.5,
-                    comp_score=0.5,
-                    negative_score=0.0,
-                    culture_score=0.0,
-                    disqualified=False,
-                    disqualifier_reason=None,
-                )
-                mock_embed.return_value = EMBED_FAKE
+            adapter = _make_test_adapter(search_results=[decided_listing, new_listing])
+            mock_pw_fn, _ = _mock_playwright_boundary()
 
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: the pipeline runs
                 await runner.run()
 
-            # Score should only have been called for the new listing
-            assert mock_score.call_count == 1
+            # Then: embed calls are only for the new listing (score + cache),
+            #       not for the decided one
+            assert mock_client.embed.call_count == 2, (
+                f"Expected 2 embed calls (score + cache) for 1 scored listing, "
+                f"got {mock_client.embed.call_count}"
+            )
 
-    @pytest.mark.asyncio
     async def test_excluded_listing_does_not_appear_in_export(self) -> None:
-        """Excluded listings are not passed to the ranker, so they won't
-        appear in results.md, results.csv, or the JD files."""
+        """
+        Given a decision for "decided-1" pre-seeded in the store,
+        When run() processes both "decided-1" and "new-1",
+        Then only "New Role" appears in the ranked results.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: runner with a pre-seeded decision for "decided-1"
             settings = _make_settings(tmpdir)
-            runner = PipelineRunner(settings)
-            runner._decision_recorder = _mock_recorder({"decided-1"})
+            runner, _mock_client = _make_runner_with_real_stack(settings)
+            _seed_decision(runner._store, "decided-1")
 
             decided = _make_listing(external_id="decided-1", title="Old Role")
             new = _make_listing(external_id="new-1", title="New Role")
 
-            with (
-                patch.object(runner, "_search_board", new_callable=AsyncMock) as mock_search,
-                patch.object(runner._embedder, "health_check", new_callable=AsyncMock),
-                patch.object(runner, "_ensure_indexed", new_callable=AsyncMock),
-                patch.object(runner._scorer, "score", new_callable=AsyncMock) as mock_score,
-                patch.object(runner._embedder, "embed", new_callable=AsyncMock) as mock_embed,
-            ):
-                mock_search.return_value = ([decided, new], 0)
-                mock_score.return_value = MagicMock(
-                    fit_score=0.8,
-                    archetype_score=0.7,
-                    history_score=0.5,
-                    comp_score=0.5,
-                    negative_score=0.0,
-                    culture_score=0.0,
-                    disqualified=False,
-                    disqualifier_reason=None,
-                )
-                mock_embed.return_value = EMBED_FAKE
+            adapter = _make_test_adapter(search_results=[decided, new])
+            mock_pw_fn, _ = _mock_playwright_boundary()
 
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: the pipeline runs
                 result = await runner.run()
 
-            # Only the new listing should appear in ranked results
+            # Then: decided listing absent, new listing present
             titles = [r.listing.title for r in result.ranked_listings]
-            assert "Old Role" not in titles
+            assert (
+                "Old Role" not in titles
+            ), f"Decided listing should be excluded from ranked results, got titles: {titles}"
             if result.ranked_listings:
-                assert "New Role" in titles
+                assert (
+                    "New Role" in titles
+                ), f"New listing should appear in ranked results, got titles: {titles}"
 
-    @pytest.mark.asyncio
     async def test_exclusion_count_appears_in_run_summary(self) -> None:
-        """The run summary includes how many listings were skipped due
-        to existing decisions, so the operator sees the dedup effect."""
+        """
+        Given a decision for "decided-1" pre-seeded in the store,
+        When run() processes "decided-1" and "new-1",
+        Then result.skipped_decisions reflects the exclusion.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
-            runner = PipelineRunner(settings)
-            runner._decision_recorder = _mock_recorder({"decided-1"})
+            runner, _mock_client = _make_runner_with_real_stack(settings)
+            _seed_decision(runner._store, "decided-1")
 
             decided = _make_listing(external_id="decided-1")
             new = _make_listing(external_id="new-1")
 
-            with (
-                patch.object(runner, "_search_board", new_callable=AsyncMock) as mock_search,
-                patch.object(runner._embedder, "health_check", new_callable=AsyncMock),
-                patch.object(runner, "_ensure_indexed", new_callable=AsyncMock),
-                patch.object(runner._scorer, "score", new_callable=AsyncMock) as mock_score,
-                patch.object(runner._embedder, "embed", new_callable=AsyncMock) as mock_embed,
-            ):
-                mock_search.return_value = ([decided, new], 0)
-                mock_score.return_value = MagicMock(
-                    fit_score=0.8,
-                    archetype_score=0.7,
-                    history_score=0.5,
-                    comp_score=0.5,
-                    negative_score=0.0,
-                    culture_score=0.0,
-                    disqualified=False,
-                    disqualifier_reason=None,
-                )
-                mock_embed.return_value = EMBED_FAKE
+            adapter = _make_test_adapter(search_results=[decided, new])
+            mock_pw_fn, _ = _mock_playwright_boundary()
 
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: the pipeline runs
                 result = await runner.run()
 
-            assert result.skipped_decisions >= 1
+            # Then: at least one listing was skipped due to prior decision
+            assert (
+                result.skipped_decisions >= 1
+            ), f"Expected at least 1 skipped decision, got {result.skipped_decisions}"
 
-    @pytest.mark.asyncio
     async def test_listing_with_no_decision_is_scored_normally(self) -> None:
-        """Listings that have never been decided upon proceed through
-        the full scoring pipeline as before."""
+        """
+        Given no pre-existing decisions in the store,
+        When run() processes a listing "never-seen",
+        Then the listing proceeds through scoring (embed calls are made).
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: runner with no decisions seeded
             settings = _make_settings(tmpdir)
-            runner = PipelineRunner(settings)
-            runner._decision_recorder = _mock_recorder()  # empty — no decisions
+            runner, mock_client = _make_runner_with_real_stack(settings)
 
             new_listing = _make_listing(external_id="never-seen")
 
-            with (
-                patch.object(runner, "_search_board", new_callable=AsyncMock) as mock_search,
-                patch.object(runner._embedder, "health_check", new_callable=AsyncMock),
-                patch.object(runner, "_ensure_indexed", new_callable=AsyncMock),
-                patch.object(runner._scorer, "score", new_callable=AsyncMock) as mock_score,
-                patch.object(runner._embedder, "embed", new_callable=AsyncMock) as mock_embed,
-            ):
-                mock_search.return_value = ([new_listing], 0)
-                mock_score.return_value = MagicMock(
-                    fit_score=0.8,
-                    archetype_score=0.7,
-                    history_score=0.5,
-                    comp_score=0.5,
-                    negative_score=0.0,
-                    culture_score=0.0,
-                    disqualified=False,
-                    disqualifier_reason=None,
-                )
-                mock_embed.return_value = EMBED_FAKE
+            adapter = _make_test_adapter(search_results=[new_listing])
+            mock_pw_fn, _ = _mock_playwright_boundary()
 
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: the pipeline runs
                 await runner.run()
 
-            assert mock_score.call_count == 1
+            # Then: embed was called for scoring + cache (2 calls for 1 listing)
+            assert mock_client.embed.call_count == 2, (
+                f"Expected 2 embed calls (score + cache) for 1 scored listing, "
+                f"got {mock_client.embed.call_count}"
+            )
 
-    @pytest.mark.asyncio
     async def test_force_rescore_flag_overrides_exclusion(self) -> None:
-        """When --force-rescore is passed, even previously-decided listings
-        are sent through the scoring pipeline again."""
+        """
+        Given a decision for "decided-1" pre-seeded in the store,
+        When run(force_rescore=True) is called,
+        Then the decided listing is scored anyway.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
-            runner = PipelineRunner(settings)
-            recorder = _mock_recorder({"decided-1"})
-            runner._decision_recorder = recorder
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            _seed_decision(runner._store, "decided-1")
 
             decided = _make_listing(external_id="decided-1")
 
+            adapter = _make_test_adapter(search_results=[decided])
+            mock_pw_fn, _ = _mock_playwright_boundary()
+
             with (
-                patch.object(runner, "_search_board", new_callable=AsyncMock) as mock_search,
-                patch.object(runner._embedder, "health_check", new_callable=AsyncMock),
-                patch.object(runner, "_ensure_indexed", new_callable=AsyncMock),
-                patch.object(runner._scorer, "score", new_callable=AsyncMock) as mock_score,
-                patch.object(runner._embedder, "embed", new_callable=AsyncMock) as mock_embed,
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
             ):
-                mock_search.return_value = ([decided], 0)
-                mock_score.return_value = MagicMock(
-                    fit_score=0.8,
-                    archetype_score=0.7,
-                    history_score=0.5,
-                    comp_score=0.5,
-                    negative_score=0.0,
-                    culture_score=0.0,
-                    disqualified=False,
-                    disqualifier_reason=None,
-                )
-                mock_embed.return_value = EMBED_FAKE
+                # When: force_rescore overrides exclusion
+                result = await runner.run(force_rescore=True)
 
-                await runner.run(force_rescore=True)
+            # Then: listing was scored despite having a prior decision
+            assert mock_client.embed.call_count >= 2, (
+                f"Expected embed calls for force-rescored listing, "
+                f"got {mock_client.embed.call_count}"
+            )
+            assert result.skipped_decisions == 0, (
+                f"Expected 0 skipped decisions with force_rescore, "
+                f"got {result.skipped_decisions}"
+            )
 
-            # Score should be called even though there's a decision
-            assert mock_score.call_count == 1
-
-    @pytest.mark.asyncio
     async def test_decision_lookup_uses_job_id_not_url(self) -> None:
-        """Cross-run dedup uses external_id (job_id) for lookup, not the
-        URL — the same listing can appear at different URLs across runs."""
+        """
+        Given a decision for "canonical-id-123" and a listing with that
+              external_id but a different URL,
+        When run() processes the listing,
+        Then the listing is skipped — proving lookup is by job_id, not URL.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: runner with decision keyed by job_id
             settings = _make_settings(tmpdir)
-            runner = PipelineRunner(settings)
-            recorder = _mock_recorder()  # empty
-            runner._decision_recorder = recorder
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            _seed_decision(runner._store, "canonical-id-123")
 
+            # Listing uses external_id matching the decision, but different URL
             listing = _make_listing(external_id="canonical-id-123")
 
+            adapter = _make_test_adapter(search_results=[listing])
+            mock_pw_fn, _ = _mock_playwright_boundary()
+
             with (
-                patch.object(runner, "_search_board", new_callable=AsyncMock) as mock_search,
-                patch.object(runner._embedder, "health_check", new_callable=AsyncMock),
-                patch.object(runner, "_ensure_indexed", new_callable=AsyncMock),
-                patch.object(runner._scorer, "score", new_callable=AsyncMock) as mock_score,
-                patch.object(runner._embedder, "embed", new_callable=AsyncMock) as mock_embed,
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
             ):
-                mock_search.return_value = ([listing], 0)
-                mock_score.return_value = MagicMock(
-                    fit_score=0.8,
-                    archetype_score=0.7,
-                    history_score=0.5,
-                    comp_score=0.5,
-                    negative_score=0.0,
-                    culture_score=0.0,
-                    disqualified=False,
-                    disqualifier_reason=None,
-                )
-                mock_embed.return_value = EMBED_FAKE
+                # When: the pipeline runs
+                result = await runner.run()
 
-                await runner.run()
-
-            # Verify get_decision was called with external_id, not URL
-            recorder.get_decision.assert_called_with("canonical-id-123")
+            # Then: listing was skipped because decision matched by external_id
+            assert result.skipped_decisions == 1, (
+                f"Expected listing skipped by job_id lookup, "
+                f"got skipped_decisions={result.skipped_decisions}"
+            )
+            # No embed calls for scoring (only health_check calls client.list)
+            assert mock_client.embed.call_count == 0, (
+                f"Expected 0 embed calls for skipped listing, "
+                f"got {mock_client.embed.call_count}"
+            )

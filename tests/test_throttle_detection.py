@@ -111,7 +111,8 @@ def _patch_search_to_click_through(
     derived from *listings*.  Pure-computation functions
     (``extract_js_variables``, ``parse_job_cards``, ``card_to_listing``,
     ``extract_jd_text``) run on **real data** — only I/O boundaries
-    (page navigation, Cloudflare waits, Playwright locators) are stubbed.
+    (page navigation, Playwright locators) are stubbed.  ``_wait_for_cloudflare``
+    runs for real against a page whose title is "Jobs" (passes immediately).
 
     Yields the ``page`` mock for passing to ``adapter.search()``.
     """
@@ -127,10 +128,10 @@ def _patch_search_to_click_through(
     page = MagicMock()
     page.goto = AsyncMock()
     page.content = AsyncMock(return_value=html)
+    page.title = AsyncMock(return_value="Jobs")
     page.locator = MagicMock(side_effect=[card_locator, panel_mock])
 
-    with patch(f"{_ZR}._wait_for_cloudflare", new_callable=AsyncMock):
-        yield page
+    yield page
 
 
 # ---------------------------------------------------------------------------
@@ -150,11 +151,12 @@ class TestThrottleDetection:
          JD content, corrupting scoring results
 
     MOCK BOUNDARY:
-        Mock:  Playwright page/locator (browser I/O), Cloudflare wait
-               (network I/O), asyncio.sleep (time I/O)
-        Real:  ZipRecruiterAdapter.search, is_throttle_response,
-               extract_js_variables, parse_job_cards, card_to_listing,
-               extract_jd_text — all parsing/detection logic runs for real
+        Mock:  Playwright page/locator (browser I/O),
+               asyncio.sleep (time I/O)
+        Real:  ZipRecruiterAdapter.search, _wait_for_cloudflare,
+               is_throttle_response, extract_js_variables,
+               parse_job_cards, card_to_listing, extract_jd_text —
+               all parsing/detection logic runs for real
         Never: Patch is_throttle_response or internal adapter methods
     """
 

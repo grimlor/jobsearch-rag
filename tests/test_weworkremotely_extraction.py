@@ -24,6 +24,7 @@ import pytest
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.adapters.weworkremotely import WeWorkRemotelyAdapter
+from jobsearch_rag.errors import ActionableError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -31,7 +32,6 @@ from jobsearch_rag.adapters.weworkremotely import WeWorkRemotelyAdapter
 
 _XFAIL = pytest.mark.xfail(
     reason="WeWorkRemotely adapter not yet implemented",
-    raises=NotImplementedError,
 )
 
 
@@ -103,9 +103,14 @@ class TestWeWorkRemotelyAuthenticate:
         adapter = WeWorkRemotelyAdapter()
         page = MagicMock()
 
-        # When/Then: raises with guidance
-        with pytest.raises(RuntimeError):
+        # When/Then: raises ActionableError with rate-limit guidance
+        with pytest.raises(ActionableError) as exc_info:
             await adapter.authenticate(page)
+
+        # Then: actionable error with guidance
+        err = exc_info.value
+        assert err.suggestion is not None, "Should include suggestion"
+        assert err.troubleshooting is not None, "Should include troubleshooting"
 
 
 # ---------------------------------------------------------------------------
