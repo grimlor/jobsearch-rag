@@ -42,10 +42,11 @@ jobs:
         run: uv run pytest --cov=jobsearch_rag --cov-report=term-missing --cov-report=json
 
       - name: Extract coverage percentage
+        id: coverage
         if: github.ref == 'refs/heads/main' && matrix.python-version == '3.13'
         run: |
           COVERAGE=$(python -c "import json; print(int(json.load(open('coverage.json'))['totals']['percent_covered']))")
-          echo "COVERAGE_PCT=$COVERAGE" >> $GITHUB_ENV
+          echo "pct=$COVERAGE" >> $GITHUB_OUTPUT
 
       - name: Update coverage badge
         if: github.ref == 'refs/heads/main' && matrix.python-version == '3.13'
@@ -55,7 +56,7 @@ jobs:
           gistID: ${{ vars.COVERAGE_GIST_ID }}
           filename: jobsearch-rag-coverage.json
           label: coverage
-          message: ${{ env.COVERAGE_PCT }}%
-          valColorRange: ${{ env.COVERAGE_PCT }}
+          message: ${{ steps.coverage.outputs.pct }}%
+          valColorRange: ${{ steps.coverage.outputs.pct }}
           minColorRange: 50
           maxColorRange: 100
