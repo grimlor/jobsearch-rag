@@ -476,9 +476,9 @@ class TestStubAdapterContract:
         adapter = adapter_cls()
 
         # Then: board_name matches
-        assert (
-            adapter.board_name == expected_name
-        ), f"Expected board_name '{expected_name}', got '{adapter.board_name}'"
+        assert adapter.board_name == expected_name, (
+            f"Expected board_name '{expected_name}', got '{adapter.board_name}'"
+        )
 
     def test_linkedin_adapter_overrides_rate_limit_for_aggressive_detection(
         self,
@@ -495,9 +495,9 @@ class TestStubAdapterContract:
         lo, hi = adapter.rate_limit_seconds
 
         # Then: wider than the base default (1.5, 3.5)
-        assert (
-            lo >= 5.0
-        ), f"LinkedIn min throttle should be >= 5s for detection avoidance, got {lo}"
+        assert lo >= 5.0, (
+            f"LinkedIn min throttle should be >= 5s for detection avoidance, got {lo}"
+        )
         assert hi > lo, f"Upper bound {hi} should exceed lower bound {lo}"
 
     @pytest.mark.parametrize(
@@ -570,6 +570,6 @@ class TestStubAdapterContract:
         result = asyncio.run(adapter.extract_detail(page, listing))
 
         # Then: full_text is populated
-        assert (
-            result.full_text != ""
-        ), f"Expected full_text to be populated, got: {result.full_text!r}"
+        assert result.full_text != "", (
+            f"Expected full_text to be populated, got: {result.full_text!r}"
+        )

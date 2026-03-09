@@ -223,9 +223,9 @@ class TestOllamaContract:
 
         # Then: error has actionable guidance
         err = exc_info.value
-        assert (
-            err.error_type == ErrorType.EMBEDDING
-        ), f"Expected EMBEDDING error, got {err.error_type}"
+        assert err.error_type == ErrorType.EMBEDDING, (
+            f"Expected EMBEDDING error, got {err.error_type}"
+        )
         assert "does-not-exist-model-xyz" in err.error, "Error should name the missing model"
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
@@ -252,9 +252,9 @@ class TestOllamaContract:
 
         # Then: error has guidance
         err = exc_info.value
-        assert (
-            err.error_type == ErrorType.EMBEDDING
-        ), f"Expected EMBEDDING error, got {err.error_type}"
+        assert err.error_type == ErrorType.EMBEDDING, (
+            f"Expected EMBEDDING error, got {err.error_type}"
+        )
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
@@ -283,9 +283,9 @@ class TestOllamaContract:
         dist_similar = cosine_distance(vec_arch, vec_similar)
         dist_unrelated = cosine_distance(vec_arch, vec_unrelated)
 
-        assert (
-            dist_similar < dist_unrelated
-        ), f"Similar texts should be closer: {dist_similar:.4f} vs {dist_unrelated:.4f}"
+        assert dist_similar < dist_unrelated, (
+            f"Similar texts should be closer: {dist_similar:.4f} vs {dist_unrelated:.4f}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -338,9 +338,9 @@ class TestChromaDBContract:
         # Then: distance ~0
         distances = results["distances"][0]
         assert len(distances) == 1, f"Expected 1 result, got {len(distances)}"
-        assert distances[0] == pytest.approx(
-            0.0, abs=1e-5
-        ), f"Identical vector should have ~0 distance, got {distances[0]}"
+        assert distances[0] == pytest.approx(0.0, abs=1e-5), (
+            f"Identical vector should have ~0 distance, got {distances[0]}"
+        )
 
     async def test_dissimilar_documents_have_higher_distance(
         self, store: VectorStore, embedder: Embedder
@@ -440,9 +440,9 @@ class TestChromaDBContract:
 
             # Then: document is retrievable
             docs = store2.get_documents("test_persist", ids=["persist-1"])
-            assert (
-                docs["documents"][0] == "persistence test"
-            ), "Retrieved document should match original"
+            assert docs["documents"][0] == "persistence test", (
+                "Retrieved document should match original"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -499,9 +499,9 @@ class TestEndToEndScoring:
         )
 
         # Then: valid result with meaningful scores
-        assert (
-            result.is_valid
-        ), f"fit={result.fit_score}, arch={result.archetype_score}, hist={result.history_score}"
+        assert result.is_valid, (
+            f"fit={result.fit_score}, arch={result.archetype_score}, hist={result.history_score}"
+        )
         assert result.fit_score > 0.0, "Matching JD should have non-zero fit"
         assert result.archetype_score > 0.0, "Matching JD should have non-zero archetype"
         assert result.history_score == 0.0, "No decisions indexed, history should be 0"
@@ -578,9 +578,9 @@ class TestEndToEndScoring:
         )
 
         # Then: disqualified field is a valid boolean
-        assert isinstance(
-            result.disqualified, bool
-        ), f"Expected bool, got {type(result.disqualified)}"
+        assert isinstance(result.disqualified, bool), (
+            f"Expected bool, got {type(result.disqualified)}"
+        )
         # Soft assertion: matching role should not be disqualified
         if result.disqualified:
             pytest.skip(
@@ -752,9 +752,9 @@ class TestLiveZipRecruiterPipeline:
             pytest.skip(f"Browser session failed: {exc}")
 
         # Then: structural assertions about extraction
-        assert (
-            len(listings) >= self.MIN_LISTINGS
-        ), f"Expected ≥{self.MIN_LISTINGS} listings, got {len(listings)}"
+        assert len(listings) >= self.MIN_LISTINGS, (
+            f"Expected ≥{self.MIN_LISTINGS} listings, got {len(listings)}"
+        )
 
         for listing in listings:
             assert listing.board == "ziprecruiter", "Board should be 'ziprecruiter'"
@@ -799,13 +799,13 @@ class TestLiveZipRecruiterPipeline:
                 f"fit={result.fit_score}, arch={result.archetype_score}"
             )
             assert 0.0 <= result.fit_score <= 1.0, f"Fit score out of range: {result.fit_score}"
-            assert (
-                0.0 <= result.archetype_score <= 1.0
-            ), f"Archetype score out of range: {result.archetype_score}"
+            assert 0.0 <= result.archetype_score <= 1.0, (
+                f"Archetype score out of range: {result.archetype_score}"
+            )
             assert 0.0 <= result.comp_score <= 1.0, f"Comp score out of range: {result.comp_score}"
-            assert (
-                result.fit_score > 0.0
-            ), f"Zero fit score for '{listing.title}' — embedding may have failed"
+            assert result.fit_score > 0.0, (
+                f"Zero fit score for '{listing.title}' — embedding may have failed"
+            )
             assert result.archetype_score > 0.0, f"Zero archetype score for '{listing.title}'"
 
         # When: rank
@@ -824,9 +824,9 @@ class TestLiveZipRecruiterPipeline:
         assert summary.total_scored == len(scored), "Summary should match scored count"
 
         scores = [r.final_score for r in ranked]
-        assert scores == sorted(
-            scores, reverse=True
-        ), f"Rankings not in descending order: {scores}"
+        assert scores == sorted(scores, reverse=True), (
+            f"Rankings not in descending order: {scores}"
+        )
 
         for r in ranked:
             assert r.final_score > 0.0, f"Zero final score for '{r.listing.title}'"
@@ -846,28 +846,28 @@ class TestLiveZipRecruiterPipeline:
         assert "## Ranked Listings" in md_content, "Markdown should have ranked listings"
         assert "ziprecruiter" in md_content, "Markdown should mention board"
         for r in ranked:
-            assert (
-                r.listing.title in md_content
-            ), f"'{r.listing.title}' missing from Markdown export"
+            assert r.listing.title in md_content, (
+                f"'{r.listing.title}' missing from Markdown export"
+            )
 
         # Then: CSV export
         csv_content = Path(csv_path).read_text()
         assert "title,company,board" in csv_content, "CSV should have header"
         csv_lines = csv_content.strip().split("\n")
-        assert (
-            len(csv_lines) == len(ranked) + 1
-        ), f"CSV should have {len(ranked)} data rows, got {len(csv_lines) - 1}"
+        assert len(csv_lines) == len(ranked) + 1, (
+            f"CSV should have {len(ranked)} data rows, got {len(csv_lines) - 1}"
+        )
 
         # Then: JD file export
-        assert len(jd_paths) == len(
-            ranked
-        ), f"Expected {len(ranked)} JD files, got {len(jd_paths)}"
+        assert len(jd_paths) == len(ranked), (
+            f"Expected {len(ranked)} JD files, got {len(jd_paths)}"
+        )
         for jd_path in jd_paths:
             jd_content = jd_path.read_text()
             assert "## Score" in jd_content, f"JD file missing '## Score': {jd_path}"
-            assert (
-                "## Job Description" in jd_content
-            ), f"JD file missing '## Job Description': {jd_path}"
-            assert (
-                "**Board:** ziprecruiter" in jd_content
-            ), f"JD file missing board field: {jd_path}"
+            assert "## Job Description" in jd_content, (
+                f"JD file missing '## Job Description': {jd_path}"
+            )
+            assert "**Board:** ziprecruiter" in jd_content, (
+                f"JD file missing board field: {jd_path}"
+            )

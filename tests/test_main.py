@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from jobsearch_rag.__main__ import main  # noqa: PLC2701
+from jobsearch_rag.__main__ import main
 from jobsearch_rag.errors import ActionableError, ErrorType
 
 # ---------------------------------------------------------------------------
@@ -132,12 +132,12 @@ class TestMainErrorDisplay:
         # Then: stderr contains error type, message, and suggestion
         captured = capsys.readouterr().err
         assert "authentication" in captured, f"Expected error_type in stderr, got: {captured!r}"
-        assert (
-            "Session expired" in captured
-        ), f"Expected error message in stderr, got: {captured!r}"
-        assert (
-            "Re-authenticate in headed mode" in captured
-        ), f"Expected suggestion in stderr, got: {captured!r}"
+        assert "Session expired" in captured, (
+            f"Expected error message in stderr, got: {captured!r}"
+        )
+        assert "Re-authenticate in headed mode" in captured, (
+            f"Expected suggestion in stderr, got: {captured!r}"
+        )
         mock_exit.assert_called_once_with(1)
 
     def test_actionable_error_without_suggestion_omits_suggestion_line(
@@ -164,12 +164,12 @@ class TestMainErrorDisplay:
 
         # Then: no Suggestion line in stderr
         captured = capsys.readouterr().err
-        assert (
-            "Config file not found" in captured
-        ), f"Expected error message in stderr, got: {captured!r}"
-        assert (
-            "Suggestion" not in captured
-        ), f"Expected no Suggestion line when suggestion is None, got: {captured!r}"
+        assert "Config file not found" in captured, (
+            f"Expected error message in stderr, got: {captured!r}"
+        )
+        assert "Suggestion" not in captured, (
+            f"Expected no Suggestion line when suggestion is None, got: {captured!r}"
+        )
 
     def test_generic_exception_prints_unexpected_error(
         self, capsys: pytest.CaptureFixture[str]
@@ -193,10 +193,10 @@ class TestMainErrorDisplay:
 
         # Then: stderr contains 'Unexpected error' message
         captured = capsys.readouterr().err
-        assert (
-            "Unexpected error" in captured
-        ), f"Expected 'Unexpected error' in stderr, got: {captured!r}"
-        assert (
-            "Something broke" in captured
-        ), f"Expected exception message in stderr, got: {captured!r}"
+        assert "Unexpected error" in captured, (
+            f"Expected 'Unexpected error' in stderr, got: {captured!r}"
+        )
+        assert "Something broke" in captured, (
+            f"Expected exception message in stderr, got: {captured!r}"
+        )
         mock_exit.assert_called_once_with(1)

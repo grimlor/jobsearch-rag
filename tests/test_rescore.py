@@ -99,14 +99,14 @@ class TestJdFileLoading:
         # Then: one listing with all metadata
         assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
         listing = listings[0]
-        assert (
-            listing.title == "Staff Platform Architect"
-        ), f"Expected 'Staff Platform Architect', got {listing.title!r}"
+        assert listing.title == "Staff Platform Architect", (
+            f"Expected 'Staff Platform Architect', got {listing.title!r}"
+        )
         assert listing.company == "Acme Corp", f"Expected 'Acme Corp', got {listing.company!r}"
         assert listing.board == "ziprecruiter", f"Expected 'ziprecruiter', got {listing.board!r}"
-        assert (
-            listing.url == "https://example.org/job/42"
-        ), f"Expected URL to match, got {listing.url!r}"
+        assert listing.url == "https://example.org/job/42", (
+            f"Expected URL to match, got {listing.url!r}"
+        )
         assert listing.location == "Remote", f"Expected 'Remote', got {listing.location!r}"
 
     def test_listing_full_text_contains_jd_body(self, jd_dir: Path) -> None:
@@ -119,12 +119,12 @@ class TestJdFileLoading:
         listings = load_jd_files(jd_dir)
 
         # Then: full_text includes JD content
-        assert (
-            "Staff Platform Architect to lead" in listings[0].full_text
-        ), f"Expected JD opening in full_text, got {listings[0].full_text[:100]!r}"
-        assert (
-            "Kubernetes and Terraform" in listings[0].full_text
-        ), f"Expected tech keywords in full_text, got {listings[0].full_text[:100]!r}"
+        assert "Staff Platform Architect to lead" in listings[0].full_text, (
+            f"Expected JD opening in full_text, got {listings[0].full_text[:100]!r}"
+        )
+        assert "Kubernetes and Terraform" in listings[0].full_text, (
+            f"Expected tech keywords in full_text, got {listings[0].full_text[:100]!r}"
+        )
 
     def test_external_id_derived_from_url(self, jd_dir: Path) -> None:
         """
@@ -136,9 +136,9 @@ class TestJdFileLoading:
         listings = load_jd_files(jd_dir)
 
         # Then: external_id is the last URL segment
-        assert (
-            listings[0].external_id == "42"
-        ), f"Expected external_id '42', got {listings[0].external_id!r}"
+        assert listings[0].external_id == "42", (
+            f"Expected external_id '42', got {listings[0].external_id!r}"
+        )
 
     def test_nonexistent_directory_returns_empty_list(self, tmp_path: Path) -> None:
         """
@@ -190,12 +190,12 @@ class TestJdFileLoading:
 
         # Then: listing loaded with defaults
         assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
-        assert (
-            listings[0].company == "Unknown"
-        ), f"Expected default company 'Unknown', got {listings[0].company!r}"
-        assert (
-            listings[0].board == "unknown"
-        ), f"Expected default board 'unknown', got {listings[0].board!r}"
+        assert listings[0].company == "Unknown", (
+            f"Expected default company 'Unknown', got {listings[0].company!r}"
+        )
+        assert listings[0].board == "unknown", (
+            f"Expected default board 'unknown', got {listings[0].board!r}"
+        )
 
     def test_multiple_jd_files_loaded_in_sorted_order(self, tmp_path: Path) -> None:
         """
@@ -228,15 +228,15 @@ class TestJdFileLoading:
 
         # Then: sorted by filename (001, 002, 003)
         assert len(listings) == 3, f"Expected 3 listings, got {len(listings)}"
-        assert (
-            listings[0].title == "Role B"
-        ), f"Expected 'Role B' first (001_), got {listings[0].title!r}"
-        assert (
-            listings[1].title == "Role A"
-        ), f"Expected 'Role A' second (002_), got {listings[1].title!r}"
-        assert (
-            listings[2].title == "Role C"
-        ), f"Expected 'Role C' third (003_), got {listings[2].title!r}"
+        assert listings[0].title == "Role B", (
+            f"Expected 'Role B' first (001_), got {listings[0].title!r}"
+        )
+        assert listings[1].title == "Role A", (
+            f"Expected 'Role A' second (002_), got {listings[1].title!r}"
+        )
+        assert listings[2].title == "Role C", (
+            f"Expected 'Role C' third (003_), got {listings[2].title!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -321,9 +321,9 @@ class TestRescoreWorkflow:
 
         # Then: one listing loaded, ranked, no failures
         assert result.total_loaded == 1, f"Expected 1 loaded, got {result.total_loaded}"
-        assert (
-            len(result.ranked_listings) == 1
-        ), f"Expected 1 ranked listing, got {len(result.ranked_listings)}"
+        assert len(result.ranked_listings) == 1, (
+            f"Expected 1 ranked listing, got {len(result.ranked_listings)}"
+        )
         assert result.failed_listings == 0, f"Expected 0 failures, got {result.failed_listings}"
 
     async def test_rescore_empty_directory_returns_empty_result(
@@ -345,9 +345,9 @@ class TestRescoreWorkflow:
 
         # Then: empty result
         assert result.total_loaded == 0, f"Expected 0 loaded, got {result.total_loaded}"
-        assert (
-            len(result.ranked_listings) == 0
-        ), f"Expected 0 ranked listings, got {len(result.ranked_listings)}"
+        assert len(result.ranked_listings) == 0, (
+            f"Expected 0 ranked listings, got {len(result.ranked_listings)}"
+        )
 
     async def test_rescore_counts_failed_listings(
         self, jd_dir: Path, vector_store: VectorStore, mock_embedder: object
@@ -368,9 +368,9 @@ class TestRescoreWorkflow:
         # Then: listing was loaded but scoring failed
         assert result.total_loaded == 1, f"Expected 1 loaded, got {result.total_loaded}"
         assert result.failed_listings == 1, f"Expected 1 failure, got {result.failed_listings}"
-        assert (
-            len(result.ranked_listings) == 0
-        ), f"Expected 0 ranked listings, got {len(result.ranked_listings)}"
+        assert len(result.ranked_listings) == 0, (
+            f"Expected 0 ranked listings, got {len(result.ranked_listings)}"
+        )
 
     async def test_rescore_result_has_default_fields(self) -> None:
         """

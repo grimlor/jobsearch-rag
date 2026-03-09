@@ -76,6 +76,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["jobsearch_rag"]
+combine-as-imports = true
 
 [tool.ruff.format]
 quote-style = "double"

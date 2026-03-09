@@ -189,9 +189,9 @@ class TestSuggestionPreservation:
         )
 
         # Then: custom suggestion preserved
-        assert (
-            err.suggestion == "Delete data/linkedin_session.json and re-auth"
-        ), "Custom suggestion should be preserved verbatim"
+        assert err.suggestion == "Delete data/linkedin_session.json and re-auth", (
+            "Custom suggestion should be preserved verbatim"
+        )
 
     def test_from_exception_preserves_caller_suggestion(self) -> None:
         """
@@ -348,9 +348,9 @@ class TestActionableErrorToDict:
         d = err.to_dict()
 
         # Then: context is preserved
-        assert d["context"] == {
-            "key": "value"
-        }, "Context dict should be included in to_dict output"
+        assert d["context"] == {"key": "value"}, (
+            "Context dict should be included in to_dict output"
+        )
 
 
 class TestValidationFactory:
@@ -448,9 +448,9 @@ class TestFromExceptionClassifier:
         )
 
         # Then: classified as CONNECTION with guidance
-        assert (
-            err.error_type == ErrorType.CONNECTION
-        ), "'Connection refused' should classify as CONNECTION"
+        assert err.error_type == ErrorType.CONNECTION, (
+            "'Connection refused' should classify as CONNECTION"
+        )
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
@@ -486,8 +486,8 @@ class TestFromExceptionClassifier:
         )
 
         # Then: classified as UNEXPECTED with guidance
-        assert (
-            err.error_type == ErrorType.UNEXPECTED
-        ), "Unmatched keyword should classify as UNEXPECTED"
+        assert err.error_type == ErrorType.UNEXPECTED, (
+            "Unmatched keyword should classify as UNEXPECTED"
+        )
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"

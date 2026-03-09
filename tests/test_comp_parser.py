@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from jobsearch_rag.rag.comp_parser import CompResult, parse_compensation  # noqa: F401
+from jobsearch_rag.rag.comp_parser import parse_compensation
 
 # ---------------------------------------------------------------------------
 # TestCompensationParsing
@@ -55,12 +55,12 @@ class TestCompensationParsing:
 
         # Then: both endpoints are extracted correctly
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(
-            180_000
-        ), f"Expected comp_min=180000, got {result.comp_min}"
-        assert result.comp_max == pytest.approx(
-            220_000
-        ), f"Expected comp_max=220000, got {result.comp_max}"
+        assert result.comp_min == pytest.approx(180_000), (
+            f"Expected comp_min=180000, got {result.comp_min}"
+        )
+        assert result.comp_max == pytest.approx(220_000), (
+            f"Expected comp_max=220000, got {result.comp_max}"
+        )
 
     def test_annual_range_with_k_suffix_is_parsed(self) -> None:
         """
@@ -76,12 +76,12 @@ class TestCompensationParsing:
 
         # Then: k multiplier produces 180000 and 220000
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(
-            180_000
-        ), f"Expected comp_min=180000, got {result.comp_min}"
-        assert result.comp_max == pytest.approx(
-            220_000
-        ), f"Expected comp_max=220000, got {result.comp_max}"
+        assert result.comp_min == pytest.approx(180_000), (
+            f"Expected comp_min=180000, got {result.comp_min}"
+        )
+        assert result.comp_max == pytest.approx(220_000), (
+            f"Expected comp_max=220000, got {result.comp_max}"
+        )
 
     def test_hourly_rate_is_converted_to_annual_via_2080(self) -> None:
         """
@@ -98,12 +98,12 @@ class TestCompensationParsing:
         # Then: hourly rate is annualized via x2080
         expected = 95 * 2080
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(
-            expected
-        ), f"Expected comp_min={expected}, got {result.comp_min}"
-        assert result.comp_max == pytest.approx(
-            expected
-        ), f"Expected comp_max={expected}, got {result.comp_max}"
+        assert result.comp_min == pytest.approx(expected), (
+            f"Expected comp_min={expected}, got {result.comp_min}"
+        )
+        assert result.comp_max == pytest.approx(expected), (
+            f"Expected comp_max={expected}, got {result.comp_max}"
+        )
 
     def test_hourly_range_is_converted_to_annual_via_2080(self) -> None:
         """
@@ -119,12 +119,12 @@ class TestCompensationParsing:
 
         # Then: both hourly endpoints are annualized
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(
-            85 * 2080
-        ), f"Expected comp_min={85 * 2080}, got {result.comp_min}"
-        assert result.comp_max == pytest.approx(
-            105 * 2080
-        ), f"Expected comp_max={105 * 2080}, got {result.comp_max}"
+        assert result.comp_min == pytest.approx(85 * 2080), (
+            f"Expected comp_min={85 * 2080}, got {result.comp_min}"
+        )
+        assert result.comp_max == pytest.approx(105 * 2080), (
+            f"Expected comp_max={105 * 2080}, got {result.comp_max}"
+        )
 
     def test_single_annual_value_sets_both_min_and_max(self) -> None:
         """
@@ -140,12 +140,12 @@ class TestCompensationParsing:
 
         # Then: both min and max equal the single value
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(
-            200_000
-        ), f"Expected comp_min=200000, got {result.comp_min}"
-        assert result.comp_max == pytest.approx(
-            200_000
-        ), f"Expected comp_max=200000, got {result.comp_max}"
+        assert result.comp_min == pytest.approx(200_000), (
+            f"Expected comp_min=200000, got {result.comp_min}"
+        )
+        assert result.comp_max == pytest.approx(200_000), (
+            f"Expected comp_max=200000, got {result.comp_max}"
+        )
 
     def test_no_salary_info_returns_none(self) -> None:
         """
@@ -176,12 +176,12 @@ class TestCompensationParsing:
 
         # Then: comp_text contains the original dollar amounts
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert (
-            "$180,000" in result.comp_text
-        ), f"Expected '$180,000' in comp_text, got: {result.comp_text!r}"
-        assert (
-            "$220,000" in result.comp_text
-        ), f"Expected '$220,000' in comp_text, got: {result.comp_text!r}"
+        assert "$180,000" in result.comp_text, (
+            f"Expected '$180,000' in comp_text, got: {result.comp_text!r}"
+        )
+        assert "$220,000" in result.comp_text, (
+            f"Expected '$220,000' in comp_text, got: {result.comp_text!r}"
+        )
 
     def test_employee_count_is_not_mistaken_for_salary(self) -> None:
         """
@@ -227,12 +227,12 @@ class TestCompensationParsing:
 
         # Then: both endpoints extracted
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(
-            150_000
-        ), f"Expected comp_min=150000, got {result.comp_min}"
-        assert result.comp_max == pytest.approx(
-            200_000
-        ), f"Expected comp_max=200000, got {result.comp_max}"
+        assert result.comp_min == pytest.approx(150_000), (
+            f"Expected comp_min=150000, got {result.comp_min}"
+        )
+        assert result.comp_max == pytest.approx(200_000), (
+            f"Expected comp_max=200000, got {result.comp_max}"
+        )
 
     def test_range_with_to_keyword_is_parsed(self) -> None:
         """
@@ -248,12 +248,12 @@ class TestCompensationParsing:
 
         # Then: both endpoints extracted
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(
-            150_000
-        ), f"Expected comp_min=150000, got {result.comp_min}"
-        assert result.comp_max == pytest.approx(
-            200_000
-        ), f"Expected comp_max=200000, got {result.comp_max}"
+        assert result.comp_min == pytest.approx(150_000), (
+            f"Expected comp_min=150000, got {result.comp_min}"
+        )
+        assert result.comp_max == pytest.approx(200_000), (
+            f"Expected comp_max=200000, got {result.comp_max}"
+        )
 
     def test_per_year_and_per_annum_suffixes_are_recognized(self) -> None:
         """
@@ -270,9 +270,9 @@ class TestCompensationParsing:
 
             # Then: salary is recognized with the given suffix
             assert result is not None, f"Failed to parse salary with suffix '{suffix}'"
-            assert result.comp_min == pytest.approx(
-                200_000
-            ), f"Expected comp_min=200000 for suffix '{suffix}', got {result.comp_min}"
+            assert result.comp_min == pytest.approx(200_000), (
+                f"Expected comp_min=200000 for suffix '{suffix}', got {result.comp_min}"
+            )
 
     def test_comp_source_defaults_to_employer(self) -> None:
         """
@@ -288,9 +288,9 @@ class TestCompensationParsing:
 
         # Then: comp_source defaults to 'employer'
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert (
-            result.comp_source == "employer"
-        ), f"Expected comp_source='employer', got {result.comp_source!r}"
+        assert result.comp_source == "employer", (
+            f"Expected comp_source='employer', got {result.comp_source!r}"
+        )
 
     def test_comp_source_is_estimated_when_flagged(self) -> None:
         """
@@ -306,9 +306,9 @@ class TestCompensationParsing:
 
         # Then: comp_source is 'estimated'
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert (
-            result.comp_source == "estimated"
-        ), f"Expected comp_source='estimated', got {result.comp_source!r}"
+        assert result.comp_source == "estimated", (
+            f"Expected comp_source='estimated', got {result.comp_source!r}"
+        )
 
     def test_employer_stated_salary_is_preferred_over_board_estimate(self) -> None:
         """
@@ -327,12 +327,12 @@ class TestCompensationParsing:
         # When / Then: source tags distinguish them for pipeline preference
         assert jd_result is not None, "JD-body salary should parse"
         assert board_result is not None, "Board estimate should parse"
-        assert (
-            jd_result.comp_source == "employer"
-        ), f"Expected JD result source='employer', got {jd_result.comp_source!r}"
-        assert (
-            board_result.comp_source == "estimated"
-        ), f"Expected board result source='estimated', got {board_result.comp_source!r}"
+        assert jd_result.comp_source == "employer", (
+            f"Expected JD result source='employer', got {jd_result.comp_source!r}"
+        )
+        assert board_result.comp_source == "estimated", (
+            f"Expected board result source='estimated', got {board_result.comp_source!r}"
+        )
 
     def test_result_dataclass_has_expected_fields(self) -> None:
         """
@@ -367,9 +367,9 @@ class TestCompensationParsing:
 
             # Then: k multiplier is applied
             assert result is not None, f"Expected a CompResult for '{variant}', got None"
-            assert result.comp_min == pytest.approx(
-                200_000
-            ), f"Expected comp_min=200000 for '{variant}', got {result.comp_min}"
+            assert result.comp_min == pytest.approx(200_000), (
+                f"Expected comp_min=200000 for '{variant}', got {result.comp_min}"
+            )
 
     def test_range_with_no_space_around_hyphen(self) -> None:
         """
@@ -385,12 +385,12 @@ class TestCompensationParsing:
 
         # Then: both endpoints extracted
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(
-            180_000
-        ), f"Expected comp_min=180000, got {result.comp_min}"
-        assert result.comp_max == pytest.approx(
-            220_000
-        ), f"Expected comp_max=220000, got {result.comp_max}"
+        assert result.comp_min == pytest.approx(180_000), (
+            f"Expected comp_min=180000, got {result.comp_min}"
+        )
+        assert result.comp_max == pytest.approx(220_000), (
+            f"Expected comp_max=220000, got {result.comp_max}"
+        )
 
     def test_decimal_hourly_rate(self) -> None:
         """
@@ -407,9 +407,9 @@ class TestCompensationParsing:
         # Then: decimal hourly rate is annualized
         expected = 95.50 * 2080
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(
-            expected
-        ), f"Expected comp_min={expected}, got {result.comp_min}"
+        assert result.comp_min == pytest.approx(expected), (
+            f"Expected comp_min={expected}, got {result.comp_min}"
+        )
 
     def test_range_in_false_positive_context_is_skipped(self) -> None:
         """
@@ -439,9 +439,9 @@ class TestCompensationParsing:
         result = parse_compensation(text)
 
         # Then: below-threshold values are rejected
-        assert (
-            result is None
-        ), f"Below-threshold range '$3-$5' was falsely parsed as salary: {result}"
+        assert result is None, (
+            f"Below-threshold range '$3-$5' was falsely parsed as salary: {result}"
+        )
 
     def test_single_value_outside_salary_bounds_is_skipped(self) -> None:
         """

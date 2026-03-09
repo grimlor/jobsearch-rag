@@ -176,9 +176,9 @@ class TestWeWorkRemotelySearch:
 
         # Then: required fields populated
         for i, listing in enumerate(listings):
-            assert (
-                listing.board == "weworkremotely"
-            ), f"Listing {i} board should be 'weworkremotely', got {listing.board!r}"
+            assert listing.board == "weworkremotely", (
+                f"Listing {i} board should be 'weworkremotely', got {listing.board!r}"
+            )
             assert listing.title, f"Listing {i} title should be non-empty"
             assert listing.company, f"Listing {i} company should be non-empty"
             assert listing.url, f"Listing {i} url should be non-empty"
@@ -264,9 +264,9 @@ class TestWeWorkRemotelyExtractDetail:
         result = await adapter.extract_detail(page, listing)
 
         # Then: unchanged
-        assert (
-            result.full_text == "Already populated JD text"
-        ), f"full_text should be unchanged: {result.full_text!r}"
+        assert result.full_text == "Already populated JD text", (
+            f"full_text should be unchanged: {result.full_text!r}"
+        )
 
     @_XFAIL
     @pytest.mark.asyncio

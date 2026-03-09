@@ -134,9 +134,9 @@ class TestLinkedInAuthenticate:
             await adapter.authenticate(page)
 
         err = exc_info.value
-        assert (
-            "session" in err.error.lower() or "login" in err.error.lower()
-        ), f"Error should mention session or login: {err.error!r}"
+        assert "session" in err.error.lower() or "login" in err.error.lower(), (
+            f"Error should mention session or login: {err.error!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -203,9 +203,9 @@ class TestLinkedInSearch:
 
         # Then: required fields populated
         for i, listing in enumerate(listings):
-            assert (
-                listing.board == "linkedin"
-            ), f"Listing {i} board should be 'linkedin', got {listing.board!r}"
+            assert listing.board == "linkedin", (
+                f"Listing {i} board should be 'linkedin', got {listing.board!r}"
+            )
             assert listing.title, f"Listing {i} title should be non-empty"
             assert listing.company, f"Listing {i} company should be non-empty"
             assert listing.url, f"Listing {i} url should be non-empty"
@@ -291,9 +291,9 @@ class TestLinkedInExtractDetail:
         result = await adapter.extract_detail(page, listing)
 
         # Then: unchanged
-        assert (
-            result.full_text == "Already populated JD text"
-        ), f"full_text should be unchanged: {result.full_text!r}"
+        assert result.full_text == "Already populated JD text", (
+            f"full_text should be unchanged: {result.full_text!r}"
+        )
 
     @_XFAIL
     @pytest.mark.asyncio

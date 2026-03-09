@@ -278,12 +278,12 @@ class TestMarkdownExport:
         content = out.read_text()
 
         # Then: culture score appears
-        assert (
-            "Culture" in content
-        ), f"culture_score should appear in markdown output. Got: {content}"
-        assert (
-            "0.65" in content
-        ), f"culture_score value 0.65 should appear in output. Got: {content}"
+        assert "Culture" in content, (
+            f"culture_score should appear in markdown output. Got: {content}"
+        )
+        assert "0.65" in content, (
+            f"culture_score value 0.65 should appear in output. Got: {content}"
+        )
 
     def test_score_explanation_includes_negative_score(self, tmp_path: Path) -> None:
         """
@@ -306,12 +306,12 @@ class TestMarkdownExport:
         content = out.read_text()
 
         # Then: negative score appears
-        assert (
-            "Negative" in content
-        ), f"negative_score should appear in markdown output. Got: {content}"
-        assert (
-            "0.25" in content
-        ), f"negative_score value 0.25 should appear in output. Got: {content}"
+        assert "Negative" in content, (
+            f"negative_score should appear in markdown output. Got: {content}"
+        )
+        assert "0.25" in content, (
+            f"negative_score value 0.25 should appear in output. Got: {content}"
+        )
 
     def test_run_summary_appears_at_top_of_output(self, tmp_path: Path) -> None:
         """
@@ -996,12 +996,12 @@ class TestJDFileExport:
         paths = JDFileExporter().export(listings, str(tmp_path))
 
         # Then: higher score gets rank 001
-        assert (
-            "001_" in paths[0].name and "higher-score" in paths[0].name
-        ), "Higher score should be ranked first"
-        assert (
-            "002_" in paths[1].name and "lower-score" in paths[1].name
-        ), "Lower score should be ranked second"
+        assert "001_" in paths[0].name and "higher-score" in paths[0].name, (
+            "Higher score should be ranked first"
+        )
+        assert "002_" in paths[1].name and "lower-score" in paths[1].name, (
+            "Lower score should be ranked second"
+        )
 
     def test_creates_output_directory_if_missing(self, tmp_path: Path) -> None:
         """
@@ -1065,9 +1065,9 @@ class TestJDFileExport:
         content = files[0].read_text()
 
         # Then: duplicate boards shown
-        assert (
-            "**Also on:** indeed, linkedin" in content
-        ), "Duplicate boards should appear in JD file"
+        assert "**Also on:** indeed, linkedin" in content, (
+            "Duplicate boards should appear in JD file"
+        )
 
     def test_disqualified_listing_shows_reason_in_jd_file(self, tmp_path: Path) -> None:
         """
@@ -1092,6 +1092,6 @@ class TestJDFileExport:
         content = files[0].read_text()
 
         # Then: disqualification reason shown
-        assert (
-            "**Disqualified:** lacks cloud experience" in content
-        ), "Disqualification reason should appear in JD file"
+        assert "**Disqualified:** lacks cloud experience" in content, (
+            "Disqualification reason should appear in JD file"
+        )

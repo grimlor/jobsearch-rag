@@ -166,9 +166,9 @@ class TestCompensationScoring:
         # Given: comp_max far below the 68% threshold
         # When / Then: score is clamped at floor
         score = compute_comp_score(comp_max=100_000, base_salary=self.BASE)
-        assert score == pytest.approx(
-            0.0
-        ), f"Expected 0.0 for comp far below 68% of base, got {score}"
+        assert score == pytest.approx(0.0), (
+            f"Expected 0.0 for comp far below 68% of base, got {score}"
+        )
 
     # --- Missing data → 0.5 ---
 
@@ -197,12 +197,12 @@ class TestCompensationScoring:
         score_below_base = compute_comp_score(comp_max=200_000, base_salary=300_000)
 
         # Then: scores differ because base differs
-        assert score_at_base == pytest.approx(
-            1.0
-        ), f"Expected 1.0 when comp_max equals base, got {score_at_base}"
-        assert (
-            score_below_base < 0.7
-        ), f"Expected <0.7 when comp_max is 67% of base, got {score_below_base}"
+        assert score_at_base == pytest.approx(1.0), (
+            f"Expected 1.0 when comp_max equals base, got {score_at_base}"
+        )
+        assert score_below_base < 0.7, (
+            f"Expected <0.7 when comp_max is 67% of base, got {score_below_base}"
+        )
 
     def test_changing_base_salary_shifts_all_boundaries(self) -> None:
         """
@@ -215,12 +215,12 @@ class TestCompensationScoring:
         score_300k = compute_comp_score(comp_max=270_000, base_salary=300_000)
 
         # Then: both hit the 0.7 boundary (90% of their respective base)
-        assert score_100k == pytest.approx(
-            0.7
-        ), f"Expected 0.7 at 90% of 100k base, got {score_100k}"
-        assert score_300k == pytest.approx(
-            0.7
-        ), f"Expected 0.7 at 90% of 300k base, got {score_300k}"
+        assert score_100k == pytest.approx(0.7), (
+            f"Expected 0.7 at 90% of 100k base, got {score_100k}"
+        )
+        assert score_300k == pytest.approx(0.7), (
+            f"Expected 0.7 at 90% of 300k base, got {score_300k}"
+        )
 
     # --- Invariants ---
 
@@ -239,9 +239,9 @@ class TestCompensationScoring:
         for label, comp_max in test_cases:
             # When / Then: score is within bounds
             score = compute_comp_score(comp_max=comp_max, base_salary=self.BASE)
-            assert (
-                0.0 <= score <= 1.0
-            ), f"Score out of [0.0, 1.0] for {label} comp_max={comp_max}: {score}"
+            assert 0.0 <= score <= 1.0, (
+                f"Score out of [0.0, 1.0] for {label} comp_max={comp_max}: {score}"
+            )
 
         # When / Then: missing data also within bounds
         score = compute_comp_score(comp_max=None, base_salary=self.BASE)
@@ -274,9 +274,9 @@ class TestCompensationScoring:
         below_68 = compute_comp_score(comp_max=self.BASE * 0.68 - epsilon, base_salary=self.BASE)
         at_68 = compute_comp_score(comp_max=self.BASE * 0.68, base_salary=self.BASE)
         above_68 = compute_comp_score(comp_max=self.BASE * 0.68 + epsilon, base_salary=self.BASE)
-        assert below_68 == pytest.approx(
-            0.0, abs=0.01
-        ), f"Expected ~0.0 just below 68% boundary, got {below_68}"
+        assert below_68 == pytest.approx(0.0, abs=0.01), (
+            f"Expected ~0.0 just below 68% boundary, got {below_68}"
+        )
         assert at_68 == pytest.approx(0.0, abs=0.01), f"Expected ~0.0 at 68% boundary, got {at_68}"
         assert above_68 >= 0.0, f"Expected >=0.0 just above 68% boundary, got {above_68}"
 
@@ -287,9 +287,9 @@ class TestCompensationScoring:
         just_above_77 = compute_comp_score(
             comp_max=self.BASE * 0.77 + epsilon, base_salary=self.BASE
         )
-        assert (
-            abs(just_above_77 - just_below_77) < 0.02
-        ), f"Discontinuity at 77% boundary: below={just_below_77}, above={just_above_77}"
+        assert abs(just_above_77 - just_below_77) < 0.02, (
+            f"Discontinuity at 77% boundary: below={just_below_77}, above={just_above_77}"
+        )
 
         # Then: 90% boundary is continuous
         just_below_90 = compute_comp_score(
@@ -298,14 +298,14 @@ class TestCompensationScoring:
         just_above_90 = compute_comp_score(
             comp_max=self.BASE * 0.90 + epsilon, base_salary=self.BASE
         )
-        assert (
-            abs(just_above_90 - just_below_90) < 0.02
-        ), f"Discontinuity at 90% boundary: below={just_below_90}, above={just_above_90}"
+        assert abs(just_above_90 - just_below_90) < 0.02, (
+            f"Discontinuity at 90% boundary: below={just_below_90}, above={just_above_90}"
+        )
 
         # Then: 100% boundary is continuous
         just_below_100 = compute_comp_score(comp_max=self.BASE - epsilon, base_salary=self.BASE)
         at_100 = compute_comp_score(comp_max=self.BASE, base_salary=self.BASE)
-        assert (
-            just_below_100 > 0.89
-        ), f"Score should be near 1.0 just below 100%, got {just_below_100}"
+        assert just_below_100 > 0.89, (
+            f"Score should be near 1.0 just below 100%, got {just_below_100}"
+        )
         assert at_100 == pytest.approx(1.0), f"Expected 1.0 at 100% boundary, got {at_100}"

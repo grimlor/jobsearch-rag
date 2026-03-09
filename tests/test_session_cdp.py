@@ -237,12 +237,12 @@ class TestSessionManagerCDP:
             # Then: subprocess command has correct flags
             mock_popen.assert_called_once()
             cmd = mock_popen.call_args[0][0]
-            assert any(
-                "--remote-debugging-port=" in arg for arg in cmd
-            ), "Command should include --remote-debugging-port"
-            assert any(
-                "--user-data-dir=" in arg for arg in cmd
-            ), "Command should include --user-data-dir"
+            assert any("--remote-debugging-port=" in arg for arg in cmd), (
+                "Command should include --remote-debugging-port"
+            )
+            assert any("--user-data-dir=" in arg for arg in cmd), (
+                "Command should include --user-data-dir"
+            )
             assert "--no-first-run" in cmd, "Command should include --no-first-run"
             assert "--headless=new" not in cmd, "headless=False should not add --headless=new"
 
@@ -687,9 +687,9 @@ class TestSessionManagerCDP:
             assert result.exists(), "Storage state file should be written to disk"
 
             saved = json.loads(result.read_text())
-            assert (
-                saved["cookies"][0]["name"] == "session"
-            ), f"Expected cookie name 'session', got {saved['cookies'][0].get('name')}"
+            assert saved["cookies"][0]["name"] == "session", (
+                f"Expected cookie name 'session', got {saved['cookies'][0].get('name')}"
+            )
             await manager.__aexit__(None, None, None)
 
     def test_has_storage_state_returns_true_when_file_exists(self, tmp_path: Path) -> None:
@@ -707,9 +707,9 @@ class TestSessionManagerCDP:
 
             # When/Then: has_storage_state returns True
             manager = SessionManager(config)
-            assert (
-                manager.has_storage_state() is True
-            ), "has_storage_state should return True when session file exists"
+            assert manager.has_storage_state() is True, (
+                "has_storage_state should return True when session file exists"
+            )
 
     def test_has_storage_state_returns_false_when_no_file(self) -> None:
         """
@@ -722,9 +722,9 @@ class TestSessionManagerCDP:
         manager = SessionManager(config)
 
         # Then: has_storage_state returns False
-        assert (
-            manager.has_storage_state() is False
-        ), "has_storage_state should return False when no session file exists"
+        assert manager.has_storage_state() is False, (
+            "has_storage_state should return False when no session file exists"
+        )
 
     async def test_stealth_patches_applied_when_stealth_enabled(self, tmp_path: Path) -> None:
         """

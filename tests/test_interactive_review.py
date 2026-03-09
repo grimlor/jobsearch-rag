@@ -271,9 +271,9 @@ class TestInteractiveReview:
         decision = decision_recorder.get_decision("job-reason")
         assert decision is not None, "Decision should be persisted"
         assert decision["verdict"] == "no", "Verdict should be 'no'"
-        assert (
-            decision["reason"] == "Requires 5 years Kubernetes experience"
-        ), "Reason should match"
+        assert decision["reason"] == "Requires 5 years Kubernetes experience", (
+            "Reason should match"
+        )
 
     @pytest.mark.asyncio
     async def test_verdict_without_reason_passes_empty_string(
@@ -408,12 +408,12 @@ class TestInteractiveReview:
 
         # Then: first two verdicts persist, third is absent
         assert decision_recorder.get_decision("keep-1") is not None, "First verdict should persist"
-        assert (
-            decision_recorder.get_decision("keep-2") is not None
-        ), "Second verdict should persist"
-        assert (
-            decision_recorder.get_decision("quit-before") is None
-        ), "Unrecorded listing should be absent"
+        assert decision_recorder.get_decision("keep-2") is not None, (
+            "Second verdict should persist"
+        )
+        assert decision_recorder.get_decision("quit-before") is None, (
+            "Unrecorded listing should be absent"
+        )
 
     def test_progress_indicator_shows_current_position_and_total(
         self,

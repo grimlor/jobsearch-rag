@@ -157,15 +157,15 @@ class TestSemanticScoring:
 
         # Then: all component scores are valid floats in range
         assert result.is_valid, f"ScoreResult.is_valid should be True, got {result}"
-        assert isinstance(
-            result.fit_score, float
-        ), f"fit_score should be float, got {type(result.fit_score)}"
-        assert isinstance(
-            result.archetype_score, float
-        ), f"archetype_score should be float, got {type(result.archetype_score)}"
-        assert isinstance(
-            result.history_score, float
-        ), f"history_score should be float, got {type(result.history_score)}"
+        assert isinstance(result.fit_score, float), (
+            f"fit_score should be float, got {type(result.fit_score)}"
+        )
+        assert isinstance(result.archetype_score, float), (
+            f"archetype_score should be float, got {type(result.archetype_score)}"
+        )
+        assert isinstance(result.history_score, float), (
+            f"history_score should be float, got {type(result.history_score)}"
+        )
 
     async def test_matching_jd_scores_higher_archetype_than_non_matching(
         self, scorer: Scorer, mock_embedder: Embedder
@@ -225,15 +225,15 @@ class TestSemanticScoring:
         r2 = await scorer.score("Staff architect distributed systems")
 
         # Then: all component scores are identical
-        assert (
-            r1.fit_score == r2.fit_score
-        ), f"fit_score unstable: {r1.fit_score} vs {r2.fit_score}"
-        assert (
-            r1.archetype_score == r2.archetype_score
-        ), f"archetype_score unstable: {r1.archetype_score} vs {r2.archetype_score}"
-        assert (
-            r1.history_score == r2.history_score
-        ), f"history_score unstable: {r1.history_score} vs {r2.history_score}"
+        assert r1.fit_score == r2.fit_score, (
+            f"fit_score unstable: {r1.fit_score} vs {r2.fit_score}"
+        )
+        assert r1.archetype_score == r2.archetype_score, (
+            f"archetype_score unstable: {r1.archetype_score} vs {r2.archetype_score}"
+        )
+        assert r1.history_score == r2.history_score, (
+            f"history_score unstable: {r1.history_score} vs {r2.history_score}"
+        )
 
     async def test_empty_history_collection_returns_zero_history_score(
         self, scorer_empty_history: Scorer
@@ -250,9 +250,9 @@ class TestSemanticScoring:
         result = await scorer_empty_history.score("Any job description")
 
         # Then: history_score defaults to 0.0
-        assert (
-            result.history_score == 0.0
-        ), f"Expected history_score 0.0 without decisions, got {result.history_score}"
+        assert result.history_score == 0.0, (
+            f"Expected history_score 0.0 without decisions, got {result.history_score}"
+        )
 
     async def test_query_returning_no_distances_produces_zero_score(
         self, populated_store: VectorStore, mock_embedder: Embedder
@@ -287,9 +287,9 @@ class TestSemanticScoring:
         score_result = await scorer.score("Any JD text")
 
         # Then: fit_score is 0.0 (no distances to compute similarity)
-        assert (
-            score_result.fit_score == 0.0
-        ), f"Expected fit_score 0.0 with empty distances, got {score_result.fit_score}"
+        assert score_result.fit_score == 0.0, (
+            f"Expected fit_score 0.0 with empty distances, got {score_result.fit_score}"
+        )
 
     async def test_missing_resume_collection_tells_operator_to_run_index(
         self, mock_embedder: Embedder
@@ -310,14 +310,14 @@ class TestSemanticScoring:
 
             # Then: the error tells the operator to run the index command
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.INDEX
-            ), f"Expected INDEX error type, got {err.error_type}"
+            assert err.error_type == ErrorType.INDEX, (
+                f"Expected INDEX error type, got {err.error_type}"
+            )
             assert err.suggestion is not None, "Error should include a suggestion"
             assert err.troubleshooting is not None, "Error should include troubleshooting"
-            assert (
-                len(err.troubleshooting.steps) > 0
-            ), "Troubleshooting should have at least one step"
+            assert len(err.troubleshooting.steps) > 0, (
+                "Troubleshooting should have at least one step"
+            )
 
     async def test_empty_resume_collection_tells_operator_to_run_index(
         self, mock_embedder: Embedder
@@ -339,14 +339,14 @@ class TestSemanticScoring:
 
             # Then: the error tells the operator to run the index command
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.INDEX
-            ), f"Expected INDEX error type, got {err.error_type}"
+            assert err.error_type == ErrorType.INDEX, (
+                f"Expected INDEX error type, got {err.error_type}"
+            )
             assert err.suggestion is not None, "Error should include a suggestion"
             assert err.troubleshooting is not None, "Error should include troubleshooting"
-            assert (
-                len(err.troubleshooting.steps) > 0
-            ), "Troubleshooting should have at least one step"
+            assert len(err.troubleshooting.steps) > 0, (
+                "Troubleshooting should have at least one step"
+            )
 
     async def test_existing_but_empty_decisions_returns_zero_history(
         self, populated_store: VectorStore, mock_embedder: Embedder
@@ -364,9 +364,9 @@ class TestSemanticScoring:
         result = await scorer.score("Staff architect")
 
         # Then: history_score defaults to 0.0
-        assert (
-            result.history_score == 0.0
-        ), f"Expected history_score 0.0 with empty decisions, got {result.history_score}"
+        assert result.history_score == 0.0, (
+            f"Expected history_score 0.0 with empty decisions, got {result.history_score}"
+        )
 
     async def test_history_score_uses_decisions_when_populated(
         self, populated_store: VectorStore, mock_embedder: Embedder
@@ -390,9 +390,9 @@ class TestSemanticScoring:
         result = await scorer.score("Staff architect for distributed systems")
 
         # Then: history_score reflects the matching decision
-        assert (
-            result.history_score > 0.0
-        ), f"Expected history_score > 0.0 with populated decisions, got {result.history_score}"
+        assert result.history_score > 0.0, (
+            f"Expected history_score > 0.0 with populated decisions, got {result.history_score}"
+        )
 
     async def test_disqualify_on_llm_flag_false_skips_disqualifier(
         self, populated_store: VectorStore, mock_embedder: Embedder
@@ -417,12 +417,12 @@ class TestSemanticScoring:
         result = await scorer.score("Any JD")
 
         # Then: disqualification is skipped and classify was never called
-        assert (
-            result.disqualified is False
-        ), f"Expected disqualified=False when flag is off, got {result.disqualified}"
-        assert (
-            result.disqualifier_reason is None
-        ), f"Expected no reason when flag is off, got {result.disqualifier_reason!r}"
+        assert result.disqualified is False, (
+            f"Expected disqualified=False when flag is off, got {result.disqualified}"
+        )
+        assert result.disqualifier_reason is None, (
+            f"Expected no reason when flag is off, got {result.disqualifier_reason!r}"
+        )
         mock_embedder.classify.assert_not_called()
 
 
@@ -486,13 +486,13 @@ class TestJDChunking:
         result = await scorer.score(long_jd)
 
         # Then: embed was called multiple times (chunked)
-        assert (
-            mock_embedder.embed.call_count >= 2
-        ), f"Expected >= 2 embed calls for chunked JD, got {mock_embedder.embed.call_count}"
+        assert mock_embedder.embed.call_count >= 2, (
+            f"Expected >= 2 embed calls for chunked JD, got {mock_embedder.embed.call_count}"
+        )
         # Then: the strong chunk's archetype score dominates
-        assert (
-            result.archetype_score > 0.5
-        ), f"Strong chunk should dominate; expected archetype > 0.5, got {result.archetype_score:.4f}"
+        assert result.archetype_score > 0.5, (
+            f"Strong chunk should dominate; expected archetype > 0.5, got {result.archetype_score:.4f}"
+        )
 
     async def test_long_jd_weak_first_chunk_does_not_suppress_strong_tail(
         self, populated_store: VectorStore, mock_embedder: Embedder
@@ -654,9 +654,9 @@ class TestParseDisqualifierResponse:
         disqualified, reason = await scorer.disqualify("Some JD")
 
         # Then: disqualified defaults to False, reason is preserved
-        assert (
-            disqualified is False
-        ), f"Missing 'disqualified' key should default to False, got {disqualified}"
+        assert disqualified is False, (
+            f"Missing 'disqualified' key should default to False, got {disqualified}"
+        )
         assert reason == "something", f"Reason should be preserved, got {reason!r}"
 
 
@@ -699,9 +699,9 @@ class TestDisqualifierClassification:
 
         # Then: disqualified is True with the correct reason
         assert disqualified is True, f"Expected disqualified=True, got {disqualified}"
-        assert (
-            reason == "IC role disguised as architect"
-        ), f"Expected reason 'IC role disguised as architect', got {reason!r}"
+        assert reason == "IC role disguised as architect", (
+            f"Expected reason 'IC role disguised as architect', got {reason!r}"
+        )
 
     async def test_suitable_jd_returns_false(
         self, scorer: Scorer, mock_embedder: Embedder
@@ -740,9 +740,9 @@ class TestDisqualifierClassification:
         disqualified, _reason = await scorer.disqualify("Any JD")
 
         # Then: the role is kept (safe default)
-        assert (
-            disqualified is False
-        ), f"Malformed JSON should default to not disqualified, got {disqualified}"
+        assert disqualified is False, (
+            f"Malformed JSON should default to not disqualified, got {disqualified}"
+        )
 
     async def test_disqualifier_reason_is_preserved(
         self, scorer: Scorer, mock_embedder: Embedder
@@ -761,9 +761,9 @@ class TestDisqualifierClassification:
         _, reason = await scorer.disqualify("Classified role")
 
         # Then: the reason is preserved exactly
-        assert (
-            reason == "Requires active clearance"
-        ), f"Expected 'Requires active clearance', got {reason!r}"
+        assert reason == "Requires active clearance", (
+            f"Expected 'Requires active clearance', got {reason!r}"
+        )
 
     async def test_score_integrates_disqualifier_when_flagged(
         self, scorer: Scorer, mock_embedder: Embedder
@@ -782,12 +782,12 @@ class TestDisqualifierClassification:
         result = await scorer.score("SRE role with on-call duties")
 
         # Then: disqualification is reflected in the ScoreResult
-        assert (
-            result.disqualified is True
-        ), f"Expected disqualified=True in ScoreResult, got {result.disqualified}"
-        assert (
-            result.disqualifier_reason == "SRE on-call role"
-        ), f"Expected reason 'SRE on-call role', got {result.disqualifier_reason!r}"
+        assert result.disqualified is True, (
+            f"Expected disqualified=True in ScoreResult, got {result.disqualified}"
+        )
+        assert result.disqualifier_reason == "SRE on-call role", (
+            f"Expected reason 'SRE on-call role', got {result.disqualifier_reason!r}"
+        )
 
     async def test_score_not_disqualified_by_default(self, scorer: Scorer) -> None:
         """
@@ -801,12 +801,12 @@ class TestDisqualifierClassification:
         result = await scorer.score("Staff architect role")
 
         # Then: the result is not disqualified
-        assert (
-            result.disqualified is False
-        ), f"Expected disqualified=False by default, got {result.disqualified}"
-        assert (
-            result.disqualifier_reason is None
-        ), f"Expected no reason by default, got {result.disqualifier_reason!r}"
+        assert result.disqualified is False, (
+            f"Expected disqualified=False by default, got {result.disqualified}"
+        )
+        assert result.disqualifier_reason is None, (
+            f"Expected no reason by default, got {result.disqualifier_reason!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -858,12 +858,12 @@ class TestRejectionReasonInjection:
 
         # Then: both rejection reasons appear in the prompt sent to the LLM
         prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
-        assert (
-            "Requires on-call rotation" in prompt_sent
-        ), f"Expected 'Requires on-call rotation' in prompt, got: {prompt_sent[:200]}..."
-        assert (
-            "No remote option" in prompt_sent
-        ), f"Expected 'No remote option' in prompt, got: {prompt_sent[:200]}..."
+        assert "Requires on-call rotation" in prompt_sent, (
+            f"Expected 'Requires on-call rotation' in prompt, got: {prompt_sent[:200]}..."
+        )
+        assert "No remote option" in prompt_sent, (
+            f"Expected 'No remote option' in prompt, got: {prompt_sent[:200]}..."
+        )
 
     async def test_yes_verdicts_not_injected_into_disqualifier(
         self, populated_store: VectorStore, mock_embedder: Embedder
@@ -890,9 +890,9 @@ class TestRejectionReasonInjection:
 
         # Then: the 'yes' reason is not in the prompt
         prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
-        assert (
-            "Fully remote architecture leadership" not in prompt_sent
-        ), "'yes' verdict reasons should not appear in disqualifier prompt"
+        assert "Fully remote architecture leadership" not in prompt_sent, (
+            "'yes' verdict reasons should not appear in disqualifier prompt"
+        )
 
     async def test_empty_reasons_are_omitted_from_prompt(
         self, populated_store: VectorStore, mock_embedder: Embedder
@@ -917,9 +917,9 @@ class TestRejectionReasonInjection:
 
         # Then: no rejection-reasons block appears in the prompt
         prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
-        assert (
-            "rejected roles" not in prompt_sent
-        ), "Empty reasons should not produce a rejection-reasons block in the prompt"
+        assert "rejected roles" not in prompt_sent, (
+            "Empty reasons should not produce a rejection-reasons block in the prompt"
+        )
 
     async def test_duplicate_reasons_appear_once(
         self, populated_store: VectorStore, mock_embedder: Embedder
@@ -947,9 +947,9 @@ class TestRejectionReasonInjection:
 
         # Then: the duplicate reason appears exactly once
         prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
-        assert (
-            prompt_sent.count("On-call required") == 1
-        ), f"Expected 'On-call required' once in prompt, found {prompt_sent.count('On-call required')}"
+        assert prompt_sent.count("On-call required") == 1, (
+            f"Expected 'On-call required' once in prompt, found {prompt_sent.count('On-call required')}"
+        )
 
     async def test_missing_decisions_collection_returns_no_reasons(
         self, populated_store: VectorStore, mock_embedder: Embedder
@@ -967,9 +967,9 @@ class TestRejectionReasonInjection:
 
         # Then: no rejection-reasons block in the prompt
         prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
-        assert (
-            "rejected roles" not in prompt_sent
-        ), "Missing decisions collection should produce no rejection-reasons block"
+        assert "rejected roles" not in prompt_sent, (
+            "Missing decisions collection should produce no rejection-reasons block"
+        )
 
     async def test_rejection_reasons_are_cached_per_scorer_instance(
         self, populated_store: VectorStore, mock_embedder: Embedder
@@ -996,19 +996,19 @@ class TestRejectionReasonInjection:
         # Then: the reason appears in both prompts
         first_prompt = mock_embedder.classify.call_args_list[0][0][0]  # type: ignore[attr-defined]
         second_prompt = mock_embedder.classify.call_args_list[1][0][0]  # type: ignore[attr-defined]
-        assert (
-            "Requires clearance" in first_prompt
-        ), "First call should include cached rejection reason"
-        assert (
-            "Requires clearance" in second_prompt
-        ), "Second call should include cached rejection reason"
+        assert "Requires clearance" in first_prompt, (
+            "First call should include cached rejection reason"
+        )
+        assert "Requires clearance" in second_prompt, (
+            "Second call should include cached rejection reason"
+        )
         # Then: caching is working — internal list is populated
-        assert (
-            scorer._cached_rejection_reasons is not None
-        ), "Rejection reasons should be cached after first call"
-        assert (
-            len(scorer._cached_rejection_reasons) == 1
-        ), f"Expected 1 cached reason, got {len(scorer._cached_rejection_reasons)}"
+        assert scorer._cached_rejection_reasons is not None, (
+            "Rejection reasons should be cached after first call"
+        )
+        assert len(scorer._cached_rejection_reasons) == 1, (
+            f"Expected 1 cached reason, got {len(scorer._cached_rejection_reasons)}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1108,9 +1108,9 @@ class TestScoreFusion:
         result = ranker.compute_final_score(scores)
 
         # Then: only fit matters — score should be 0.8
-        assert result == pytest.approx(
-            0.8
-        ), f"With fit_weight=0.8 and fit_score=1.0, expected 0.8, got {result:.4f}"
+        assert result == pytest.approx(0.8), (
+            f"With fit_weight=0.8 and fit_score=1.0, expected 0.8, got {result:.4f}"
+        )
 
     def test_disqualified_role_scores_zero_regardless_of_weights(self) -> None:
         """
@@ -1196,12 +1196,12 @@ class TestScoreFusion:
         ranked, _summary = ranker.rank([(listing, scores)])
 
         # Then: the listing is included at the threshold boundary
-        assert (
-            len(ranked) == 1
-        ), f"Role at threshold should be included, but got {len(ranked)} ranked"
-        assert ranked[0].final_score == pytest.approx(
-            0.5
-        ), f"Expected final_score 0.5, got {ranked[0].final_score}"
+        assert len(ranked) == 1, (
+            f"Role at threshold should be included, but got {len(ranked)} ranked"
+        )
+        assert ranked[0].final_score == pytest.approx(0.5), (
+            f"Expected final_score 0.5, got {ranked[0].final_score}"
+        )
 
     def test_score_explanation_includes_all_six_component_values(self) -> None:
         """
@@ -1262,9 +1262,9 @@ class TestScoreFusion:
         explanation = ranked.score_explanation()
 
         # Then: the disqualification reason appears
-        assert (
-            "DISQUALIFIED: IC role disguised as architect" in explanation
-        ), f"Expected disqualification reason in: {explanation}"
+        assert "DISQUALIFIED: IC role disguised as architect" in explanation, (
+            f"Expected disqualification reason in: {explanation}"
+        )
 
     def test_negative_penalty_reduces_final_score(self) -> None:
         """
@@ -1322,9 +1322,9 @@ class TestScoreFusion:
         result = ranker.compute_final_score(scores)
 
         # Then: the score floors at 0.0 (0.3 - 0.8 = -0.5 → 0.0)
-        assert (
-            result == 0.0
-        ), f"Score should floor at 0.0 when penalty exceeds positive, got {result}"
+        assert result == 0.0, (
+            f"Score should floor at 0.0 when penalty exceeds positive, got {result}"
+        )
 
     def test_zero_negative_score_has_no_effect_on_fusion(self) -> None:
         """
@@ -1354,9 +1354,9 @@ class TestScoreFusion:
 
         # Then: the formula reduces to positive sum only
         expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4
-        assert result == pytest.approx(
-            expected
-        ), f"Zero negative should produce pure positive sum {expected:.4f}, got {result:.4f}"
+        assert result == pytest.approx(expected), (
+            f"Zero negative should produce pure positive sum {expected:.4f}, got {result:.4f}"
+        )
 
     def test_comp_weight_is_included_in_fusion_formula(self) -> None:
         """
@@ -1385,9 +1385,9 @@ class TestScoreFusion:
         result = ranker.compute_final_score(scores)
 
         # Then: only comp_weight matters — score should be 0.8
-        assert result == pytest.approx(
-            0.8
-        ), f"With comp_weight=1.0 and comp_score=0.8, expected 0.8, got {result:.4f}"
+        assert result == pytest.approx(0.8), (
+            f"With comp_weight=1.0 and comp_score=0.8, expected 0.8, got {result:.4f}"
+        )
 
     def test_missing_comp_score_uses_neutral_value_in_fusion(self) -> None:
         """
@@ -1417,9 +1417,9 @@ class TestScoreFusion:
 
         # Then: the neutral comp provides a gentle push
         base_expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4 + 0.15 * 0.5
-        assert result == pytest.approx(
-            base_expected
-        ), f"Expected {base_expected:.4f} with neutral comp, got {result:.4f}"
+        assert result == pytest.approx(base_expected), (
+            f"Expected {base_expected:.4f} with neutral comp, got {result:.4f}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1493,9 +1493,9 @@ class TestCrossBoardDeduplication:
 
         # Then: the near-duplicates are collapsed
         assert len(ranked) == 1, f"Near-duplicates should collapse to 1, got {len(ranked)}"
-        assert (
-            summary.total_deduplicated == 1
-        ), f"Expected 1 deduplicated, got {summary.total_deduplicated}"
+        assert summary.total_deduplicated == 1, (
+            f"Expected 1 deduplicated, got {summary.total_deduplicated}"
+        )
 
     def test_highest_scored_duplicate_is_retained(self) -> None:
         """
@@ -1526,9 +1526,9 @@ class TestCrossBoardDeduplication:
 
         # Then: the higher-scored listing survives
         assert len(ranked) == 1, f"Expected 1 survivor, got {len(ranked)}"
-        assert (
-            ranked[0].listing.board == "ziprecruiter"
-        ), f"Higher-scored listing should survive, got board={ranked[0].listing.board}"
+        assert ranked[0].listing.board == "ziprecruiter", (
+            f"Higher-scored listing should survive, got board={ranked[0].listing.board}"
+        )
 
     def test_output_notes_all_boards_that_carried_duplicate(self) -> None:
         """
@@ -1557,9 +1557,9 @@ class TestCrossBoardDeduplication:
         assert len(ranked) == 1, f"Expected 1 survivor, got {len(ranked)}"
         survivor = ranked[0]
         other_board = "indeed" if survivor.listing.board == "ziprecruiter" else "ziprecruiter"
-        assert (
-            other_board in survivor.duplicate_boards
-        ), f"Expected '{other_board}' in duplicate_boards, got {survivor.duplicate_boards}"
+        assert other_board in survivor.duplicate_boards, (
+            f"Expected '{other_board}' in duplicate_boards, got {survivor.duplicate_boards}"
+        )
 
     def test_same_external_id_same_board_is_deduplicated_unconditionally(self) -> None:
         """
@@ -1582,12 +1582,12 @@ class TestCrossBoardDeduplication:
         )
 
         # Then: exact-ID dedup collapses them
-        assert (
-            len(ranked) == 1
-        ), f"Same external_id on same board should collapse to 1, got {len(ranked)}"
-        assert (
-            summary.total_deduplicated == 1
-        ), f"Expected 1 deduplicated, got {summary.total_deduplicated}"
+        assert len(ranked) == 1, (
+            f"Same external_id on same board should collapse to 1, got {len(ranked)}"
+        )
+        assert summary.total_deduplicated == 1, (
+            f"Expected 1 deduplicated, got {summary.total_deduplicated}"
+        )
 
     def test_distinct_roles_with_similar_titles_are_not_collapsed(self) -> None:
         """
@@ -1640,9 +1640,9 @@ class TestCrossBoardDeduplication:
         )
 
         # Then: the summary reflects 1 dedup and 2 survivors
-        assert (
-            summary.total_deduplicated == 1
-        ), f"Expected 1 deduplicated, got {summary.total_deduplicated}"
+        assert summary.total_deduplicated == 1, (
+            f"Expected 1 deduplicated, got {summary.total_deduplicated}"
+        )
         assert len(ranked) == 2, f"Expected 2 survivors (1 dedup + 1 unique), got {len(ranked)}"
 
     def test_near_dedup_handles_empty_embedding_vectors_gracefully(self) -> None:
@@ -1696,9 +1696,9 @@ class TestCrossBoardDeduplication:
         )
 
         # Then: both survive (zero-magnitude vector ≠ near-duplicate)
-        assert (
-            len(ranked) == 2
-        ), f"Zero-magnitude embedding should not cause collapse, got {len(ranked)}"
+        assert len(ranked) == 2, (
+            f"Zero-magnitude embedding should not cause collapse, got {len(ranked)}"
+        )
 
     def test_near_dedup_records_duplicate_board_on_survivor(self) -> None:
         """
@@ -1728,9 +1728,9 @@ class TestCrossBoardDeduplication:
 
         # Then: the survivor records the consumed board
         assert len(ranked) == 1, f"Expected 1 survivor, got {len(ranked)}"
-        assert (
-            summary.total_deduplicated == 1
-        ), f"Expected 1 deduplicated, got {summary.total_deduplicated}"
+        assert summary.total_deduplicated == 1, (
+            f"Expected 1 deduplicated, got {summary.total_deduplicated}"
+        )
         survivor = ranked[0]
         assert (
             "indeed" in survivor.duplicate_boards or "ziprecruiter" in survivor.duplicate_boards
@@ -1837,6 +1837,6 @@ class TestCrossBoardDeduplication:
 
         # Then: W and Y survive; X and Z consumed
         assert len(ranked) == 2, f"Expected 2 survivors (W + Y), got {len(ranked)}"
-        assert (
-            summary.total_deduplicated == 2
-        ), f"Expected 2 deduplicated (X + Z), got {summary.total_deduplicated}"
+        assert summary.total_deduplicated == 2, (
+            f"Expected 2 deduplicated (X + Z), got {summary.total_deduplicated}"
+        )

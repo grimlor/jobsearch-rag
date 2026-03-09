@@ -100,14 +100,14 @@ archetype_weight = 0.5
 
             # Then: error identifies the missing section with recovery guidance
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.CONFIG
-            ), f"Expected CONFIG error, got {err.error_type}"
+            assert err.error_type == ErrorType.CONFIG, (
+                f"Expected CONFIG error, got {err.error_type}"
+            )
             assert "boards" in err.error.lower(), f"Error should name 'boards'. Got: {err.error}"
             assert err.suggestion is not None, "Missing suggestion"
-            assert (
-                "boards" in err.suggestion.lower()
-            ), f"Suggestion should mention 'boards'. Got: {err.suggestion}"
+            assert "boards" in err.suggestion.lower(), (
+                f"Suggestion should mention 'boards'. Got: {err.suggestion}"
+            )
             assert err.troubleshooting is not None, "Missing troubleshooting"
             assert len(err.troubleshooting.steps) > 0, "Troubleshooting has no steps"
 
@@ -128,12 +128,12 @@ archetype_weight = 0.5
 
             # Then: error identifies the out-of-range field
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.VALIDATION
-            ), f"Expected VALIDATION error, got {err.error_type}"
-            assert (
-                "archetype_weight" in err.error
-            ), f"Error should name 'archetype_weight'. Got: {err.error}"
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
+            assert "archetype_weight" in err.error, (
+                f"Error should name 'archetype_weight'. Got: {err.error}"
+            )
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
@@ -154,9 +154,9 @@ archetype_weight = 0.5
 
             # Then: error identifies the out-of-range field
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.VALIDATION
-            ), f"Expected VALIDATION error, got {err.error_type}"
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
             assert "fit_weight" in err.error, f"Error should name 'fit_weight'. Got: {err.error}"
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
@@ -192,16 +192,16 @@ persist_dir = "./data/chroma_db"
 
             # Then: error names the missing board
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.CONFIG
-            ), f"Expected CONFIG error, got {err.error_type}"
-            assert (
-                "nonexistent_board" in err.error
-            ), f"Error should name 'nonexistent_board'. Got: {err.error}"
+            assert err.error_type == ErrorType.CONFIG, (
+                f"Expected CONFIG error, got {err.error_type}"
+            )
+            assert "nonexistent_board" in err.error, (
+                f"Error should name 'nonexistent_board'. Got: {err.error}"
+            )
             assert err.suggestion is not None, "Missing suggestion"
-            assert (
-                "nonexistent_board" in err.suggestion
-            ), f"Suggestion should name the board. Got: {err.suggestion}"
+            assert "nonexistent_board" in err.suggestion, (
+                f"Suggestion should name the board. Got: {err.suggestion}"
+            )
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
     def test_ollama_url_without_scheme_suggests_adding_http_prefix(self) -> None:
@@ -224,12 +224,12 @@ persist_dir = "./data/chroma_db"
 
             # Then: error identifies the scheme issue
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.VALIDATION
-            ), f"Expected VALIDATION error, got {err.error_type}"
-            assert (
-                "scheme" in err.error.lower()
-            ), f"Error should mention 'scheme'. Got: {err.error}"
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
+            assert "scheme" in err.error.lower(), (
+                f"Error should mention 'scheme'. Got: {err.error}"
+            )
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
@@ -247,18 +247,18 @@ persist_dir = "./data/chroma_db"
             settings = load_settings(path)
 
             # Then: key fields are accessible
-            assert settings.enabled_boards == [
-                "testboard"
-            ], f"Expected ['testboard'], got {settings.enabled_boards}"
-            assert (
-                settings.scoring.archetype_weight == 0.5
-            ), f"Expected archetype_weight=0.5, got {settings.scoring.archetype_weight}"
-            assert (
-                settings.ollama.base_url == "http://localhost:11434"
-            ), f"Expected base_url='http://localhost:11434', got {settings.ollama.base_url}"
-            assert (
-                settings.chroma.persist_dir == "./data/chroma_db"
-            ), f"Expected persist_dir='./data/chroma_db', got {settings.chroma.persist_dir}"
+            assert settings.enabled_boards == ["testboard"], (
+                f"Expected ['testboard'], got {settings.enabled_boards}"
+            )
+            assert settings.scoring.archetype_weight == 0.5, (
+                f"Expected archetype_weight=0.5, got {settings.scoring.archetype_weight}"
+            )
+            assert settings.ollama.base_url == "http://localhost:11434", (
+                f"Expected base_url='http://localhost:11434', got {settings.ollama.base_url}"
+            )
+            assert settings.chroma.persist_dir == "./data/chroma_db", (
+                f"Expected persist_dir='./data/chroma_db', got {settings.chroma.persist_dir}"
+            )
 
     def test_optional_fields_use_documented_defaults_when_absent(self) -> None:
         """
@@ -281,36 +281,36 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: scoring defaults are applied
-            assert (
-                settings.scoring.archetype_weight == 0.5
-            ), f"Expected archetype_weight default 0.5, got {settings.scoring.archetype_weight}"
-            assert (
-                settings.scoring.fit_weight == 0.3
-            ), f"Expected fit_weight default 0.3, got {settings.scoring.fit_weight}"
-            assert (
-                settings.scoring.history_weight == 0.2
-            ), f"Expected history_weight default 0.2, got {settings.scoring.history_weight}"
-            assert (
-                settings.scoring.min_score_threshold == 0.45
-            ), f"Expected min_score_threshold default 0.45, got {settings.scoring.min_score_threshold}"
+            assert settings.scoring.archetype_weight == 0.5, (
+                f"Expected archetype_weight default 0.5, got {settings.scoring.archetype_weight}"
+            )
+            assert settings.scoring.fit_weight == 0.3, (
+                f"Expected fit_weight default 0.3, got {settings.scoring.fit_weight}"
+            )
+            assert settings.scoring.history_weight == 0.2, (
+                f"Expected history_weight default 0.2, got {settings.scoring.history_weight}"
+            )
+            assert settings.scoring.min_score_threshold == 0.45, (
+                f"Expected min_score_threshold default 0.45, got {settings.scoring.min_score_threshold}"
+            )
             # Then: ollama defaults are applied
-            assert (
-                settings.ollama.base_url == "http://localhost:11434"
-            ), f"Expected base_url default, got {settings.ollama.base_url}"
-            assert (
-                settings.ollama.llm_model == "mistral:7b"
-            ), f"Expected llm_model default, got {settings.ollama.llm_model}"
+            assert settings.ollama.base_url == "http://localhost:11434", (
+                f"Expected base_url default, got {settings.ollama.base_url}"
+            )
+            assert settings.ollama.llm_model == "mistral:7b", (
+                f"Expected llm_model default, got {settings.ollama.llm_model}"
+            )
             # Then: output defaults are applied
-            assert (
-                settings.output.default_format == "markdown"
-            ), f"Expected default_format='markdown', got {settings.output.default_format}"
-            assert (
-                settings.output.open_top_n == 5
-            ), f"Expected open_top_n default 5, got {settings.output.open_top_n}"
+            assert settings.output.default_format == "markdown", (
+                f"Expected default_format='markdown', got {settings.output.default_format}"
+            )
+            assert settings.output.open_top_n == 5, (
+                f"Expected open_top_n default 5, got {settings.output.open_top_n}"
+            )
             # Then: board defaults are applied
-            assert (
-                settings.boards["testboard"].browser_channel is None
-            ), f"Expected browser_channel=None, got {settings.boards['testboard'].browser_channel}"
+            assert settings.boards["testboard"].browser_channel is None, (
+                f"Expected browser_channel=None, got {settings.boards['testboard'].browser_channel}"
+            )
 
     def test_browser_channel_is_parsed_from_board_config(self) -> None:
         """
@@ -330,9 +330,9 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: browser_channel is parsed
-            assert (
-                settings.boards["testboard"].browser_channel == "msedge"
-            ), f"Expected browser_channel='msedge', got {settings.boards['testboard'].browser_channel}"
+            assert settings.boards["testboard"].browser_channel == "msedge", (
+                f"Expected browser_channel='msedge', got {settings.boards['testboard'].browser_channel}"
+            )
 
     def test_comp_weight_defaults_to_zero_point_fifteen_when_absent(self) -> None:
         """
@@ -355,9 +355,9 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: comp_weight uses the default
-            assert (
-                settings.scoring.comp_weight == 0.15
-            ), f"Expected comp_weight default 0.15, got {settings.scoring.comp_weight}"
+            assert settings.scoring.comp_weight == 0.15, (
+                f"Expected comp_weight default 0.15, got {settings.scoring.comp_weight}"
+            )
 
     def test_base_salary_defaults_to_220000_when_absent(self) -> None:
         """
@@ -380,9 +380,9 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: base_salary uses the default
-            assert (
-                settings.scoring.base_salary == 220_000
-            ), f"Expected base_salary default 220000, got {settings.scoring.base_salary}"
+            assert settings.scoring.base_salary == 220_000, (
+                f"Expected base_salary default 220000, got {settings.scoring.base_salary}"
+            )
 
     def test_negative_base_salary_names_the_field_and_constraint(self) -> None:
         """
@@ -404,9 +404,9 @@ searches = ["https://example.org/search"]
 
             # Then: error identifies the invalid field
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.VALIDATION
-            ), f"Expected VALIDATION error, got {err.error_type}"
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
             assert "base_salary" in err.error, f"Error should name 'base_salary'. Got: {err.error}"
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
@@ -427,12 +427,12 @@ searches = ["https://example.org/search"]
 
             # Then: error identifies the missing file
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.CONFIG
-            ), f"Expected CONFIG error, got {err.error_type}"
-            assert (
-                "not found" in err.error.lower()
-            ), f"Error should say 'not found'. Got: {err.error}"
+            assert err.error_type == ErrorType.CONFIG, (
+                f"Expected CONFIG error, got {err.error_type}"
+            )
+            assert "not found" in err.error.lower(), (
+                f"Error should say 'not found'. Got: {err.error}"
+            )
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
@@ -474,12 +474,12 @@ searches = ["https://example.org/search"]
 
             # Then: error names the empty field
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.CONFIG
-            ), f"Expected CONFIG error, got {err.error_type}"
-            assert (
-                "boards.enabled" in err.error
-            ), f"Error should name 'boards.enabled'. Got: {err.error}"
+            assert err.error_type == ErrorType.CONFIG, (
+                f"Expected CONFIG error, got {err.error_type}"
+            )
+            assert "boards.enabled" in err.error, (
+                f"Error should name 'boards.enabled'. Got: {err.error}"
+            )
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
@@ -504,9 +504,9 @@ testboard = "not a table"
 
             # Then: error mentions the table requirement
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.CONFIG
-            ), f"Expected CONFIG error, got {err.error_type}"
+            assert err.error_type == ErrorType.CONFIG, (
+                f"Expected CONFIG error, got {err.error_type}"
+            )
             assert "table" in err.error.lower(), f"Error should mention 'table'. Got: {err.error}"
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
@@ -538,15 +538,15 @@ headless = false
             settings = load_settings(path)
 
             # Then: overnight board config is accessible
-            assert (
-                "nightboard" in settings.boards
-            ), f"Expected 'nightboard' in boards. Got: {list(settings.boards.keys())}"
-            assert (
-                settings.boards["nightboard"].max_pages == 5
-            ), f"Expected max_pages=5, got {settings.boards['nightboard'].max_pages}"
-            assert (
-                settings.boards["nightboard"].headless is False
-            ), f"Expected headless=False, got {settings.boards['nightboard'].headless}"
+            assert "nightboard" in settings.boards, (
+                f"Expected 'nightboard' in boards. Got: {list(settings.boards.keys())}"
+            )
+            assert settings.boards["nightboard"].max_pages == 5, (
+                f"Expected max_pages=5, got {settings.boards['nightboard'].max_pages}"
+            )
+            assert settings.boards["nightboard"].headless is False, (
+                f"Expected headless=False, got {settings.boards['nightboard'].headless}"
+            )
 
     def test_scoring_section_non_dict_uses_defaults(self) -> None:
         """
@@ -571,9 +571,9 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: scoring falls back to defaults
-            assert (
-                settings.scoring.archetype_weight == 0.5
-            ), f"Expected default archetype_weight=0.5, got {settings.scoring.archetype_weight}"
+            assert settings.scoring.archetype_weight == 0.5, (
+                f"Expected default archetype_weight=0.5, got {settings.scoring.archetype_weight}"
+            )
 
     def test_ollama_section_non_dict_uses_defaults(self) -> None:
         """
@@ -598,9 +598,9 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: ollama falls back to defaults
-            assert (
-                settings.ollama.base_url == "http://localhost:11434"
-            ), f"Expected default base_url, got {settings.ollama.base_url}"
+            assert settings.ollama.base_url == "http://localhost:11434", (
+                f"Expected default base_url, got {settings.ollama.base_url}"
+            )
 
     def test_output_section_non_dict_uses_defaults(self) -> None:
         """
@@ -625,9 +625,9 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: output falls back to defaults
-            assert (
-                settings.output.default_format == "markdown"
-            ), f"Expected default default_format='markdown', got {settings.output.default_format}"
+            assert settings.output.default_format == "markdown", (
+                f"Expected default default_format='markdown', got {settings.output.default_format}"
+            )
 
     def test_chroma_section_non_dict_uses_defaults(self) -> None:
         """
@@ -652,9 +652,9 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: chroma falls back to defaults
-            assert (
-                settings.chroma.persist_dir == "./data/chroma_db"
-            ), f"Expected default persist_dir, got {settings.chroma.persist_dir}"
+            assert settings.chroma.persist_dir == "./data/chroma_db", (
+                f"Expected default persist_dir, got {settings.chroma.persist_dir}"
+            )
 
     def test_missing_enabled_field_tells_operator_which_field_to_add(self) -> None:
         """
@@ -679,9 +679,9 @@ searches = ["https://example.org/search"]
 
             # Then: error names the missing field
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.CONFIG
-            ), f"Expected CONFIG error, got {err.error_type}"
+            assert err.error_type == ErrorType.CONFIG, (
+                f"Expected CONFIG error, got {err.error_type}"
+            )
             assert "enabled" in err.error.lower(), f"Error should name 'enabled'. Got: {err.error}"
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
@@ -707,9 +707,9 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: negative_weight uses the default
-            assert (
-                settings.scoring.negative_weight == 0.4
-            ), f"Expected negative_weight default 0.4, got {settings.scoring.negative_weight}"
+            assert settings.scoring.negative_weight == 0.4, (
+                f"Expected negative_weight default 0.4, got {settings.scoring.negative_weight}"
+            )
 
     def test_negative_weight_above_range_names_the_field_and_valid_range(self) -> None:
         """
@@ -728,12 +728,12 @@ searches = ["https://example.org/search"]
 
             # Then: error identifies the out-of-range field
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.VALIDATION
-            ), f"Expected VALIDATION error, got {err.error_type}"
-            assert (
-                "negative_weight" in err.error
-            ), f"Error should name negative_weight. Got: {err.error}"
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
+            assert "negative_weight" in err.error, (
+                f"Error should name negative_weight. Got: {err.error}"
+            )
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
@@ -754,12 +754,12 @@ searches = ["https://example.org/search"]
 
             # Then: error identifies the out-of-range field
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.VALIDATION
-            ), f"Expected VALIDATION error, got {err.error_type}"
-            assert (
-                "negative_weight" in err.error
-            ), f"Error should name negative_weight. Got: {err.error}"
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
+            assert "negative_weight" in err.error, (
+                f"Error should name negative_weight. Got: {err.error}"
+            )
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
@@ -784,9 +784,9 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: default path is used
-            assert (
-                settings.global_rubric_path == "config/global_rubric.toml"
-            ), f"Expected default global_rubric_path, got {settings.global_rubric_path}"
+            assert settings.global_rubric_path == "config/global_rubric.toml", (
+                f"Expected default global_rubric_path, got {settings.global_rubric_path}"
+            )
 
     def test_missing_global_rubric_path_names_field_and_creation_guidance(self) -> None:
         """
@@ -805,12 +805,12 @@ searches = ["https://example.org/search"]
 
             # Then: error identifies the missing rubric file
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.CONFIG
-            ), f"Expected CONFIG error, got {err.error_type}"
-            assert (
-                "global_rubric_path" in err.error
-            ), f"Error should name 'global_rubric_path'. Got: {err.error}"
+            assert err.error_type == ErrorType.CONFIG, (
+                f"Expected CONFIG error, got {err.error_type}"
+            )
+            assert "global_rubric_path" in err.error, (
+                f"Error should name 'global_rubric_path'. Got: {err.error}"
+            )
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
@@ -835,9 +835,9 @@ searches = ["https://example.org/search"]
             settings = load_settings(path)
 
             # Then: culture_weight uses the default
-            assert (
-                settings.scoring.culture_weight == 0.2
-            ), f"Expected culture_weight default 0.2, got {settings.scoring.culture_weight}"
+            assert settings.scoring.culture_weight == 0.2, (
+                f"Expected culture_weight default 0.2, got {settings.scoring.culture_weight}"
+            )
 
     def test_culture_weight_above_range_names_the_field_and_valid_range(self) -> None:
         """
@@ -859,12 +859,12 @@ searches = ["https://example.org/search"]
 
             # Then: error identifies the out-of-range field
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.VALIDATION
-            ), f"Expected VALIDATION error, got {err.error_type}"
-            assert (
-                "culture_weight" in err.error
-            ), f"Error should name culture_weight. Got: {err.error}"
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
+            assert "culture_weight" in err.error, (
+                f"Error should name culture_weight. Got: {err.error}"
+            )
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
@@ -888,9 +888,9 @@ searches = ["https://example.org/search"]
 
             # Then: error identifies the out-of-range field
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.VALIDATION
-            ), f"Expected VALIDATION error, got {err.error_type}"
-            assert (
-                "culture_weight" in err.error
-            ), f"Error should name culture_weight. Got: {err.error}"
+            assert err.error_type == ErrorType.VALIDATION, (
+                f"Expected VALIDATION error, got {err.error_type}"
+            )
+            assert "culture_weight" in err.error, (
+                f"Error should name culture_weight. Got: {err.error}"
+            )

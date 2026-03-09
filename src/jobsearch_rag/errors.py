@@ -14,11 +14,9 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from actionable_errors import ActionableError as _ActionableError
-
 # Re-export base types from the shared library so every consumer
 # can keep importing from ``jobsearch_rag.errors``.
-from actionable_errors import AIGuidance, Troubleshooting
+from actionable_errors import ActionableError as _ActionableError, AIGuidance, Troubleshooting
 
 __all__ = ["AIGuidance", "ActionableError", "ErrorType", "Troubleshooting"]
 

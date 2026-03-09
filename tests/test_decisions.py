@@ -115,9 +115,9 @@ class TestDecisionRecording:
         # Then: reason is preserved in the decision metadata
         decision = recorder.get_decision("zr-reason")
         assert decision is not None, "Decision should be retrievable after recording"
-        assert (
-            decision["reason"] == "Requires on-site 5 days/week, no remote option"
-        ), "Reason should be stored verbatim"
+        assert decision["reason"] == "Requires on-site 5 days/week, no remote option", (
+            "Reason should be stored verbatim"
+        )
 
     async def test_empty_reason_stored_when_not_provided(self, recorder: DecisionRecorder) -> None:
         """
@@ -234,9 +234,9 @@ class TestDecisionRecording:
         decision = recorder.get_decision("zr-789")
         assert decision is not None, "Decision should be retrievable after recording"
         assert decision["verdict"] == "maybe", "Verdict should be stored as 'maybe'"
-        assert (
-            decision["scoring_signal"] == "false"
-        ), "Maybe verdict should be excluded from scoring"
+        assert decision["scoring_signal"] == "false", (
+            "Maybe verdict should be excluded from scoring"
+        )
 
     async def test_unknown_job_id_names_the_id_and_suggests_checking_latest_output(
         self, recorder: DecisionRecorder
@@ -281,9 +281,9 @@ class TestDecisionRecording:
         )
 
         # Then: count increased by 1
-        assert (
-            recorder.history_count() == initial + 1
-        ), "Count should increase by 1 after first decision"
+        assert recorder.history_count() == initial + 1, (
+            "Count should increase by 1 after first decision"
+        )
 
         # When: second decision recorded
         await recorder.record(
@@ -294,9 +294,9 @@ class TestDecisionRecording:
         )
 
         # Then: count increased by 2 total
-        assert (
-            recorder.history_count() == initial + 2
-        ), "Count should increase by 2 after second decision"
+        assert recorder.history_count() == initial + 2, (
+            "Count should increase by 2 after second decision"
+        )
 
     async def test_duplicate_decision_on_same_job_id_overwrites_not_appends(
         self, recorder: DecisionRecorder
@@ -324,9 +324,9 @@ class TestDecisionRecording:
         )
 
         # Then: count unchanged and verdict updated
-        assert (
-            recorder.history_count() == count_after_first
-        ), "Duplicate should overwrite, not append"
+        assert recorder.history_count() == count_after_first, (
+            "Duplicate should overwrite, not append"
+        )
         decision = recorder.get_decision("zr-dup")
         assert decision is not None, "Decision should still be retrievable"
         assert decision["verdict"] == "yes", "Verdict should be updated to 'yes'"
@@ -388,9 +388,9 @@ class TestDecisionRecording:
                 json_mod.loads(line) for line in jsonl_files[0].read_text().strip().splitlines()
             ]
             assert len(records) == 1, "JSONL file should contain exactly one record"
-            assert (
-                records[0]["reason"] == "No remote option"
-            ), "Reason should be preserved in JSONL audit log"
+            assert records[0]["reason"] == "No remote option", (
+                "Reason should be preserved in JSONL audit log"
+            )
 
     def test_get_decision_returns_none_when_collection_missing(
         self, mock_embedder: Embedder
@@ -406,9 +406,9 @@ class TestDecisionRecording:
             recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
             # When/Then: get_decision returns None gracefully
-            assert (
-                recorder.get_decision("nonexistent-job") is None
-            ), "Should return None when collection is missing"
+            assert recorder.get_decision("nonexistent-job") is None, (
+                "Should return None when collection is missing"
+            )
 
     def test_get_decision_returns_none_when_no_results_found(
         self, mock_embedder: Embedder
@@ -425,9 +425,9 @@ class TestDecisionRecording:
             recorder = DecisionRecorder(store=store, embedder=mock_embedder)
 
             # When/Then: get_decision returns None
-            assert (
-                recorder.get_decision("unknown-id") is None
-            ), "Should return None when no matching document exists"
+            assert recorder.get_decision("unknown-id") is None, (
+                "Should return None when no matching document exists"
+            )
 
     def test_history_count_returns_zero_when_collection_missing(
         self, mock_embedder: Embedder

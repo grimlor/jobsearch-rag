@@ -164,9 +164,9 @@ def _setup_index_env(tmp_path: Path, *, open_top_n: int = 5) -> AsyncMock:
     output_dir.mkdir()
 
     (config_dir / "settings.toml").write_text(f"""\
-resume_path = "{data_dir / 'resume.md'}"
-archetypes_path = "{config_dir / 'role_archetypes.toml'}"
-global_rubric_path = "{config_dir / 'global_rubric.toml'}"
+resume_path = "{data_dir / "resume.md"}"
+archetypes_path = "{config_dir / "role_archetypes.toml"}"
+global_rubric_path = "{config_dir / "global_rubric.toml"}"
 
 [boards]
 enabled = ["testboard"]
@@ -185,7 +185,7 @@ output_dir = "{output_dir}"
 open_top_n = {open_top_n}
 
 [chroma]
-persist_dir = "{tmp_path / 'chroma'}"
+persist_dir = "{tmp_path / "chroma"}"
 """)
 
     (config_dir / "role_archetypes.toml").write_text("""\
@@ -370,9 +370,9 @@ class TestParserConstruction:
         parser = build_parser()
         with pytest.raises(SystemExit) as exc_info:
             parser.parse_args(["decide", "zr-123", "--verdict", "invalid"])
-        assert (
-            exc_info.value.code == 2
-        ), f"Expected exit code 2 for invalid arg, got {exc_info.value.code}"
+        assert exc_info.value.code == 2, (
+            f"Expected exit code 2 for invalid arg, got {exc_info.value.code}"
+        )
 
     def test_parser_accepts_export_subcommand_with_format(self) -> None:
         """
@@ -438,9 +438,9 @@ class TestParserConstruction:
         parser = build_parser()
         with pytest.raises(SystemExit) as exc_info:
             parser.parse_args(["login"])
-        assert (
-            exc_info.value.code == 2
-        ), f"Expected exit code 2 for missing required arg, got {exc_info.value.code}"
+        assert exc_info.value.code == 2, (
+            f"Expected exit code 2 for missing required arg, got {exc_info.value.code}"
+        )
 
     def test_missing_subcommand_raises_system_exit(self) -> None:
         """
@@ -452,9 +452,9 @@ class TestParserConstruction:
         parser = build_parser()
         with pytest.raises(SystemExit) as exc_info:
             parser.parse_args([])
-        assert (
-            exc_info.value.code == 2
-        ), f"Expected exit code 2 for missing subcommand, got {exc_info.value.code}"
+        assert exc_info.value.code == 2, (
+            f"Expected exit code 2 for missing subcommand, got {exc_info.value.code}"
+        )
 
     def test_parser_accepts_rescore_subcommand(self) -> None:
         """
@@ -480,17 +480,17 @@ class TestParserConstruction:
         args = parser.parse_args(["index"])
 
         # Then: defaults to False
-        assert (
-            args.archetypes_only is False
-        ), f"Expected archetypes_only=False, got {args.archetypes_only}"
+        assert args.archetypes_only is False, (
+            f"Expected archetypes_only=False, got {args.archetypes_only}"
+        )
 
         # When: parse 'index' with --archetypes-only
         args = parser.parse_args(["index", "--archetypes-only"])
 
         # Then: set to True
-        assert (
-            args.archetypes_only is True
-        ), f"Expected archetypes_only=True, got {args.archetypes_only}"
+        assert args.archetypes_only is True, (
+            f"Expected archetypes_only=True, got {args.archetypes_only}"
+        )
 
     def test_reset_collection_choices_include_negative_signals(self) -> None:
         """
@@ -503,9 +503,9 @@ class TestParserConstruction:
         args = parser.parse_args(["reset", "--collection", "negative_signals"])
 
         # Then: collection is captured
-        assert (
-            args.collection == "negative_signals"
-        ), f"Expected collection='negative_signals', got {args.collection!r}"
+        assert args.collection == "negative_signals", (
+            f"Expected collection='negative_signals', got {args.collection!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -542,9 +542,9 @@ class TestBoardsCommand:
         """
         # Given: the real registry has adapters registered at import time
         registered = AdapterRegistry.list_registered()
-        assert (
-            len(registered) > 0
-        ), "Expected at least one registered adapter for this test to be meaningful"
+        assert len(registered) > 0, (
+            "Expected at least one registered adapter for this test to be meaningful"
+        )
 
         # When: handle_boards is called
         handle_boards()
@@ -554,9 +554,9 @@ class TestBoardsCommand:
         assert "Registered adapters:" in output, f"Expected header in output, got: {output!r}"
         sorted_names = sorted(registered)
         for i in range(len(sorted_names) - 1):
-            assert output.index(sorted_names[i]) < output.index(
-                sorted_names[i + 1]
-            ), f"Expected '{sorted_names[i]}' before '{sorted_names[i + 1]}' in output"
+            assert output.index(sorted_names[i]) < output.index(sorted_names[i + 1]), (
+                f"Expected '{sorted_names[i]}' before '{sorted_names[i + 1]}' in output"
+            )
 
     def test_handle_boards_empty_registry_prints_no_adapters(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -578,9 +578,9 @@ class TestBoardsCommand:
 
         # Then: the output says no adapters are registered
         output = capsys.readouterr().out
-        assert (
-            "No adapters registered." in output
-        ), f"Expected 'No adapters registered.' message, got: {output!r}"
+        assert "No adapters registered." in output, (
+            f"Expected 'No adapters registered.' message, got: {output!r}"
+        )
 
     def test_handle_boards_uses_bullet_format(self, capsys: pytest.CaptureFixture[str]) -> None:
         """
@@ -597,9 +597,9 @@ class TestBoardsCommand:
         # Then: each name appears with the bullet format
         output = capsys.readouterr().out
         for name in registered:
-            assert (
-                f"  - {name}" in output
-            ), f"Expected '  - {name}' bullet format in output, got: {output!r}"
+            assert f"  - {name}" in output, (
+                f"Expected '  - {name}' bullet format in output, got: {output!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -672,12 +672,12 @@ class TestIndexCommand:
 
         # Then: output reports both archetype and resume indexing
         output = capsys.readouterr().out
-        assert (
-            "Indexed 1 archetypes" in output
-        ), f"Expected archetype count in output, got: {output!r}"
-        assert (
-            "Indexed 1 resume chunks" in output
-        ), f"Expected resume count in output, got: {output!r}"
+        assert "Indexed 1 archetypes" in output, (
+            f"Expected archetype count in output, got: {output!r}"
+        )
+        assert "Indexed 1 resume chunks" in output, (
+            f"Expected resume count in output, got: {output!r}"
+        )
 
     def test_index_resume_only_skips_archetypes(
         self,
@@ -703,12 +703,12 @@ class TestIndexCommand:
 
         # Then: output reports resume but not archetypes
         output = capsys.readouterr().out
-        assert (
-            "archetypes" not in output.lower()
-        ), f"Expected no archetype output with --resume-only, got: {output!r}"
-        assert (
-            "Indexed 1 resume chunks" in output
-        ), f"Expected resume count in output, got: {output!r}"
+        assert "archetypes" not in output.lower(), (
+            f"Expected no archetype output with --resume-only, got: {output!r}"
+        )
+        assert "Indexed 1 resume chunks" in output, (
+            f"Expected resume count in output, got: {output!r}"
+        )
 
     def test_index_prints_chunk_counts_to_stdout(
         self,
@@ -734,18 +734,18 @@ class TestIndexCommand:
 
         # Then: all chunk counts appear in stdout
         output = capsys.readouterr().out
-        assert (
-            "Indexed 1 archetypes" in output
-        ), f"Expected archetype count in output, got: {output!r}"
-        assert (
-            "Indexed 2 negative signals" in output
-        ), f"Expected negative signal count in output, got: {output!r}"
-        assert (
-            "Indexed 1 global positive signals" in output
-        ), f"Expected positive signal count in output, got: {output!r}"
-        assert (
-            "Indexed 1 resume chunks" in output
-        ), f"Expected resume count in output, got: {output!r}"
+        assert "Indexed 1 archetypes" in output, (
+            f"Expected archetype count in output, got: {output!r}"
+        )
+        assert "Indexed 2 negative signals" in output, (
+            f"Expected negative signal count in output, got: {output!r}"
+        )
+        assert "Indexed 1 global positive signals" in output, (
+            f"Expected positive signal count in output, got: {output!r}"
+        )
+        assert "Indexed 1 resume chunks" in output, (
+            f"Expected resume count in output, got: {output!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -812,9 +812,9 @@ class TestSearchCommand:
 
         # Then: output includes all summary fields
         output = capsys.readouterr().out
-        assert (
-            "Boards searched:" in output
-        ), f"Expected 'Boards searched:' in output, got: {output!r}"
+        assert "Boards searched:" in output, (
+            f"Expected 'Boards searched:' in output, got: {output!r}"
+        )
         assert "ziprecruiter" in output, f"Expected board name in output, got: {output!r}"
         assert "Total found:" in output, f"Expected 'Total found:' in output, got: {output!r}"
         assert "20" in output, f"Expected total count '20' in output, got: {output!r}"
@@ -933,9 +933,9 @@ class TestSearchCommand:
         # Then: the runner was called with boards=["indeed"]
         mock_run.assert_awaited_once()
         call_kwargs = mock_run.call_args.kwargs
-        assert call_kwargs.get("boards") == [
-            "indeed"
-        ], f"Expected boards=['indeed'], got: {mock_run.call_args!r}"
+        assert call_kwargs.get("boards") == ["indeed"], (
+            f"Expected boards=['indeed'], got: {mock_run.call_args!r}"
+        )
 
     def test_search_open_top_opens_browser_tabs(
         self,
@@ -1084,9 +1084,9 @@ class TestDecideCommand:
 
         # Then: confirmation is printed with the new verdict and history count
         output = capsys.readouterr().out
-        assert (
-            "Recorded 'yes' for zr-123" in output
-        ), f"Expected confirmation message in output, got: {output!r}"
+        assert "Recorded 'yes' for zr-123" in output, (
+            f"Expected confirmation message in output, got: {output!r}"
+        )
         assert "1" in output, f"Expected history count in output, got: {output!r}"
 
     def test_decide_with_reason_prints_reason_in_confirmation(
@@ -1118,9 +1118,9 @@ class TestDecideCommand:
 
         # Then: the reason appears in the output
         output = capsys.readouterr().out
-        assert (
-            "Role requires on-call rotation" in output
-        ), f"Expected reason text in output, got: {output!r}"
+        assert "Role requires on-call rotation" in output, (
+            f"Expected reason text in output, got: {output!r}"
+        )
 
     def test_missing_jd_text_exits_with_error(
         self,
@@ -1179,9 +1179,9 @@ class TestDecideCommand:
 
         assert exc_info.value.code == 1, f"Expected exit code 1, got {exc_info.value.code}"
         output = capsys.readouterr().out
-        assert (
-            "Could not retrieve JD text" in output
-        ), f"Expected 'Could not retrieve JD text' in output, got: {output!r}"
+        assert "Could not retrieve JD text" in output, (
+            f"Expected 'Could not retrieve JD text' in output, got: {output!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1286,9 +1286,9 @@ class TestExportCommand:
         # Then: exits with code 1 and prints a helpful message
         assert exc_info.value.code == 1, f"Expected exit code 1, got {exc_info.value.code}"
         output = capsys.readouterr().out
-        assert (
-            "No previous results found" in output
-        ), f"Expected 'No previous results found' in output, got: {output!r}"
+        assert "No previous results found" in output, (
+            f"Expected 'No previous results found' in output, got: {output!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1376,9 +1376,9 @@ class TestLoginCommand:
         # Then: browser was launched in headed mode (headless=False)
         mock_pw.chromium.launch.assert_awaited_once()
         launch_kwargs = mock_pw.chromium.launch.call_args.kwargs
-        assert (
-            launch_kwargs["headless"] is False
-        ), f"Expected headless=False, got {launch_kwargs['headless']}"
+        assert launch_kwargs["headless"] is False, (
+            f"Expected headless=False, got {launch_kwargs['headless']}"
+        )
 
         # Then: navigated to the login URL
         mock_page.goto.assert_awaited_once()
@@ -1416,9 +1416,9 @@ class TestLoginCommand:
 
         # Then: navigated to the linkedin login URL
         url_arg = mock_page.goto.call_args[0][0]
-        assert (
-            "linkedin.com/login" in url_arg
-        ), f"Expected 'linkedin.com/login' in URL, got {url_arg!r}"
+        assert "linkedin.com/login" in url_arg, (
+            f"Expected 'linkedin.com/login' in URL, got {url_arg!r}"
+        )
 
     def test_login_prints_instructions_for_operator(
         self,
@@ -1445,9 +1445,9 @@ class TestLoginCommand:
 
         # Then: operator sees instructions
         output = capsys.readouterr().out
-        assert (
-            "Interactive Login" in output
-        ), f"Expected 'Interactive Login' in output, got: {output!r}"
+        assert "Interactive Login" in output, (
+            f"Expected 'Interactive Login' in output, got: {output!r}"
+        )
         assert "ziprecruiter" in output, f"Expected 'ziprecruiter' in output, got: {output!r}"
         assert "Complete login" in output, f"Expected 'Complete login' in output, got: {output!r}"
 
@@ -1544,9 +1544,9 @@ class TestSearchBrowserFailure:
         # Then: the failure message is printed but the search completed
         output = capsys.readouterr().out
         assert "Failed to open" in output, f"Expected 'Failed to open' in output, got: {output!r}"
-        assert (
-            "no browser" in output
-        ), f"Expected 'no browser' error detail in output, got: {output!r}"
+        assert "no browser" in output, (
+            f"Expected 'no browser' error detail in output, got: {output!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1593,9 +1593,9 @@ class TestExportMissing:
 
         # Then: a helpful message explains the format was not found
         output = capsys.readouterr().out
-        assert (
-            "No csv export found" in output
-        ), f"Expected 'No csv export found' in output, got: {output!r}"
+        assert "No csv export found" in output, (
+            f"Expected 'No csv export found' in output, got: {output!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1642,9 +1642,9 @@ class TestResetCommand:
         # Then: output confirms all collections were reset
         output = capsys.readouterr().out
         assert "Reset complete" in output, f"Expected 'Reset complete' in output, got: {output!r}"
-        assert (
-            "4 collection(s) cleared" in output
-        ), f"Expected 4 collections cleared, got: {output!r}"
+        assert "4 collection(s) cleared" in output, (
+            f"Expected 4 collections cleared, got: {output!r}"
+        )
 
     def test_reset_single_collection(
         self,
@@ -1667,12 +1667,12 @@ class TestResetCommand:
 
         # Then: output confirms only the resume collection was reset
         output = capsys.readouterr().out
-        assert (
-            "Reset collection: resume" in output
-        ), f"Expected 'Reset collection: resume' in output, got: {output!r}"
-        assert (
-            "1 collection(s) cleared" in output
-        ), f"Expected 1 collection cleared, got: {output!r}"
+        assert "Reset collection: resume" in output, (
+            f"Expected 'Reset collection: resume' in output, got: {output!r}"
+        )
+        assert "1 collection(s) cleared" in output, (
+            f"Expected 1 collection cleared, got: {output!r}"
+        )
 
     def test_reset_with_clear_output_removes_output_dir(
         self,
@@ -1699,9 +1699,9 @@ class TestResetCommand:
 
         # Then: output confirms the directory was cleared
         output = capsys.readouterr().out
-        assert (
-            "Cleared output directory" in output
-        ), f"Expected 'Cleared output directory' in output, got: {output!r}"
+        assert "Cleared output directory" in output, (
+            f"Expected 'Cleared output directory' in output, got: {output!r}"
+        )
         # And: the old file no longer exists but the directory was recreated
         assert not results_file.exists(), "Expected results.md to be deleted, but it still exists"
         assert out_dir.exists(), "Expected output directory to be recreated, but it does not exist"
@@ -1768,9 +1768,9 @@ class TestReviewJdLoading:
             opened_path = mock_open.call_args[0][0]
 
         # Then: It opened the slug-based JD file, not external_id.md
-        assert (
-            slug_name in opened_path
-        ), f"Expected slug-based filename '{slug_name}' in opened path, got: {opened_path}"
+        assert slug_name in opened_path, (
+            f"Expected slug-based filename '{slug_name}' in opened path, got: {opened_path}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1904,9 +1904,9 @@ class TestReviewCommandHandler:
 
         # Then: a helpful message is printed
         output = capsys.readouterr().out
-        assert (
-            "No results found" in output
-        ), f"Expected 'No results found' in output, got: {output!r}"
+        assert "No results found" in output, (
+            f"Expected 'No results found' in output, got: {output!r}"
+        )
 
     def test_csv_rows_are_reconstructed_as_ranked_listings(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -1974,9 +1974,9 @@ class TestReviewCommandHandler:
 
         # Then: nothing to review
         output = capsys.readouterr().out
-        assert (
-            "nothing to review" in output
-        ), f"Expected 'nothing to review' in output, got: {output!r}"
+        assert "nothing to review" in output, (
+            f"Expected 'nothing to review' in output, got: {output!r}"
+        )
 
     def test_undecided_count_shown_before_first_listing(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -2001,9 +2001,9 @@ class TestReviewCommandHandler:
 
         # Then: count is shown
         output = capsys.readouterr().out
-        assert (
-            "2 undecided listing(s)" in output
-        ), f"Expected '2 undecided listing(s)' in output, got: {output!r}"
+        assert "2 undecided listing(s)" in output, (
+            f"Expected '2 undecided listing(s)' in output, got: {output!r}"
+        )
 
     def test_quit_input_stops_review_and_prints_count(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -2023,9 +2023,9 @@ class TestReviewCommandHandler:
         # Then: review stopped with 0 reviewed
         out = capsys.readouterr().out
         assert "Review stopped" in out, f"Expected 'Review stopped' in output, got: {out!r}"
-        assert (
-            "0 listing(s) reviewed" in out
-        ), f"Expected '0 listing(s) reviewed' in output, got: {out!r}"
+        assert "0 listing(s) reviewed" in out, (
+            f"Expected '0 listing(s) reviewed' in output, got: {out!r}"
+        )
 
     def test_skip_input_advances_to_next_listing(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -2055,9 +2055,9 @@ class TestReviewCommandHandler:
         assert "Second Job" in out, f"Expected 'Second Job' in output after skip, got: {out!r}"
         # And: no decisions were recorded in ChromaDB
         store: VectorStore = review["store"]
-        assert (
-            store.collection_count("decisions") == 0
-        ), "Expected no decisions after skip, but found some"
+        assert store.collection_count("decisions") == 0, (
+            "Expected no decisions after skip, but found some"
+        )
 
     def test_yes_verdict_records_and_prints_confirmation(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -2115,9 +2115,9 @@ class TestReviewCommandHandler:
         store: VectorStore = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
         stored_doc = result["documents"][0]
-        assert (
-            "Lead the platform team" in stored_doc
-        ), f"Expected JD body in stored document, got: {stored_doc!r}"
+        assert "Lead the platform team" in stored_doc, (
+            f"Expected JD body in stored document, got: {stored_doc!r}"
+        )
 
     def test_jd_file_without_marker_yields_empty_full_text(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -2143,9 +2143,9 @@ class TestReviewCommandHandler:
 
         # Then: no decision was stored (empty jd_text rejected by validation)
         store: VectorStore = review["store"]
-        assert (
-            store.collection_count("decisions") == 0
-        ), "Expected no decision when JD marker is missing (empty jd_text)"
+        assert store.collection_count("decisions") == 0, (
+            "Expected no decision when JD marker is missing (empty jd_text)"
+        )
 
     def test_verdict_without_reason_prints_short_confirmation(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -2209,9 +2209,9 @@ class TestReviewCommandHandler:
 
         # Then: completion message shown
         output = capsys.readouterr().out
-        assert (
-            "Review complete" in output
-        ), f"Expected 'Review complete' in output, got: {output!r}"
+        assert "Review complete" in output, (
+            f"Expected 'Review complete' in output, got: {output!r}"
+        )
 
     def test_eof_during_input_treated_as_quit(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -2337,25 +2337,25 @@ class TestIndexArchetypesOnly:
 
         # Then: stdout reports archetype and signal counts, but NOT resume
         output = capsys.readouterr().out
-        assert (
-            "Indexed 1 archetype" in output
-        ), f"Expected archetype count in output, got: {output!r}"
-        assert (
-            "Indexed 2 negative signals" in output
-        ), f"Expected 2 negative signals in output, got: {output!r}"
-        assert (
-            "Indexed 1 global positive signal" in output
-        ), f"Expected 1 positive signal in output, got: {output!r}"
-        assert (
-            "resume" not in output.lower()
-        ), f"Resume should NOT be mentioned with --archetypes-only, got: {output!r}"
+        assert "Indexed 1 archetype" in output, (
+            f"Expected archetype count in output, got: {output!r}"
+        )
+        assert "Indexed 2 negative signals" in output, (
+            f"Expected 2 negative signals in output, got: {output!r}"
+        )
+        assert "Indexed 1 global positive signal" in output, (
+            f"Expected 1 positive signal in output, got: {output!r}"
+        )
+        assert "resume" not in output.lower(), (
+            f"Resume should NOT be mentioned with --archetypes-only, got: {output!r}"
+        )
 
         # And: ChromaDB collections contain real data
         store = VectorStore(persist_dir=str(tmp_path / "chroma"))
         assert store.collection_count("role_archetypes") == 1, "Expected 1 archetype in ChromaDB"
-        assert (
-            store.collection_count("negative_signals") == 2
-        ), "Expected 2 negative signals in ChromaDB"
+        assert store.collection_count("negative_signals") == 2, (
+            "Expected 2 negative signals in ChromaDB"
+        )
 
     def test_default_index_also_indexes_negative_signals(
         self,
@@ -2382,12 +2382,12 @@ class TestIndexArchetypesOnly:
 
         # Then: stdout reports all counts including resume
         output = capsys.readouterr().out
-        assert (
-            "Indexed 2 negative signals" in output
-        ), f"Expected 2 negative signals in output, got: {output!r}"
-        assert (
-            "Indexed 1 resume chunk" in output
-        ), f"Expected 1 resume chunk in output, got: {output!r}"
+        assert "Indexed 2 negative signals" in output, (
+            f"Expected 2 negative signals in output, got: {output!r}"
+        )
+        assert "Indexed 1 resume chunk" in output, (
+            f"Expected 1 resume chunk in output, got: {output!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2493,12 +2493,12 @@ class TestRescoreCommand:
 
         # Then: summary is printed with correct counts
         output = capsys.readouterr().out
-        assert (
-            "Rescore Results Summary" in output
-        ), f"Expected summary header in output, got: {output!r}"
-        assert (
-            "JDs loaded:     1" in output
-        ), f"Expected 'JDs loaded: 1' in output, got: {output!r}"
+        assert "Rescore Results Summary" in output, (
+            f"Expected summary header in output, got: {output!r}"
+        )
+        assert "JDs loaded:     1" in output, (
+            f"Expected 'JDs loaded: 1' in output, got: {output!r}"
+        )
 
     def test_rescore_runs_health_check_first(self, rescore: dict[str, Any]) -> None:
         """
@@ -2514,9 +2514,9 @@ class TestRescoreCommand:
         handle_rescore(rescore["args"])
 
         # Then: health check made another client.list() call
-        assert (
-            mock_client.list.call_count > list_calls_before
-        ), "Expected health_check to call client.list() during rescore"
+        assert mock_client.list.call_count > list_calls_before, (
+            "Expected health_check to call client.list() during rescore"
+        )
 
     def test_rescore_prints_each_ranked_listing_with_score_and_details(
         self, rescore: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -2561,12 +2561,12 @@ class TestRescoreCommand:
         # Then: export files are created
         out_dir = rescore["out_dir"]
         output = capsys.readouterr().out
-        assert (
-            "Exported Markdown" in output
-        ), f"Expected Markdown export confirmation in output, got: {output!r}"
-        assert (
-            "Exported CSV" in output
-        ), f"Expected CSV export confirmation in output, got: {output!r}"
+        assert "Exported Markdown" in output, (
+            f"Expected Markdown export confirmation in output, got: {output!r}"
+        )
+        assert "Exported CSV" in output, (
+            f"Expected CSV export confirmation in output, got: {output!r}"
+        )
         assert (out_dir / "results.md").exists(), "results.md should be created"
         assert (out_dir / "results.csv").exists(), "results.csv should be created"
 
@@ -2586,11 +2586,11 @@ class TestRescoreCommand:
 
         # Then: JD files are re-exported
         output = capsys.readouterr().out
-        assert (
-            "Exported JDs" in output
-        ), f"Expected JD export confirmation in output, got: {output!r}"
+        assert "Exported JDs" in output, (
+            f"Expected JD export confirmation in output, got: {output!r}"
+        )
         jd_dir = rescore["jd_dir"]
         jd_files = list(jd_dir.glob("*.md"))
-        assert (
-            len(jd_files) >= 1
-        ), f"Expected at least 1 JD file after re-export, found {len(jd_files)}"
+        assert len(jd_files) >= 1, (
+            f"Expected at least 1 JD file after re-export, found {len(jd_files)}"
+        )

@@ -140,9 +140,9 @@ class TestCollectionLifecycle:
         THEN it returns 3.
         """
         # Then: count matches added documents
-        assert (
-            populated_store.collection_count("test_collection") == 3
-        ), "Count should match number of added documents"
+        assert populated_store.collection_count("test_collection") == 3, (
+            "Count should match number of added documents"
+        )
 
     def test_reset_drops_all_documents(self, populated_store: VectorStore) -> None:
         """
@@ -154,9 +154,9 @@ class TestCollectionLifecycle:
         populated_store.reset_collection("test_collection")
 
         # Then: count is zero
-        assert (
-            populated_store.collection_count("test_collection") == 0
-        ), "Reset should drop all documents"
+        assert populated_store.collection_count("test_collection") == 0, (
+            "Reset should drop all documents"
+        )
 
     def test_reset_nonexistent_collection_does_not_raise(self, store: VectorStore) -> None:
         """
@@ -200,9 +200,9 @@ class TestDocumentOperations:
 
         # Then: document is returned
         assert len(result["documents"]) == 1, "Should return exactly one document"
-        assert (
-            "Staff Platform Architect" in result["documents"][0]
-        ), "Returned document should match the original"
+        assert "Staff Platform Architect" in result["documents"][0], (
+            "Returned document should match the original"
+        )
 
     def test_metadata_is_preserved(self, populated_store: VectorStore) -> None:
         """
@@ -214,9 +214,9 @@ class TestDocumentOperations:
         result = populated_store.get_documents("test_collection", ids=["doc-3"])
 
         # Then: metadata preserved
-        assert (
-            result["metadatas"][0]["section"] == "skills"
-        ), "Metadata should be preserved on retrieval"
+        assert result["metadatas"][0]["section"] == "skills", (
+            "Metadata should be preserved on retrieval"
+        )
 
     def test_add_with_duplicate_id_updates_document(self, populated_store: VectorStore) -> None:
         """
@@ -234,9 +234,9 @@ class TestDocumentOperations:
         )
 
         # Then: count unchanged, document updated
-        assert (
-            populated_store.collection_count("test_collection") == 3
-        ), "Duplicate ID should update, not append"
+        assert populated_store.collection_count("test_collection") == 3, (
+            "Duplicate ID should update, not append"
+        )
         result = populated_store.get_documents("test_collection", ids=["doc-1"])
         assert "Updated" in result["documents"][0], "Document text should be updated"
 

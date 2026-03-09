@@ -152,14 +152,14 @@ class TestAuthenticationFailures:
         err = ActionableError.authentication("ziprecruiter", "CAPTCHA")
 
         # When/Then: error is authentication type
-        assert (
-            err.error_type == ErrorType.AUTHENTICATION
-        ), "CAPTCHA should be AUTHENTICATION, not CONNECTION"
+        assert err.error_type == ErrorType.AUTHENTICATION, (
+            "CAPTCHA should be AUTHENTICATION, not CONNECTION"
+        )
         # Then: guidance says re-authenticate, not retry
         assert err.ai_guidance is not None, "Should include AI guidance"
-        assert (
-            "re-authenticate" in err.ai_guidance.action_required.lower()
-        ), "AI guidance should advise re-authentication, not automated retry"
+        assert "re-authenticate" in err.ai_guidance.action_required.lower(), (
+            "AI guidance should advise re-authentication, not automated retry"
+        )
 
     def test_successful_auth_persists_session_to_storage_state_file(self, tmp_path: Path) -> None:
         """
@@ -243,9 +243,9 @@ class TestRateLimitAndThrottling:
         durations = [asyncio.run(throttle(adapter)) for _ in range(10)]
 
         # Then: not all values are identical (random jitter applied)
-        assert (
-            len(set(durations)) > 1
-        ), f"Expected varied durations from jitter, got all identical: {durations[0]}"
+        assert len(set(durations)) > 1, (
+            f"Expected varied durations from jitter, got all identical: {durations[0]}"
+        )
 
     def test_linkedin_overnight_mode_enforces_minimum_8_second_delay(self) -> None:
         """
@@ -289,9 +289,9 @@ class TestRateLimitAndThrottling:
 
         # Then: all delays are within bounds
         assert len(durations) == 3, f"Expected 3 durations, got {len(durations)}"
-        assert all(
-            lo <= d <= hi for d in durations
-        ), f"All durations should be within [{lo}, {hi}], got {durations}"
+        assert all(lo <= d <= hi for d in durations), (
+            f"All durations should be within [{lo}, {hi}], got {durations}"
+        )
 
     def test_throttle_is_applied_between_every_job_detail_request(self) -> None:
         """
@@ -308,9 +308,9 @@ class TestRateLimitAndThrottling:
 
         # Then: all delays are within bounds
         assert len(durations) == 5, f"Expected 5 durations, got {len(durations)}"
-        assert all(
-            lo <= d <= hi for d in durations
-        ), f"All durations should be within [{lo}, {hi}], got {durations}"
+        assert all(lo <= d <= hi for d in durations), (
+            f"All durations should be within [{lo}, {hi}], got {durations}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -574,9 +574,9 @@ class TestLinkedInDetectionResponse:
             asyncio.run(check_linkedin_detection(page))
 
         # Then: error names the detection trigger and no navigation was attempted
-        assert "authwall" in str(
-            exc_info.value
-        ), f"Expected 'authwall' in error message, got: {exc_info.value}"
+        assert "authwall" in str(exc_info.value), (
+            f"Expected 'authwall' in error message, got: {exc_info.value}"
+        )
         page.goto.assert_not_called()
 
     def test_session_invalidation_redirect_to_login_raises_authentication_error(self) -> None:
@@ -596,12 +596,12 @@ class TestLinkedInDetectionResponse:
 
         # Then: error identifies session invalidation
         err = exc_info.value
-        assert (
-            err.error_type == ErrorType.AUTHENTICATION
-        ), f"Expected AUTHENTICATION, got {err.error_type}"
-        assert (
-            "session" in err.error.lower() or "login" in err.error.lower()
-        ), f"Error should mention session/login. Got: {err.error}"
+        assert err.error_type == ErrorType.AUTHENTICATION, (
+            f"Expected AUTHENTICATION, got {err.error_type}"
+        )
+        assert "session" in err.error.lower() or "login" in err.error.lower(), (
+            f"Error should mention session/login. Got: {err.error}"
+        )
 
     def test_session_invalidation_redirect_to_uas_login_raises_authentication_error(
         self,
@@ -622,9 +622,9 @@ class TestLinkedInDetectionResponse:
 
         # Then: error identifies session invalidation
         err = exc_info.value
-        assert (
-            err.error_type == ErrorType.AUTHENTICATION
-        ), f"Expected AUTHENTICATION, got {err.error_type}"
+        assert err.error_type == ErrorType.AUTHENTICATION, (
+            f"Expected AUTHENTICATION, got {err.error_type}"
+        )
 
     def test_partial_results_before_detection_are_preserved_and_exported(self) -> None:
         """
@@ -637,6 +637,6 @@ class TestLinkedInDetectionResponse:
 
         # When/Then: partial results are preserved
         assert len(results_before_detection) == 3, "Should have 3 partial results"
-        assert all(
-            r.board == "ziprecruiter" for r in results_before_detection
-        ), "All partial results should have the correct board"
+        assert all(r.board == "ziprecruiter" for r in results_before_detection), (
+            "All partial results should have the correct board"
+        )

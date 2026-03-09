@@ -53,9 +53,9 @@ class TestFileLogging:
 
             # Then: exactly one log file is created
             log_files = list(log_dir.glob("*.log"))
-            assert (
-                len(log_files) == 1
-            ), f"Expected 1 log file, found {len(log_files)}: {[f.name for f in log_files]}"
+            assert len(log_files) == 1, (
+                f"Expected 1 log file, found {len(log_files)}: {[f.name for f in log_files]}"
+            )
         finally:
             logger.removeHandler(handler)
 
@@ -76,9 +76,9 @@ class TestFileLogging:
             log_files = list(log_dir.glob("*.log"))
             assert len(log_files) == 1, f"Expected 1 log file, found {len(log_files)}"
             name = log_files[0].name
-            assert re.match(
-                r"jobsearch-rag_\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.log$", name
-            ), f"Log filename '{name}' does not match timestamp pattern"
+            assert re.match(r"jobsearch-rag_\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.log$", name), (
+                f"Log filename '{name}' does not match timestamp pattern"
+            )
         finally:
             logger.removeHandler(handler)
 
@@ -101,12 +101,12 @@ class TestFileLogging:
             log_files = list(log_dir.glob("*.log"))
             assert len(log_files) == 1, f"Expected 1 log file, found {len(log_files)}"
             content = log_files[0].read_text()
-            assert (
-                "duplicate check message" in content
-            ), f"Expected 'duplicate check message' in log content. Got: {content[:200]}"
-            assert (
-                "WARNING" in content
-            ), f"Expected 'WARNING' level in log content. Got: {content[:200]}"
+            assert "duplicate check message" in content, (
+                f"Expected 'duplicate check message' in log content. Got: {content[:200]}"
+            )
+            assert "WARNING" in content, (
+                f"Expected 'WARNING' level in log content. Got: {content[:200]}"
+            )
         finally:
             logger.removeHandler(handler)
 
@@ -118,9 +118,9 @@ class TestFileLogging:
         """
         # Given: a deeply nested directory that doesn't exist
         log_dir = tmp_path / "nested" / "deep" / "logs"
-        assert (
-            not log_dir.exists()
-        ), f"Expected log_dir to not exist before configuration, but it does: {log_dir}"
+        assert not log_dir.exists(), (
+            f"Expected log_dir to not exist before configuration, but it does: {log_dir}"
+        )
 
         # When: file logging is configured
         handler = configure_file_logging(log_dir=str(log_dir))
@@ -130,9 +130,9 @@ class TestFileLogging:
             # Then: the directory was created and contains a log file
             assert log_dir.exists(), f"Expected log_dir to be created automatically: {log_dir}"
             log_files = list(log_dir.glob("*.log"))
-            assert (
-                len(log_files) == 1
-            ), f"Expected 1 log file after auto-creation, found {len(log_files)}"
+            assert len(log_files) == 1, (
+                f"Expected 1 log file after auto-creation, found {len(log_files)}"
+            )
         finally:
             logger.removeHandler(handler)
 
@@ -176,11 +176,11 @@ class TestFileLogging:
             log_files = list(log_dir.glob("*.log"))
             assert len(log_files) == 1, f"Expected 1 log file, found {len(log_files)}"
             content = log_files[0].read_text()
-            assert (
-                "debug-level message" in content
-            ), f"Expected 'debug-level message' in log content. Got: {content[:200]}"
-            assert (
-                "DEBUG" in content
-            ), f"Expected 'DEBUG' level in log content. Got: {content[:200]}"
+            assert "debug-level message" in content, (
+                f"Expected 'debug-level message' in log content. Got: {content[:200]}"
+            )
+            assert "DEBUG" in content, (
+                f"Expected 'DEBUG' level in log content. Got: {content[:200]}"
+            )
         finally:
             logger.removeHandler(handler)

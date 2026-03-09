@@ -183,9 +183,9 @@ class TestEmbedding:
             # Then: sent text is truncated
             call_args = mock_client.embed.call_args
             sent_text = call_args.kwargs.get("input") or call_args[1].get("input")
-            assert len(sent_text) < len(
-                long_text
-            ), f"Text should be truncated. Sent {len(sent_text)} chars of {len(long_text)}"
+            assert len(sent_text) < len(long_text), (
+                f"Text should be truncated. Sent {len(sent_text)} chars of {len(long_text)}"
+            )
 
     async def test_embed_truncation_preserves_head_and_tail(self, embedder: Embedder) -> None:
         """
@@ -208,18 +208,18 @@ class TestEmbedding:
             # Then: head, tail, and marker preserved
             call_args = mock_client.embed.call_args
             sent_text = call_args.kwargs.get("input") or call_args[1].get("input")
-            assert sent_text.startswith(
-                "HEAD_SIGNAL_"
-            ), f"Truncation should preserve head. Got: {sent_text[:50]}..."
-            assert sent_text.endswith(
-                "TAIL_SIGNAL_"
-            ), f"Truncation should preserve tail. Got: ...{sent_text[-50:]}"
-            assert (
-                "\u2026" in sent_text
-            ), "Truncated text should contain an ellipsis marker between head and tail"
-            assert len(sent_text) < len(
-                long_text
-            ), f"Text should be truncated. Sent {len(sent_text)} of {len(long_text)}"
+            assert sent_text.startswith("HEAD_SIGNAL_"), (
+                f"Truncation should preserve head. Got: {sent_text[:50]}..."
+            )
+            assert sent_text.endswith("TAIL_SIGNAL_"), (
+                f"Truncation should preserve tail. Got: ...{sent_text[-50:]}"
+            )
+            assert "\u2026" in sent_text, (
+                "Truncated text should contain an ellipsis marker between head and tail"
+            )
+            assert len(sent_text) < len(long_text), (
+                f"Text should be truncated. Sent {len(sent_text)} of {len(long_text)}"
+            )
 
     async def test_embed_text_within_limit_is_not_truncated(self, embedder: Embedder) -> None:
         """
@@ -315,9 +315,9 @@ class TestClassification:
             messages = call_kwargs.kwargs["messages"]
             user_msgs = [m for m in messages if m["role"] == "user"]
             assert len(user_msgs) == 1, "Should send exactly one user message"
-            assert (
-                user_msgs[0]["content"] == "evaluate this listing"
-            ), "User message should match prompt"
+            assert user_msgs[0]["content"] == "evaluate this listing", (
+                "User message should match prompt"
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -269,13 +269,13 @@ class TestCrossRunDedup:
 
             # Then: decided listing absent, new listing present
             titles = [r.listing.title for r in result.ranked_listings]
-            assert (
-                "Old Role" not in titles
-            ), f"Decided listing should be excluded from ranked results, got titles: {titles}"
+            assert "Old Role" not in titles, (
+                f"Decided listing should be excluded from ranked results, got titles: {titles}"
+            )
             if result.ranked_listings:
-                assert (
-                    "New Role" in titles
-                ), f"New listing should appear in ranked results, got titles: {titles}"
+                assert "New Role" in titles, (
+                    f"New listing should appear in ranked results, got titles: {titles}"
+                )
 
     async def test_exclusion_count_appears_in_run_summary(self) -> None:
         """
@@ -304,9 +304,9 @@ class TestCrossRunDedup:
                 result = await runner.run()
 
             # Then: at least one listing was skipped due to prior decision
-            assert (
-                result.skipped_decisions >= 1
-            ), f"Expected at least 1 skipped decision, got {result.skipped_decisions}"
+            assert result.skipped_decisions >= 1, (
+                f"Expected at least 1 skipped decision, got {result.skipped_decisions}"
+            )
 
     async def test_listing_with_no_decision_is_scored_normally(self) -> None:
         """
@@ -369,8 +369,7 @@ class TestCrossRunDedup:
                 f"got {mock_client.embed.call_count}"
             )
             assert result.skipped_decisions == 0, (
-                f"Expected 0 skipped decisions with force_rescore, "
-                f"got {result.skipped_decisions}"
+                f"Expected 0 skipped decisions with force_rescore, got {result.skipped_decisions}"
             )
 
     async def test_decision_lookup_uses_job_id_not_url(self) -> None:
@@ -407,6 +406,5 @@ class TestCrossRunDedup:
             )
             # No embed calls for scoring (only health_check calls client.list)
             assert mock_client.embed.call_count == 0, (
-                f"Expected 0 embed calls for skipped listing, "
-                f"got {mock_client.embed.call_count}"
+                f"Expected 0 embed calls for skipped listing, got {mock_client.embed.call_count}"
             )

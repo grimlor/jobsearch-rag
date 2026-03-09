@@ -98,9 +98,9 @@ class TestZipRecruiterJsonExtraction:
         # Then: valid dict with expected keys
         assert isinstance(js_vars, dict), f"Expected dict, got {type(js_vars)}"
         assert "hydrateJobCardsResponse" in js_vars, "Missing hydrateJobCardsResponse key"
-        assert (
-            js_vars.get("isLoggedIn") is False
-        ), f"Expected isLoggedIn=False, got {js_vars.get('isLoggedIn')!r}"
+        assert js_vars.get("isLoggedIn") is False, (
+            f"Expected isLoggedIn=False, got {js_vars.get('isLoggedIn')!r}"
+        )
 
     def test_extract_js_variables_missing_script_tag_names_the_selector(self) -> None:
         """
@@ -199,9 +199,9 @@ class TestZipRecruiterJsonExtraction:
         listing = card_to_listing(cards[0])
 
         # Then: title matches
-        assert (
-            listing.title == "Staff Platform Architect"
-        ), f"Expected 'Staff Platform Architect', got {listing.title!r}"
+        assert listing.title == "Staff Platform Architect", (
+            f"Expected 'Staff Platform Architect', got {listing.title!r}"
+        )
 
     def test_card_to_listing_maps_company(self) -> None:
         """
@@ -235,9 +235,9 @@ class TestZipRecruiterJsonExtraction:
         listing = card_to_listing(cards[0])
 
         # Then: location matches
-        assert (
-            listing.location == "Remote (USA)"
-        ), f"Expected 'Remote (USA)', got {listing.location!r}"
+        assert listing.location == "Remote (USA)", (
+            f"Expected 'Remote (USA)', got {listing.location!r}"
+        )
 
     def test_card_to_listing_maps_external_id_from_listing_key(self) -> None:
         """
@@ -254,9 +254,9 @@ class TestZipRecruiterJsonExtraction:
         listing = card_to_listing(cards[0])
 
         # Then: external_id matches listingKey
-        assert (
-            listing.external_id == "abc123key"
-        ), f"Expected 'abc123key', got {listing.external_id!r}"
+        assert listing.external_id == "abc123key", (
+            f"Expected 'abc123key', got {listing.external_id!r}"
+        )
 
     def test_card_to_listing_builds_full_url_from_canonical_path(self) -> None:
         """
@@ -273,9 +273,9 @@ class TestZipRecruiterJsonExtraction:
         listing = card_to_listing(cards[0])
 
         # Then: URL starts with expected base
-        assert listing.url.startswith(
-            "https://www.ziprecruiter.com/c/Acme-Corp/"
-        ), f"Unexpected URL prefix: {listing.url!r}"
+        assert listing.url.startswith("https://www.ziprecruiter.com/c/Acme-Corp/"), (
+            f"Unexpected URL prefix: {listing.url!r}"
+        )
 
     def test_card_to_listing_includes_salary_metadata(self) -> None:
         """
@@ -293,12 +293,12 @@ class TestZipRecruiterJsonExtraction:
 
         # Then: salary_range present with correct values
         assert "salary_range" in listing.metadata, "Missing salary_range metadata"
-        assert (
-            "$210,000" in listing.metadata["salary_range"]
-        ), f"Missing $210,000 in salary_range: {listing.metadata['salary_range']!r}"
-        assert (
-            "$250,000" in listing.metadata["salary_range"]
-        ), f"Missing $250,000 in salary_range: {listing.metadata['salary_range']!r}"
+        assert "$210,000" in listing.metadata["salary_range"], (
+            f"Missing $210,000 in salary_range: {listing.metadata['salary_range']!r}"
+        )
+        assert "$250,000" in listing.metadata["salary_range"], (
+            f"Missing $250,000 in salary_range: {listing.metadata['salary_range']!r}"
+        )
 
     def test_card_to_listing_omits_salary_when_missing(self) -> None:
         """
@@ -315,9 +315,9 @@ class TestZipRecruiterJsonExtraction:
         listing = card_to_listing(cards[2])
 
         # Then: no salary_range
-        assert (
-            "salary_range" not in listing.metadata
-        ), f"salary_range should be absent, got {listing.metadata.get('salary_range')!r}"
+        assert "salary_range" not in listing.metadata, (
+            f"salary_range should be absent, got {listing.metadata.get('salary_range')!r}"
+        )
 
     def test_card_to_listing_falls_back_to_apply_button_url(self) -> None:
         """
@@ -590,9 +590,9 @@ class TestRealWorldExtraction:
 
         # Then: Spotnana
         assert listing.company == "Spotnana", f"Expected 'Spotnana', got {listing.company!r}"
-        assert (
-            "Senior Staff Software Engineer" in listing.title
-        ), f"Expected title with 'Senior Staff Software Engineer', got {listing.title!r}"
+        assert "Senior Staff Software Engineer" in listing.title, (
+            f"Expected title with 'Senior Staff Software Engineer', got {listing.title!r}"
+        )
 
     def test_real_listings_have_valid_external_ids(self) -> None:
         """
@@ -608,9 +608,9 @@ class TestRealWorldExtraction:
 
         # Then: all non-empty and unique
         assert all(item.external_id for item in listings), "All listings must have external_id"
-        assert (
-            len(set(item.external_id for item in listings)) == 20
-        ), "All 20 external_ids should be unique"
+        assert len(set(item.external_id for item in listings)) == 20, (
+            "All 20 external_ids should be unique"
+        )
 
     def test_real_listings_have_valid_urls(self) -> None:
         """
@@ -625,9 +625,9 @@ class TestRealWorldExtraction:
         listings = [card_to_listing(c) for c in cards]
 
         # Then: all URLs valid
-        assert all(
-            item.url.startswith("https://www.ziprecruiter.com/c/") for item in listings
-        ), "All URLs should start with ZipRecruiter base"
+        assert all(item.url.startswith("https://www.ziprecruiter.com/c/") for item in listings), (
+            "All URLs should start with ZipRecruiter base"
+        )
 
     def test_real_spotnana_salary_range(self) -> None:
         """
@@ -643,12 +643,12 @@ class TestRealWorldExtraction:
 
         # Then: salary range present
         assert "salary_range" in listing.metadata, "Missing salary_range metadata"
-        assert (
-            "$210,000" in listing.metadata["salary_range"]
-        ), f"Missing $210,000: {listing.metadata['salary_range']!r}"
-        assert (
-            "$240,000" in listing.metadata["salary_range"]
-        ), f"Missing $240,000: {listing.metadata['salary_range']!r}"
+        assert "$210,000" in listing.metadata["salary_range"], (
+            f"Missing $210,000: {listing.metadata['salary_range']!r}"
+        )
+        assert "$240,000" in listing.metadata["salary_range"], (
+            f"Missing $240,000: {listing.metadata['salary_range']!r}"
+        )
 
     def test_real_max_pages_is_extracted(self) -> None:
         """
@@ -661,9 +661,9 @@ class TestRealWorldExtraction:
         js_vars = extract_js_variables(html)
 
         # Then: maxPages is 2
-        assert (
-            js_vars.get("maxPages") == 2
-        ), f"Expected maxPages=2, got {js_vars.get('maxPages')!r}"
+        assert js_vars.get("maxPages") == 2, (
+            f"Expected maxPages=2, got {js_vars.get('maxPages')!r}"
+        )
 
     def test_real_total_listings_count(self) -> None:
         """
@@ -677,9 +677,9 @@ class TestRealWorldExtraction:
         list_response = js_vars.get("listJobKeysResponse", {})
 
         # Then: 30 total
-        assert (
-            list_response.get("totalListings") == 30
-        ), f"Expected 30 total listings, got {list_response.get('totalListings')!r}"
+        assert list_response.get("totalListings") == 30, (
+            f"Expected 30 total listings, got {list_response.get('totalListings')!r}"
+        )
 
     def test_real_jd_html_is_extractable(self) -> None:
         """
@@ -709,12 +709,12 @@ class TestRealWorldExtraction:
         js_vars = extract_js_variables(html)
 
         # Then: unauthenticated
-        assert (
-            js_vars.get("isLoggedIn") is False
-        ), f"Expected isLoggedIn=False, got {js_vars.get('isLoggedIn')!r}"
-        assert (
-            js_vars.get("isLoggedOut") is True
-        ), f"Expected isLoggedOut=True, got {js_vars.get('isLoggedOut')!r}"
+        assert js_vars.get("isLoggedIn") is False, (
+            f"Expected isLoggedIn=False, got {js_vars.get('isLoggedIn')!r}"
+        )
+        assert js_vars.get("isLoggedOut") is True, (
+            f"Expected isLoggedOut=True, got {js_vars.get('isLoggedOut')!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -980,9 +980,9 @@ class TestSearch:
 
         # Then: 3 listings with correct first title
         assert len(listings) == 3, f"Expected 3 listings, got {len(listings)}"
-        assert (
-            listings[0].title == "Staff Platform Architect"
-        ), f"Expected 'Staff Platform Architect', got {listings[0].title!r}"
+        assert listings[0].title == "Staff Platform Architect", (
+            f"Expected 'Staff Platform Architect', got {listings[0].title!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_search_first_card_gets_jd_from_js_variables(self) -> None:
@@ -1010,12 +1010,12 @@ class TestSearch:
             listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
 
         # Then: first card from js_variables, not panel
-        assert (
-            "distributed systems" in listings[0].full_text
-        ), f"First card should have js_variables content: {listings[0].full_text[:100]!r}"
-        assert (
-            "Staff Platform Architect" in listings[0].full_text
-        ), "First card should include title from js_variables"
+        assert "distributed systems" in listings[0].full_text, (
+            f"First card should have js_variables content: {listings[0].full_text[:100]!r}"
+        )
+        assert "Staff Platform Architect" in listings[0].full_text, (
+            "First card should include title from js_variables"
+        )
 
     @pytest.mark.asyncio
     async def test_search_remaining_cards_enriched_by_click_through(self) -> None:
@@ -1072,15 +1072,15 @@ class TestSearch:
             listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
 
         # Then: card 0 from js_variables, cards 1&2 from shortDescription fallback
-        assert (
-            "distributed systems" in listings[0].full_text
-        ), "Card 0 should have js_variables content"
-        assert (
-            "Senior Staff Engineer at Globex Corporation" in listings[1].full_text
-        ), "Card 1 should have shortDescription fallback"
-        assert (
-            "Principal Software Architect at Initech" in listings[2].full_text
-        ), "Card 2 should have shortDescription fallback"
+        assert "distributed systems" in listings[0].full_text, (
+            "Card 0 should have js_variables content"
+        )
+        assert "Senior Staff Engineer at Globex Corporation" in listings[1].full_text, (
+            "Card 1 should have shortDescription fallback"
+        )
+        assert "Principal Software Architect at Initech" in listings[2].full_text, (
+            "Card 2 should have shortDescription fallback"
+        )
 
     @pytest.mark.asyncio
     async def test_search_falls_back_on_click_failure(self) -> None:
@@ -1117,9 +1117,9 @@ class TestSearch:
             listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
 
         # Then: card 1 used shortDescription fallback
-        assert (
-            "Senior Staff Engineer at Globex Corporation" in listings[1].full_text
-        ), "Card 1 should have shortDescription fallback after click failure"
+        assert "Senior Staff Engineer at Globex Corporation" in listings[1].full_text, (
+            "Card 1 should have shortDescription fallback after click failure"
+        )
 
     @pytest.mark.asyncio
     async def test_search_stops_at_max_pages(self) -> None:
@@ -1145,9 +1145,9 @@ class TestSearch:
             listings = await adapter.search(page, "https://zr.com/search", max_pages=5)
 
         # maxPages=1 in fixture, so only 1 page navigated despite max_pages=5
-        assert (
-            page.goto.await_count == 1
-        ), f"Expected 1 page navigated, got {page.goto.await_count}"
+        assert page.goto.await_count == 1, (
+            f"Expected 1 page navigated, got {page.goto.await_count}"
+        )
         assert len(listings) == 3, f"Expected 3 listings, got {len(listings)}"
 
     @pytest.mark.asyncio
@@ -1343,12 +1343,12 @@ class TestSearch:
             await adapter.search(page, "https://zr.com/search?q=architect", max_pages=2)
 
         # Then: page 2 URL appends '&page=2' since URL already has '?'
-        assert (
-            goto_urls[0] == "https://zr.com/search?q=architect"
-        ), f"Expected page 1 URL unchanged, got {goto_urls[0]}"
-        assert (
-            goto_urls[1] == "https://zr.com/search?q=architect&page=2"
-        ), f"Expected '&page=2' appended, got {goto_urls[1]}"
+        assert goto_urls[0] == "https://zr.com/search?q=architect", (
+            f"Expected page 1 URL unchanged, got {goto_urls[0]}"
+        )
+        assert goto_urls[1] == "https://zr.com/search?q=architect&page=2", (
+            f"Expected '&page=2' appended, got {goto_urls[1]}"
+        )
 
     @pytest.mark.asyncio
     async def test_search_card_index_exceeds_dom_count(self) -> None:
@@ -1415,9 +1415,9 @@ class TestSearch:
             await adapter.search(page, "https://zr.com/search", max_pages=2)
 
         # Then: '?page=2' is used since URL has no existing query string
-        assert (
-            goto_urls[1] == "https://zr.com/search?page=2"
-        ), f"Expected '?page=2' separator, got {goto_urls[1]}"
+        assert goto_urls[1] == "https://zr.com/search?page=2", (
+            f"Expected '?page=2' separator, got {goto_urls[1]}"
+        )
 
     @pytest.mark.asyncio
     async def test_search_first_card_not_prepopulated_when_no_jd_in_js_vars(self) -> None:
@@ -1456,9 +1456,9 @@ class TestSearch:
 
         assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
         # Full text came from click-through panel, not js_variables
-        assert (
-            "Full detail text" in listings[0].full_text
-        ), "Full text should come from panel click-through"
+        assert "Full detail text" in listings[0].full_text, (
+            "Full text should come from panel click-through"
+        )
 
     @pytest.mark.asyncio
     async def test_search_respects_max_pages_argument(self) -> None:
@@ -1540,9 +1540,9 @@ class TestExtractDetailPassthrough:
 
         # Then: unchanged
         assert result is listing, "Should return same object"
-        assert (
-            result.full_text == "Full JD already populated"
-        ), f"full_text should be unchanged: {result.full_text!r}"
+        assert result.full_text == "Full JD already populated", (
+            f"full_text should be unchanged: {result.full_text!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_fallback_when_full_text_empty(self) -> None:
@@ -1560,12 +1560,12 @@ class TestExtractDetailPassthrough:
         result = await adapter.extract_detail(mock_page, listing)
 
         # Then: fallback applied
-        assert (
-            "Python role at company" in result.full_text
-        ), f"short_description fallback missing: {result.full_text!r}"
-        assert (
-            "Staff Architect at Acme Corp" in result.full_text
-        ), f"Title/company context missing: {result.full_text!r}"
+        assert "Python role at company" in result.full_text, (
+            f"short_description fallback missing: {result.full_text!r}"
+        )
+        assert "Staff Architect at Acme Corp" in result.full_text, (
+            f"Title/company context missing: {result.full_text!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_empty_when_no_fallback_available(self) -> None:

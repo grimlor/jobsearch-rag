@@ -298,9 +298,9 @@ class TestPipelineOrchestration:
                 await runner.run()
 
             # Then: health_check was first
-            assert (
-                call_order[0] == "health_check"
-            ), f"Expected health_check first, got: {call_order}"
+            assert call_order[0] == "health_check", (
+                f"Expected health_check first, got: {call_order}"
+            )
 
     async def test_defaults_to_enabled_boards_when_none_specified(self) -> None:
         """
@@ -360,9 +360,9 @@ class TestPipelineOrchestration:
                 result = await runner.run(boards=["board_a"])
 
             # Then: only that board is searched
-            assert result.boards_searched == [
-                "board_a"
-            ], f"Expected only board_a, got: {result.boards_searched}"
+            assert result.boards_searched == ["board_a"], (
+                f"Expected only board_a, got: {result.boards_searched}"
+            )
 
     async def test_overnight_mode_includes_overnight_boards(self) -> None:
         """
@@ -445,15 +445,15 @@ class TestPipelineOrchestration:
                 result = await runner.run()
 
             # Then: both boards are reported, good board's listing was scored
-            assert (
-                "good_board" in result.boards_searched
-            ), f"good_board missing from boards_searched: {result.boards_searched}"
-            assert (
-                "failing_board" in result.boards_searched
-            ), f"failing_board missing from boards_searched: {result.boards_searched}"
-            assert (
-                result.summary.total_found >= 1
-            ), f"Expected at least 1 found listing, got: {result.summary.total_found}"
+            assert "good_board" in result.boards_searched, (
+                f"good_board missing from boards_searched: {result.boards_searched}"
+            )
+            assert "failing_board" in result.boards_searched, (
+                f"failing_board missing from boards_searched: {result.boards_searched}"
+            )
+            assert result.summary.total_found >= 1, (
+                f"Expected at least 1 found listing, got: {result.summary.total_found}"
+            )
 
     async def test_scoring_failure_increments_failed_count(self) -> None:
         """
@@ -484,9 +484,9 @@ class TestPipelineOrchestration:
                 result = await runner.run()
 
             # Then: failure is counted, not raised
-            assert (
-                result.failed_listings >= 1
-            ), f"Expected failed_listings >= 1, got: {result.failed_listings}"
+            assert result.failed_listings >= 1, (
+                f"Expected failed_listings >= 1, got: {result.failed_listings}"
+            )
 
     async def test_empty_results_return_valid_run_result(self) -> None:
         """
@@ -512,12 +512,12 @@ class TestPipelineOrchestration:
 
             # Then: valid RunResult with zero ranked
             assert isinstance(result, RunResult), f"Expected RunResult, got: {type(result)}"
-            assert (
-                result.ranked_listings == []
-            ), f"Expected empty ranked_listings, got: {result.ranked_listings}"
-            assert result.boards_searched == [
-                "testboard"
-            ], f"Expected ['testboard'], got: {result.boards_searched}"
+            assert result.ranked_listings == [], (
+                f"Expected empty ranked_listings, got: {result.ranked_listings}"
+            )
+            assert result.boards_searched == ["testboard"], (
+                f"Expected ['testboard'], got: {result.boards_searched}"
+            )
 
     async def test_scored_listings_are_passed_to_ranker(self) -> None:
         """
@@ -543,12 +543,12 @@ class TestPipelineOrchestration:
                 result = await runner.run()
 
             # Then: listing was scored and ranked
-            assert (
-                result.summary.total_found == 1
-            ), f"Expected total_found == 1, got: {result.summary.total_found}"
-            assert (
-                result.summary.total_scored == 1
-            ), f"Expected total_scored == 1, got: {result.summary.total_scored}"
+            assert result.summary.total_found == 1, (
+                f"Expected total_found == 1, got: {result.summary.total_found}"
+            )
+            assert result.summary.total_scored == 1, (
+                f"Expected total_scored == 1, got: {result.summary.total_scored}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -602,12 +602,12 @@ class TestBoardSearchDelegation:
                 result = await runner.run(boards=["nonexistent_board"])
 
             # Then: skipped without error
-            assert (
-                result.ranked_listings == []
-            ), f"Expected empty ranked_listings, got: {result.ranked_listings}"
-            assert (
-                result.failed_listings == 0
-            ), f"Expected 0 failed_listings, got: {result.failed_listings}"
+            assert result.ranked_listings == [], (
+                f"Expected empty ranked_listings, got: {result.ranked_listings}"
+            )
+            assert result.failed_listings == 0, (
+                f"Expected 0 failed_listings, got: {result.failed_listings}"
+            )
 
     async def test_adapter_lifecycle_runs_in_order(self) -> None:
         """
@@ -666,9 +666,9 @@ class TestBoardSearchDelegation:
                 "search",
                 "extract_detail",
             ], f"Expected lifecycle order, got: {call_order}"
-            assert (
-                result.summary.total_found == 1
-            ), f"Expected total_found == 1, got: {result.summary.total_found}"
+            assert result.summary.total_found == 1, (
+                f"Expected total_found == 1, got: {result.summary.total_found}"
+            )
 
     async def test_enriched_listings_skip_extract_detail(self) -> None:
         """
@@ -717,9 +717,9 @@ class TestBoardSearchDelegation:
                 "authenticate",
                 "search",
             ], f"Expected no extract_detail, got: {call_order}"
-            assert (
-                result.summary.total_found == 1
-            ), f"Expected total_found == 1, got: {result.summary.total_found}"
+            assert result.summary.total_found == 1, (
+                f"Expected total_found == 1, got: {result.summary.total_found}"
+            )
 
     async def test_empty_jd_text_is_counted_as_failure(self) -> None:
         """
@@ -768,12 +768,12 @@ class TestBoardSearchDelegation:
                 result = await runner.run(boards=["testboard"])
 
             # Then: listing excluded, failure counted
-            assert (
-                result.ranked_listings == []
-            ), f"Expected no ranked listings, got: {result.ranked_listings}"
-            assert (
-                result.failed_listings == 1
-            ), f"Expected 1 failed_listings, got: {result.failed_listings}"
+            assert result.ranked_listings == [], (
+                f"Expected no ranked listings, got: {result.ranked_listings}"
+            )
+            assert result.failed_listings == 1, (
+                f"Expected 1 failed_listings, got: {result.failed_listings}"
+            )
 
     async def test_extraction_error_counts_failure_without_aborting(self) -> None:
         """
@@ -833,12 +833,12 @@ class TestBoardSearchDelegation:
                 result = await runner.run(boards=["testboard"])
 
             # Then: good listing scored, bad listing counted as failure
-            assert (
-                result.summary.total_found == 1
-            ), f"Expected 1 found, got: {result.summary.total_found}"
-            assert (
-                result.ranked_listings[0].listing.external_id == "good"
-            ), f"Expected 'good' listing, got: {result.ranked_listings[0].listing.external_id}"
+            assert result.summary.total_found == 1, (
+                f"Expected 1 found, got: {result.summary.total_found}"
+            )
+            assert result.ranked_listings[0].listing.external_id == "good", (
+                f"Expected 'good' listing, got: {result.ranked_listings[0].listing.external_id}"
+            )
             assert result.failed_listings == 1, f"Expected 1 failed, got: {result.failed_listings}"
 
     async def test_unexpected_exception_during_extraction_is_counted(self) -> None:
@@ -879,9 +879,9 @@ class TestBoardSearchDelegation:
                 result = await runner.run(boards=["testboard"])
 
             # Then: failure counted, run didn't abort
-            assert (
-                result.ranked_listings == []
-            ), f"Expected no ranked listings, got: {result.ranked_listings}"
+            assert result.ranked_listings == [], (
+                f"Expected no ranked listings, got: {result.ranked_listings}"
+            )
             assert result.failed_listings == 1, f"Expected 1 failed, got: {result.failed_listings}"
 
     async def test_search_failure_skips_url_and_continues(self) -> None:
@@ -928,12 +928,12 @@ class TestBoardSearchDelegation:
                 result = await runner.run(boards=["testboard"])
 
             # Then: both URLs attempted, second succeeded
-            assert (
-                call_count["search"] == 2
-            ), f"Expected 2 search calls, got: {call_count['search']}"
-            assert (
-                result.summary.total_found == 1
-            ), f"Expected 1 found from second URL, got: {result.summary.total_found}"
+            assert call_count["search"] == 2, (
+                f"Expected 2 search calls, got: {call_count['search']}"
+            )
+            assert result.summary.total_found == 1, (
+                f"Expected 1 found from second URL, got: {result.summary.total_found}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -992,15 +992,15 @@ class TestAutoIndex:
 
             # Then: collections were populated by real Indexer
             store = runner._store
-            assert (
-                store.collection_count("resume") > 0
-            ), "resume collection should be populated after auto-index"
-            assert (
-                store.collection_count("role_archetypes") > 0
-            ), "role_archetypes collection should be populated after auto-index"
-            assert (
-                store.collection_count("global_positive_signals") > 0
-            ), "global_positive_signals collection should be populated after auto-index"
+            assert store.collection_count("resume") > 0, (
+                "resume collection should be populated after auto-index"
+            )
+            assert store.collection_count("role_archetypes") > 0, (
+                "role_archetypes collection should be populated after auto-index"
+            )
+            assert store.collection_count("global_positive_signals") > 0, (
+                "global_positive_signals collection should be populated after auto-index"
+            )
 
     async def test_skips_auto_index_when_collections_are_populated(self) -> None:
         """
@@ -1028,12 +1028,12 @@ class TestAutoIndex:
                 await runner.run()
 
             # Then: counts unchanged — no re-indexing happened
-            assert (
-                store.collection_count("resume") == resume_count_before
-            ), "resume collection should not change when already populated"
-            assert (
-                store.collection_count("role_archetypes") == archetypes_count_before
-            ), "role_archetypes collection should not change when already populated"
+            assert store.collection_count("resume") == resume_count_before, (
+                "resume collection should not change when already populated"
+            )
+            assert store.collection_count("role_archetypes") == archetypes_count_before, (
+                "role_archetypes collection should not change when already populated"
+            )
 
     async def test_auto_index_runs_before_scoring_begins(self) -> None:
         """
@@ -1080,9 +1080,9 @@ class TestAutoIndex:
             # Then: auto-index ran (populated collections) and scoring ran too
             store = runner._store
             assert store.collection_count("resume") > 0, "resume should be populated by auto-index"
-            assert (
-                result.summary.total_scored >= 1
-            ), f"Expected at least 1 scored listing, got: {result.summary.total_scored}"
+            assert result.summary.total_scored >= 1, (
+                f"Expected at least 1 scored listing, got: {result.summary.total_scored}"
+            )
 
     async def test_collection_empty_returns_true_when_store_raises(self) -> None:
         """
@@ -1113,15 +1113,15 @@ class TestAutoIndex:
 
             # Then: all three collections were auto-indexed
             store = runner._store
-            assert (
-                store.collection_count("resume") > 0
-            ), "resume should be auto-indexed when collection was missing"
-            assert (
-                store.collection_count("role_archetypes") > 0
-            ), "role_archetypes should be auto-indexed when collection was missing"
-            assert (
-                store.collection_count("global_positive_signals") > 0
-            ), "global_positive_signals should be auto-indexed when collection was missing"
+            assert store.collection_count("resume") > 0, (
+                "resume should be auto-indexed when collection was missing"
+            )
+            assert store.collection_count("role_archetypes") > 0, (
+                "role_archetypes should be auto-indexed when collection was missing"
+            )
+            assert store.collection_count("global_positive_signals") > 0, (
+                "global_positive_signals should be auto-indexed when collection was missing"
+            )
 
 
 class TestCompEnrichment:
@@ -1175,19 +1175,19 @@ class TestCompEnrichment:
                 result = await runner.run()
 
             # Then: comp enrichment populated the salary fields
-            assert (
-                result.summary.total_found == 1
-            ), f"Expected total_found == 1, got: {result.summary.total_found}"
-            assert (
-                listing.comp_min == 180_000.0
-            ), f"Expected comp_min == 180000.0, got: {listing.comp_min}"
-            assert (
-                listing.comp_max == 220_000.0
-            ), f"Expected comp_max == 220000.0, got: {listing.comp_max}"
-            assert (
-                listing.comp_source == "employer"
-            ), f"Expected comp_source == 'employer', got: {listing.comp_source}"
+            assert result.summary.total_found == 1, (
+                f"Expected total_found == 1, got: {result.summary.total_found}"
+            )
+            assert listing.comp_min == 180_000.0, (
+                f"Expected comp_min == 180000.0, got: {listing.comp_min}"
+            )
+            assert listing.comp_max == 220_000.0, (
+                f"Expected comp_max == 220000.0, got: {listing.comp_max}"
+            )
+            assert listing.comp_source == "employer", (
+                f"Expected comp_source == 'employer', got: {listing.comp_source}"
+            )
             assert listing.comp_text is not None, "Expected comp_text to be set"
-            assert (
-                "$180,000" in listing.comp_text
-            ), f"Expected '$180,000' in comp_text, got: {listing.comp_text}"
+            assert "$180,000" in listing.comp_text, (
+                f"Expected '$180,000' in comp_text, got: {listing.comp_text}"
+            )

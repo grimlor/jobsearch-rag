@@ -242,9 +242,9 @@ class TestResumeChunking:
         result = store.get_documents("resume", ids=["resume-summary"])
 
         # Then: chunk starts with its heading
-        assert result["documents"][0].startswith(
-            "## Summary"
-        ), f"Expected chunk to start with '## Summary', got: {result['documents'][0][:30]!r}"
+        assert result["documents"][0].startswith("## Summary"), (
+            f"Expected chunk to start with '## Summary', got: {result['documents'][0][:30]!r}"
+        )
 
     async def test_nested_headings_stay_with_parent_section(
         self, indexer: Indexer, store: VectorStore, resume_path: Path
@@ -280,9 +280,9 @@ class TestResumeChunking:
         result = store.get_documents("resume", ids=["resume-summary", "resume-core-strengths"])
 
         # Then: both chunks found
-        assert (
-            len(result["documents"]) == 2
-        ), f"Expected 2 chunks by ID, got {len(result['documents'])}"
+        assert len(result["documents"]) == 2, (
+            f"Expected 2 chunks by ID, got {len(result['documents'])}"
+        )
 
     async def test_chunks_contain_at_least_one_complete_sentence(
         self, indexer: Indexer, store: VectorStore, resume_path: Path
@@ -418,9 +418,9 @@ class TestResumeIndexing:
         result = store.get_documents("resume", ids=["resume-summary"])
 
         # Then: source is 'resume'
-        assert (
-            result["metadatas"][0]["source"] == "resume"
-        ), f"Expected source='resume', got {result['metadatas'][0].get('source')!r}"
+        assert result["metadatas"][0]["source"] == "resume", (
+            f"Expected source='resume', got {result['metadatas'][0].get('source')!r}"
+        )
 
     async def test_missing_resume_file_tells_operator_to_create_it(self, indexer: Indexer) -> None:
         """
@@ -474,9 +474,9 @@ class TestArchetypeIndexing:
 
         # Then: one document per archetype
         assert count == 2, f"Expected 2 archetypes indexed, got {count}"
-        assert (
-            store.collection_count("role_archetypes") == 2
-        ), f"Expected 2 documents in collection, got {store.collection_count('role_archetypes')}"
+        assert store.collection_count("role_archetypes") == 2, (
+            f"Expected 2 documents in collection, got {store.collection_count('role_archetypes')}"
+        )
 
     async def test_archetype_name_is_stored_as_document_metadata(
         self, indexer: Indexer, store: VectorStore, archetypes_path: Path
@@ -493,9 +493,9 @@ class TestArchetypeIndexing:
         result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
 
         # Then: name in metadata
-        assert (
-            result["metadatas"][0]["name"] == "Staff Platform Architect"
-        ), f"Expected name='Staff Platform Architect', got {result['metadatas'][0].get('name')!r}"
+        assert result["metadatas"][0]["name"] == "Staff Platform Architect", (
+            f"Expected name='Staff Platform Architect', got {result['metadatas'][0].get('name')!r}"
+        )
 
     async def test_archetype_description_is_the_document_text(
         self, indexer: Indexer, store: VectorStore, archetypes_path: Path
@@ -574,9 +574,9 @@ class TestArchetypeIndexing:
 
         # Then: error has guidance
         err = exc_info.value
-        assert (
-            err.error_type == ErrorType.VALIDATION
-        ), f"Expected VALIDATION error, got {err.error_type}"
+        assert err.error_type == ErrorType.VALIDATION, (
+            f"Expected VALIDATION error, got {err.error_type}"
+        )
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
@@ -614,9 +614,9 @@ class TestArchetypeIndexing:
         await indexer.index_archetypes(str(archetypes_path))
 
         # Then: count stays the same
-        assert (
-            store.collection_count("role_archetypes") == 2
-        ), "Re-index should replace, not duplicate"
+        assert store.collection_count("role_archetypes") == 2, (
+            "Re-index should replace, not duplicate"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -659,15 +659,15 @@ class TestArchetypeEmbeddingSynthesis:
         result = build_archetype_embedding_text(archetype)
 
         # Then: both description and signals present
-        assert (
-            "Distributed systems architect." in result
-        ), f"Description missing from synthesized text: {result!r}"
-        assert (
-            "Cross-team influence" in result
-        ), f"Signal 'Cross-team influence' missing from synthesized text: {result!r}"
-        assert (
-            "API governance" in result
-        ), f"Signal 'API governance' missing from synthesized text: {result!r}"
+        assert "Distributed systems architect." in result, (
+            f"Description missing from synthesized text: {result!r}"
+        )
+        assert "Cross-team influence" in result, (
+            f"Signal 'Cross-team influence' missing from synthesized text: {result!r}"
+        )
+        assert "API governance" in result, (
+            f"Signal 'API governance' missing from synthesized text: {result!r}"
+        )
 
     def test_synthesis_normalizes_description_whitespace(self) -> None:
         """
@@ -685,9 +685,9 @@ class TestArchetypeEmbeddingSynthesis:
         result = build_archetype_embedding_text(archetype)
 
         # Then: no double spaces in description line
-        assert (
-            "  " not in result.split("\n")[0]
-        ), f"Double spaces remain in description: {result!r}"
+        assert "  " not in result.split("\n")[0], (
+            f"Double spaces remain in description: {result!r}"
+        )
 
     def test_synthesis_without_signals_returns_description_only(self) -> None:
         """
@@ -733,12 +733,12 @@ class TestArchetypeEmbeddingSynthesis:
         # Then: stored document includes synthesized content
         result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
         doc = result["documents"][0]
-        assert (
-            "Cross-team architecture ownership" in doc
-        ), f"Positive signal missing from stored document: {doc!r}"
-        assert (
-            "distributed systems" in doc.lower()
-        ), f"Description content missing from stored document: {doc!r}"
+        assert "Cross-team architecture ownership" in doc, (
+            f"Positive signal missing from stored document: {doc!r}"
+        )
+        assert "distributed systems" in doc.lower(), (
+            f"Description content missing from stored document: {doc!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -783,9 +783,9 @@ class TestGlobalRubricLoading:
 
         # Then: 4 rubric + 4 archetype = 8 total
         assert count == 8, f"Expected 8 negative signals (4 rubric + 4 archetype), got {count}"
-        assert (
-            store.collection_count("negative_signals") == 8
-        ), f"Expected 8 in collection, got {store.collection_count('negative_signals')}"
+        assert store.collection_count("negative_signals") == 8, (
+            f"Expected 8 in collection, got {store.collection_count('negative_signals')}"
+        )
 
     async def test_missing_rubric_file_tells_operator_to_create_it(
         self, indexer: Indexer, archetypes_with_signals_path: Path
@@ -874,9 +874,9 @@ class TestNegativeSignalIndexing:
 
         # Then: signals from both sources
         assert count > 0, "Expected at least one negative signal indexed"
-        assert (
-            store.collection_count("negative_signals") == count
-        ), f"Collection count {store.collection_count('negative_signals')} != returned {count}"
+        assert store.collection_count("negative_signals") == count, (
+            f"Collection count {store.collection_count('negative_signals')} != returned {count}"
+        )
 
     async def test_each_signal_is_individually_embedded(
         self,
@@ -924,9 +924,9 @@ class TestNegativeSignalIndexing:
         assert metadatas is not None, "Expected metadatas in collection result"
         for meta in metadatas:
             source = str(meta.get("source", ""))
-            assert source.startswith(
-                ("rubric:", "archetype:")
-            ), f"Signal source should start with 'rubric:' or 'archetype:', got: {source!r}"
+            assert source.startswith(("rubric:", "archetype:")), (
+                f"Signal source should start with 'rubric:' or 'archetype:', got: {source!r}"
+            )
 
     async def test_reindex_replaces_previous_signals(
         self,
@@ -952,9 +952,9 @@ class TestNegativeSignalIndexing:
 
         # Then: counts unchanged
         assert count1 == count2, f"Signal count changed on re-index: {count1} → {count2}"
-        assert (
-            store.collection_count("negative_signals") == count1
-        ), "Collection should not grow on re-index"
+        assert store.collection_count("negative_signals") == count1, (
+            "Collection should not grow on re-index"
+        )
 
     async def test_empty_rubric_dimensions_indexes_only_archetype_negatives(
         self,
@@ -1014,12 +1014,12 @@ class TestNegativeSignalIndexing:
 
         # Then: error details
         err = exc_info.value
-        assert (
-            err.error_type == ErrorType.PARSE
-        ), f"Expected PARSE error for malformed archetypes TOML, got {err.error_type}"
-        assert (
-            "role_archetypes" in err.error.lower() or "syntax" in err.error.lower()
-        ), f"Error should mention the file or syntax issue: {err.error!r}"
+        assert err.error_type == ErrorType.PARSE, (
+            f"Expected PARSE error for malformed archetypes TOML, got {err.error_type}"
+        )
+        assert "role_archetypes" in err.error.lower() or "syntax" in err.error.lower(), (
+            f"Error should mention the file or syntax issue: {err.error!r}"
+        )
 
     async def test_zero_signals_from_both_sources_returns_empty_collection(
         self, indexer: Indexer, store: VectorStore, tmp_path: Path
@@ -1045,6 +1045,6 @@ class TestNegativeSignalIndexing:
 
         # Then: empty collection
         assert count == 0, f"Expected 0 negative signals when both sources are empty, got {count}"
-        assert (
-            store.collection_count("negative_signals") == 0
-        ), "Collection should be empty when no negative signals exist"
+        assert store.collection_count("negative_signals") == 0, (
+            "Collection should be empty when no negative signals exist"
+        )

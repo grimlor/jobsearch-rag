@@ -172,9 +172,9 @@ class TestThrottleDetection:
         text = _THROTTLE_TEXT
 
         # When / Then: it is recognized as a throttle response
-        assert (
-            is_throttle_response(text) is True
-        ), f"Expected throttle text to be detected. Input: {text!r}"
+        assert is_throttle_response(text) is True, (
+            f"Expected throttle text to be detected. Input: {text!r}"
+        )
 
     def test_non_throttle_error_text_is_not_misidentified_as_throttle(self) -> None:
         """
@@ -187,12 +187,12 @@ class TestThrottleDetection:
         error_mention = "Handle error reporting in production systems. " * 5
 
         # When / Then: neither is misidentified as a throttle response
-        assert (
-            is_throttle_response(real_jd) is False
-        ), f"Real JD text was falsely flagged as throttle. Input starts: {real_jd[:80]!r}"
-        assert (
-            is_throttle_response(error_mention) is False
-        ), "JD mentioning 'error' was falsely flagged as throttle"
+        assert is_throttle_response(real_jd) is False, (
+            f"Real JD text was falsely flagged as throttle. Input starts: {real_jd[:80]!r}"
+        )
+        assert is_throttle_response(error_mention) is False, (
+            "JD mentioning 'error' was falsely flagged as throttle"
+        )
 
     # --- Backoff behavior through search() ----------------------------
 
@@ -219,9 +219,9 @@ class TestThrottleDetection:
             await adapter.search(page, _SEARCH_URL, max_pages=1)
 
             # Then: sleep was called for click delay + backoff delay
-            assert (
-                mock_sleep.call_count >= 2
-            ), f"Expected at least 2 sleep calls (click + backoff), got {mock_sleep.call_count}"
+            assert mock_sleep.call_count >= 2, (
+                f"Expected at least 2 sleep calls (click + backoff), got {mock_sleep.call_count}"
+            )
 
     @pytest.mark.asyncio
     async def test_backoff_delay_increases_exponentially_on_consecutive_throttles(
@@ -257,12 +257,12 @@ class TestThrottleDetection:
 
         # Then: backoff delays increase exponentially
         backoff_waits = [d for d in backoff_delays if d >= 2.0]
-        assert (
-            len(backoff_waits) >= 2
-        ), f"Expected at least 2 backoff waits, got {len(backoff_waits)}: {backoff_delays}"
-        assert (
-            backoff_waits[1] > backoff_waits[0]
-        ), f"Second backoff ({backoff_waits[1]}) should be longer than first ({backoff_waits[0]})"
+        assert len(backoff_waits) >= 2, (
+            f"Expected at least 2 backoff waits, got {len(backoff_waits)}: {backoff_delays}"
+        )
+        assert backoff_waits[1] > backoff_waits[0], (
+            f"Second backoff ({backoff_waits[1]}) should be longer than first ({backoff_waits[0]})"
+        )
 
     # --- Retry exhaustion and skip ------------------------------------
 
@@ -388,9 +388,9 @@ class TestThrottleDetection:
             results = await adapter.search(page, _SEARCH_URL, max_pages=1)
 
         # Then: the listing contains the real JD content
-        assert (
-            results[0].full_text.strip() == _REAL_JD.strip()
-        ), f"Expected real JD after backoff recovery. Got: {results[0].full_text[:100]!r}"
+        assert results[0].full_text.strip() == _REAL_JD.strip(), (
+            f"Expected real JD after backoff recovery. Got: {results[0].full_text[:100]!r}"
+        )
 
     # --- Timeout + late throttle detection ----------------------------
 
@@ -417,9 +417,9 @@ class TestThrottleDetection:
             results = await adapter.search(page, _SEARCH_URL, max_pages=1)
 
         # Then: the retry succeeds with real JD content
-        assert (
-            results[0].full_text.strip() == _REAL_JD.strip()
-        ), f"Expected real JD after late-throttle retry. Got: {results[0].full_text[:100]!r}"
+        assert results[0].full_text.strip() == _REAL_JD.strip(), (
+            f"Expected real JD after late-throttle retry. Got: {results[0].full_text[:100]!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_late_throttle_exhausts_retries_then_falls_back(self) -> None:

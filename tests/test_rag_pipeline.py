@@ -89,9 +89,9 @@ class TestOllamaConnectivity:
 
         # Then: error has URL and guidance
         err = exc_info.value
-        assert (
-            err.error_type == ErrorType.CONNECTION
-        ), f"Expected CONNECTION error, got {err.error_type}"
+        assert err.error_type == ErrorType.CONNECTION, (
+            f"Expected CONNECTION error, got {err.error_type}"
+        )
         assert "localhost:59999" in err.error, "Error should name the configured URL"
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
@@ -116,9 +116,9 @@ class TestOllamaConnectivity:
 
         # Then: error has guidance
         err = exc_info.value
-        assert (
-            err.error_type == ErrorType.CONNECTION
-        ), f"Expected CONNECTION error, got {err.error_type}"
+        assert err.error_type == ErrorType.CONNECTION, (
+            f"Expected CONNECTION error, got {err.error_type}"
+        )
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
@@ -149,9 +149,9 @@ class TestOllamaConnectivity:
 
             # Then: error has guidance
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.EMBEDDING
-            ), f"Expected EMBEDDING error, got {err.error_type}"
+            assert err.error_type == ErrorType.EMBEDDING, (
+                f"Expected EMBEDDING error, got {err.error_type}"
+            )
             assert err.suggestion is not None, "Should include a suggestion"
             assert err.troubleshooting is not None, "Should include troubleshooting"
             assert len(err.troubleshooting.steps) > 0, "Should have troubleshooting steps"
@@ -223,9 +223,9 @@ class TestOllamaConnectivity:
 
             # Then: error mentions retry count and has guidance
             err = exc_info.value
-            assert (
-                err.error_type == ErrorType.EMBEDDING
-            ), f"Expected EMBEDDING error, got {err.error_type}"
+            assert err.error_type == ErrorType.EMBEDDING, (
+                f"Expected EMBEDDING error, got {err.error_type}"
+            )
             assert "2" in err.error, "Error should mention retry count"
             assert err.suggestion is not None, "Should include a suggestion"
             assert err.troubleshooting is not None, "Should include troubleshooting"
@@ -332,9 +332,9 @@ Python, distributed systems, cloud platforms.
         )
         assert len(docs["documents"]) == 3, "Should retrieve all 3 chunks"
         assert "principal architect" in docs["documents"][0], "Summary chunk should have content"
-        assert (
-            "platform architecture" in docs["documents"][1]
-        ), "Experience chunk should have content"
+        assert "platform architecture" in docs["documents"][1], (
+            "Experience chunk should have content"
+        )
         assert "distributed systems" in docs["documents"][2], "Skills chunk should have content"
 
     async def test_each_chunk_contains_at_least_one_complete_sentence(
@@ -476,9 +476,9 @@ description = "Developer relations."
 
         # Then: 2 documents created
         assert n == 2, f"Expected 2 archetypes, got {n}"
-        assert (
-            store.collection_count("role_archetypes") == 2
-        ), f"Expected 2 in collection, got {store.collection_count('role_archetypes')}"
+        assert store.collection_count("role_archetypes") == 2, (
+            f"Expected 2 in collection, got {store.collection_count('role_archetypes')}"
+        )
 
     async def test_archetype_name_is_stored_as_document_metadata(
         self, indexer: Indexer, store: VectorStore
@@ -506,9 +506,9 @@ description = "Defines tech strategy."
         )
 
         # Then: name in metadata
-        assert (
-            docs["metadatas"][0]["name"] == "Staff Architect"
-        ), f"Expected 'Staff Architect', got {docs['metadatas'][0].get('name')!r}"
+        assert docs["metadatas"][0]["name"] == "Staff Architect", (
+            f"Expected 'Staff Architect', got {docs['metadatas'][0].get('name')!r}"
+        )
 
     async def test_malformed_toml_identifies_syntax_error_and_file_path(
         self, indexer: Indexer
@@ -554,9 +554,9 @@ description = "Defines tech strategy."
 
         # Then: error has guidance
         err = exc_info.value
-        assert (
-            err.error_type == ErrorType.VALIDATION
-        ), f"Expected VALIDATION error, got {err.error_type}"
+        assert err.error_type == ErrorType.VALIDATION, (
+            f"Expected VALIDATION error, got {err.error_type}"
+        )
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
@@ -646,9 +646,9 @@ class TestNegativeScoring:
         result = await scorer.score("Any JD text")
 
         # Then: negative_score is 0.0
-        assert (
-            result.negative_score == 0.0
-        ), f"Expected negative_score 0.0 when collection missing, got {result.negative_score}"
+        assert result.negative_score == 0.0, (
+            f"Expected negative_score 0.0 when collection missing, got {result.negative_score}"
+        )
 
     async def test_negative_score_is_zero_when_collection_empty(
         self, store: VectorStore, mock_embedder: Embedder
@@ -680,9 +680,9 @@ class TestNegativeScoring:
         result = await scorer.score("Any JD text")
 
         # Then: negative_score is 0.0
-        assert (
-            result.negative_score == 0.0
-        ), f"Expected negative_score 0.0 for empty collection, got {result.negative_score}"
+        assert result.negative_score == 0.0, (
+            f"Expected negative_score 0.0 for empty collection, got {result.negative_score}"
+        )
 
     async def test_negative_score_returned_in_score_result(
         self, store: VectorStore, mock_embedder: Embedder
@@ -721,9 +721,9 @@ class TestNegativeScoring:
 
         # Then: negative_score field present and in valid range
         assert hasattr(result, "negative_score"), "ScoreResult should have negative_score field"
-        assert (
-            0.0 <= result.negative_score <= 1.0
-        ), f"negative_score should be in [0.0, 1.0], got {result.negative_score}"
+        assert 0.0 <= result.negative_score <= 1.0, (
+            f"negative_score should be in [0.0, 1.0], got {result.negative_score}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -785,9 +785,9 @@ signals_negative = ["60-hour weeks"]
 
         # Then: 2 documents created
         assert n == 2, f"Expected 2 documents, got {n}"
-        assert (
-            store.collection_count("global_positive_signals") == 2
-        ), f"Expected 2 in collection, got {store.collection_count('global_positive_signals')}"
+        assert store.collection_count("global_positive_signals") == 2, (
+            f"Expected 2 in collection, got {store.collection_count('global_positive_signals')}"
+        )
 
     async def test_document_metadata_identifies_source_dimension(
         self, indexer: Indexer, store: VectorStore
@@ -815,9 +815,9 @@ signals_positive = ["strategic thinking", "cross-org influence"]
         )
 
         # Then: source in metadata
-        assert (
-            docs["metadatas"][0]["source"] == "Altitude"
-        ), f"Expected source 'Altitude', got {docs['metadatas'][0].get('source')}"
+        assert docs["metadatas"][0]["source"] == "Altitude", (
+            f"Expected source 'Altitude', got {docs['metadatas'][0].get('source')}"
+        )
 
     async def test_reindex_replaces_global_positive_collection_not_appends(
         self, indexer: Indexer, store: VectorStore
@@ -845,9 +845,9 @@ signals_positive = ["strategic"]
         count2 = store.collection_count("global_positive_signals")
 
         # Then: same count (replaced, not appended)
-        assert (
-            count2 == count1
-        ), f"Re-indexing should replace, not append. Count went from {count1} to {count2}"
+        assert count2 == count1, (
+            f"Re-indexing should replace, not append. Count went from {count1} to {count2}"
+        )
 
     async def test_dimension_without_signals_positive_produces_no_document(
         self, indexer: Indexer, store: VectorStore
@@ -886,9 +886,9 @@ signals_negative = ["equity-only compensation"]
         # Then: error references rubric or file-not-found
         err = exc_info.value
         assert err.error_type == ErrorType.CONFIG, f"Expected CONFIG error, got {err.error_type}"
-        assert (
-            "rubric" in err.error.lower() or "not found" in err.error.lower()
-        ), f"Error should mention rubric or not found: {err.error!r}"
+        assert "rubric" in err.error.lower() or "not found" in err.error.lower(), (
+            f"Error should mention rubric or not found: {err.error!r}"
+        )
 
     async def test_archetypes_only_flag_rebuilds_global_positive_collection(
         self, indexer: Indexer, store: VectorStore
@@ -945,9 +945,9 @@ signals_negative = ["equity-only"]
 
         # Then: only 2 contributing dimensions counted
         assert n == 2, f"Only 2 dimensions have signals_positive, got {n}"
-        assert (
-            store.collection_count("global_positive_signals") == 2
-        ), f"Expected 2 in collection, got {store.collection_count('global_positive_signals')}"
+        assert store.collection_count("global_positive_signals") == 2, (
+            f"Expected 2 in collection, got {store.collection_count('global_positive_signals')}"
+        )
 
     async def test_compensation_dimension_produces_no_positive_document(
         self, indexer: Indexer, store: VectorStore
@@ -992,12 +992,12 @@ signals_negative = ["equity-only compensation", "unpaid position"]
 
         # Then: error references file or syntax
         err = exc_info.value
-        assert (
-            err.error_type == ErrorType.PARSE
-        ), f"Expected PARSE error for malformed rubric TOML, got {err.error_type}"
-        assert (
-            "global_rubric" in err.error.lower() or "syntax" in err.error.lower()
-        ), f"Error should mention the file or syntax issue: {err.error!r}"
+        assert err.error_type == ErrorType.PARSE, (
+            f"Expected PARSE error for malformed rubric TOML, got {err.error_type}"
+        )
+        assert "global_rubric" in err.error.lower() or "syntax" in err.error.lower(), (
+            f"Error should mention the file or syntax issue: {err.error!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1058,9 +1058,9 @@ class TestCultureScoring:
         result = await scorer.score("Any JD text")
 
         # Then: culture_score is 0.0
-        assert (
-            result.culture_score == 0.0
-        ), f"Expected culture_score 0.0 when collection missing, got {result.culture_score}"
+        assert result.culture_score == 0.0, (
+            f"Expected culture_score 0.0 when collection missing, got {result.culture_score}"
+        )
 
     async def test_culture_score_is_float_between_zero_and_one(
         self, store: VectorStore, mock_embedder: Embedder
@@ -1098,12 +1098,12 @@ class TestCultureScoring:
         result = await scorer.score("A strategic platform architect role")
 
         # Then: float in [0.0, 1.0]
-        assert isinstance(
-            result.culture_score, float
-        ), f"culture_score should be float, got {type(result.culture_score)}"
-        assert (
-            0.0 <= result.culture_score <= 1.0
-        ), f"culture_score should be in [0.0, 1.0], got {result.culture_score}"
+        assert isinstance(result.culture_score, float), (
+            f"culture_score should be float, got {type(result.culture_score)}"
+        )
+        assert 0.0 <= result.culture_score <= 1.0, (
+            f"culture_score should be in [0.0, 1.0], got {result.culture_score}"
+        )
 
     async def test_culture_score_returned_in_score_result(
         self, store: VectorStore, mock_embedder: Embedder
@@ -1170,9 +1170,9 @@ class TestCultureScoring:
         explanation = ranked.score_explanation()
 
         # Then: culture_score appears
-        assert (
-            "Culture: 0.65" in explanation
-        ), f"culture_score should appear in explanation. Got: {explanation}"
+        assert "Culture: 0.65" in explanation, (
+            f"culture_score should appear in explanation. Got: {explanation}"
+        )
 
     async def test_culture_weight_is_read_from_settings_not_hardcoded(self) -> None:
         """
@@ -1192,9 +1192,9 @@ class TestCultureScoring:
         )
 
         # Then: culture_weight matches configured value
-        assert (
-            ranker.culture_weight == 0.2
-        ), f"Expected culture_weight 0.2, got {ranker.culture_weight}"
+        assert ranker.culture_weight == 0.2, (
+            f"Expected culture_weight 0.2, got {ranker.culture_weight}"
+        )
 
     async def test_high_culture_score_raises_final_score(self) -> None:
         """
@@ -1236,9 +1236,9 @@ class TestCultureScoring:
         final_with = ranker.compute_final_score(scores_with_culture)
 
         # Then: high culture raises final
-        assert (
-            final_with > final_no
-        ), f"High culture_score should raise final. No culture: {final_no}, With: {final_with}"
+        assert final_with > final_no, (
+            f"High culture_score should raise final. No culture: {final_no}, With: {final_with}"
+        )
 
     async def test_empty_global_positive_collection_returns_zero_culture_score(
         self, store: VectorStore, mock_embedder: Embedder
@@ -1270,9 +1270,9 @@ class TestCultureScoring:
         result = await scorer.score("Any JD text")
 
         # Then: culture_score is 0.0
-        assert (
-            result.culture_score == 0.0
-        ), f"Expected culture_score 0.0 for empty collection, got {result.culture_score}"
+        assert result.culture_score == 0.0, (
+            f"Expected culture_score 0.0 for empty collection, got {result.culture_score}"
+        )
 
     async def test_score_explanation_includes_all_six_component_values(self) -> None:
         """
