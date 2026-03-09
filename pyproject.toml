@@ -87,7 +87,7 @@ indent-style = "space"
 # ---------------------------------------------------------------------------
 [tool.pyright]
 pythonVersion = "3.11"
-typeCheckingMode = "standard"
+typeCheckingMode = "strict"
 reportPrivateUsage = false
 reportMissingTypeStubs = false
 
@@ -112,6 +112,8 @@ markers = [
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 version_variables = []
+major_on_zero = false
+allow_zero_version = true
 commit_message = "chore(release): {version}"
 tag_format = "v{version}"
 branch = "main"
