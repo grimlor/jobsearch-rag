@@ -53,6 +53,9 @@ from jobsearch_rag.rag.store import VectorStore
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from jobsearch_rag.adapters.base import JobListing
+    from jobsearch_rag.rag.scorer import ScoreResult
+
 # All tests in this file require live Ollama
 pytestmark = pytest.mark.integration
 
@@ -338,7 +341,7 @@ class TestChromaDBContract:
         # Then: distance ~0
         distances = results["distances"][0]
         assert len(distances) == 1, f"Expected 1 result, got {len(distances)}"
-        assert distances[0] == pytest.approx(0.0, abs=1e-5), (
+        assert distances[0] == pytest.approx(0.0, abs=1e-5), (  # pyright: ignore[reportUnknownMemberType]
             f"Identical vector should have ~0 distance, got {distances[0]}"
         )
 
@@ -774,7 +777,7 @@ class TestLiveZipRecruiterPipeline:
         )
         base_salary = 220_000
 
-        scored = []
+        scored: list[tuple[JobListing, ScoreResult]] = []
         embeddings: dict[str, list[float]] = {}
 
         for listing in with_jd[: self.MIN_LISTINGS]:

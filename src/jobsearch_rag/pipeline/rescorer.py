@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 class RescoreResult:
     """Results from a rescore run."""
 
-    ranked_listings: list[RankedListing] = field(default_factory=list)
+    ranked_listings: list[RankedListing] = field(default_factory=lambda: [])
     summary: RankSummary = field(default_factory=RankSummary)
     failed_listings: int = 0
     total_loaded: int = 0

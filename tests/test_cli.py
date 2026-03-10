@@ -47,7 +47,7 @@ from jobsearch_rag.rag.store import VectorStore
 # ---------------------------------------------------------------------------
 
 
-def _make_settings(
+def _make_settings(  # pyright: ignore[reportUnusedFunction]  # test utility for future CLI tests
     tmpdir: str,
     *,
     output_dir: str | None = None,

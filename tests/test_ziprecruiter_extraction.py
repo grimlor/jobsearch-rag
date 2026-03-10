@@ -769,12 +769,12 @@ def _make_mock_page(
     # Card locator
     mock_card_locator = MagicMock()
     mock_card_locator.count = AsyncMock(return_value=card_count)
-    cards = []
+    cards: list[MagicMock] = []
     for _ in range(card_count):
         card = MagicMock()
         card.click = AsyncMock()
         cards.append(card)
-    mock_card_locator.nth.side_effect = lambda i: cards[i] if i < len(cards) else MagicMock()
+    mock_card_locator.nth.side_effect = lambda i: cards[i] if i < len(cards) else MagicMock()  # pyright: ignore[reportUnknownLambdaType]
 
     # Panel locator
     mock_panel_locator = MagicMock()
@@ -784,7 +784,7 @@ def _make_mock_page(
     else:
         mock_panel_locator.inner_text = AsyncMock(return_value="")
 
-    mock_page.locator.side_effect = lambda sel: {
+    mock_page.locator.side_effect = lambda sel: {  # pyright: ignore[reportUnknownLambdaType]
         "[class*='job_result'] article": mock_card_locator,
         "[data-testid='job-details-scroll-container']": mock_panel_locator,
     }[sel]
@@ -1103,7 +1103,7 @@ class TestSearch:
         failing_card = MagicMock()
         failing_card.click = AsyncMock(side_effect=TimeoutError("click timeout"))
         original_nth = card_locator.nth.side_effect
-        card_locator.nth.side_effect = lambda i: failing_card if i == 1 else original_nth(i)
+        card_locator.nth.side_effect = lambda i: failing_card if i == 1 else original_nth(i)  # pyright: ignore[reportUnknownLambdaType]
 
         panel_text = "Panel text for card C with enough detail " * 10
         panel_locator = page.locator("[data-testid='job-details-scroll-container']")
@@ -1324,13 +1324,13 @@ class TestSearch:
         mock_panel.inner_text = AsyncMock(return_value=panel_text)
         mock_card = MagicMock()
         mock_card.count = AsyncMock(return_value=3)
-        for_cards = []
+        for_cards: list[MagicMock] = []
         for _ in range(3):
             c = MagicMock()
             c.click = AsyncMock()
             for_cards.append(c)
-        mock_card.nth.side_effect = lambda i: for_cards[i] if i < len(for_cards) else MagicMock()
-        page.locator.side_effect = lambda sel: {
+        mock_card.nth.side_effect = lambda i: for_cards[i] if i < len(for_cards) else MagicMock()  # pyright: ignore[reportUnknownLambdaType]
+        page.locator.side_effect = lambda sel: {  # pyright: ignore[reportUnknownLambdaType]
             "[class*='job_result'] article": mock_card,
             "[data-testid='job-details-scroll-container']": mock_panel,
         }[sel]

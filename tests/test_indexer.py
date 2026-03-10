@@ -529,7 +529,7 @@ class TestArchetypeIndexing:
 
         # Then: all embedded texts are normalized
         for call in mock_embedder.embed.call_args_list:  # type: ignore[attr-defined]
-            text = call.args[0] if call.args else call.kwargs.get("text", "")
+            text = str(call.args[0] if call.args else call.kwargs.get("text", ""))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
             assert text == text.strip(), f"Leading/trailing whitespace found: {text!r}"
             assert "  " not in text, f"Double spaces found: {text!r}"
             assert "\n\n" not in text, f"Double newlines found: {text!r}"

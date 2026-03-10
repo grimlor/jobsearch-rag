@@ -15,8 +15,12 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 from jobsearch_rag.errors import ActionableError
+
+# Type alias for TOML-parsed dicts — values are heterogeneous.
+_TOMLDict = dict[str, Any]
 
 # ---------------------------------------------------------------------------
 # Config dataclasses
@@ -134,18 +138,12 @@ def load_settings(path: str | Path = DEFAULT_SETTINGS_PATH) -> Settings:
     return _validate(data, filepath)
 
 
-def _validate(data: dict[str, object], filepath: Path) -> Settings:
+def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     """Validate raw TOML data and return a Settings instance."""
 
     # -- boards section ------------------------------------------------------
     boards_section = _require_section(data, "boards", filepath)
-    enabled_boards = _require_field(boards_section, "enabled", "boards", filepath)
-    if not isinstance(enabled_boards, list) or not enabled_boards:
-        raise ActionableError.config(
-            field_name="boards.enabled",
-            reason="boards.enabled must be a non-empty list of board names",
-            suggestion="Add at least one board name to [boards].enabled",
-        )
+    enabled_boards: list[str] = _require_list(boards_section, "enabled", "boards", filepath)
 
     overnight_boards: list[str] = boards_section.get("overnight_boards", [])  # type: ignore[assignment]
 
@@ -158,17 +156,11 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
                 reason=f"Board '{board_name}' is in [boards].enabled but has no [boards.{board_name}] section",
                 suggestion=f"Add a [boards.{board_name}] section with 'searches' and 'max_pages'",
             )
-        board_data = boards_section[board_name]
-        if not isinstance(board_data, dict):
-            raise ActionableError.config(
-                field_name=f"boards.{board_name}",
-                reason=f"[boards.{board_name}] must be a table, not {type(board_data).__name__}",
-                suggestion=f"Define [boards.{board_name}] as a TOML table",
-            )
-        searches = board_data.get("searches", [])
+        board_data = _require_table(boards_section, str(board_name), "boards", filepath)
+        searches: list[str] = board_data.get("searches", [])  # type: ignore[assignment]
         board_configs[board_name] = BoardConfig(
             name=board_name,
-            searches=list(searches),
+            searches=searches,
             max_pages=int(board_data.get("max_pages", 3)),
             headless=bool(board_data.get("headless", True)),
             browser_channel=board_data.get("browser_channel") or None,
@@ -177,21 +169,20 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
     # Also parse overnight board configs if they have sections
     for board_name in overnight_boards:
         if board_name in boards_section and board_name not in board_configs:
-            board_data = boards_section[board_name]
-            if isinstance(board_data, dict):
-                searches = board_data.get("searches", [])
+            board_data_raw = boards_section[board_name]
+            if isinstance(board_data_raw, dict):
+                bd = cast("_TOMLDict", board_data_raw)
+                searches_ov: list[str] = bd.get("searches", [])  # type: ignore[assignment]
                 board_configs[board_name] = BoardConfig(
                     name=board_name,
-                    searches=list(searches),
-                    max_pages=int(board_data.get("max_pages", 2)),
-                    headless=bool(board_data.get("headless", False)),
-                    browser_channel=board_data.get("browser_channel") or None,
+                    searches=searches_ov,
+                    max_pages=int(bd.get("max_pages", 2)),
+                    headless=bool(bd.get("headless", False)),
+                    browser_channel=bd.get("browser_channel") or None,
                 )
 
     # -- scoring section -----------------------------------------------------
-    scoring_data = data.get("scoring", {})
-    if not isinstance(scoring_data, dict):
-        scoring_data = {}
+    scoring_data = _get_table(data, "scoring")
 
     scoring = ScoringConfig(
         archetype_weight=float(scoring_data.get("archetype_weight", 0.5)),
@@ -237,9 +228,7 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
         )
 
     # -- ollama section ------------------------------------------------------
-    ollama_data = data.get("ollama", {})
-    if not isinstance(ollama_data, dict):
-        ollama_data = {}
+    ollama_data = _get_table(data, "ollama")
 
     base_url = str(ollama_data.get("base_url", "http://localhost:11434"))
     if not base_url.startswith(("http://", "https://")):
@@ -256,9 +245,7 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
     )
 
     # -- output section ------------------------------------------------------
-    output_data = data.get("output", {})
-    if not isinstance(output_data, dict):
-        output_data = {}
+    output_data = _get_table(data, "output")
 
     output = OutputConfig(
         default_format=str(output_data.get("default_format", "markdown")),
@@ -267,9 +254,7 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
     )
 
     # -- chroma section ------------------------------------------------------
-    chroma_data = data.get("chroma", {})
-    if not isinstance(chroma_data, dict):
-        chroma_data = {}
+    chroma_data = _get_table(data, "chroma")
 
     chroma = ChromaConfig(
         persist_dir=str(chroma_data.get("persist_dir", "./data/chroma_db")),
@@ -309,7 +294,7 @@ def _validate(data: dict[str, object], filepath: Path) -> Settings:
 # ---------------------------------------------------------------------------
 
 
-def _require_section(data: dict[str, object], name: str, filepath: Path) -> dict[str, object]:
+def _require_section(data: _TOMLDict, name: str, filepath: Path) -> _TOMLDict:
     """Return a required top-level section, or raise CONFIG error."""
     section = data.get(name)
     if section is None or not isinstance(section, dict):
@@ -318,18 +303,38 @@ def _require_section(data: dict[str, object], name: str, filepath: Path) -> dict
             reason=f"Required section [{name}] is missing from {filepath}",
             suggestion=f"Add a [{name}] section to {filepath}",
         )
-    return section
+    return cast("_TOMLDict", section)
 
 
-def _require_field(
-    section: dict[str, object], field_name: str, section_name: str, filepath: Path
-) -> object:
-    """Return a required field within a section, or raise CONFIG error."""
+def _require_list(
+    section: _TOMLDict, field_name: str, section_name: str, filepath: Path
+) -> list[str]:
+    """Return a required list field, or raise CONFIG error."""
     value = section.get(field_name)
-    if value is None:
+    if not isinstance(value, list) or not value:
         raise ActionableError.config(
             field_name=f"{section_name}.{field_name}",
-            reason=f"Required field '{field_name}' is missing from [{section_name}] in {filepath}",
-            suggestion=f"Add '{field_name}' to the [{section_name}] section in {filepath}",
+            reason=f"{section_name}.{field_name} must be a non-empty list",
+            suggestion=f"Add at least one item to [{section_name}].{field_name}",
         )
-    return value
+    return cast("list[str]", value)
+
+
+def _require_table(section: _TOMLDict, key: str, section_name: str, filepath: Path) -> _TOMLDict:
+    """Return a required sub-table, or raise CONFIG error."""
+    value = section.get(key)
+    if not isinstance(value, dict):
+        raise ActionableError.config(
+            field_name=f"{section_name}.{key}",
+            reason=f"[{section_name}.{key}] must be a table",
+            suggestion=f"Define [{section_name}.{key}] as a TOML table",
+        )
+    return cast("_TOMLDict", value)
+
+
+def _get_table(data: _TOMLDict, name: str) -> _TOMLDict:
+    """Return an optional section as a dict (empty if missing/invalid)."""
+    section = data.get(name, {})
+    if isinstance(section, dict):
+        return cast("_TOMLDict", section)
+    return {}

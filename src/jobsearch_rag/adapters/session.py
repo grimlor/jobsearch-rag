@@ -225,7 +225,7 @@ class SessionManager:
         # Apply stealth patches if requested (LinkedIn)
         if self.config.stealth:
             try:
-                from playwright_stealth import Stealth  # noqa: PLC0415  # optional dependency
+                from playwright_stealth import Stealth  # pyright: ignore[reportMissingTypeStubs] # optional dependency, no stubs available  # noqa: I001, PLC0415
 
                 await Stealth().apply_stealth_async(self._context)
                 logger.info("Stealth patches applied for %s", self.config.board_name)

@@ -105,8 +105,7 @@ def _make_runner_with_real_stack(
         runner = PipelineRunner(settings)
 
     if populate_store:
-        _populate_store(runner._store)
-
+        _populate_store(runner._store)  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
     return runner, mock_client
 
 
@@ -218,7 +217,7 @@ class TestCrossRunDedup:
             # Given: runner with a pre-seeded decision for "already-decided"
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
-            _seed_decision(runner._store, "already-decided")
+            _seed_decision(runner._store, "already-decided")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
 
             decided_listing = _make_listing(external_id="already-decided")
             new_listing = _make_listing(external_id="brand-new")
@@ -251,7 +250,7 @@ class TestCrossRunDedup:
             # Given: runner with a pre-seeded decision for "decided-1"
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
-            _seed_decision(runner._store, "decided-1")
+            _seed_decision(runner._store, "decided-1")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
 
             decided = _make_listing(external_id="decided-1", title="Old Role")
             new = _make_listing(external_id="new-1", title="New Role")
@@ -287,7 +286,7 @@ class TestCrossRunDedup:
             # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
-            _seed_decision(runner._store, "decided-1")
+            _seed_decision(runner._store, "decided-1")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
 
             decided = _make_listing(external_id="decided-1")
             new = _make_listing(external_id="new-1")
@@ -348,7 +347,7 @@ class TestCrossRunDedup:
             # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
-            _seed_decision(runner._store, "decided-1")
+            _seed_decision(runner._store, "decided-1")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
 
             decided = _make_listing(external_id="decided-1")
 
@@ -383,7 +382,7 @@ class TestCrossRunDedup:
             # Given: runner with decision keyed by job_id
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
-            _seed_decision(runner._store, "canonical-id-123")
+            _seed_decision(runner._store, "canonical-id-123")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
 
             # Listing uses external_id matching the decision, but different URL
             listing = _make_listing(external_id="canonical-id-123")

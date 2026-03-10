@@ -44,11 +44,11 @@ logger = logging.getLogger(__name__)
 class RunResult:
     """Results from a pipeline run, consumed by exporters and CLI."""
 
-    ranked_listings: list[RankedListing] = field(default_factory=list)
+    ranked_listings: list[RankedListing] = field(default_factory=lambda: [])
     summary: RankSummary = field(default_factory=RankSummary)
     failed_listings: int = 0
     skipped_decisions: int = 0
-    boards_searched: list[str] = field(default_factory=list)
+    boards_searched: list[str] = field(default_factory=list[str])
 
 
 class PipelineRunner:

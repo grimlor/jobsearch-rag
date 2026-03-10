@@ -31,7 +31,7 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
@@ -56,7 +56,7 @@ def _normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def build_archetype_embedding_text(archetype: dict[str, object]) -> str:
+def build_archetype_embedding_text(archetype: dict[str, Any]) -> str:
     """Synthesize a rich embedding text from an archetype's description and positive signals.
 
     Combines the normalized description with positive signal phrases so the
@@ -77,7 +77,7 @@ def build_archetype_embedding_text(archetype: dict[str, object]) -> str:
     """
     description = _normalize_whitespace(str(archetype.get("description", "")))
     raw_signals = archetype.get("signals_positive", [])
-    signals: list[str] = list(raw_signals) if isinstance(raw_signals, list) else []
+    signals: list[str] = cast("list[str]", raw_signals) if isinstance(raw_signals, list) else []
     if not signals:
         return description
 

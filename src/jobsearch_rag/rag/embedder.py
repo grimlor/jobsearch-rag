@@ -130,7 +130,7 @@ class Embedder:
         """
 
         async def _call() -> str:
-            response = await self._client.chat(
+            response = await self._client.chat(  # pyright: ignore[reportUnknownMemberType]
                 model=self.llm_model,
                 messages=[
                     {

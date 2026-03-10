@@ -946,9 +946,9 @@ class TestRejectionReasonInjection:
         await scorer.disqualify("Some JD")
 
         # Then: the duplicate reason appears exactly once
-        prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
-        assert prompt_sent.count("On-call required") == 1, (
-            f"Expected 'On-call required' once in prompt, found {prompt_sent.count('On-call required')}"
+        prompt_sent = mock_embedder.classify.call_args[0][0]  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
+        assert prompt_sent.count("On-call required") == 1, (  # pyright: ignore[reportUnknownMemberType]
+            f"Expected 'On-call required' once in prompt, found {prompt_sent.count('On-call required')}"  # pyright: ignore[reportUnknownMemberType]
         )
 
     async def test_missing_decisions_collection_returns_no_reasons(
@@ -966,7 +966,7 @@ class TestRejectionReasonInjection:
         await scorer.disqualify("Any JD")
 
         # Then: no rejection-reasons block in the prompt
-        prompt_sent = mock_embedder.classify.call_args[0][0]  # type: ignore[attr-defined]
+        prompt_sent = mock_embedder.classify.call_args[0][0]  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
         assert "rejected roles" not in prompt_sent, (
             "Missing decisions collection should produce no rejection-reasons block"
         )
@@ -1003,11 +1003,11 @@ class TestRejectionReasonInjection:
             "Second call should include cached rejection reason"
         )
         # Then: caching is working — internal list is populated
-        assert scorer._cached_rejection_reasons is not None, (
+        assert scorer._cached_rejection_reasons is not None, (  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_cached_rejection_reasons)
             "Rejection reasons should be cached after first call"
         )
-        assert len(scorer._cached_rejection_reasons) == 1, (
-            f"Expected 1 cached reason, got {len(scorer._cached_rejection_reasons)}"
+        assert len(scorer._cached_rejection_reasons) == 1, (  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_cached_rejection_reasons)
+            f"Expected 1 cached reason, got {len(scorer._cached_rejection_reasons)}"  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_cached_rejection_reasons)
         )
 
 
@@ -1080,7 +1080,7 @@ class TestScoreFusion:
         # Then: it matches the expected weighted formula
         positive = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.7 + 0.2 * 0.4 + 0.15 * 0.9
         expected = max(0.0, positive - 0.4 * 0.3)
-        assert result == pytest.approx(expected), f"Expected {expected:.4f}, got {result:.4f}"
+        assert result == pytest.approx(expected), f"Expected {expected:.4f}, got {result:.4f}"  # pyright: ignore[reportUnknownMemberType]
 
     def test_weights_are_read_from_settings_not_hardcoded(self) -> None:
         """
@@ -1108,7 +1108,7 @@ class TestScoreFusion:
         result = ranker.compute_final_score(scores)
 
         # Then: only fit matters — score should be 0.8
-        assert result == pytest.approx(0.8), (
+        assert result == pytest.approx(0.8), (  # pyright: ignore[reportUnknownMemberType]
             f"With fit_weight=0.8 and fit_score=1.0, expected 0.8, got {result:.4f}"
         )
 
@@ -1199,7 +1199,7 @@ class TestScoreFusion:
         assert len(ranked) == 1, (
             f"Role at threshold should be included, but got {len(ranked)} ranked"
         )
-        assert ranked[0].final_score == pytest.approx(0.5), (
+        assert ranked[0].final_score == pytest.approx(0.5), (  # pyright: ignore[reportUnknownMemberType]
             f"Expected final_score 0.5, got {ranked[0].final_score}"
         )
 
@@ -1293,7 +1293,7 @@ class TestScoreFusion:
         result = ranker.compute_final_score(scores)
 
         # Then: positive=0.8, penalty=0.5*0.6=0.3, final=0.5
-        assert result == pytest.approx(0.5), f"Expected 0.5 (0.8 - 0.3 penalty), got {result:.4f}"
+        assert result == pytest.approx(0.5), f"Expected 0.5 (0.8 - 0.3 penalty), got {result:.4f}"  # pyright: ignore[reportUnknownMemberType]
 
     def test_final_score_floors_at_zero_when_penalty_exceeds_positive(self) -> None:
         """
@@ -1354,7 +1354,7 @@ class TestScoreFusion:
 
         # Then: the formula reduces to positive sum only
         expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4
-        assert result == pytest.approx(expected), (
+        assert result == pytest.approx(expected), (  # pyright: ignore[reportUnknownMemberType]
             f"Zero negative should produce pure positive sum {expected:.4f}, got {result:.4f}"
         )
 
@@ -1385,7 +1385,7 @@ class TestScoreFusion:
         result = ranker.compute_final_score(scores)
 
         # Then: only comp_weight matters — score should be 0.8
-        assert result == pytest.approx(0.8), (
+        assert result == pytest.approx(0.8), (  # pyright: ignore[reportUnknownMemberType]
             f"With comp_weight=1.0 and comp_score=0.8, expected 0.8, got {result:.4f}"
         )
 
@@ -1417,7 +1417,7 @@ class TestScoreFusion:
 
         # Then: the neutral comp provides a gentle push
         base_expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4 + 0.15 * 0.5
-        assert result == pytest.approx(base_expected), (
+        assert result == pytest.approx(base_expected), (  # pyright: ignore[reportUnknownMemberType]
             f"Expected {base_expected:.4f} with neutral comp, got {result:.4f}"
         )
 

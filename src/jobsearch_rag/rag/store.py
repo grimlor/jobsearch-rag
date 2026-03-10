@@ -75,7 +75,7 @@ class VectorStore:
         try:
             self._client.delete_collection(name)
             logger.info("Collection '%s' deleted", name)
-        except chromadb.errors.NotFoundError:  # pyright: ignore[reportAttributeAccessIssue]
+        except chromadb.errors.NotFoundError:  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             logger.debug("Collection '%s' does not exist — nothing to reset", name)
         # Recreate empty so callers can immediately use the collection
         self.get_or_create_collection(name)
@@ -212,5 +212,5 @@ class VectorStore:
         """
         try:
             return self._client.get_collection(name)
-        except chromadb.errors.NotFoundError:  # pyright: ignore[reportAttributeAccessIssue]
+        except chromadb.errors.NotFoundError:  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             raise ActionableError.index(name) from None

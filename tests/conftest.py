@@ -92,7 +92,7 @@ def decision_recorder(
 
 
 @pytest.fixture(autouse=True, scope="session")
-def _guard_real_output_dir() -> Iterator[None]:
+def _guard_real_output_dir() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]  # autouse fixture
     """Make the real output/ directory read-only during tests.
 
     Restores original permissions after the session, even on failure.

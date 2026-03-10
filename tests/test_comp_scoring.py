@@ -58,7 +58,7 @@ class TestCompensationScoring:
         # Given: comp_max exactly at base
         # When / Then: score is maximum
         score = compute_comp_score(comp_max=220_000, base_salary=self.BASE)
-        assert score == pytest.approx(1.0), f"Expected 1.0 at base_salary, got {score}"
+        assert score == pytest.approx(1.0), f"Expected 1.0 at base_salary, got {score}"  # pyright: ignore[reportUnknownMemberType]
 
     def test_comp_max_above_base_salary_scores_one(self) -> None:
         """
@@ -69,7 +69,7 @@ class TestCompensationScoring:
         # Given: comp_max well above base
         # When / Then: score is clamped at 1.0
         score = compute_comp_score(comp_max=300_000, base_salary=self.BASE)
-        assert score == pytest.approx(1.0), f"Expected 1.0 for comp above base, got {score}"
+        assert score == pytest.approx(1.0), f"Expected 1.0 for comp above base, got {score}"  # pyright: ignore[reportUnknownMemberType]
 
     # --- Band: 90-100% of base -> 0.7-0.9 (linear) ---
 
@@ -97,7 +97,7 @@ class TestCompensationScoring:
         score = compute_comp_score(comp_max=198_000, base_salary=self.BASE)
 
         # Then: score hits the 0.7 boundary
-        assert score == pytest.approx(0.7), f"Expected 0.7 at 90% of base, got {score}"
+        assert score == pytest.approx(0.7), f"Expected 0.7 at 90% of base, got {score}"  # pyright: ignore[reportUnknownMemberType]
 
     # --- Band: 77-90% of base -> 0.4-0.7 (linear) ---
 
@@ -125,7 +125,7 @@ class TestCompensationScoring:
         score = compute_comp_score(comp_max=169_400, base_salary=self.BASE)
 
         # Then: score hits the 0.4 boundary
-        assert score == pytest.approx(0.4), f"Expected 0.4 at 77% of base, got {score}"
+        assert score == pytest.approx(0.4), f"Expected 0.4 at 77% of base, got {score}"  # pyright: ignore[reportUnknownMemberType]
 
     # --- Band: 68-77% of base -> 0.0-0.4 (linear) ---
 
@@ -153,7 +153,7 @@ class TestCompensationScoring:
         score = compute_comp_score(comp_max=149_600, base_salary=self.BASE)
 
         # Then: score hits the floor
-        assert score == pytest.approx(0.0), f"Expected 0.0 at 68% of base, got {score}"
+        assert score == pytest.approx(0.0), f"Expected 0.0 at 68% of base, got {score}"  # pyright: ignore[reportUnknownMemberType]
 
     # --- Below 68% → 0.0 ---
 
@@ -166,7 +166,7 @@ class TestCompensationScoring:
         # Given: comp_max far below the 68% threshold
         # When / Then: score is clamped at floor
         score = compute_comp_score(comp_max=100_000, base_salary=self.BASE)
-        assert score == pytest.approx(0.0), (
+        assert score == pytest.approx(0.0), (  # pyright: ignore[reportUnknownMemberType]
             f"Expected 0.0 for comp far below 68% of base, got {score}"
         )
 
@@ -181,7 +181,7 @@ class TestCompensationScoring:
         # Given: no compensation data
         # When / Then: neutral score returned
         score = compute_comp_score(comp_max=None, base_salary=self.BASE)
-        assert score == pytest.approx(0.5), f"Expected 0.5 for missing comp data, got {score}"
+        assert score == pytest.approx(0.5), f"Expected 0.5 for missing comp data, got {score}"  # pyright: ignore[reportUnknownMemberType]
 
     # --- Config-driven, not hardcoded ---
 
@@ -197,7 +197,7 @@ class TestCompensationScoring:
         score_below_base = compute_comp_score(comp_max=200_000, base_salary=300_000)
 
         # Then: scores differ because base differs
-        assert score_at_base == pytest.approx(1.0), (
+        assert score_at_base == pytest.approx(1.0), (  # pyright: ignore[reportUnknownMemberType]
             f"Expected 1.0 when comp_max equals base, got {score_at_base}"
         )
         assert score_below_base < 0.7, (
@@ -215,10 +215,10 @@ class TestCompensationScoring:
         score_300k = compute_comp_score(comp_max=270_000, base_salary=300_000)
 
         # Then: both hit the 0.7 boundary (90% of their respective base)
-        assert score_100k == pytest.approx(0.7), (
+        assert score_100k == pytest.approx(0.7), (  # pyright: ignore[reportUnknownMemberType]
             f"Expected 0.7 at 90% of 100k base, got {score_100k}"
         )
-        assert score_300k == pytest.approx(0.7), (
+        assert score_300k == pytest.approx(0.7), (  # pyright: ignore[reportUnknownMemberType]
             f"Expected 0.7 at 90% of 300k base, got {score_300k}"
         )
 
@@ -274,10 +274,10 @@ class TestCompensationScoring:
         below_68 = compute_comp_score(comp_max=self.BASE * 0.68 - epsilon, base_salary=self.BASE)
         at_68 = compute_comp_score(comp_max=self.BASE * 0.68, base_salary=self.BASE)
         above_68 = compute_comp_score(comp_max=self.BASE * 0.68 + epsilon, base_salary=self.BASE)
-        assert below_68 == pytest.approx(0.0, abs=0.01), (
+        assert below_68 == pytest.approx(0.0, abs=0.01), (  # pyright: ignore[reportUnknownMemberType]
             f"Expected ~0.0 just below 68% boundary, got {below_68}"
         )
-        assert at_68 == pytest.approx(0.0, abs=0.01), f"Expected ~0.0 at 68% boundary, got {at_68}"
+        assert at_68 == pytest.approx(0.0, abs=0.01), f"Expected ~0.0 at 68% boundary, got {at_68}"  # pyright: ignore[reportUnknownMemberType]
         assert above_68 >= 0.0, f"Expected >=0.0 just above 68% boundary, got {above_68}"
 
         # Then: 77% boundary is continuous
@@ -308,4 +308,4 @@ class TestCompensationScoring:
         assert just_below_100 > 0.89, (
             f"Score should be near 1.0 just below 100%, got {just_below_100}"
         )
-        assert at_100 == pytest.approx(1.0), f"Expected 1.0 at 100% boundary, got {at_100}"
+        assert at_100 == pytest.approx(1.0), f"Expected 1.0 at 100% boundary, got {at_100}"  # pyright: ignore[reportUnknownMemberType]

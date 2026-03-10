@@ -81,13 +81,13 @@ def _make_listing(
 
 
 @pytest.fixture(autouse=True)
-def _clean_registry() -> Iterator[None]:
+def _clean_registry() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
     """Reset the registry before each test, restoring original state after."""
-    saved = dict(AdapterRegistry._registry)
-    AdapterRegistry._registry.clear()
+    saved = dict(AdapterRegistry._registry)  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+    AdapterRegistry._registry.clear()  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
     yield
-    AdapterRegistry._registry.clear()
-    AdapterRegistry._registry.update(saved)
+    AdapterRegistry._registry.clear()  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+    AdapterRegistry._registry.update(saved)  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
 
 
 # ---------------------------------------------------------------------------

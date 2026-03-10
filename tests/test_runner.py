@@ -72,7 +72,7 @@ def _make_settings(
 ) -> Settings:
     """Create a Settings with temp ChromaDB dir and configurable boards."""
     boards = enabled_boards or ["testboard"]
-    board_configs = {}
+    board_configs: dict[str, BoardConfig] = {}
     for name in boards:
         board_configs[name] = BoardConfig(
             name=name,
@@ -165,7 +165,7 @@ def _make_runner_with_real_stack(
         runner = PipelineRunner(settings)
 
     if populate_store:
-        _populate_store(runner._store)
+        _populate_store(runner._store)  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
 
     return runner, mock_client
 
@@ -319,7 +319,7 @@ class TestPipelineOrchestration:
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
                 patch.dict(
-                    AdapterRegistry._registry,
+                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
                     {"board_a": lambda: adapter_a, "board_b": lambda: adapter_b},
                 ),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
@@ -350,7 +350,7 @@ class TestPipelineOrchestration:
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
                 patch.dict(
-                    AdapterRegistry._registry,
+                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
                     {"board_a": lambda: adapter_a, "board_b": lambda: adapter_b},
                 ),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
@@ -385,7 +385,7 @@ class TestPipelineOrchestration:
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
                 patch.dict(
-                    AdapterRegistry._registry,
+                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
                     {"board_a": lambda: adapter_a, "linkedin": lambda: adapter_linkedin},
                 ),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
@@ -432,7 +432,7 @@ class TestPipelineOrchestration:
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
                 patch.dict(
-                    AdapterRegistry._registry,
+                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
                     {
                         "failing_board": lambda: failing_adapter,
                         "good_board": lambda: good_adapter,
@@ -991,7 +991,7 @@ class TestAutoIndex:
                 await runner.run()
 
             # Then: collections were populated by real Indexer
-            store = runner._store
+            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
             assert store.collection_count("resume") > 0, (
                 "resume collection should be populated after auto-index"
             )
@@ -1013,7 +1013,7 @@ class TestAutoIndex:
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
 
-            store = runner._store
+            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
             resume_count_before = store.collection_count("resume")
             archetypes_count_before = store.collection_count("role_archetypes")
 
@@ -1078,7 +1078,7 @@ class TestAutoIndex:
                 result = await runner.run()
 
             # Then: auto-index ran (populated collections) and scoring ran too
-            store = runner._store
+            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
             assert store.collection_count("resume") > 0, "resume should be populated by auto-index"
             assert result.summary.total_scored >= 1, (
                 f"Expected at least 1 scored listing, got: {result.summary.total_scored}"
@@ -1112,7 +1112,7 @@ class TestAutoIndex:
                 await runner.run()
 
             # Then: all three collections were auto-indexed
-            store = runner._store
+            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
             assert store.collection_count("resume") > 0, (
                 "resume should be auto-indexed when collection was missing"
             )

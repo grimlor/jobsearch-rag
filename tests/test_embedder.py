@@ -44,7 +44,7 @@ def _mock_chat_response(content: str) -> MagicMock:
 
 def _mock_list_response(model_names: list[str]) -> MagicMock:
     """Create a mock ListResponse with the given model names."""
-    models = []
+    models: list[MagicMock] = []
     for name in model_names:
         m = MagicMock()
         m.model = name
