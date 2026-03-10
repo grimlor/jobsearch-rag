@@ -35,7 +35,16 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+
+# Coverage
 .coverage
+coverage.json
+htmlcov/
+
+# mypy / ruff / pytest caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
 
 # Copilot work plans
 .copilot/*
