@@ -88,6 +88,12 @@ ignore = [
 known-first-party = ["jobsearch_rag"]
 combine-as-imports = true
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "PLC0415",  # import-outside-top-level — tests may import inside functions
+    "PLC2701",  # import-private-name — testing internal state is intentional
+]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
