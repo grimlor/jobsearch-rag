@@ -53,7 +53,7 @@ format = "uv run ruff format src/ tests/"
 type   = "uv run pyright src/ tests/"
 test   = "uv run pytest tests/ -v"
 cov    = "uv run pytest tests/ --cov=jobsearch_rag --cov-report=term-missing"
-check  = "task lint && task type && task test"
+check  = "task format && task lint && task type && task test"
 
 # ---------------------------------------------------------------------------
 # Ruff
