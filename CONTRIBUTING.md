@@ -128,7 +128,6 @@ picks it up automatically via the registry.
 ## Commit Messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/).
-See `.github/skills/conventional-commits/SKILL.md` for the full format.
 
 ```
 feat(scraper): add WeWorkRemotely adapter with fixture-based tests
@@ -137,6 +136,13 @@ feat(scraper): add WeWorkRemotely adapter with fixture-based tests
 - Add HTML fixtures for search results and detail page
 - 24 tests covering extraction, auth failures, and edge cases
 ```
+
+## AI Coding Agent Setup
+
+This project uses [universal-dev-skills](https://github.com/grimlor/universal-dev-skills)
+for AI coding agent configuration (skills, instructions, and agents). Clone
+that repo and follow its README to configure your editor. No per-repo setup
+is required — the skills apply automatically across all workspaces.
 
 ## Pull Requests
 
