@@ -241,12 +241,14 @@ class TestPipelineOrchestration:
     """REQUIREMENT: The pipeline runner executes steps in correct order with proper error handling.
 
     WHO: The operator running a search; downstream consumers of RunResult
-    WHAT: Ollama health check runs before any browser work; enabled boards
-          are searched when no explicit board list is given; overnight mode
-          includes overnight-only boards; a board that fails entirely does
-          not abort other boards; scoring failures increment the failed count
-          without aborting; empty results return a valid RunResult with zero
-          ranked listings
+    WHAT: (1) The system performs the Ollama health check before it starts any board I/O during a run.
+          (2) The system searches all enabled boards when no boards are explicitly specified.
+          (3) The system searches only the explicitly specified board when a boards list is provided.
+          (4) The system searches both enabled boards and overnight boards when overnight mode is enabled.
+          (5) The system continues scoring listings from a healthy board and reports both boards when another board fails during authentication.
+          (6) The system increments the failed listings count when scoring fails because the embed endpoint returns a non-retryable error.
+          (7) The system returns a valid RunResult with empty ranked listings when a board search produces no listings.
+          (8) The system passes successfully scored listings to the ranker and includes them in the summary counts.
     WHY: A health check after browser work wastes time; a single board
          failure aborting the entire run discards valid results from other
          boards; an invalid RunResult crashes exporters downstream
@@ -560,11 +562,13 @@ class TestBoardSearchDelegation:
     """REQUIREMENT: Individual board search delegates correctly to adapter and session manager.
 
     WHO: The pipeline runner calling adapters through the session manager
-    WHAT: A board with no config section is skipped without error;
-          the adapter's authenticate → search → extract_detail lifecycle
-          is called in order; empty JD text from extraction is counted
-          as a failure; extraction errors on individual listings are counted
-          without aborting the board
+    WHAT: (1) The system skips a board that has no config section and returns an empty result without error.
+          (2) The system calls authenticate, search, and extract_detail in that order when a returned listing has empty full_text.
+          (3) The system does not call extract_detail when a returned listing already has full_text populated.
+          (4) The system excludes a listing whose extracted full_text is only whitespace and counts it as failed.
+          (5) The system counts a listing as failed when extract_detail raises an ActionableError and still scores the other listing.
+          (6) The system counts an unexpected exception during extract_detail as a failure without aborting the run.
+          (7) The system continues to the next search URL after a search ActionableError and collects that URL's results successfully.
     WHY: A missing config crashing the run is a config error reported too late;
          a single extraction failure aborting the board discards all other
          results from that board's search
@@ -945,10 +949,10 @@ class TestAutoIndex:
     """REQUIREMENT: Empty collections are auto-indexed before scoring begins.
 
     WHO: The operator running search after a reset or on first use
-    WHAT: If the resume or role_archetypes collection is empty, the runner
-          auto-indexes before scoring; if collections are already populated,
-          no re-indexing occurs; auto-index uses the same embedder and store
-          as the rest of the pipeline
+    WHAT: (1) The system creates a real Indexer and indexes the resume and archetype collections when run() starts with an unpopulated store.
+          (2) The system skips auto-indexing when collections are already populated and leaves the existing collection counts unchanged.
+          (3) The system populates the collections through auto-indexing before scoring begins.
+          (4) The system treats the collection as empty when collection_count raises ActionableError and runs real auto-indexing.
     WHY: Failing all 180 listings because the operator forgot to run a
          separate index command is a predictable situation with an obvious
          recovery — the system should just do it
@@ -1128,8 +1132,7 @@ class TestCompEnrichment:
     """REQUIREMENT: Listings with salary text have comp fields populated after scoring.
 
     WHO: The scorer computing comp_score; the exporter showing salary data
-    WHAT: When parse_compensation finds salary data in a listing's full_text,
-          comp_min, comp_max, comp_source, and comp_text are set on the listing
+    WHAT: (1) The system sets `comp_min`, `comp_max`, `comp_source`, and `comp_text` on a listing when scoring its pipeline input finds a salary range in `full_text`.
     WHY: Missing comp enrichment would leave salary fields empty even when
          the JD contains salary data, making comp_score always neutral
 

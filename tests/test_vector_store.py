@@ -82,9 +82,12 @@ class TestCollectionLifecycle:
     """REQUIREMENT: Collections are created, retrieved, and reset reliably.
 
     WHO: The indexer managing ChromaDB collections
-    WHAT: get_or_create returns a usable collection; calling it twice returns
-          the same collection; reset drops all documents; collection_count
-          reflects the current state accurately
+    WHAT: (1) The system creates and returns a new collection when get_or_create_collection is called for an empty store.
+          (2) The system returns the existing collection instead of creating a duplicate when get_or_create_collection is called again with the same name.
+          (3) The system reports zero documents for a freshly created collection.
+          (4) The system reports a document count of 3 after 3 documents are added to a collection.
+          (5) The system drops all documents and reports a document count of zero when reset_collection is called on a populated collection.
+          (6) The system performs a safe no-op without raising an exception when reset_collection is called for a nonexistent collection.
     WHY: Stale or phantom collections lead to scoring against outdated data —
          a silent correctness bug that's hard to diagnose
 
@@ -177,9 +180,10 @@ class TestDocumentOperations:
     """REQUIREMENT: Documents can be added and retrieved with metadata.
 
     WHO: The indexer populating collections with resume chunks and archetypes
-    WHAT: Documents are stored with their IDs, embeddings, and metadata;
-          adding duplicate IDs updates rather than duplicates; metadata
-          is preserved and queryable
+    WHAT: (1) The system returns the matching document when get_documents is called with a specific ID.
+          (2) The system preserves and returns the correct metadata when a document is retrieved by ID.
+          (3) The system updates an existing document instead of creating a duplicate when add_documents is called with the same ID.
+          (4) The system raises a validation error that identifies the mismatch when add_documents is called with mismatched ID and document lengths.
     WHY: Duplicate documents inflate similarity results; lost metadata
          prevents score explanation and debugging
 
@@ -273,10 +277,11 @@ class TestSimilarityQuery:
     """REQUIREMENT: Similarity queries return documents ranked by closeness.
 
     WHO: The scorer computing fit, archetype, and history scores
-    WHAT: Querying with a vector returns documents ordered by similarity;
-          the most similar document appears first; similarity scores are
-          floats; the n_results parameter limits output; querying an
-          empty collection returns an empty result
+    WHAT: (1) The system returns the architect document first when the query vector is most similar to it.
+          (2) The system includes similarity distance scores in the query results as a list of floats.
+          (3) The system limits the query output to one result when `n_results=1`.
+          (4) The system returns an empty result for an empty collection instead of raising an error.
+          (5) The system includes the original document text and metadata in the query results.
     WHY: Incorrect similarity ordering would silently invert job rankings —
          the most dangerous class of bug in the system
 
@@ -382,9 +387,10 @@ class TestStoreErrors:
     """REQUIREMENT: Store errors are actionable and classified correctly.
 
     WHO: The pipeline runner catching errors to present clear guidance
-    WHAT: Querying a nonexistent collection raises an INDEX error;
-          the error message names the collection; invalid persist_dir
-          raises a CONFIG error
+    WHAT: (1) The system raises an INDEX error that tells the operator to run the index command when `query` is called on a nonexistent collection.
+          (2) The system names the nonexistent collection and provides step-by-step guidance in the INDEX error when `query` is called.
+          (3) The system raises an INDEX error with actionable guidance when `get_documents` is called on a nonexistent collection.
+          (4) The system raises an INDEX error with actionable guidance when `collection_count` is called on a nonexistent collection.
     WHY: Generic exceptions force operators to read stack traces —
          actionable errors tell them exactly what to fix
 
@@ -481,8 +487,9 @@ class TestMetadataQuery:
     """REQUIREMENT: Documents can be retrieved by metadata filter.
 
     WHO: The scorer retrieving past rejection reasons for disqualifier augmentation
-    WHAT: get_by_metadata returns only documents matching the where clause;
-          nonexistent collections raise an actionable INDEX error
+    WHAT: (1) The system returns only documents whose metadata matches the requested value.
+          (2) The system returns an empty result when no documents match the requested metadata value.
+          (3) The system raises an actionable INDEX error when get_by_metadata is called on a nonexistent collection.
     WHY: The disqualifier prompt needs past 'no' reasons to learn the operator's
          personal rejection patterns — metadata queries make this possible
 

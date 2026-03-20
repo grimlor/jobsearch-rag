@@ -201,9 +201,13 @@ class TestResumeChunking:
     """REQUIREMENT: Resume is chunked by ## headings for semantic coherence.
 
     WHO: The indexer preparing resume content for embedding
-    WHAT: The resume is split on ## section headings; each chunk carries
-          its heading as context; the title line (# Name) is excluded
-          from chunks; nested ### headings stay with their parent section
+    WHAT: (1) The system produces one chunk for each ## section heading in a resume.
+          (2) The system starts each retrieved chunk with its corresponding ## heading for semantic context.
+          (3) The system includes ### sub-headings in the chunk for their parent ## section.
+          (4) The system retrieves both chunks successfully by slugified heading IDs.
+          (5) The system preserves all sentences in a section chunk without mid-sentence truncation.
+          (6) The system excludes the # title line and creates chunks only for ## sections.
+          (7) The system produces zero chunks for a resume with no ## section headings.
     WHY: Chunking at section boundaries preserves semantic coherence —
          embedding a mix of "Core Strengths" and "Experience" dilutes both
 
@@ -345,8 +349,11 @@ class TestResumeIndexing:
     """REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed.
 
     WHO: The scorer computing fit_score; the operator running first-time setup
-    WHAT: Each chunk is embedded and stored; re-indexing replaces previous
-          content; the return value confirms chunk count; metadata records source
+    WHAT: (1) The system calls the embedder once for each chunk it creates from a resume.
+          (2) The system replaces previously indexed resume content instead of duplicating it during reindexing.
+          (3) The system returns the number of chunks it creates as an integer when it indexes a resume.
+          (4) The system records "resume" in each chunk's source metadata for traceability.
+          (5) The system raises a CONFIG error that tells the operator to create the missing resume file.
     WHY: An empty resume collection silently produces zero fit_scores for all
          roles — a harder bug to catch than an explicit missing-index error
 
@@ -449,9 +456,14 @@ class TestArchetypeIndexing:
     """REQUIREMENT: Role archetypes are loaded from TOML and embedded correctly.
 
     WHO: The scorer computing archetype_score
-    WHAT: Each archetype in role_archetypes.toml produces one ChromaDB document;
-          malformed TOML raises a parse error at index time; an empty file raises
-          early; whitespace in descriptions is normalized before embedding
+    WHAT: (1) The system creates exactly one ChromaDB document for each archetype entry in the TOML file.
+          (2) The system stores the archetype name in document metadata for debugging.
+          (3) The system stores the normalized archetype description as the document text.
+          (4) The system normalizes archetype description whitespace so the embedded text has no leading or trailing whitespace and no double spaces.
+          (5) The system raises a PARSE error with actionable guidance when the archetypes TOML file contains invalid syntax.
+          (6) The system raises a VALIDATION error with actionable guidance when the archetypes TOML file contains no entries.
+          (7) The system raises a CONFIG error with actionable guidance when the archetypes file path does not exist.
+          (8) The system replaces previously indexed archetypes during reindexing instead of duplicating them.
     WHY: Missing or malformed archetypes silently score all roles equally —
          the most insidious failure mode since ranking still appears to work
 
@@ -628,10 +640,11 @@ class TestArchetypeEmbeddingSynthesis:
     """REQUIREMENT: Archetype embeddings synthesize description + positive signals.
 
     WHO: The indexer preparing archetype documents for embedding
-    WHAT: When an archetype has ``signals_positive``, the embedding text
-          combines the normalized description with those signals so the
-          resulting vector captures both the narrative and keyword anchors;
-          when signals are absent, the description alone is used
+    WHAT: (1) The system includes the archetype description and every positive signal in the synthesized embedding text.
+          (2) The system normalizes extra whitespace in the archetype description before synthesizing embedding text.
+          (3) The system returns only the normalized description when the archetype has no positive signals key.
+          (4) The system returns only the description when the archetype has an empty positive signals list.
+          (5) The system stores synthesized archetype text that includes both description and positive signal content during indexing.
     WHY: Pure prose descriptions embed well for general similarity but miss
          specific keyword anchors the scorer needs to distinguish roles —
          e.g. "cross-team architecture ownership" as a distinct signal
@@ -750,10 +763,9 @@ class TestGlobalRubricLoading:
     """REQUIREMENT: Global rubric TOML is loaded and parsed for negative signal extraction.
 
     WHO: The indexer building the negative_signals collection
-    WHAT: Each dimension's signals_negative entries are loaded from
-          global_rubric.toml and used as source material for the
-          negative signals collection; malformed TOML produces a
-          parse error; a missing file produces a config error
+    WHAT: (1) The system indexes all negative signals from both the global rubric and the archetypes into the collection.
+          (2) The system raises a CONFIG error with actionable guidance when the rubric file is missing.
+          (3) The system raises a PARSE error with actionable guidance when the rubric file contains invalid TOML syntax.
     WHY: The global rubric defines universal evaluation criteria that
          apply to all listings regardless of archetype — without it,
          negative scoring is incomplete
@@ -840,10 +852,14 @@ class TestNegativeSignalIndexing:
     """REQUIREMENT: Negative signals from rubric and archetypes are indexed for penalty scoring.
 
     WHO: The scorer computing negative_score for each listing
-    WHAT: Negative signals from both global_rubric.toml dimensions and
-          per-archetype signals_negative are combined into a single
-          negative_signals ChromaDB collection; each signal is individually
-          embedded; metadata tracks the source; re-indexing is idempotent
+    WHAT: (1) The system indexes negative signals from both the rubric and the archetypes into the collection.
+          (2) The system embeds each negative signal text exactly once during indexing.
+          (3) The system records each indexed negative signal with source metadata prefixed by `rubric:` or `archetype:`.
+          (4) The system replaces previously indexed negative signals when reindexing instead of appending duplicates.
+          (5) The system indexes only archetype negative signals when the rubric has no dimensions.
+          (6) The system raises a CONFIG error with actionable guidance when the archetypes file path does not exist.
+          (7) The system raises a PARSE error that names the file and suggests a fix when the archetypes TOML is malformed.
+          (8) The system returns 0 indexed negative signals and leaves the collection empty when both sources provide none.
     WHY: A JD about adtech should score high on negative signals regardless
          of which archetype it matches — the global rubric catches universal
          dealbreakers while archetype negatives catch role-specific mismatches

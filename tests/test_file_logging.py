@@ -26,9 +26,12 @@ class TestFileLogging:
     REQUIREMENT: Run logs are persisted to disk for post-run diagnosis.
 
     WHO: The operator diagnosing a failed or unexpected pipeline run
-    WHAT: Each run creates a timestamped log file under the configured
-          logs directory; log content is formatted with timestamps and
-          levels for machine-parseable post-mortem analysis
+    WHAT: (1) The system creates a log file under the specified logs directory when file logging is enabled and a message is logged.
+          (2) The system names the log file with the `jobsearch-rag_YYYY-MM-DDTHH-MM-SS.log` timestamp pattern.
+          (3) The system writes the logged warning message and its level marker to the log file.
+          (4) The system creates the log directory automatically when the configured path does not already exist.
+          (5) The system keeps the existing stderr `StreamHandler` active when file logging is enabled.
+          (6) The system writes a debug message and its `DEBUG` level marker to the log file when the log level is configured as `DEBUG`.
     WHY: Without persistent file logs, transient console output is lost
          after the terminal closes, making post-run diagnosis impossible
 

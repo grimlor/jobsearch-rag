@@ -268,9 +268,21 @@ class TestParserConstruction:
     """REQUIREMENT: The CLI parser defines all subcommands with correct arguments.
 
     WHO: The operator invoking the tool from the command line
-    WHAT: All five subcommands (index, search, decide, export, boards) are
-          registered; each subcommand accepts its documented flags; a
-          missing subcommand produces a usage error
+    WHAT: (1) The parser sets `args.command` to `index` when the `index` subcommand is provided.
+          (2) The parser leaves `resume_only` false by default and sets it to true when `--resume-only` is provided with `index`.
+          (3) The parser captures the `search` subcommand together with the `--board`, `--overnight`, and `--open-top` flags correctly.
+          (4) The parser defaults `board` to `None`, `overnight` to `False`, and `open_top` to `None` when `search` is parsed without optional flags.
+          (5) The parser captures the `decide` subcommand together with its required `job_id` and `--verdict` arguments.
+          (6) The parser exits with code `2` when `decide` receives an invalid `--verdict` value.
+          (7) The parser sets `args.format` to `csv` when `export` is passed with `--format csv`.
+          (8) The parser defaults the export format to `markdown` when `export` is parsed without `--format`.
+          (9) The parser sets `args.command` to `boards` when the `boards` subcommand is provided.
+          (10) The parser captures both the `login` subcommand and the selected board when `login` is passed with `--board ziprecruiter`.
+          (11) The parser exits with code `2` when `login` is parsed without the required `--board` flag.
+          (12) The parser exits with code `2` when no subcommand is provided.
+          (13) The parser sets `args.command` to `rescore` when the `rescore` subcommand is provided.
+          (14) The parser leaves `archetypes_only` false by default and sets it to true when `--archetypes-only` is provided with `index`.
+          (15) The parser accepts `negative_signals` as the `reset` collection value and stores it in `args.collection`.
     WHY: Silently ignoring a flag or failing on a valid subcommand breaks
          the operator's workflow before any real work begins
 
@@ -517,9 +529,9 @@ class TestBoardsCommand:
     """REQUIREMENT: The boards command lists all registered adapters for operator discovery.
 
     WHO: The operator checking which boards are available before running a search
-    WHAT: All registered board names are printed sorted alphabetically;
-          an empty registry prints a clear 'no adapters' message;
-          output uses a consistent bullet format
+    WHAT: (1) The system prints all registered board names in sorted alphabetical order when `handle_boards` runs.
+          (2) The system prints a clear `No adapters registered.` message when `handle_boards` runs with an empty registry.
+          (3) The system prints each registered board name with a `  - ` bullet prefix when `handle_boards` runs.
     WHY: An operator who can't see available boards guesses board names,
          leading to search failures on typos
 
@@ -611,9 +623,10 @@ class TestIndexCommand:
     """REQUIREMENT: The index command wires settings → embedder → indexer correctly.
 
     WHO: The operator running first-time setup or re-indexing after resume changes
-    WHAT: Health check runs before any indexing; archetypes are indexed before
-          resume by default; --resume-only skips archetypes; chunk counts are
-          printed to stdout for operator sanity-check
+    WHAT: (1) The system runs the Ollama health check before indexing.
+          (2) The system indexes both archetypes and the resume by default and prints their counts.
+          (3) The system indexes only the resume and skips archetypes when --resume-only is used.
+          (4) The system prints all indexing chunk counts to stdout for operator sanity-check.
     WHY: Indexing without a health check wastes time on a dead Ollama;
          silently skipping archetypes produces a broken scoring baseline
 
@@ -757,10 +770,12 @@ class TestSearchCommand:
     """REQUIREMENT: The search command prints a structured summary and ranked listings.
 
     WHO: The operator reviewing search results in the terminal
-    WHAT: The summary includes boards searched, total found, scored, deduplicated,
-          excluded, failed, and final count; each ranked listing shows score,
-          title, company, board, URL, and score explanation; duplicate boards
-          are noted; --open-top opens browser tabs for the top N results
+    WHAT: (1) The search command prints all required summary fields to stdout when the pipeline returns summary statistics.
+          (2) The search command prints each ranked listing with its score, title, company, and URL.
+          (3) The search command notes duplicate boards in the output when a listing appears on multiple boards.
+          (4) The search command passes only the specified board to the pipeline runner when the `--board` flag restricts the search to a single board.
+          (5) The search command opens the top result's URL in the browser when `--open-top` is set to 1.
+          (6) The search command opens no browser tabs when `--open-top` is unset and `settings.open_top_n` is 0.
     WHY: Missing summary fields leave the operator guessing whether the run
          was healthy; missing listing fields prevent informed review
 
@@ -1013,9 +1028,10 @@ class TestDecideCommand:
     """REQUIREMENT: The decide command records verdicts with appropriate error handling.
 
     WHO: The operator recording their assessment of a scored role
-    WHAT: An existing job ID looks up and re-records with the new verdict;
-          an unknown job ID exits with a clear error message;
-          the recorded verdict and history count are printed to stdout
+    WHAT: (1) The system exits with code 1 and prints 'No job found' when no decision exists for the given job ID.
+          (2) The system records the new verdict for the existing job and prints a confirmation that includes the history count.
+          (3) The system prints the provided reason in the confirmation output when a verdict is recorded with --reason.
+          (4) The system exits with code 1 and prints 'Could not retrieve JD text' when the stored JD text for an existing job is missing.
     WHY: Recording a verdict for a non-existent job silently corrupts the
          decision history; the operator needs confirmation the action took effect
 
@@ -1193,9 +1209,9 @@ class TestExportCommand:
     """REQUIREMENT: The export command re-exports saved results.
 
     WHO: The operator re-viewing results after a previous search run
-    WHAT: The export command prints saved results in the requested format;
-          when no results exist, prints a clear message and exits with code 1;
-          each valid format is accepted
+    WHAT: (1) The system prints the markdown results content to stdout when export is called with the markdown format.
+          (2) The system prints the content of the results file that matches the selected format when export is called.
+          (3) The system exits with code 1 and prints 'No previous results found' when no results files exist.
     WHY: Silently producing no output would leave the operator wondering
          if the command failed or if there were no results
 
@@ -1300,10 +1316,10 @@ class TestLoginCommand:
     """REQUIREMENT: The login command opens a headed browser for interactive authentication.
 
     WHO: The operator establishing a session before headless search runs
-    WHAT: A headed (visible) browser opens to the board's login page;
-          the operator completes login manually; session cookies are saved
-          to ``data/{board}_session.json`` for reuse; the operator is
-          prompted to press Enter when finished
+    WHAT: (1) The system opens a headed browser to the board login URL, saves the session, and prints a confirmation after login completes.
+          (2) The system navigates to the board-specific login URL for LinkedIn when handling login.
+          (3) The system prints clear interactive login instructions that guide the operator through the login process.
+          (4) The system connects to the requested browser through CDP instead of using the standard Playwright launch when the `--browser msedge` flag is provided.
     WHY: Cloudflare bot protection blocks headless browsers — logging in
          interactively establishes cookies that may enable headless operation
 
@@ -1493,8 +1509,7 @@ class TestSearchBrowserFailure:
     """REQUIREMENT: Browser open failures are reported gracefully, not as crashes.
 
     WHO: The operator running a search where webbrowser.open fails
-    WHAT: When webbrowser.open raises an exception, the failure is printed
-          but the search completes normally
+    WHAT: (1) The system prints an error when opening the browser fails and completes the search normally.
     WHY: A browser failure should not discard valid search results
 
     MOCK BOUNDARY:
@@ -1558,8 +1573,7 @@ class TestExportMissing:
     """REQUIREMENT: Requesting an export format with no file prints a helpful message.
 
     WHO: The operator running 'export' before any search has been done
-    WHAT: When the requested format's file doesn't exist, a helpful
-          message is printed instead of crashing
+    WHAT: (1) The system explains that no CSV export was found when `export --format csv` is run and only markdown results exist.
     WHY: Crashing on a missing file is unhelpful; the operator needs to
          know to run 'search' first
 
@@ -1607,8 +1621,9 @@ class TestResetCommand:
     """REQUIREMENT: The reset command clears ChromaDB collections and optionally output files.
 
     WHO: The operator starting a fresh run
-    WHAT: 'reset' clears all known collections by default or a specific
-          one via --collection; --clear-output removes the output directory
+    WHAT: (1) The system resets all known collections and prints a completion message when no collection is specified.
+          (2) The system resets only the resume collection when the collection flag is set to resume.
+          (3) The system removes the output directory and recreates it empty when clear-output is set.
     WHY: Stale data from a previous run can corrupt scoring or mislead
          the operator into reviewing outdated results
 
@@ -1719,14 +1734,7 @@ class TestReviewJdLoading:
 
     WHO: The review CLI handler reconstructing RankedListing objects
          from CSV rows for the interactive review session
-    WHAT: Each listing's full_text is loaded from the corresponding
-          JD markdown file in output/jds/ using the rank-based filename
-          convention ({rank:03d}_{company_slug}_{title_slug}.md); the
-          JD body is extracted from the section after the
-          '## Job Description' marker; missing JD files or files without
-          the marker yield empty full_text (no crash); the slugify
-          function normalizes company and title to lowercase hyphenated
-          ASCII truncated at 80 characters
+    WHAT: (1) The review session finds the JD file using the rank company title slug convention when the operator opens a JD.
     WHY: DecisionRecorder requires full_text to generate embeddings for
          the history signal. Without it, recording a verdict fails with
          an empty-text validation error on the second listing reviewed
@@ -1785,16 +1793,21 @@ class TestReviewCommandHandler:
     the correct output and side-effect.
 
     WHO: The operator running `python -m jobsearch_rag review`
-    WHAT: Missing CSV prints 'No results found' and exits; CSV rows are
-          faithfully reconstructed as RankedListings with all fields;
-          all-decided state prints 'nothing to review'; the undecided
-          count and command help are printed before the first listing;
-          'q' stops review and reports how many were reviewed; 's' skips
-          to the next listing without recording; 'y'/'n'/'m' records
-          and prints confirmation (with reason when provided); 'o'
-          delegates to session.open_listing with rank; invalid input
-          reprints the command list; EOF/Ctrl-C is treated as quit;
-          reviewing all listings prints 'Review complete'
+    WHAT: (1) The system prints "No results found" and returns when no `results.csv` exists in the output directory.
+          (2) The system displays every reconstructed listing field from the CSV row when it rebuilds ranked listings for review.
+          (3) The system prints "nothing to review" when every listing already has a decision in ChromaDB.
+          (4) The system shows the total number of undecided listings before displaying the first listing.
+          (5) The system stops the review and reports that it reviewed 0 listings when the operator enters `q`.
+          (6) The system skips the current listing, shows the next listing, and records no decision when the operator enters `s`.
+          (7) The system records the operator's yes verdict in ChromaDB and prints a confirmation message.
+          (8) The system stores the listing's full job description text from the JD file in ChromaDB when it records a verdict.
+          (9) The system rejects the verdict because the JD text is empty when the JD file lacks the `## Job Description` marker.
+          (10) The system prints a confirmation without a reason suffix when the operator submits a verdict with an empty reason.
+          (11) The system reprints the valid command list when the operator enters an invalid command.
+          (12) The system prints "Review complete" after the operator reviews every listing.
+          (13) The system treats an `EOFError` during command input as quit and stops the review.
+          (14) The system delegates the open action to `webbrowser.open` when the operator enters `o`.
+          (15) The system records the verdict with an empty reason when an `EOFError` occurs during the reason prompt.
     WHY: The handler is the orchestration boundary between user input
          and domain logic — untested wiring means the operator gets
          silent failures, missing output, or wired-wrong dependencies
@@ -2297,9 +2310,8 @@ class TestIndexArchetypesOnly:
     """REQUIREMENT: --archetypes-only rebuilds archetypes and negative signals without resume.
 
     WHO: The operator tuning archetypes or the global rubric
-    WHAT: When ``--archetypes-only`` is passed to ``index``, only archetypes
-          and negative signals are re-indexed; the resume is not touched;
-          chunk counts are printed to stdout
+    WHAT: (1) The system indexes archetypes, negative signals, and positive signals without indexing the resume when `handle_index` runs with `--archetypes-only`.
+          (2) The system indexes negative signals alongside archetypes and the resume when `handle_index` runs with default flags.
     WHY: After editing role_archetypes.toml or global_rubric.toml, the operator
          needs a fast re-index path that doesn't re-embed the full resume
 
@@ -2399,9 +2411,11 @@ class TestRescoreCommand:
     """REQUIREMENT: The rescore command re-scores JDs through updated collections.
 
     WHO: The operator iterating on archetype tuning or negative signal refinement
-    WHAT: ``handle_rescore`` loads settings, creates scorer/ranker/rescorer,
-          runs rescore against output/jds/, prints a summary, and re-exports;
-          the health check runs before rescoring
+    WHAT: (1) The system prints a rescore results summary that includes counts.
+          (2) The system invokes the health check before processing rescore results.
+          (3) The system prints each ranked listing with its rank, score, title, company, and board.
+          (4) The system exports Markdown and CSV results to the output directory during rescoring.
+          (5) The system re-exports JD files with updated scores and ranks during rescoring.
     WHY: Without a dedicated rescore command the operator must re-run full
          browser sessions after every config change — minutes instead of seconds
 

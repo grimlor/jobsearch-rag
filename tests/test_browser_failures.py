@@ -75,11 +75,12 @@ class TestAuthenticationFailures:
     """REQUIREMENT: Authentication failures tell the operator exactly how to recover.
 
     WHO: The operator running the tool; the pipeline runner
-    WHAT: Expired sessions produce an AUTHENTICATION error with step-by-step
-          recovery guidance (which session file to delete, how to re-authenticate);
-          CAPTCHA encounters halt the run with headed-mode instructions;
-          every auth error names the board so the operator knows which
-          credential to fix
+    WHAT: (1) The system reports an authentication error that names the affected board and tells the operator to reauthenticate.
+          (2) The system reports an authentication error that names the board and provides login recovery steps.
+          (3) The system reports an authentication error that names the board and advises manual CAPTCHA resolution.
+          (4) The system classifies a CAPTCHA failure as an authentication error so it does not trigger an automated retry.
+          (5) The system persists successful authentication state to a storage file so later runs can skip login.
+          (6) The system reports that no stored session state is available when the storage state file is missing instead of crashing.
     WHY: An unauthenticated scrape returns login-page HTML silently,
          producing zero valid listings with no error — the worst failure mode
 
@@ -202,9 +203,11 @@ class TestRateLimitAndThrottling:
     """REQUIREMENT: Page loads are throttled to human-like timing per adapter profile.
 
     WHO: The browser session manager; the operator avoiding platform bans
-    WHAT: Sleep duration between pages falls within adapter's rate_limit_seconds
-          range; overnight mode enforces LinkedIn's extended range;
-          jitter is applied (not fixed delay); throttling applies per page, not per run
+    WHAT: (1) The system delays for a duration that stays within the adapter's configured minimum and maximum rate limit bounds.
+          (2) The system produces varying throttle durations across repeated calls to avoid fixed-interval detection.
+          (3) The system enforces a LinkedIn overnight throttle delay of at least 8 seconds to reduce ban escalation risk.
+          (4) The system applies throttling between each page load and keeps every delay within the adapter's rate limit bounds.
+          (5) The system applies throttling between each job detail request and keeps every delay within the adapter's rate limit bounds.
     WHY: Consistent sub-second timing is detectable as automation;
          LinkedIn specifically monitors request cadence for ban enforcement
 
@@ -322,11 +325,13 @@ class TestPageExtractionFailures:
     """REQUIREMENT: Extraction failures on individual listings do not abort the run.
 
     WHO: The pipeline runner processing a result set
-    WHAT: A 404 on a job detail page skips that listing and continues;
-          empty JD text is flagged and excluded from scoring rather than
-          passed through as a zero-length document; changed page structure
-          raises a descriptive ParseError identifying the board and selector;
-          network timeout on detail page retries once then skips
+    WHAT: (1) The system classifies a 404 detail-page failure as a PARSE error and provides actionable guidance.
+          (2) The system detects empty extracted full_text so the scorer can exclude the listing.
+          (3) The system retains the listing URL so it can log a warning for empty extraction.
+          (4) The system creates a PARSE error that identifies the board and selector and advises inspection.
+          (5) The system classifies a timeout failure as a CONNECTION error and provides recovery guidance.
+          (6) The system tracks failed listings separately so the run summary reports success and failure counts.
+          (7) The system preserves successful listings so partial results remain available for export.
     WHY: A single broken listing must not discard an entire search session's
          results — partial output is better than no output
 
@@ -457,10 +462,14 @@ class TestLinkedInDetectionResponse:
     """REQUIREMENT: LinkedIn bot detection triggers a graceful, safe halt.
 
     WHO: The operator running overnight LinkedIn passes
-    WHAT: Detection indicators (interstitial challenge page, redirect to /authwall,
-          sudden session invalidation) are recognized; the run stops immediately
-          without retrying; a clear message advises waiting before the next run;
-          no further requests are made after detection
+    WHAT: (1) The system raises an AUTHENTICATION error that advises waiting before retrying when LinkedIn redirects to `/authwall`.
+          (2) The system raises an AUTHENTICATION error that advises waiting before retrying when LinkedIn redirects to `/checkpoint/challenge`.
+          (3) The system advises waiting instead of retrying after a LinkedIn detection event because retrying increases ban risk.
+          (4) The system includes wait guidance and scheduling troubleshooting steps in the detection error message.
+          (5) The system stops making further `page.goto()` calls after a LinkedIn detection event occurs.
+          (6) The system raises an AUTHENTICATION error that advises re-authenticating when LinkedIn redirects to `/login`.
+          (7) The system raises an AUTHENTICATION error that advises re-authenticating when LinkedIn redirects to `/uas/login`.
+          (8) The system preserves and exports listings collected before a later LinkedIn detection event.
     WHY: Continuing after detection escalates ban risk from temporary to permanent;
          the correct response is always stop, log, and wait
 

@@ -61,10 +61,8 @@ class TestWeWorkRemotelyAuthenticate:
     """REQUIREMENT: WeWorkRemotely session verification handles auth and access.
 
     WHO: The pipeline runner during the authenticate step
-    WHAT: A valid session (or unauthenticated public access) passes
-          silently; a blocked or rate-limited page raises with
-          actionable guidance; a login redirect raises with a
-          re-authentication suggestion
+    WHAT: (1) The system completes authentication without error when WeWorkRemotely loads without blocking.
+          (2) The system raises an ActionableError with a wait or retry suggestion when authentication encounters a rate-limit or block response.
     WHY: Even lighter-touch boards can block automated access —
          authenticate must verify access before search begins
 
@@ -122,10 +120,9 @@ class TestWeWorkRemotelySearch:
     """REQUIREMENT: search() navigates WeWorkRemotely and extracts remote listings.
 
     WHO: The pipeline runner collecting listings from WeWorkRemotely
-    WHAT: search() navigates to the search or category URL; extracts job
-          cards from the results page; populates each card as a
-          JobListing with title, company, location (always Remote), and
-          URL; paginates through result pages up to max_pages
+    WHAT: (1) The system returns a list of JobListing objects when it searches WeWorkRemotely results.
+          (2) The system populates each returned WeWorkRemotely listing with the board, title, company, and url fields.
+          (3) The system processes only the first page of WeWorkRemotely results when `max_pages` is set to 1.
     WHY: WeWorkRemotely is the primary remote-only board — all listings
          are guaranteed remote positions, simplifying location filtering
 
@@ -215,10 +212,9 @@ class TestWeWorkRemotelyExtractDetail:
     """REQUIREMENT: extract_detail navigates to a listing and populates full_text.
 
     WHO: The pipeline runner enriching shallow listings with full JD text
-    WHAT: Given a shallow listing with empty full_text, extract_detail
-          navigates to the listing URL and populates full_text from the
-          job description section; listings with full_text already
-          populated are returned unchanged
+    WHAT: (1) The system populates full_text with the job description body when it extracts details for a listing whose full_text is empty.
+          (2) The system leaves the listing unchanged when extract_detail is called on a listing whose full_text is already populated.
+          (3) The system returns the same listing object when extract_detail is called and mutates it in place instead of creating a copy.
     WHY: Full JD text is required for embedding and scoring — without it
          the RAG pipeline cannot compute meaningful similarity
 

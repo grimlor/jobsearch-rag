@@ -61,11 +61,9 @@ class TestLinkedInAuthenticate:
     """REQUIREMENT: LinkedIn session verification detects bot-detection and session expiry.
 
     WHO: The pipeline runner during the authenticate step
-    WHAT: A valid session passes silently; an authwall redirect raises
-          with a 24-hour wait suggestion; a security challenge page
-          raises with a wait suggestion; a login redirect raises with
-          re-auth suggestion; headed mode and stealth patches are
-          required for session survival
+    WHAT: (1) The system completes authentication without error when the LinkedIn feed loads successfully.
+          (2) The system raises an ActionableError that mentions authwall and suggests waiting 24 hours when LinkedIn redirects authentication to `/authwall`.
+          (3) The system raises an ActionableError about session expiration when LinkedIn redirects authentication to `/login`.
     WHY: LinkedIn's bot detection is aggressive — a detected session is
          locked for 24+ hours.  Failing fast with actionable advice
          prevents wasted retries that extend the lockout
@@ -148,11 +146,9 @@ class TestLinkedInSearch:
     """REQUIREMENT: search() navigates LinkedIn job search and extracts listings.
 
     WHO: The pipeline runner collecting listings from LinkedIn
-    WHAT: search() navigates to the LinkedIn jobs search URL; extracts
-          job cards from the results page; populates each card as a
-          JobListing with title, company, location, and URL; paginates
-          through result pages up to max_pages; respects the wide
-          throttle window (8-20s) between page loads
+    WHAT: (1) The system returns a list of JobListings when LinkedIn search is called on job search results.
+          (2) The system populates each returned LinkedIn listing with board, title, company, location, and url fields.
+          (3) The system processes only the first page of LinkedIn results when search is called with max_pages set to 1.
     WHY: LinkedIn is the highest-signal board for professional roles —
          extraction must be reliable despite aggressive bot detection
 
@@ -242,10 +238,9 @@ class TestLinkedInExtractDetail:
     """REQUIREMENT: extract_detail navigates to a listing and populates full_text.
 
     WHO: The pipeline runner enriching shallow listings with full JD text
-    WHAT: Given a shallow listing with empty full_text, extract_detail
-          navigates to the listing URL and populates full_text from the
-          job description section; listings with full_text already
-          populated are returned unchanged
+    WHAT: (1) The system populates an empty full_text field with the job description body during detail extraction.
+          (2) The system returns the listing unchanged when full_text is already populated.
+          (3) The system returns the same listing object after mutating it in place during detail extraction.
     WHY: Full JD text is required for embedding and scoring — without it
          the RAG pipeline cannot compute meaningful similarity
 

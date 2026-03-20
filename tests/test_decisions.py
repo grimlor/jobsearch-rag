@@ -57,10 +57,21 @@ class TestDecisionRecording:
     """REQUIREMENT: User decisions are recorded and build the history signal over time.
 
     WHO: The scorer computing history_score on future runs
-    WHAT: A verdict (yes/no/maybe) is stored with the JD embedding and job_id;
-          recording a decision for an unknown job_id raises a clear error;
-          the history collection grows with each decision;
-          only 'yes' decisions contribute to history_score (maybes and nos do not)
+    WHAT: (1) The system persists a recorded yes verdict and includes it in the history signal for future scoring.
+          (2) The system persists the reason alongside the recorded verdict so the operator's reasoning is preserved.
+          (3) The system stores an empty string for the reason when no reason is provided so the field is always present.
+          (4) The system sends the JD text plus the reason to the embedder so the embedding vector captures operator intent.
+          (5) The system sends only the bare JD text to the embedder when no reason is provided.
+          (6) The system stores a recorded no verdict for audit purposes but excludes it from the scoring history signal.
+          (7) The system stores a recorded maybe verdict but excludes it from scoring so only clear yes signals contribute.
+          (8) The system raises a DECISION error that names the job ID and tells the operator to check the latest output.
+          (9) The system increases the history collection count by one for each recorded decision.
+          (10) The system overwrites an existing decision for the same job ID instead of appending a duplicate.
+          (11) The system raises a VALIDATION error that tells the operator to provide JD content when the JD text is empty.
+          (12) The system writes the reason field to the daily JSONL audit file alongside the verdict.
+          (13) The system returns None from get_decision() when the decisions collection is missing instead of raising an error.
+          (14) The system returns None from get_decision() when the decisions collection exists but no matching document is found.
+          (15) The system returns 0 from history_count() when the decisions collection is missing instead of raising an error.
     WHY: If 'no' decisions contributed to scoring, roles similar to rejected ones
          would score lower — but the signal we want is 'what did I like',
          not 'what did I reject' (rejections have too many confounding reasons)

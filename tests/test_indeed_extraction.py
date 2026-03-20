@@ -61,10 +61,9 @@ class TestIndeedAuthenticate:
     """REQUIREMENT: Indeed session verification detects blocks and session expiry.
 
     WHO: The pipeline runner during the authenticate step
-    WHAT: A valid session passes silently; a CAPTCHA or challenge page
-          raises with a manual-solve suggestion; a login redirect raises
-          with a re-authentication suggestion; bot-detection by Akamai
-          or DataDome raises with actionable guidance
+    WHAT: (1) The system completes authentication without error when the Indeed search page loads without detection.
+          (2) The system raises an ActionableError suggesting a manual solve when authentication encounters a CAPTCHA challenge.
+          (3) The system raises an ActionableError suggesting re-authentication when authentication is redirected to the Indeed login page because the session has expired.
     WHY: Indeed is aggressive about bot detection — an expired or
          blocked session must fail fast so the operator can intervene
          before wasting search quota
@@ -140,11 +139,9 @@ class TestIndeedSearch:
     """REQUIREMENT: search() navigates Indeed job search and extracts listings.
 
     WHO: The pipeline runner collecting listings from Indeed
-    WHAT: search() navigates to the Indeed search URL; extracts job cards
-          from the results page; populates each card as a JobListing with
-          title, company, location, and URL; paginates through result
-          pages up to max_pages; handles per-card extraction errors
-          without aborting the batch
+    WHAT: (1) The system returns a list of JobListing objects when Indeed search is called on search results.
+          (2) The system populates each Indeed listing with the board, title, company, location, and url fields.
+          (3) The system processes only the first page of Indeed results when max_pages is set to 1.
     WHY: Indeed is the highest-volume general board — extraction must
          handle variable HTML structures and aggressive rate limiting
 
@@ -230,10 +227,9 @@ class TestIndeedExtractDetail:
     """REQUIREMENT: extract_detail navigates to a listing and populates full_text.
 
     WHO: The pipeline runner enriching shallow listings with full JD text
-    WHAT: Given a shallow listing with empty full_text, extract_detail
-          navigates to the listing URL and populates full_text from the
-          job description section; listings with full_text already
-          populated are returned unchanged
+    WHAT: (1) The system populates full_text with the job description body when full_text is empty.
+          (2) The system leaves the listing unchanged when full_text is already populated.
+          (3) The system returns the same listing object after mutating it in place.
     WHY: Full JD text is required for embedding and scoring — without it
          the RAG pipeline cannot compute meaningful similarity
 

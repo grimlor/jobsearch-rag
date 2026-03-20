@@ -24,16 +24,21 @@ class TestCompensationScoring:
 
     WHO: The ranker consuming comp_score to nudge final ranking;
          the operator tuning base_salary in settings.toml
-    WHAT: comp_max at or above base_salary produces comp_score 1.0;
-          comp_max between 90-100% of base produces 0.7-0.9 (linear);
-          comp_max between 77-90% of base produces 0.4-0.7 (linear);
-          comp_max between 68-77% of base produces 0.0-0.4 (linear);
-          comp_max below 68% of base produces 0.0;
-          the scale is continuous across band boundaries (no gaps or jumps);
-          missing compensation data produces 0.5 (neutral);
-          base_salary is read from settings.toml, not hardcoded;
-          changing base_salary changes all score boundaries proportionally;
-          comp_score is always in [0.0, 1.0]
+    WHAT: (1) The system assigns a compensation score of 1.0 when `comp_max` equals `base_salary`.
+          (2) The system keeps the compensation score at 1.0 when `comp_max` exceeds `base_salary`.
+          (3) The system places the compensation score in the 0.7 to 0.9 band when `comp_max` is 95% of `base_salary`.
+          (4) The system assigns a compensation score of 0.7 when `comp_max` is exactly 90% of `base_salary`.
+          (5) The system places the compensation score in the 0.4 to 0.7 band when `comp_max` is 85% of `base_salary`.
+          (6) The system assigns a compensation score of 0.4 when `comp_max` is exactly 77% of `base_salary`.
+          (7) The system places the compensation score in the 0.0 to 0.4 band when `comp_max` is 72% of `base_salary`.
+          (8) The system assigns a compensation score of 0.0 when `comp_max` is exactly 68% of `base_salary`.
+          (9) The system clamps the compensation score to 0.0 when `comp_max` falls below 68% of `base_salary`.
+          (10) The system assigns a neutral compensation score of 0.5 when compensation data is missing.
+          (11) The system reads `base_salary` from configuration by producing different scores for the same `comp_max` under different base salaries.
+          (12) The system scales compensation thresholds proportionally with `base_salary` so that 90% of any configured base scores 0.7.
+          (13) The system always keeps the compensation score within the inclusive range from 0.0 to 1.0.
+          (14) The system increases the compensation score monotonically within a band through linear interpolation.
+          (15) The system keeps the compensation scale continuous across band boundaries without score gaps or jumps.
     WHY: Compensation as a taste signal lets well-paying roles float up
          without hard-gating roles that might be stepping stones or have
          other attractive qualities — a gate would discard too aggressively

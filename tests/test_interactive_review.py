@@ -99,9 +99,22 @@ class TestInteractiveReview:
     listings in a single interactive session.
 
     WHO: The operator reviewing search results after a pipeline run
-    WHAT: Undecided listings are presented in descending score order;
-          already-decided listings are excluded; each listing displays
-          rank, title, company, and score for informed decision-making
+    WHAT: (1) The review session orders undecided listings by descending score when it loads the latest results.
+          (2) The system returns only listings without prior decisions when it retrieves undecided listings.
+          (3) The system includes the listing's rank, title, company, and score when it formats a listing.
+          (4) The system shows every component score in the listing output when it formats a ranked listing.
+          (5) The system displays the compensation range in the listing output when compensation data is available.
+          (6) The system persists a recorded 'y' verdict as a yes decision.
+          (7) The system persists the provided reason together with a recorded no verdict.
+          (8) The system stores an empty string as the reason when it records a verdict without a reason.
+          (9) The system persists a recorded 'n' verdict as a no decision.
+          (10) The system persists a recorded 'm' verdict as a maybe decision.
+          (11) The system skips recording a verdict and leaves the listing undecided when the operator enters 's'.
+          (12) The system launches the JD file in the default system viewer when the operator invokes 'o'.
+          (13) The system preserves all previously recorded verdicts when the operator quits mid-review.
+          (14) The system shows the current position and total count as '[3/28]' in the progress indicator.
+          (15) The system returns an empty list when every listing already has a decision.
+          (16) The system returns an empty list when no ranked listings exist.
     WHY: Without batch review, the operator must invoke individual CLI
          commands per listing, making the review workflow impractical
          for large result sets
@@ -487,8 +500,7 @@ class TestListingDisplayDisqualified:
     review display.
 
     WHO: The operator reviewing a listing that was auto-disqualified
-    WHAT: When a listing has disqualified=True, the formatted display
-          includes a warning indicator and the disqualification reason
+    WHAT: (1) The system includes a '⚠ DISQUALIFIED' warning with the reason in the formatted listing output for a disqualified listing.
     WHY: Without a visible warning, the operator may unknowingly spend
          time evaluating a role that was already flagged as unsuitable
 

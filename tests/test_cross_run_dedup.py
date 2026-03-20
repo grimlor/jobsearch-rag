@@ -190,9 +190,12 @@ class TestCrossRunDedup:
     have a recorded decision.
 
     WHO: The pipeline runner performing a follow-up search
-    WHAT: Listings whose job_id already has a recorded decision are
-          excluded from scoring — no Ollama compute is wasted on
-          previously decided roles
+    WHAT: (1) The system excludes listings with existing decisions from scoring and only generates embeddings for new listings.
+          (2) The system omits listings with existing decisions from the exported ranked results and includes only new roles.
+          (3) The system records excluded listings in the run summary by incrementing `skipped_decisions`.
+          (4) The system scores a listing normally when no prior decision exists and generates embeddings for it.
+          (5) The system scores a listing even when a prior decision exists if `force_rescore=True` is set.
+          (6) The system looks up prior decisions by job ID rather than URL and skips a listing whose `external_id` already has a decision.
     WHY: Without deduplication, repeated searches would re-score and
          re-present listings the operator has already acted on,
          wasting compute and operator time

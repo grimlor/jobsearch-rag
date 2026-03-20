@@ -126,10 +126,17 @@ class TestSemanticScoring:
     """REQUIREMENT: Semantic scores reflect meaningful similarity, not noise.
 
     WHO: The ranker consuming scores to produce a ranked shortlist
-    WHAT: All three scores (fit, archetype, history) are floats in [0.0, 1.0];
-          a JD clearly matching an archetype scores higher than one that does not;
-          a JD matching resume skills scores higher fit than one that does not;
-          score order is stable across repeated calls with the same inputs
+    WHAT: (1) The system returns fit, archetype, and history scores as floats between 0.0 and 1.0 inclusive.
+          (2) The system assigns a higher archetype score to a JD that matches an archetype than to an unrelated JD.
+          (3) The system assigns a higher fit score to a JD that matches resume skills than to a JD with no skill overlap.
+          (4) The system produces identical component scores when it scores the same JD repeatedly.
+          (5) The system returns a history score of 0.0 when no decisions collection exists.
+          (6) The system returns a score component of 0.0 when a query yields no distances.
+          (7) The system raises an INDEX ActionableError with guidance when the resume collection is missing.
+          (8) The system raises an INDEX ActionableError with guidance when the resume collection exists but contains no documents.
+          (9) The system returns a history score of 0.0 when the decisions collection exists but is empty.
+          (10) The system returns a history score greater than 0.0 when the decisions collection contains documents.
+          (11) The system skips the LLM disqualifier entirely when disqualify_on_llm_flag is set to False.
     WHY: Nonsensical scores (>1.0, negative, NaN) or instability across calls
          would produce a randomly-ordered shortlist disguised as a ranking
 
@@ -435,10 +442,10 @@ class TestJDChunking:
     """REQUIREMENT: Long JDs are chunked so all content contributes to scoring.
 
     WHO: The scorer processing real-world JDs from ZipRecruiter et al.
-    WHAT: JDs exceeding the embedding model's context window are split into
-          overlapping chunks; each chunk is embedded and queried; the best
-          (max) similarity score across chunks is kept; short JDs bypass
-          chunking entirely; the disqualifier still receives the full text
+    WHAT: (1) The system calls embed exactly once when a short job description fits in a single chunk.
+          (2) The system chunks a long job description into multiple embeddings and uses the strongest chunk's score as the result.
+          (3) The system preserves strong tail content in chunked scoring so the score is at least as good as scoring only the head.
+          (4) The system sends the full long job description to the LLM disqualifier instead of sending individual chunks.
     WHY: Real-world JDs place comp ranges and hands-on work details in the
          last third — if truncated to the head only, scoring would miss the
          signals that distinguish a Staff Architect role from a decorated IC
@@ -566,8 +573,10 @@ class TestParseDisqualifierResponse:
     """REQUIREMENT: Disqualifier JSON parsing handles all LLM response variants.
 
     WHO: The Scorer parsing raw LLM text
-    WHAT: Valid JSON is parsed correctly; string "null" reason is normalised
-          to None; non-JSON falls back to (False, None)
+    WHAT: (1) The system normalises a reason value of the string "null" to None.
+          (2) The system parses a JSON null reason as None.
+          (3) The system coerces a numeric reason value to a string.
+          (4) The system defaults disqualified to False when the disqualified key is missing.
     WHY: LLMs produce varied outputs — brittle parsing would cause
          false positives or crash the scoring pipeline
 
@@ -669,9 +678,12 @@ class TestDisqualifierClassification:
     """REQUIREMENT: LLM disqualifier correctly identifies structurally unsuitable roles.
 
     WHO: The ranker applying disqualification before final scoring
-    WHAT: Known disqualifier patterns produce disqualified=True;
-          suitable roles return disqualified=False; malformed LLM JSON
-          falls back to not-disqualified with a warning; the reason is preserved
+    WHAT: (1) The system returns `disqualified=True` and returns the provided reason when the LLM flags a JD as disqualified.
+          (2) The system returns `disqualified=False` and no reason when the LLM approves a JD.
+          (3) The system falls back to `disqualified=False` when the LLM returns malformed JSON.
+          (4) The system preserves the exact disqualification reason string for audit when the LLM supplies one.
+          (5) The system sets `ScoreResult.disqualified=True` and includes the disqualification reason when `score()` receives a flagged JD.
+          (6) The system returns `ScoreResult.disqualified=False` with no reason when `score()` uses the default approving embedder.
     WHY: A disqualified role that slips through wastes review time;
          a false disqualification silently removes a good role
 
@@ -818,11 +830,12 @@ class TestRejectionReasonInjection:
     """REQUIREMENT: Past rejection reasons are injected into the disqualifier prompt.
 
     WHO: The scorer augmenting the LLM system prompt with learned patterns
-    WHAT: When 'no' verdicts with reasons exist, the disqualifier prompt
-          includes those reasons so the LLM applies them to new JDs;
-          empty reasons are omitted; duplicate reasons appear once;
-          missing decisions collection returns no reasons;
-          results are cached per Scorer instance
+    WHAT: (1) The system injects rejection reasons from past 'no' verdicts into the disqualifier prompt as additional disqualifier patterns.
+          (2) The system excludes reasons from past 'yes' verdicts from the disqualifier prompt so only 'no' reasons become rejection patterns.
+          (3) The system omits the rejection-reasons block from the disqualifier prompt when stored 'no' verdict reasons are empty.
+          (4) The system includes each unique rejection reason only once in the disqualifier prompt even when multiple 'no' verdicts share the same reason.
+          (5) The system skips adding a rejection-reasons block and continues scoring normally when the decisions collection does not exist.
+          (6) The system reuses cached rejection reasons across multiple disqualify calls on the same scorer instance so the reasons appear in every prompt.
     WHY: Without injection, the operator must repeatedly reject the same
          patterns — the system should learn from past 'no' verdicts
 
@@ -1020,14 +1033,18 @@ class TestScoreFusion:
     """REQUIREMENT: Final score correctly fuses weighted components from settings.
 
     WHO: The ranker; the operator tuning weights in settings.toml
-    WHAT: Final score equals the weighted sum of the four positive component
-          scores (archetype, fit, history, comp) minus a negative penalty
-          (negative_weight * negative_score); weights are read from settings,
-          not hardcoded; weights need not sum to 1.0 (the formula produces a
-          weighted composite, not a probability); a disqualified role always
-          scores 0.0; roles below min_score_threshold are excluded from output
-          entirely; comp_weight applies to the compensation taste signal;
-          the final score floors at 0.0 to prevent negative values
+    WHAT: (1) The system computes the final score as the positive weighted sum minus the negative penalty.
+          (2) The system reads fusion weights from settings configuration rather than using hardcoded defaults.
+          (3) The system returns a final score of 0.0 for any disqualified role regardless of component scores.
+          (4) The system excludes roles whose final score falls below the minimum score threshold from ranked output.
+          (5) The system includes roles whose final score equals exactly the minimum score threshold in ranked output.
+          (6) The system's score explanation includes all six component values formatted with their labels.
+          (7) The system's score explanation includes a 'DISQUALIFIED:' label and the disqualification reason for disqualified listings.
+          (8) The system reduces the final score by the product of negative_weight and negative_score.
+          (9) The system floors the final score at 0.0 when the negative penalty exceeds the positive weighted sum.
+          (10) The system computes the final score as the unmodified positive weighted sum when negative_score is 0.0.
+          (11) The system includes comp_score multiplied by comp_weight as a contributing term in the fusion formula.
+          (12) The system treats a neutral comp_score of 0.5 as a gentle positive contribution rather than a penalty.
     WHY: Incorrect weight application would produce a ranking that doesn't
          reflect configured priorities — a silent correctness failure
 
@@ -1431,10 +1448,18 @@ class TestCrossBoardDeduplication:
     """REQUIREMENT: The same job appearing on multiple boards is presented once.
 
     WHO: The operator reviewing the ranked output
-    WHAT: Near-duplicate listings (cosine similarity > 0.95 on full_text) are
-          collapsed into one; the highest-scored instance is kept; the output
-          notes which boards carried the duplicate; exact same external_id
-          on same board is always deduplicated regardless of similarity threshold
+    WHAT: (1) The system collapses listings whose full-text cosine similarity exceeds 0.95 into a single entry.
+          (2) The system retains the near-duplicate listing with the highest final score.
+          (3) The system records the duplicate listing's other board in the surviving listing's metadata.
+          (4) The system unconditionally deduplicates listings that share the same external ID on the same board without requiring embeddings.
+          (5) The system preserves separate listings for distinct roles whose titles are similar but whose job description content differs.
+          (6) The system reports the correct number of deduplicated listings in the run summary.
+          (7) The system leaves both listings separate when one listing has an empty embedding vector.
+          (8) The system leaves both listings separate when one listing has a zero-magnitude embedding vector.
+          (9) The system adds the consumed listing's board to the surviving listing's duplicate_boards when near-deduplication collapses cross-board duplicates.
+          (10) The system allows a candidate listing with no embedding in the embeddings map to survive deduplication without comparison.
+          (11) The system skips an other listing that has no embedding in the inner deduplication loop so it survives uncollapsed.
+          (12) The system skips already-consumed listings when a later candidate encounters them in the inner deduplication loop.
     WHY: Seeing the same role five times in a shortlist wastes review time
          and inflates apparent result counts
 

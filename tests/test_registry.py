@@ -99,8 +99,11 @@ class TestAdapterRegistration:
     """REQUIREMENT: Adapters self-register and are discoverable by board name.
 
     WHO: The pipeline runner loading adapters from settings.toml
-    WHAT: Registered adapters are retrievable by board name string;
-          unregistered names raise clear errors; all registered boards are listable
+    WHAT: (1) The registry returns a ready-to-use adapter instance when the system looks up a registered board name.
+          (2) The registry raises a ValueError that identifies the missing board name when the system requests an unregistered board name.
+          (3) The registry returns all registered board names when the system lists registered adapters.
+          (4) The registry replaces the previously registered adapter class when the system registers a new class under the same board name.
+          (5) The registry returns the original class unchanged when the system passes an adapter class through register().
     WHY: The runner must not know concrete adapter classes — IoC requires
          that board name is the only coupling between config and implementation
 
@@ -203,8 +206,12 @@ class TestAdapterContract:
     """REQUIREMENT: All adapters conform to the JobBoardAdapter interface.
 
     WHO: The pipeline runner invoking adapters polymorphically
-    WHAT: Every concrete adapter exposes board_name, authenticate, search,
-          extract_detail, and rate_limit_seconds with correct return types
+    WHAT: (1) The adapter returns a non-empty string for board_name.
+          (2) The adapter returns a rate_limit_seconds tuple containing exactly two floats.
+          (3) The adapter returns rate_limit_seconds with a lower bound that is strictly less than the upper bound.
+          (4) The adapter returns a list from search(), including when no listings are found.
+          (5) The adapter populates listing.full_text with content during extract_detail().
+          (6) The adapter returns the same listing object from extract_detail() after enriching it in place.
     WHY: The runner calls adapters without knowing their type;
          any deviation from the contract breaks the pipeline silently
 
@@ -325,9 +332,12 @@ class TestJobListingDataContract:
     """REQUIREMENT: JobListing is the canonical data contract across all boards.
 
     WHO: The RAG scorer, ranker, and exporter consuming listings
-    WHAT: Required fields are always populated after extraction;
-          optional fields degrade gracefully when absent;
-          board field identifies source for deduplication
+    WHAT: (1) The system preserves all required listing fields as non-empty strings after extraction.
+          (2) The system produces full_text as a non-empty string ready for embedding after detail extraction.
+          (3) The system sets the listing board field to match the adapter's board_name property.
+          (4) The system assigns distinct external_id values to different listings within the same board.
+          (5) The system defaults posted_at to None when it is missing without raising an error.
+          (6) The system defaults metadata to an empty dictionary rather than None when it is missing.
     WHY: Downstream components must not branch on board type —
          the listing is the abstraction that makes them board-agnostic
 
@@ -437,11 +447,11 @@ class TestStubAdapterContract:
     """REQUIREMENT: Planned adapters conform to the full adapter behavioral contract.
 
     WHO: The pipeline runner invoking adapters polymorphically
-    WHAT: Each planned adapter (LinkedIn, Indeed, WeWorkRemotely) is
-          discoverable by board name; authenticate completes without
-          error on a valid session; search returns a list of JobListings
-          with required fields populated; extract_detail populates
-          full_text on a shallow listing
+    WHAT: (1) The adapter reports the expected board identifier through its `board_name` property.
+          (2) The LinkedIn adapter exposes a wider `rate_limit_seconds` range than the default to avoid detection.
+          (3) The adapter verifies a valid browser session during `authenticate()` without raising an error.
+          (4) The adapter returns a list of `JobListing` objects from `search()` for a query.
+          (5) The adapter populates a listing's `full_text` when `extract_detail()` is called on a shallow listing.
     WHY: These specs define the delivery contract — each adapter is
          expected to fail (xfail) until implementation is delivered,
          then the marks are removed and the specs become regression

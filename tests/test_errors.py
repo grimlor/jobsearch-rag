@@ -21,8 +21,15 @@ class TestErrorFactoryMethods:
     """REQUIREMENT: Factory methods produce structured errors with embedded guidance.
 
     WHO: Any component catching exceptions and wrapping them for consumers
-    WHAT: Each factory produces the correct error_type; suggestion is always populated;
-          ai_guidance and troubleshooting are present; to_dict() excludes None values
+    WHAT: (1) The system returns an authentication error that includes a suggestion and troubleshooting guidance so the operator can re-authenticate.
+          (2) The system returns a configuration error that names the invalid field and provides recovery steps.
+          (3) The system returns a connection error that includes the URL and connectivity troubleshooting guidance.
+          (4) The system returns an embedding error that names the model and provides pull and verification guidance.
+          (5) The system returns an index error that names the collection and provides rebuild guidance.
+          (6) The system returns a parse error that names the board and selector and provides inspection steps.
+          (7) The system returns a decision error that names the job ID and provides lookup guidance.
+          (8) The system omits all None-valued fields when converting a factory-produced error to a dictionary.
+          (9) The system sets success to False on every factory-produced error so callers never treat an error as a success.
     WHY: Opaque errors halt autonomous recovery — every error must carry
          its own recovery path
 
@@ -168,7 +175,8 @@ class TestSuggestionPreservation:
     """REQUIREMENT: Custom suggestions are always preserved.
 
     WHO: Callers providing operation-specific context
-    WHAT: Custom suggestions flow through factory methods and from_exception()
+    WHAT: (1) The system preserves a caller-provided suggestion verbatim when authentication() creates the error instead of using a generic default.
+          (2) The system forwards a caller-provided suggestion when from_exception() creates the error instead of generating a generic one.
     WHY: Callers have context that generic classifiers cannot infer
 
     MOCK BOUNDARY:
@@ -215,8 +223,11 @@ class TestAIGuidanceToDict:
     """REQUIREMENT: AIGuidance.to_dict() includes only non-None optional fields.
 
     WHO: Logging and API consumers deserializing error guidance
-    WHAT: Optional fields (command, discovery_tool, checks, steps) appear
-          in the dict only when populated; mandatory action_required is always present
+    WHAT: (1) The system includes the `command` key in the dictionary when `command` is set.
+          (2) The system includes the `discovery_tool` key in the dictionary when `discovery_tool` is set.
+          (3) The system includes the `checks` list in the dictionary when `checks` is set.
+          (4) The system includes the `steps` list in the dictionary when `steps` is set.
+          (5) The system excludes optional fields with `None` values from the dictionary and returns only `action_required` when it is the only populated field.
     WHY: Including None values creates noisy logs and confuses downstream
          tooling that treats presence as meaningful
 
@@ -306,7 +317,8 @@ class TestActionableErrorToDict:
     """REQUIREMENT: ActionableError.to_dict() includes troubleshooting and context when set.
 
     WHO: Error serialization consumers (logs, API responses, AI agents)
-    WHAT: troubleshooting and context keys appear only when populated
+    WHAT: (1) The system includes the troubleshooting dictionary with its steps when converting an error with troubleshooting steps to a dictionary.
+          (2) The system includes the context dictionary when converting an error with populated context to a dictionary.
     WHY: Structured errors enable automated recovery by downstream agents
 
     MOCK BOUNDARY:
@@ -357,7 +369,7 @@ class TestValidationFactory:
     """REQUIREMENT: validation() factory produces VALIDATION-typed errors.
 
     WHO: Config validation and input parsing code
-    WHAT: validation() creates an error with correct type, field name, and reason
+    WHAT: (1) The system returns a VALIDATION error that names the field and provides suggestion and troubleshooting guidance.
     WHY: Validation errors need distinct routing from config or connection errors
 
     MOCK BOUNDARY:
@@ -387,8 +399,11 @@ class TestFromExceptionClassifier:
     """REQUIREMENT: from_exception() classifies exceptions by keyword patterns.
 
     WHO: Generic exception handlers wrapping unknown errors
-    WHAT: Timeout keywords → connection error; connection refused → connection;
-          not found → unexpected; unmatched → unexpected
+    WHAT: (1) The system classifies an exception containing timeout as CONNECTION and provides suggestion and troubleshooting.
+          (2) The system classifies an exception containing timed out as CONNECTION and provides actionable guidance.
+          (3) The system classifies an exception containing connection refused as CONNECTION and provides actionable guidance.
+          (4) The system classifies an exception containing not found as UNEXPECTED and provides actionable guidance.
+          (5) The system classifies an exception with no matching keyword as UNEXPECTED and still provides actionable guidance.
     WHY: Auto-classification provides structured recovery paths for
          exceptions that weren't explicitly caught
 

@@ -140,10 +140,16 @@ class TestMarkdownExport:
     """REQUIREMENT: Markdown output is human-readable and complete.
 
     WHO: The operator reviewing results in Obsidian or a text editor
-    WHAT: Output includes title, company, board, final score, component scores,
-          disqualifier status, and a clickable URL; disqualified roles are
-          omitted from output (score 0.0 = excluded); results are sorted
-          descending by final score; run summary appears at top
+    WHAT: (1) The system includes each listing's title, company, board, scores, disqualifier status, and URL in the Markdown output.
+          (2) The system orders listings by descending final score in the Markdown output.
+          (3) The system excludes disqualified roles with a score of 0.0 from the Markdown output.
+          (4) The system shows fit, archetype, history, and comp scores in the Markdown output.
+          (5) The system includes the culture score in the Markdown output.
+          (6) The system includes the negative score in the Markdown output.
+          (7) The system places the run summary before any listing in the Markdown output.
+          (8) The system reports total found, scored, excluded, and deduplicated counts in the run summary.
+          (9) The system includes a non-empty URL for every listing in the Markdown output.
+          (10) The system produces a valid Markdown file with a summary and no listing table when the result set is empty.
     WHY: The ranked list is the primary product of every run —
          missing fields or wrong sort order defeats the purpose
 
@@ -405,9 +411,14 @@ class TestCSVExport:
     """REQUIREMENT: CSV export is valid and importable by standard tools.
 
     WHO: The operator importing results into a spreadsheet or ATS tracker
-    WHAT: Output is valid CSV with a header row; all required columns are present;
-          JD text is excluded from CSV (too large); special characters in
-          company names or titles do not break CSV formatting
+    WHAT: (1) The system starts the CSV file with a header row that contains all required column names.
+          (2) The system includes the `comp_score`, `comp_min`, and `comp_max` columns in the CSV header.
+          (3) The system excludes `full_text` from the CSV output.
+          (4) The system quotes company names that contain commas so they remain intact across CSV imports.
+          (5) The system produces a valid CSV containing only the header row when there are no results.
+          (6) The system writes one data row for each non-disqualified listing in the CSV output.
+          (7) The system includes a `culture_score` column in the CSV header.
+          (8) The system includes a `negative_score` column in the CSV header.
     WHY: A CSV with unescaped commas or missing headers silently corrupts
          on import — the operator may not notice
 
@@ -598,10 +609,15 @@ class TestBrowserTabOpener:
 
     WHO: The operator who wants to review shortlisted roles without manually
          clicking through the ranked output
-    WHAT: Tabs open in descending score order; the count respects --open-top N
-          or the settings.toml default; fewer available results than N opens
-          only what exists without error; disqualified roles are never opened;
-          a failed tab open logs the URL and continues to the next
+    WHAT: (1) The system opens browser tabs in descending score order so the highest-scored result appears first.
+          (2) The system opens exactly the number of tabs specified by the `--open-top` CLI flag.
+          (3) The system uses the `open_top_n` value from settings when the CLI does not provide `--open-top`.
+          (4) The system opens all available results without error when fewer results exist than the requested top N.
+          (5) The system excludes disqualified roles from browser tabs regardless of their position in the results.
+          (6) The system logs a failed URL and continues opening the remaining tabs when one tab open raises an `OSError`.
+          (7) The system opens no tabs and logs an advisory message when all results have zero scores.
+          (8) The system opens tabs in the default system browser instead of the Playwright automation session.
+          (9) The system opens no tabs and raises no error when `--open-top` is set to 0.
     WHY: The tab opener is the last mile of the workflow — an error here
          that aborts remaining tabs wastes the entire run's value;
          opening in wrong order defeats the purpose of ranking
@@ -832,7 +848,17 @@ class TestJDFileExport:
     """REQUIREMENT: Individual JD files are exported for standalone review.
 
     WHO:  Operator reviewing JDs with external tools (e.g. Edge Copilot)
-    WHAT: Individual JD files with metadata header and full text
+    WHAT: (1) The system creates a separate Markdown file for each qualified listing it exports.
+          (2) The system names each exported JD file in `NNN_company_title.md` format for natural sort order.
+          (3) The system includes the listing title plus company, URL, and score information in the exported file header.
+          (4) The system places the full job description text after the score section in the exported file.
+          (5) The system skips listings with empty full_text and creates no JD file for them.
+          (6) The system excludes disqualified listings with a final score of 0 from JD file export.
+          (7) The system assigns file numbers by descending final score instead of insertion order.
+          (8) The system creates the output directory automatically when it does not already exist.
+          (9) The system shows final, fit, archetype, history, and compensation scores in the score section.
+          (10) The system includes an `Also on:` line that lists duplicate boards in the exported JD file.
+          (11) The system includes a `Disqualified:` line with the disqualification reason in the exported JD file.
     WHY:  Standalone files are easier to feed to AI assistants for red-flag
           analysis than a single large table
 

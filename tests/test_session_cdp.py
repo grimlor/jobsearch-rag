@@ -81,8 +81,8 @@ class TestSessionConfigCDP:
     """REQUIREMENT: SessionConfig carries CDP channel selection through to launch.
 
     WHO: The operator choosing between Playwright-managed and CDP mode
-    WHAT: Default config uses Playwright (channel=None); setting
-          browser_channel enables CDP subprocess launch
+    WHAT: (1) The system defaults browser_channel to None when it creates a SessionConfig without a specified browser_channel.
+          (2) The system sets browser_channel to "msedge" when it creates a SessionConfig with browser_channel set to "msedge".
     WHY: Cloudflare-protected sites require CDP mode to bypass
          automation detection flags
 
@@ -126,13 +126,25 @@ class TestSessionManagerCDP:
     """REQUIREMENT: CDP mode launches a system browser and connects via DevTools Protocol.
 
     WHO: The pipeline runner needing a Cloudflare-safe browser session
-    WHAT: When browser_channel is set, SessionManager launches the system
-          browser as a subprocess with --remote-debugging-port, waits for
-          the CDP endpoint, and connects Playwright over CDP; cleanup
-          terminates the subprocess gracefully with SIGKILL fallback;
-          missing binary raises a clear config error; headless mode adds
-          the correct flag; standard Playwright launch is used when no
-          channel is set
+    WHAT: (1) The session manager launches the browser through CDP and connects Playwright over the CDP endpoint.
+          (2) The session manager launches the browser subprocess with the remote debugging port, user data directory, and no first run flags.
+          (3) The session manager adds the `--headless=new` flag when CDP headless mode is enabled.
+          (4) The session manager uses the browser binary resolved by `shutil.which` when no configured browser path matches the channel.
+          (5) The session manager uses the standard Playwright launch path when no browser channel is configured.
+          (6) The session manager raises an actionable error that tells the operator which browser to install when the configured CDP browser binary is missing.
+          (7) The session manager sends `SIGTERM` to the CDP subprocess and removes its temporary directory during cleanup.
+          (8) The session manager escalates to `SIGKILL` when the CDP subprocess does not exit after `SIGTERM` times out during cleanup.
+          (9) The session manager skips sending termination signals when the CDP subprocess has already exited before cleanup.
+          (10) The session manager raises a `TimeoutError` when the CDP endpoint never responds before the enter deadline expires.
+          (11) The session manager raises a `TimeoutError` that includes the CDP URL when repeated CDP readiness checks exhaust the deadline.
+          (12) The session manager raises a `RuntimeError` when `new_page` is called before the session context is entered.
+          (13) The session manager raises a `RuntimeError` when `save_storage_state` is called before the session context is entered.
+          (14) The session manager writes the active session cookies to the configured storage state file as JSON.
+          (15) The session manager returns `True` from `has_storage_state` when the persisted session file exists.
+          (16) The session manager returns `False` from `has_storage_state` when no persisted session file exists.
+          (17) The session manager applies playwright-stealth patches to the browser context when stealth mode is enabled.
+          (18) The session manager starts successfully and logs a warning when stealth mode is enabled but playwright-stealth is unavailable.
+          (19) The session manager returns a new page from the active browser context when `new_page` is called after entry.
     WHY: Cloudflare detects Playwright's --enable-automation flag and
          navigator.webdriver — CDP mode bypasses both
 
@@ -809,8 +821,8 @@ class TestSessionManagerEdgeCases:
     """REQUIREMENT: SessionManager handles edge cases gracefully.
 
     WHO: The pipeline runner encountering unusual states
-    WHAT: Uninitialised manager __aexit__ is a no-op; missing first
-          binary path is skipped in favor of the next valid one
+    WHAT: (1) The system treats calling `__aexit__` on an uninitialised `SessionManager` as a graceful no-op that raises no error.
+          (2) The system skips a non-existent browser binary path and uses the next valid binary when entering `SessionManager`.
     WHY: Graceful degradation prevents crashes from unusual but
          possible runtime states
 
@@ -880,7 +892,7 @@ class TestThrottle:
     """REQUIREMENT: Rate-limiting sleeps for a random duration within configured bounds.
 
     WHO: The pipeline runner calling throttle between requests
-    WHAT: throttle sleeps for a duration between the adapter's rate_limit_seconds bounds
+    WHAT: (1) The system sleeps for a duration between 0.5 and 1.0 seconds when throttle is called with rate limit bounds of 0.5 and 1.0 seconds.
     WHY: Without throttling, rapid requests trigger anti-bot protections
 
     MOCK BOUNDARY:

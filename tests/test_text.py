@@ -15,9 +15,16 @@ class TestSlugify:
 
     WHO: Any module that builds file paths from human-readable text
          (JD exporter, review session, CLI read_jd_text)
-    WHAT: Slugify lowercases, strips unsafe characters, collapses
-          whitespace/underscores to hyphens, trims leading/trailing
-          hyphens, and truncates to a configurable max length
+    WHAT: (1) The system converts a mixed-case title into a lowercase slug with spaces replaced by hyphens.
+          (2) The system removes non-alphanumeric characters other than hyphens when slugifying text with punctuation.
+          (3) The system replaces underscores with hyphens during slugification.
+          (4) The system collapses consecutive whitespace into a single hyphen when slugifying text.
+          (5) The system strips leading and trailing hyphens from a slugified result.
+          (6) The system truncates a slugified result to the default maximum length when it exceeds that limit.
+          (7) The system truncates a slugified result to a provided custom maximum length instead of the default limit.
+          (8) The system returns an empty string when slugifying an empty string.
+          (9) The system preserves an already valid slug apart from lowercasing it.
+          (10) The system produces a filename that matches the `NNN_company_title.md` job-description naming convention when slugified company and title values are assembled into that pattern.
     WHY: Inconsistent slugification across modules would cause file-not-found
          errors when one module writes a JD file and another tries to open it
 

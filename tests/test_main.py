@@ -23,9 +23,7 @@ class TestMainDispatch:
     """REQUIREMENT: main() dispatches each CLI subcommand to the correct handler.
 
     WHO: The operator invoking ``python -m jobsearch_rag <command>``
-    WHAT: Each subcommand string (boards, index, search, decide, review,
-          export, rescore, login, reset) is routed to its corresponding
-          handle_* function with the parsed args namespace
+    WHAT: (1) I invoke the corresponding handle_* function for the provided subcommand.
     WHY: The shim is the only coupling between argparse and handler
          functions — incorrect wiring silently runs the wrong command
 
@@ -93,9 +91,9 @@ class TestMainErrorDisplay:
     """REQUIREMENT: main() formats errors with rich context for the operator.
 
     WHO: The operator seeing a CLI failure in their terminal
-    WHAT: ActionableError prints error_type and message to stderr
-          with suggestion when present; generic exceptions print
-          'Unexpected error'; both paths exit with code 1
+    WHAT: (1) The system prints the actionable error type, message, and suggestion to stderr when main() catches an ActionableError with a suggestion.
+          (2) The system prints only the actionable error type and message to stderr when main() catches an ActionableError without a suggestion.
+          (3) The system prints "Unexpected error" and the exception message to stderr when main() catches a non-ActionableError exception.
     WHY: Unformatted tracebacks are unactionable — the operator needs
          the error type, message, and recovery suggestion at a glance
 

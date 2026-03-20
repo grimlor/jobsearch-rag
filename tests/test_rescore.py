@@ -73,11 +73,13 @@ class TestJdFileLoading:
     """REQUIREMENT: JD files from output/jds/ are loaded back into JobListing objects.
 
     WHO: The rescore pipeline; the operator running ``rescore`` after tuning archetypes
-    WHAT: ``load_jd_files()`` reads markdown JD files, parses metadata headers
-          (title, company, board, URL, location) and JD body, and returns
-          JobListing objects ready for re-scoring; missing fields use sensible
-          defaults; files without a JD body are skipped; non-existent directories
-          return an empty list
+    WHAT: (1) The system returns a JobListing with all metadata fields populated when it loads a well-formed JD file.
+          (2) The system includes the Job Description body text in the listing's full_text when it parses a JD file.
+          (3) The system derives the external_id from the trailing path segment of the JD file URL.
+          (4) The system returns an empty list when asked to load JD files from a nonexistent directory.
+          (5) The system skips a JD file that lacks a Job Description section.
+          (6) The system uses default values for missing metadata fields when a JD file provides only a body.
+          (7) The system returns listings in filename-sorted order when it loads multiple JD files from a directory.
     WHY: Without correct JD loading, rescoring would fail silently or produce
          garbled results — the operator would have to re-run full browser sessions
 
@@ -248,10 +250,10 @@ class TestRescoreWorkflow:
     """REQUIREMENT: The rescore pipeline re-scores JDs through updated RAG collections.
 
     WHO: The operator iterating on archetype tuning or negative signal refinement
-    WHAT: The Rescorer loads JD files, scores each through the current scorer,
-          ranks results through the ranker, and returns a RescoreResult with
-          ranked listings and summary statistics; failures are counted and
-          non-fatal; an empty directory produces an empty result
+    WHAT: (1) The system returns ranked listings without failures when it rescoring a directory of valid JD files with a populated scoring stack.
+          (2) The system returns an empty RescoreResult when it processes a non-existent JD directory.
+          (3) The system counts failed listings and completes the run without crashing when required scoring data is missing.
+          (4) The system initializes a fresh RescoreResult with zero and empty default field values.
     WHY: Without rescoring, the operator would need to re-run full browser
          sessions after every archetype or rubric tweak — a 20-minute wait
          instead of seconds

@@ -145,8 +145,17 @@ class TestThrottleDetection:
     gracefully rather than treated as valid JD text.
 
     WHO: The pipeline operator running automated searches
-    WHAT: Throttle responses are recognized, backoff is applied with
-          increasing delays, and listings are skipped after max retries
+    WHAT: (1) The system recognizes the canonical ZipRecruiter error message as a throttle response.
+          (2) The system does not falsely flag legitimate JD text or text that merely mentions error as a throttle response.
+          (3) The system waits before retrying after it encounters a throttle response during search.
+          (4) The system increases the backoff wait so the second delay is longer than the first on consecutive throttle responses.
+          (5) The system skips a listing after the retry limit is exceeded and leaves `full_text` empty or at its fallback value.
+          (6) The system counts a listing as a failed extraction after it exhausts all retries.
+          (7) The system logs a throttle event at WARNING with the listing identifier.
+          (8) The system populates the listing `full_text` with the real JD content when extraction succeeds after throttle backoff.
+          (9) The system detects throttle text that appears after a timeout and retries with backoff.
+          (10) The system uses fallback text after repeated late throttle responses exhaust all retries.
+          (11) The system falls back to `short_description` immediately when a timeout is not followed by throttle text.
     WHY: Without throttle detection, error messages would be indexed as
          JD content, corrupting scoring results
 

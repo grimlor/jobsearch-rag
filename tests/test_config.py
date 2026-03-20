@@ -64,11 +64,35 @@ class TestSettingsValidation:
     """REQUIREMENT: Configuration errors tell the operator exactly what to fix.
 
     WHO: The operator who misconfigured settings.toml
-    WHAT: Each validation failure is caught at startup (not mid-pipeline)
-          and produces an actionable error that names the problematic field,
-          explains what is wrong, and provides step-by-step recovery guidance
-          including which file to open and what to change; all config errors
-          include a suggestion and troubleshooting steps
+    WHAT: (1) The system reports that the `boards` section is missing and tells the operator how to add it.
+          (2) The system rejects an out-of-range `archetype_weight` value and states the valid range with guidance.
+          (3) The system rejects an out-of-range `fit_weight` value and states the valid range with guidance.
+          (4) The system reports the missing enabled board configuration and tells the operator to add that board section.
+          (5) The system rejects an Ollama URL without a scheme and suggests adding the `http://` prefix.
+          (6) The system loads a valid settings file and makes all parsed fields accessible.
+          (7) The system applies documented default values for optional fields that are absent.
+          (8) The system parses `browser_channel` from a board configuration and exposes it on `BoardConfig`.
+          (9) The system defaults `comp_weight` to `0.15` when it is absent.
+          (10) The system defaults `base_salary` to `220000` when it is absent.
+          (11) The system rejects a negative `base_salary` value and states that it must be positive.
+          (12) The system reports that the settings file is not found and tells the operator to create it.
+          (13) The system raises a parse error for malformed TOML syntax and suggests fixing the file.
+          (14) The system rejects an empty `boards.enabled` list and tells the operator to add board names.
+          (15) The system reports a board section that is not a TOML table and tells the operator to define it as a table.
+          (16) The system parses overnight board configurations into `BoardConfig` entries.
+          (17) The system uses default scoring values when the `scoring` section is not a table.
+          (18) The system uses default Ollama values when the `ollama` section is not a table.
+          (19) The system uses default output values when the `output` section is not a table.
+          (20) The system uses default Chroma values when the `chroma` section is not a table.
+          (21) The system reports that the `enabled` field is missing from `boards` and tells the operator to add it.
+          (22) The system defaults `negative_weight` to `0.4` when it is absent.
+          (23) The system rejects an out-of-range `negative_weight` value above the limit and states the valid range with guidance.
+          (24) The system rejects an out-of-range `negative_weight` value below the limit and states the valid range with guidance.
+          (25) The system defaults `global_rubric_path` to `config/global_rubric.toml` when it is absent.
+          (26) The system reports a nonexistent `global_rubric_path` file and provides recovery guidance.
+          (27) The system defaults `culture_weight` to `0.2` when it is absent.
+          (28) The system rejects an out-of-range `culture_weight` value above the limit and states the valid range with guidance.
+          (29) The system rejects an out-of-range `culture_weight` value below the limit and states the valid range with guidance.
     WHY: A mid-run config failure after 10 minutes of browser work is
          far more costly than a startup validation failure — and an error
          that says "validation failed" without telling the operator what

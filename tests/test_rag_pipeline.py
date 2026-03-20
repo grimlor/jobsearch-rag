@@ -56,11 +56,11 @@ class TestOllamaConnectivity:
     with guidance the operator can act on immediately.
 
     WHO: The pipeline runner; the operator who may have forgotten to start Ollama
-    WHAT: An unreachable Ollama endpoint raises a clear startup error naming
-          the configured URL with connectivity troubleshooting steps;
-          the error distinguishes between "not running" and "wrong model"
-          with different recovery guidance for each; the run does not proceed
-          to browser automation if Ollama is required and unavailable
+    WHAT: (1) The system raises a CONNECTION error that names the unreachable Ollama URL and provides troubleshooting steps.
+          (2) The system raises a CONNECTION error with actionable guidance before opening any browser session during startup checks.
+          (3) The system raises an EMBEDDING error that suggests running 'ollama pull' when the configured model name is unavailable.
+          (4) The system returns the embedding result on the third call after retrying twice with backoff following timeouts.
+          (5) The system raises an EMBEDDING error that advises checking system resources after all embedding retries time out.
     WHY: Completing a full browser session only to fail at scoring wastes
          time and risks rate limiting; fail fast at startup
 
@@ -240,9 +240,12 @@ class TestResumeIndexing:
     """REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed.
 
     WHO: The scorer computing fit_score; the operator running first-time setup
-    WHAT: Scoring fails clearly if resume collection is empty; the index command
-          chunks resume by section; re-indexing replaces previous content;
-          chunk boundaries preserve semantic coherence (no mid-sentence splits)
+    WHAT: (1) The system raises an INDEX error telling the operator to run the index command when the resume collection is empty.
+          (2) The system raises an INDEX error that names the missing resume collection and provides step-by-step setup guidance when the collection is absent.
+          (3) The system creates one chunk per section with the correct content when it indexes a resume with three ## sections.
+          (4) The system ensures each chunk contains at least one complete sentence when it chunks multi-sentence resume sections.
+          (5) The system replaces previously indexed resume content instead of appending it when the same resume is indexed again.
+          (6) The system returns the chunk count as 2 to confirm operator feedback when it indexes a resume with two ## sections.
     WHY: An empty resume collection silently produces zero fit_scores for all
          roles — a harder bug to catch than an explicit missing-index error
 
@@ -437,9 +440,11 @@ class TestArchetypeIndexing:
     """REQUIREMENT: Role archetypes are loaded from TOML and embedded correctly.
 
     WHO: The scorer computing archetype_score
-    WHAT: Each archetype in role_archetypes.toml produces one ChromaDB document;
-          malformed TOML raises a parse error at index time, not scoring time;
-          an empty archetypes file raises a clear error before any browser work
+    WHAT: (1) The system creates one ChromaDB document for each archetype in the TOML file.
+          (2) The system stores the archetype name in the document metadata for debugging.
+          (3) The system raises a PARSE error that identifies the TOML syntax error and its file path with actionable guidance.
+          (4) The system raises a VALIDATION error that tells the operator to add archetype entries before search with actionable guidance.
+          (5) The system normalizes whitespace in the stored document text before embedding.
     WHY: Missing or malformed archetypes silently score all roles equally —
          the most insidious failure mode since ranking still appears to work
 
@@ -602,11 +607,9 @@ class TestNegativeScoring:
     """REQUIREMENT: JDs matching negative signals receive a continuous penalty score.
 
     WHO: The scorer and ranker computing the final ranked output
-    WHAT: When a negative_signals collection exists and contains embedded
-          signals, the scorer queries it for each JD chunk and returns a
-          negative_score in [0.0, 1.0]; when the collection is empty or
-          missing, negative_score defaults to 0.0; the negative_score
-          appears in ScoreResult and is available for the ranker
+    WHAT: (1) The system sets negative_score to 0.0 when the negative_signals collection is missing.
+          (2) The system sets negative_score to 0.0 when the negative_signals collection is empty.
+          (3) The system returns a ScoreResult that includes negative_score with a value between 0.0 and 1.0 when a job description matches a negative signal.
     WHY: Binary disqualification (yes/no via LLM) misses gradient cases —
          a role at a borderline-adtech company should rank lower, not be
          entirely hidden; the negative_score provides continuous penalization
@@ -738,13 +741,15 @@ class TestGlobalPositiveSignalIndexing:
 
     WHO: The scorer computing culture_score; the indexer building the
          global_positive_signals collection
-    WHAT: index_global_positive_signals() produces one ChromaDB document
-          per global rubric dimension that has signals_positive entries;
-          documents are labeled with their source dimension name in metadata;
-          re-indexing resets the collection first (replaces, not appends);
-          a rubric with no positive signals produces an empty collection
-          without error; missing global_rubric.toml produces an actionable
-          error before any browser work begins
+    WHAT: (1) The system creates exactly one ChromaDB document for each rubric dimension that defines positive signals.
+          (2) The system stores the source dimension name in the indexed document metadata.
+          (3) The system replaces the existing global positive collection during reindexing instead of appending duplicate documents.
+          (4) The system produces no document for a dimension that does not define positive signals.
+          (5) The system raises a CONFIG error with actionable guidance when the global rubric file is missing.
+          (6) The system rebuilds the global positive collection when `--archetypes-only` triggers positive signal indexing.
+          (7) The system sets the global positive collection count to the number of dimensions that contribute positive signals.
+          (8) The system produces no positive document for a negative-only compensation dimension.
+          (9) The system raises a PARSE error that names the malformed rubric file and suggests how to fix it.
     WHY: The global rubric positive signals encode universal environment
          and culture preferences that apply to every role regardless of
          archetype. A dedicated collection keeps archetype and culture
@@ -1015,10 +1020,14 @@ class TestCultureScoring:
     WHO: The ranker computing final_score; the operator who wants roles
          in humane, well-scoped, ethically aligned environments to rank
          higher regardless of which archetype they match
-    WHAT: culture_score is queried from the global_positive_signals
-          collection using cosine similarity; missing collection returns
-          0.0 rather than an error; culture_score is a float in [0.0, 1.0];
-          culture_weight is read from settings.toml, not hardcoded
+    WHAT: (1) The system defaults culture_score to 0.0 when the global_positive_signals collection is missing.
+          (2) The system returns culture_score as a float between 0.0 and 1.0.
+          (3) The system includes culture_score as a named field in ScoreResult.
+          (4) The system includes the culture score value in the score explanation output.
+          (5) The system stores and exposes the configured culture_weight value instead of using a hardcoded default.
+          (6) The system produces a higher final score when culture_score is higher and all other score inputs are unchanged.
+          (7) The system returns a culture_score of 0.0 when the global_positive_signals collection is empty.
+          (8) The system includes all six component score values in the score explanation output.
     WHY: Archetype score answers "right kind of role." Culture score
          answers "right kind of environment."
 

@@ -52,10 +52,27 @@ class TestZipRecruiterJsonExtraction:
     """REQUIREMENT: Job data is extracted from ZipRecruiter's js_variables JSON blob.
 
     WHO: The ZipRecruiter adapter extraction pipeline
-    WHAT: The ``<script id="js_variables">`` tag is located and parsed as JSON;
-          job cards are extracted from ``hydrateJobCardsResponse.jobCards``;
-          each card maps correctly to a ``JobListing``; full JD HTML is
-          converted to plain text from ``htmlFullDescription``
+    WHAT: (1) The ``<script id="js_variables">`` tag is located and parsed as JSON
+          (2) job cards are extracted from ``hydrateJobCardsResponse.jobCards``
+          (3) each card maps correctly to a ``JobListing``
+          (4) full JD HTML is converted to plain text from ``htmlFullDescription``
+          (5) a missing js_variables script tag raises ActionableError naming the selector
+          (6) malformed JSON in js_variables raises ActionableError identifying the parse problem
+          (7) missing hydrateJobCardsResponse key returns an empty card list
+          (8) salary metadata is included when pay data is present, omitted when absent
+          (9) URL construction falls back to applyButtonConfig when canonical path is missing
+          (10) SERP card full_text is empty after extraction (populated during search)
+          (11) extract_jd_text returns empty string when description or details response is absent
+          (12) card_to_listing maps the card title to the listing title
+          (13) card_to_listing extracts the company name from the nested company object
+          (14) card_to_listing maps location.displayName to the listing location
+          (15) card_to_listing uses listingKey as the listing external_id
+          (16) card_to_listing builds the full URL from the canonical path
+          (17) card_to_listing sets the board field to 'ziprecruiter'
+          (18) real fixture parsing produces the expected count of job cards
+          (19) extract_jd_text returns clean text from real production fixture data
+          (20) extract_jd_text returns empty string when getJobDetailsResponse is absent
+          (21) real SERP fixture parses with expected session authentication flags
     WHY: ZipRecruiter is a React SPA — the HTML body contains only empty
          hydration roots.  CSS selectors against rendered DOM will never match.
          All data lives in the embedded JSON blob.
@@ -453,8 +470,11 @@ class TestHtmlToText:
     """REQUIREMENT: HTML job descriptions are converted to clean plain text.
 
     WHO: The JD extraction pipeline before RAG embedding
-    WHAT: HTML tags are stripped; whitespace is normalized; nested lists
-          are flattened; the output is clean plain text suitable for embedding
+    WHAT: (1) The system removes all HTML tags and leaves only the text content.
+          (2) The system collapses consecutive whitespace into single spaces.
+          (3) The system preserves the text content of all list items in nested list HTML.
+          (4) The system returns an empty string when given an empty HTML string.
+          (5) The system returns plain text unchanged when no HTML tags are present.
     WHY: RAG embeddings work best on clean text — HTML artifacts degrade
          retrieval quality
 
@@ -544,9 +564,15 @@ class TestRealWorldExtraction:
     """REQUIREMENT: Extraction works correctly against real ZipRecruiter data.
 
     WHO: The adapter maintainer validating against production HTML
-    WHAT: Real SERP data from an unauthenticated session parses correctly;
-          all 20 job cards produce valid JobListing objects; salary ranges,
-          company names, and canonical URLs are correctly extracted
+    WHAT: (1) The system produces exactly 20 listings from the real ZipRecruiter SERP fixture.
+          (2) The system converts the first real SERP card into a Spotnana listing whose title contains 'Senior Staff Software Engineer'.
+          (3) The system assigns every real listing a non-empty unique external_id.
+          (4) The system assigns every real listing a URL that starts with the ZipRecruiter base URL.
+          (5) The system captures a salary_range for the Spotnana listing that includes $210,000-$240,000.
+          (6) The system extracts a maxPages value of 2 from js_vars in the real SERP fixture.
+          (7) The system extracts a totalListings value of 30 from listJobKeysResponse in the real SERP fixture.
+          (8) The system extracts substantial Spotnana job description content from the real SERP fixture.
+          (9) The system detects an unauthenticated session by reporting isLoggedIn as False and isLoggedOut as True.
     WHY: Synthetic fixtures can drift from production reality — these tests
          serve as a regression guard against ZipRecruiter structure changes
 
@@ -801,11 +827,11 @@ class TestAuthenticate:
     """REQUIREMENT: Session verification detects expired sessions and Cloudflare blocks.
 
     WHO: The pipeline runner during the authenticate step
-    WHAT: A valid session passes silently; a Cloudflare challenge that
-          resolves within timeout succeeds; a persistent Cloudflare
-          challenge raises with headless suggestion; a CAPTCHA raises
-          with manual-solve suggestion; a login redirect raises with
-          session-expired suggestion
+    WHAT: (1) The system completes authentication without error when the session is valid.
+          (2) The system raises an ActionableError that mentions CAPTCHA and suggests manual solve when it detects a CAPTCHA.
+          (3) The system raises an ActionableError that states the session expired when authentication is redirected to `/login`.
+          (4) The system raises an ActionableError that states the session expired when authentication is redirected to `/sign-in`.
+          (5) The system raises an ActionableError that mentions Cloudflare and suggests headed mode when the Cloudflare challenge persists until timeout.
     WHY: Starting a search against an expired or blocked session wastes
          time and produces zero results — fail fast with actionable advice
 
@@ -934,12 +960,21 @@ class TestSearch:
     """REQUIREMENT: search() navigates SERP pages, extracts cards, and enriches via click-through.
 
     WHO: The pipeline runner collecting listings from ZipRecruiter
-    WHAT: search() navigates to the search URL; extracts job cards from
-          the js_variables JSON blob; populates the first card's JD from
-          the embedded detail response; clicks remaining cards to read
-          full JD from the detail panel; paginates until maxPages or no
-          cards; handles extraction failures per-card without aborting;
-          falls back to shortDescription when panel text is too short
+    WHAT: (1) The system returns three listings from the fixture and includes 'Staff Platform Architect' as the first title.
+          (2) The system populates the first card's full text from `htmlFullDescription` in `js_variables`.
+          (3) The system enriches cards after the first with click-through panel text.
+          (4) The system falls back to `shortDescription` when panel text is too short.
+          (5) The system falls back to `shortDescription` for a card when click-through fails.
+          (6) The system stops pagination at the fixture's maximum page limit even when a higher `max_pages` value is requested.
+          (7) The system stops pagination when a later page has no cards and returns listings only from earlier populated pages.
+          (8) The system returns an empty listing list when it cannot load the `js_variables` data.
+          (9) The system skips an unparseable card and returns the remaining valid listings.
+          (10) The system returns listings from JSON without attempting click-through when no cards exist in the DOM.
+          (11) The system appends `&page=2` when paginating a search URL that already contains a query string.
+          (12) The system stops click-through at the DOM card count while still returning all JSON listings.
+          (13) The system appends `?page=2` when paginating a search URL that has no query string.
+          (14) The system enriches the first card through click-through instead of pre-populating it when no job details exist in `js_variables`.
+          (15) The system respects the `max_pages` argument by navigating only the requested number of pages.
     WHY: ZipRecruiter is a React SPA — all data lives in an embedded
          JSON blob.  Click-through on the SERP avoids Cloudflare
          challenges that would block per-URL navigation.
@@ -1509,10 +1544,9 @@ class TestExtractDetailPassthrough:
     """REQUIREMENT: extract_detail is a passthrough when full_text is populated.
 
     WHO: The pipeline runner calling extract_detail after search
-    WHAT: If full_text was already populated during search click-through,
-          extract_detail returns the listing unchanged; if still empty,
-          it applies the shortDescription fallback; if no fallback exists,
-          full_text remains empty
+    WHAT: (1) The system returns the listing unchanged when full_text is already populated.
+          (2) The system populates full_text from the short_description fallback when full_text is empty.
+          (3) The system leaves full_text empty when no short_description fallback is available.
     WHY: SERP click-through makes per-URL extraction unnecessary — the
          runner calls extract_detail out of protocol compliance, but
          ZipRecruiter does all extraction during search()

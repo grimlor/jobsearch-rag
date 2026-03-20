@@ -143,9 +143,13 @@ class TestOllamaContract:
     """REQUIREMENT: Ollama SDK responses match the shapes our code assumes.
 
     WHO: Every unit test that mocks Ollama responses
-    WHAT: embed() returns a list of floats with consistent dimensionality;
-          classify() returns a string; health_check() passes when models
-          are available; errors carry the expected attributes
+    WHAT: (1) The system returns embeddings as lists of floats with consistent dimensionality across different inputs.
+          (2) The system produces an embedding vector that is not all zeros for meaningful text input.
+          (3) The system returns a non-empty string for a classification prompt.
+          (4) The system passes the health check without raising an exception when the required models are available.
+          (5) The system raises an EMBEDDING error that includes 'ollama pull' guidance when the configured model does not exist during a health check.
+          (6) The system raises an EMBEDDING error with recovery guidance when asked to embed with a nonexistent model.
+          (7) The system places semantically similar text closer to a query than unrelated text in embedding space.
     WHY: If an Ollama SDK update changes response shapes, our mocks would
          still pass but production would break — these tests catch that drift
 
@@ -300,9 +304,10 @@ class TestChromaDBContract:
     """REQUIREMENT: ChromaDB returns distances and results in the format we assume.
 
     WHO: VectorStore wrapper and Scorer distance-to-score conversion
-    WHAT: Cosine distance for identical vectors is ~0.0; distance for
-          orthogonal content is higher; query results contain the expected
-          keys; persistence survives a client restart
+    WHAT: (1) The system returns an approximately zero distance when it queries an indexed document with the same embedding vector.
+          (2) The system assigns a lower distance to the architecture document than to the cooking document when it queries with an architecture-related embedding.
+          (3) The system returns query results that include the ids, documents, metadatas, and distances keys.
+          (4) The system preserves indexed data across a client restart when a new VectorStore client opens the same directory.
     WHY: Our _distance_to_score function assumes cosine distance semantics
          (0 = identical, 1 = orthogonal) — any deviation would invert
          all scoring logic
@@ -457,10 +462,11 @@ class TestEndToEndScoring:
     """REQUIREMENT: The full index-then-score pipeline produces valid results.
 
     WHO: The operator running the pipeline for the first time
-    WHAT: Indexing real resume + archetypes with real Ollama embeddings,
-          then scoring a sample JD, produces a valid ScoreResult with
-          meaningful (non-trivial) scores; a matching JD scores higher
-          than an unrelated one
+    WHAT: (1) The system returns a valid ScoreResult with non-zero fit and archetype scores when it scores a matching JD.
+          (2) The system assigns higher fit and archetype scores to a matching JD than to an unrelated JD.
+          (3) The system returns a valid boolean `disqualified` field when it scores a matching JD with the LLM disqualifier enabled.
+          (4) The system produces 5 resume chunks and makes the collection queryable when it indexes the real resume file.
+          (5) The system produces 3 archetypes when it indexes the real archetypes file.
     WHY: Unit tests mock Ollama, so they can't catch integration failures
          like dimension mismatches between embed() and ChromaDB, or
          LLM classification prompts that produce unparseable output
@@ -660,9 +666,7 @@ class TestLiveZipRecruiterPipeline:
     """REQUIREMENT: The full system works end-to-end against live ZipRecruiter.
 
     WHO: The operator validating the tool after installation or upgrade
-    WHAT: A real browser session authenticates with ZipRecruiter, searches
-          one query, extracts ≥5 listings with full JD text, scores them
-          with real Ollama, ranks them, and exports valid Markdown/CSV/JD files
+    WHAT: (1) The system extracts live ZipRecruiter listings, scores them, ranks them in descending order, and exports the results when the full pipeline executes.
     WHY: Unit tests mock every I/O boundary — browser, Ollama, ChromaDB.
          Integration tests use real Ollama but fixture HTML.  Only this test
          validates the entire system against the real world: ZipRecruiter's

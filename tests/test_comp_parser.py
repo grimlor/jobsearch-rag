@@ -23,14 +23,28 @@ class TestCompensationParsing:
 
     WHO: The pipeline runner enriching listings after JD extraction;
          the scorer computing comp_score
-    WHAT: Annual salary ranges ($NNN,NNN or $NNNk) are extracted as comp_min/max
-           floats; hourly rates ($NN/hr) are converted to annual via x2080;
-          ranges expressed as "$180,000 - $220,000" produce both min and max;
-          single values produce both min and max as the same number;
-          the original text snippet is preserved in comp_text;
-          JDs with no salary information produce None for all comp fields;
-          the parser does not hallucinate numbers from non-salary contexts
-          (e.g. "5,000 employees" is not a salary)
+    WHAT: (1) The parser extracts an annual compensation range of 180000 to 220000 from comma-formatted salary text.
+          (2) The parser applies the k suffix as a 1000 multiplier to both endpoints of an annual salary range.
+          (3) The parser converts a 95 hourly rate into an annual compensation value of 197600 using 2080 hours.
+          (4) The parser converts both endpoints of an hourly pay range into annual compensation using 2080 hours.
+          (5) The parser sets both comp_min and comp_max to 200000 when salary text contains a single annual value.
+          (6) The parser returns None when the text contains no salary information.
+          (7) The parser preserves the original matched salary snippet in comp_text for auditability.
+          (8) The parser does not treat an employee count as salary compensation.
+          (9) The parser does not treat a revenue figure as salary compensation.
+          (10) The parser extracts a compensation range of 150000 to 200000 from a dollar-signed hyphenated range.
+          (11) The parser correctly extracts a salary range when the values are joined by the word to.
+          (12) The parser recognizes salary text as annual when it uses supported annual suffix variants.
+          (13) The parser sets comp_source to employer when no source override is provided.
+          (14) The parser sets comp_source to estimated when the caller provides that source override.
+          (15) The system prefers the JD-body salary result because it carries the employer comp_source.
+          (16) The parser returns a result object with comp_min, comp_max, comp_source, and comp_text fields.
+          (17) The parser recognizes the k suffix regardless of whether it appears in uppercase or lowercase.
+          (18) The parser correctly extracts a salary range when no spaces surround the hyphen.
+          (19) The parser correctly annualizes a decimal hourly rate.
+          (20) The parser skips a dollar range in false-positive context and returns None.
+          (21) The parser skips a salary range when both values fall below realistic salary bounds and returns None.
+          (22) The parser skips a single dollar value when it falls below realistic salary bounds and returns None.
     WHY: Salary data is noisy and inconsistently formatted across boards;
          incorrect parsing would silently distort comp_score rankings —
          a wrong number is worse than a missing one

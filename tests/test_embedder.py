@@ -69,8 +69,14 @@ class TestEmbedding:
     """REQUIREMENT: Text is embedded into a vector via Ollama.
 
     WHO: The indexer converting resume chunks and archetypes to vectors
-    WHAT: A text string is sent to Ollama's embed endpoint and a list of
-          floats is returned; the configured model name is used
+    WHAT: (1) The system returns the embedding vector as a list of floats.
+          (2) The system passes the configured embed model to Ollama when generating an embedding.
+          (3) The system strips leading and trailing whitespace before sending text to Ollama.
+          (4) The system raises a validation error with guidance when the input text is empty.
+          (5) The system raises a validation error with guidance when the input text contains only whitespace.
+          (6) The system truncates text that exceeds the model context window before sending it to Ollama.
+          (7) The system preserves both the beginning and the end of truncated text and inserts an ellipsis marker between them.
+          (8) The system passes text through unchanged when it fits within the context window limit.
     WHY: Wrong model or mangled vectors would silently corrupt all similarity
          scores — the entire scoring pipeline depends on correct embeddings
 
@@ -251,8 +257,9 @@ class TestClassification:
     """REQUIREMENT: LLM classification prompts are sent via Ollama chat.
 
     WHO: The scorer's disqualifier checking for hard-no signals
-    WHAT: A prompt is sent to the LLM and the raw response text is returned;
-          the system message establishes the classification role
+    WHAT: (1) The system returns the raw LLM response content.
+          (2) The system passes the configured `llm_model` to Ollama.
+          (3) The system sends the classification prompt as a single user message in the chat conversation.
     WHY: The disqualifier must receive unmodified LLM output to make
          accept/reject decisions — any transformation could flip the result
 
@@ -329,9 +336,10 @@ class TestHealthCheck:
     """REQUIREMENT: Ollama unavailability is detected before processing begins.
 
     WHO: The pipeline runner; the operator who may have forgotten to start Ollama
-    WHAT: The health check verifies Ollama is reachable and both configured
-          models (embed + LLM) are available; distinct errors for "not running"
-          vs "wrong model"
+    WHAT: (1) The system completes the health check without raising an error when both models are available in Ollama.
+          (2) The system raises a CONNECTION error that includes the Ollama URL and troubleshooting steps when Ollama is unreachable.
+          (3) The system raises an EMBEDDING error that names the missing embed model and provides ollama pull guidance.
+          (4) The system raises an EMBEDDING error that names the missing LLM model and provides ollama pull guidance.
     WHY: Completing a full browser session only to fail at scoring wastes
          time and risks rate limiting; fail fast at startup
 
@@ -436,9 +444,12 @@ class TestRetryLogic:
     """REQUIREMENT: Transient Ollama failures are retried with backoff.
 
     WHO: The embedding/classification caller during scoring
-    WHAT: Transient timeouts and server errors trigger exponential backoff
-          retries; after max retries, a clear EMBEDDING error is raised
-          with the retry count
+    WHAT: (1) The system retries `embed()` after a transient 503 error and returns the embedding on the second attempt.
+          (2) The system raises an `EMBEDDING` error that advises checking system resources after persistent 503 errors exhaust all retries.
+          (3) The system raises an `EMBEDDING` error with model guidance without retrying when `embed()` encounters a non-retryable 404 model-not-found error.
+          (4) The system retries `classify()` after a transient 503 error and returns the classification on the second attempt.
+          (5) The system retries `embed()` after a `ConnectionError` and returns the embedding on the second attempt.
+          (6) The system raises an `EMBEDDING` error with the retry count and Ollama guidance after persistent `ConnectionError` failures exhaust all retries.
     WHY: Ollama can be slow under load — a single timeout shouldn't abort
          a scoring run that's already invested browser-scraping time
 
