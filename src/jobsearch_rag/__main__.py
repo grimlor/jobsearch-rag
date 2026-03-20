@@ -6,6 +6,7 @@ This module is a thin shim — all command logic lives in :mod:`jobsearch_rag.cl
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
 
 from jobsearch_rag.cli import (
     build_parser,
@@ -21,30 +22,32 @@ from jobsearch_rag.cli import (
 )
 from jobsearch_rag.errors import ActionableError
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+HANDLERS: dict[str, Callable[..., None]] = {
+    "boards": handle_boards,
+    "index": handle_index,
+    "search": handle_search,
+    "decide": handle_decide,
+    "review": handle_review,
+    "export": handle_export,
+    "rescore": handle_rescore,
+    "login": handle_login,
+    "reset": handle_reset,
+}
+
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
     try:
+        handler = HANDLERS[args.command]
         if args.command == "boards":
-            handle_boards()
-        elif args.command == "index":
-            handle_index(args)
-        elif args.command == "search":
-            handle_search(args)
-        elif args.command == "decide":
-            handle_decide(args)
-        elif args.command == "review":
-            handle_review(args)
-        elif args.command == "export":
-            handle_export(args)
-        elif args.command == "rescore":
-            handle_rescore(args)
-        elif args.command == "login":
-            handle_login(args)
-        elif args.command == "reset":  # pragma: no branch  (argparse required=True)
-            handle_reset(args)
+            handler()
+        else:
+            handler(args)
     except Exception as exc:
         # ActionableError instances have rich context
         if isinstance(exc, ActionableError):

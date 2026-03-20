@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from jobsearch_rag.__main__ import main
+from jobsearch_rag.__main__ import HANDLERS, main
 from jobsearch_rag.errors import ActionableError, ErrorType
 
 # ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ class TestMainDispatch:
         mock_handler = MagicMock()
         with (
             patch("sys.argv", ["jobsearch_rag", command, *extra_argv]),
-            patch(f"jobsearch_rag.__main__.{handler_name}", mock_handler),
+            patch.dict(HANDLERS, {command: mock_handler}),
         ):
             # When: main() dispatches
             main()
@@ -123,7 +123,7 @@ class TestMainErrorDisplay:
         )
         with (
             patch("sys.argv", ["jobsearch_rag", "boards"]),
-            patch("jobsearch_rag.__main__.handle_boards", side_effect=err),
+            patch.dict(HANDLERS, {"boards": MagicMock(side_effect=err)}),
             patch("sys.exit") as mock_exit,
         ):
             # When: main() runs
@@ -156,7 +156,7 @@ class TestMainErrorDisplay:
         )
         with (
             patch("sys.argv", ["jobsearch_rag", "boards"]),
-            patch("jobsearch_rag.__main__.handle_boards", side_effect=err),
+            patch.dict(HANDLERS, {"boards": MagicMock(side_effect=err)}),
             patch("sys.exit"),
         ):
             # When: main() runs
@@ -182,9 +182,9 @@ class TestMainErrorDisplay:
         # Given: handle_boards raises a generic RuntimeError
         with (
             patch("sys.argv", ["jobsearch_rag", "boards"]),
-            patch(
-                "jobsearch_rag.__main__.handle_boards",
-                side_effect=RuntimeError("Something broke"),
+            patch.dict(
+                HANDLERS,
+                {"boards": MagicMock(side_effect=RuntimeError("Something broke"))},
             ),
             patch("sys.exit") as mock_exit,
         ):

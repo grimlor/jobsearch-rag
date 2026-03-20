@@ -113,6 +113,7 @@ venv = ".venv"
 [tool.coverage.run]
 source = ["jobsearch_rag"]
 branch = true
+omit = ["tests/*"]
 
 [tool.coverage.report]
 show_missing = true
