@@ -470,6 +470,7 @@ class TestLinkedInDetectionResponse:
           (6) The system raises an AUTHENTICATION error that advises re-authenticating when LinkedIn redirects to `/login`.
           (7) The system raises an AUTHENTICATION error that advises re-authenticating when LinkedIn redirects to `/uas/login`.
           (8) The system preserves and exports listings collected before a later LinkedIn detection event.
+          (9) The system returns without error when the page URL and title contain no detection indicators.
     WHY: Continuing after detection escalates ban risk from temporary to permanent;
          the correct response is always stop, log, and wait
 
@@ -649,3 +650,19 @@ class TestLinkedInDetectionResponse:
         assert all(r.board == "ziprecruiter" for r in results_before_detection), (
             "All partial results should have the correct board"
         )
+
+    def test_clean_page_passes_detection_without_error(self) -> None:
+        """
+        GIVEN a page with a normal LinkedIn feed URL and non-triggering title
+        WHEN check_linkedin_detection() is called
+        THEN no error is raised and the function returns cleanly.
+        """
+        # Given: a clean page with no detection indicators
+        page = MagicMock()
+        page.url = "https://www.linkedin.com/feed/"
+        page.title = AsyncMock(return_value="LinkedIn")
+
+        # When: detection check runs
+        asyncio.run(check_linkedin_detection(page))
+
+        # Then: no error raised — implicit success

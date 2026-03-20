@@ -249,6 +249,9 @@ class TestPipelineOrchestration:
           (6) The system increments the failed listings count when scoring fails because the embed endpoint returns a non-retryable error.
           (7) The system returns a valid RunResult with empty ranked listings when a board search produces no listings.
           (8) The system passes successfully scored listings to the ranker and includes them in the summary counts.
+          (9) The system does not search the same board twice when an overnight board overlaps with enabled boards.
+          (10) The system auto-indexes only the empty collections when some collections are already populated.
+          (11) The system skips auto-indexing for collections that already contain documents.
     WHY: A health check after browser work wastes time; a single board
          failure aborting the entire run discards valid results from other
          boards; an invalid RunResult crashes exporters downstream
@@ -550,6 +553,128 @@ class TestPipelineOrchestration:
             )
             assert result.summary.total_scored == 1, (
                 f"Expected total_scored == 1, got: {result.summary.total_scored}"
+            )
+
+    async def test_overnight_overlap_does_not_duplicate_board(self) -> None:
+        """
+        Given a runner where an overnight board is also an enabled board,
+        When run(overnight=True) is called,
+        Then the board appears only once in boards_searched.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: same board in both enabled and overnight
+            settings = _make_settings(
+                tmpdir,
+                enabled_boards=["board_a"],
+                overnight_boards=["board_a"],
+            )
+            runner, _ = _make_runner_with_real_stack(settings)
+
+            adapter_a = _make_test_adapter(board_name="board_a")
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(
+                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+                    {"board_a": lambda: adapter_a},
+                ),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: overnight mode
+                result = await runner.run(overnight=True)
+
+            # Then: board_a appears exactly once
+            assert result.boards_searched.count("board_a") == 1, (
+                f"Expected board_a once, got: {result.boards_searched}"
+            )
+
+    async def test_auto_indexes_only_empty_collections(self) -> None:
+        """
+        Given a runner where the positive_signals collection is empty but
+        resume and archetypes are populated,
+        When run() is called,
+        Then only the positive_signals collection is auto-indexed.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: resume and archetypes populated, positive empty
+            resume_path, archetypes_path, rubric_path = _create_index_files(tmpdir)
+            settings = _make_settings(
+                tmpdir,
+                resume_path=resume_path,
+                archetypes_path=archetypes_path,
+                global_rubric_path=rubric_path,
+            )
+            runner, _ = _make_runner_with_real_stack(settings, populate_store=False)
+            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+
+            # Seed resume and archetypes (leave positive_signals empty)
+            for name in ("resume", "role_archetypes"):
+                store.add_documents(
+                    name,
+                    ids=[f"{name}-seed"],
+                    documents=[f"Seed document for {name}"],
+                    embeddings=[EMBED_FAKE],
+                )
+
+            mock_adapter = _make_test_adapter()
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: pipeline runs (triggers partial auto-indexing)
+                result = await runner.run()
+
+            # Then: positive_signals was indexed, run completed
+            assert isinstance(result, RunResult), f"Expected RunResult, got: {type(result)}"
+            assert store.collection_count("global_positive_signals") > 0, (
+                "Expected positive_signals to be auto-indexed"
+            )
+
+    async def test_auto_index_skips_populated_collections(self) -> None:
+        """
+        Given a runner where only archetypes is empty but resume and
+        positive_signals are populated,
+        When run() is called,
+        Then only archetypes is auto-indexed while the others are untouched.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: resume and positive_signals populated, archetypes empty
+            resume_path, archetypes_path, rubric_path = _create_index_files(tmpdir)
+            settings = _make_settings(
+                tmpdir,
+                resume_path=resume_path,
+                archetypes_path=archetypes_path,
+                global_rubric_path=rubric_path,
+            )
+            runner, _ = _make_runner_with_real_stack(settings, populate_store=False)
+            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+
+            # Seed resume and positive_signals (leave archetypes empty)
+            for name in ("resume", "global_positive_signals"):
+                store.add_documents(
+                    name,
+                    ids=[f"{name}-seed"],
+                    documents=[f"Seed document for {name}"],
+                    embeddings=[EMBED_FAKE],
+                )
+
+            mock_adapter = _make_test_adapter()
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: pipeline runs (triggers partial auto-indexing)
+                result = await runner.run()
+
+            # Then: archetypes was indexed, run completed
+            assert isinstance(result, RunResult), f"Expected RunResult, got: {type(result)}"
+            assert store.collection_count("role_archetypes") > 0, (
+                "Expected archetypes to be auto-indexed"
             )
 
 

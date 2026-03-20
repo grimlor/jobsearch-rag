@@ -150,6 +150,7 @@ class TestMarkdownExport:
           (8) The system reports total found, scored, excluded, and deduplicated counts in the run summary.
           (9) The system includes a non-empty URL for every listing in the Markdown output.
           (10) The system produces a valid Markdown file with a summary and no listing table when the result set is empty.
+          (11) The system omits total-found/scored/excluded/deduplicated stats when no summary is provided.
     WHY: The ranked list is the primary product of every run —
          missing fields or wrong sort order defeats the purpose
 
@@ -400,6 +401,26 @@ class TestMarkdownExport:
         # Then: summary present, no listings
         assert "Summary" in content, "Summary should appear even with no results"
         assert "No results" in content or "0" in content, "Should indicate no results"
+
+    def test_export_without_summary_omits_summary_stats(self, tmp_path: Path) -> None:
+        """
+        GIVEN a listing set with no summary provided
+        WHEN exported to Markdown
+        THEN the output contains the summary heading but no total-found/scored lines.
+        """
+        # Given: listings with no summary
+        out = tmp_path / "results.md"
+        listings = [_ranked()]
+
+        # When: export to Markdown with summary=None (the default)
+        MarkdownExporter().export(listings, str(out))
+        content = out.read_text()
+
+        # Then: summary heading present but no stats
+        assert "Summary" in content, "Summary heading should appear even without stats"
+        assert "Total found" not in content, (
+            f"Should not contain 'Total found' when no summary given, got: {content!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

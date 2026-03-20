@@ -1624,6 +1624,7 @@ class TestResetCommand:
     WHAT: (1) The system resets all known collections and prints a completion message when no collection is specified.
           (2) The system resets only the resume collection when the collection flag is set to resume.
           (3) The system removes the output directory and recreates it empty when clear-output is set.
+          (4) The system completes without error when clear-output is set but the output directory does not exist.
     WHY: Stale data from a previous run can corrupt scoring or mislead
          the operator into reviewing outdated results
 
@@ -1720,6 +1721,37 @@ class TestResetCommand:
         # And: the old file no longer exists but the directory was recreated
         assert not results_file.exists(), "Expected results.md to be deleted, but it still exists"
         assert out_dir.exists(), "Expected output directory to be recreated, but it does not exist"
+
+    def test_reset_with_clear_output_skips_missing_output_dir(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """
+        Given the --clear-output flag is set but the output directory does not exist
+        When handle_reset is run
+        Then the reset completes without error and does not print a clear message.
+        """
+        # Given: real settings environment without creating the output directory
+        _setup_index_env(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        out_dir = tmp_path / "output"
+        if out_dir.exists():
+            import shutil
+
+            shutil.rmtree(out_dir)
+
+        # When: handle_reset runs with --clear-output
+        args = argparse.Namespace(collection=None, clear_output=True)
+        handle_reset(args)
+
+        # Then: reset completes without error; no "Cleared" message (dir didn't exist)
+        output = capsys.readouterr().out
+        assert "Reset complete" in output, f"Expected 'Reset complete' in output, got: {output!r}"
+        assert "Cleared output directory" not in output, (
+            f"Should not mention clearing when output dir didn't exist, got: {output!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

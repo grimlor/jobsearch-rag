@@ -3,10 +3,12 @@
 Spec classes:
     TestMainDispatch — main() routes each subcommand to its handler
     TestMainErrorDisplay — main() formats errors for the operator
+    TestMainModuleEntryPoint — ``python -m jobsearch_rag`` invokes main()
 """
 
 from __future__ import annotations
 
+import runpy
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -198,3 +200,42 @@ class TestMainErrorDisplay:
             f"Expected exception message in stderr, got: {captured!r}"
         )
         mock_exit.assert_called_once_with(1)
+
+
+# ---------------------------------------------------------------------------
+# TestMainModuleEntryPoint
+# ---------------------------------------------------------------------------
+
+
+class TestMainModuleEntryPoint:
+    """REQUIREMENT: ``python -m jobsearch_rag`` invokes main() via the __main__ guard.
+
+    WHO: The operator running the package as a module
+    WHAT: (1) Running the package as ``python -m jobsearch_rag <cmd>`` executes main()
+    WHY: Without the guard, ``python -m jobsearch_rag`` would import
+         definitions but never dispatch — the operator would see no output
+
+    MOCK BOUNDARY:
+        Mock: jobsearch_rag.cli.handle_boards (CLI handler I/O),
+              sys.argv (process state)
+        Real: runpy module execution, build_parser(), main(), __name__ guard
+        Never: Patch runpy internals
+    """
+
+    def test_module_entry_point_invokes_main(self) -> None:
+        """
+        Given the package is invoked as ``python -m jobsearch_rag boards``
+        When Python executes __main__.py with __name__ set to "__main__"
+        Then main() dispatches the subcommand to the handler.
+        """
+        # Given: sys.argv set to a valid subcommand
+        mock_handler = MagicMock()
+        with (
+            patch("sys.argv", ["jobsearch_rag", "boards"]),
+            patch("jobsearch_rag.cli.handle_boards", mock_handler),
+        ):
+            # When: the module is executed as __main__
+            runpy.run_module("jobsearch_rag", run_name="__main__")
+
+        # Then: the handler was dispatched via main()
+        mock_handler.assert_called_once()

@@ -1460,6 +1460,7 @@ class TestCrossBoardDeduplication:
           (10) The system allows a candidate listing with no embedding in the embeddings map to survive deduplication without comparison.
           (11) The system skips an other listing that has no embedding in the inner deduplication loop so it survives uncollapsed.
           (12) The system skips already-consumed listings when a later candidate encounters them in the inner deduplication loop.
+          (13) The system does not add a board to duplicate_boards twice when multiple consumed listings share the same board.
     WHY: Seeing the same role five times in a shortlist wastes review time
          and inflates apparent result counts
 
@@ -1864,4 +1865,46 @@ class TestCrossBoardDeduplication:
         assert len(ranked) == 2, f"Expected 2 survivors (W + Y), got {len(ranked)}"
         assert summary.total_deduplicated == 2, (
             f"Expected 2 deduplicated (X + Z), got {summary.total_deduplicated}"
+        )
+
+    def test_same_board_duplicate_not_added_twice_to_duplicate_boards(self) -> None:
+        """
+        GIVEN three near-identical listings where two consumed duplicates share the same board
+        When the ranker deduplicates
+        Then the surviving listing's duplicate_boards contains that board only once.
+        """
+        # Given: candidate on board A, two duplicates on board B
+        ranker = self._make_ranker()
+        listing_main = self._make_listing(board="ziprecruiter", external_id="1")
+        listing_dup1 = self._make_listing(board="indeed", external_id="2")
+        listing_dup2 = self._make_listing(board="indeed", external_id="3")
+
+        high_scores = ScoreResult(
+            fit_score=0.9, archetype_score=0.9, history_score=0.5, disqualified=False
+        )
+        low_scores = ScoreResult(
+            fit_score=0.5, archetype_score=0.5, history_score=0.5, disqualified=False
+        )
+
+        embed = [0.9, 0.1, 0.2, 0.3, 0.4]
+        embeddings = {
+            listing_main.url: list(embed),
+            listing_dup1.url: list(embed),
+            listing_dup2.url: list(embed),
+        }
+
+        # When: ranker deduplicates — main consumes both indeed listings
+        ranked, summary = ranker.rank(
+            [(listing_main, high_scores), (listing_dup1, low_scores), (listing_dup2, low_scores)],
+            embeddings=embeddings,
+        )
+
+        # Then: one survivor, "indeed" appears exactly once in duplicate_boards
+        assert len(ranked) == 1, f"Expected 1 survivor, got {len(ranked)}"
+        assert summary.total_deduplicated == 2, (
+            f"Expected 2 deduplicated, got {summary.total_deduplicated}"
+        )
+        assert ranked[0].duplicate_boards.count("indeed") == 1, (
+            f"Board 'indeed' should appear exactly once in duplicate_boards, "
+            f"got {ranked[0].duplicate_boards}"
         )

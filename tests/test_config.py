@@ -93,6 +93,8 @@ class TestSettingsValidation:
           (27) The system defaults `culture_weight` to `0.2` when it is absent.
           (28) The system rejects an out-of-range `culture_weight` value above the limit and states the valid range with guidance.
           (29) The system rejects an out-of-range `culture_weight` value below the limit and states the valid range with guidance.
+          (30) The system uses the enabled board's config when an overnight board is also in enabled boards.
+          (31) The system skips an overnight board whose section is not a TOML table.
     WHY: A mid-run config failure after 10 minutes of browser work is
          far more costly than a startup validation failure — and an error
          that says "validation failed" without telling the operator what
@@ -570,6 +572,64 @@ headless = false
             )
             assert settings.boards["nightboard"].headless is False, (
                 f"Expected headless=False, got {settings.boards['nightboard'].headless}"
+            )
+
+    def test_overnight_board_already_in_enabled_uses_enabled_config(self) -> None:
+        """
+        Given an overnight board that is also listed in enabled boards
+        When load_settings is called
+        Then the enabled board's config is used and no duplicate entry is created.
+        """
+        # Given: same board in both enabled and overnight lists
+        overlap_toml = """\
+[boards]
+enabled = ["testboard"]
+overnight_boards = ["testboard"]
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+max_pages = 7
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, overlap_toml)
+
+            # When: settings are loaded
+            settings = load_settings(path)
+
+            # Then: the enabled board config is preserved (max_pages from enabled config)
+            assert "testboard" in settings.boards, (
+                f"Expected 'testboard' in boards. Got: {list(settings.boards.keys())}"
+            )
+            assert settings.boards["testboard"].max_pages == 7, (
+                f"Expected max_pages=7 from enabled config, got "
+                f"{settings.boards['testboard'].max_pages}"
+            )
+
+    def test_overnight_board_non_dict_section_is_skipped(self) -> None:
+        """
+        Given an overnight board whose section in [boards] is a scalar, not a table
+        When load_settings is called
+        Then the non-dict section is skipped and no BoardConfig is created for it.
+        """
+        # Given: overnight board section is a string scalar
+        bad_section_toml = """\
+[boards]
+enabled = ["testboard"]
+overnight_boards = ["nightboard"]
+nightboard = "not a table"
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_section_toml)
+
+            # When: settings are loaded
+            settings = load_settings(path)
+
+            # Then: nightboard has no BoardConfig (non-dict section was skipped)
+            assert "nightboard" not in settings.boards, (
+                f"Non-dict section should be skipped. Got boards: {list(settings.boards.keys())}"
             )
 
     def test_scoring_section_non_dict_uses_defaults(self) -> None:

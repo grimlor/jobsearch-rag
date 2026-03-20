@@ -43,7 +43,7 @@ def main() -> None:
             handle_rescore(args)
         elif args.command == "login":
             handle_login(args)
-        elif args.command == "reset":
+        elif args.command == "reset":  # pragma: no branch  (argparse required=True)
             handle_reset(args)
     except Exception as exc:
         # ActionableError instances have rich context
