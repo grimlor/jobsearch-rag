@@ -1,4 +1,5 @@
-"""Adapter layer — IoC / Strategy pattern for job board integrations.
+"""
+Adapter layer — IoC / Strategy pattern for job board integrations.
 
 Importing this package triggers adapter registration via the
 ``@AdapterRegistry.register`` decorator on each concrete adapter.

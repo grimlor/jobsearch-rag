@@ -1,4 +1,5 @@
-"""Export tests — Markdown, CSV, and browser tab opener.
+"""
+Export tests — Markdown, CSV, and browser tab opener.
 
 Maps to BDD specs: TestMarkdownExport, TestCSVExport, TestBrowserTabOpener
 
@@ -137,7 +138,8 @@ def _summary(
 
 
 class TestMarkdownExport:
-    """REQUIREMENT: Markdown output is human-readable and complete.
+    """
+    REQUIREMENT: Markdown output is human-readable and complete.
 
     WHO: The operator reviewing results in Obsidian or a text editor
     WHAT: (1) The system includes each listing's title, company, board, scores, disqualifier status, and URL in the Markdown output.
@@ -429,7 +431,8 @@ class TestMarkdownExport:
 
 
 class TestCSVExport:
-    """REQUIREMENT: CSV export is valid and importable by standard tools.
+    """
+    REQUIREMENT: CSV export is valid and importable by standard tools.
 
     WHO: The operator importing results into a spreadsheet or ATS tracker
     WHAT: (1) The system starts the CSV file with a header row that contains all required column names.
@@ -626,7 +629,8 @@ class TestCSVExport:
 
 
 class TestBrowserTabOpener:
-    """REQUIREMENT: Top-ranked results open as browser tabs in score order.
+    """
+    REQUIREMENT: Top-ranked results open as browser tabs in score order.
 
     WHO: The operator who wants to review shortlisted roles without manually
          clicking through the ranked output
@@ -866,7 +870,8 @@ class TestBrowserTabOpener:
 
 
 class TestJDFileExport:
-    """REQUIREMENT: Individual JD files are exported for standalone review.
+    """
+    REQUIREMENT: Individual JD files are exported for standalone review.
 
     WHO:  Operator reviewing JDs with external tools (e.g. Edge Copilot)
     WHAT: (1) The system creates a separate Markdown file for each qualified listing it exports.

@@ -1,4 +1,5 @@
-"""Scoring pipeline tests — semantic scoring, chunking, disqualifier, fusion, dedup.
+"""
+Scoring pipeline tests — semantic scoring, chunking, disqualifier, fusion, dedup.
 
 Spec classes:
     TestSemanticScoring
@@ -123,7 +124,8 @@ def scorer_empty_history(populated_store: VectorStore, mock_embedder: Embedder) 
 
 
 class TestSemanticScoring:
-    """REQUIREMENT: Semantic scores reflect meaningful similarity, not noise.
+    """
+    REQUIREMENT: Semantic scores reflect meaningful similarity, not noise.
 
     WHO: The ranker consuming scores to produce a ranked shortlist
     WHAT: (1) The system returns fit, archetype, and history scores as floats between 0.0 and 1.0 inclusive.
@@ -439,7 +441,8 @@ class TestSemanticScoring:
 
 
 class TestJDChunking:
-    """REQUIREMENT: Long JDs are chunked so all content contributes to scoring.
+    """
+    REQUIREMENT: Long JDs are chunked so all content contributes to scoring.
 
     WHO: The scorer processing real-world JDs from ZipRecruiter et al.
     WHAT: (1) The system calls embed exactly once when a short job description fits in a single chunk.
@@ -570,7 +573,8 @@ class TestJDChunking:
 
 
 class TestParseDisqualifierResponse:
-    """REQUIREMENT: Disqualifier JSON parsing handles all LLM response variants.
+    """
+    REQUIREMENT: Disqualifier JSON parsing handles all LLM response variants.
 
     WHO: The Scorer parsing raw LLM text
     WHAT: (1) The system normalises a reason value of the string "null" to None.
@@ -675,7 +679,8 @@ class TestParseDisqualifierResponse:
 
 
 class TestDisqualifierClassification:
-    """REQUIREMENT: LLM disqualifier correctly identifies structurally unsuitable roles.
+    """
+    REQUIREMENT: LLM disqualifier correctly identifies structurally unsuitable roles.
 
     WHO: The ranker applying disqualification before final scoring
     WHAT: (1) The system returns `disqualified=True` and returns the provided reason when the LLM flags a JD as disqualified.
@@ -827,7 +832,8 @@ class TestDisqualifierClassification:
 
 
 class TestRejectionReasonInjection:
-    """REQUIREMENT: Past rejection reasons are injected into the disqualifier prompt.
+    """
+    REQUIREMENT: Past rejection reasons are injected into the disqualifier prompt.
 
     WHO: The scorer augmenting the LLM system prompt with learned patterns
     WHAT: (1) The system injects rejection reasons from past 'no' verdicts into the disqualifier prompt as additional disqualifier patterns.
@@ -1030,7 +1036,8 @@ class TestRejectionReasonInjection:
 
 
 class TestScoreFusion:
-    """REQUIREMENT: Final score correctly fuses weighted components from settings.
+    """
+    REQUIREMENT: Final score correctly fuses weighted components from settings.
 
     WHO: The ranker; the operator tuning weights in settings.toml
     WHAT: (1) The system computes the final score as the positive weighted sum minus the negative penalty.
@@ -1445,7 +1452,8 @@ class TestScoreFusion:
 
 
 class TestCrossBoardDeduplication:
-    """REQUIREMENT: The same job appearing on multiple boards is presented once.
+    """
+    REQUIREMENT: The same job appearing on multiple boards is presented once.
 
     WHO: The operator reviewing the ranked output
     WHAT: (1) The system collapses listings whose full-text cosine similarity exceeds 0.95 into a single entry.

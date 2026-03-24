@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class JobListing:
-    """Board-agnostic data contract consumed by the RAG scorer, ranker, and exporter.
+    """
+    Board-agnostic data contract consumed by the RAG scorer, ranker, and exporter.
 
     Required fields are always populated after adapter extraction.
     Optional fields degrade gracefully when absent.
@@ -37,7 +38,8 @@ class JobListing:
 
 
 class JobBoardAdapter(ABC):
-    """Strategy interface for job board integration.
+    """
+    Strategy interface for job board integration.
 
     Each adapter owns: authentication, search result pagination,
     and full JD extraction. Nothing else.
@@ -51,7 +53,8 @@ class JobBoardAdapter(ABC):
 
     @abstractmethod
     async def authenticate(self, page: Page) -> None:
-        """Establish an authenticated session.
+        """
+        Establish an authenticated session.
 
         Uses Playwright ``storage_state`` for cookie persistence
         so this is a no-op on subsequent runs.
@@ -65,7 +68,8 @@ class JobBoardAdapter(ABC):
         query: str,
         max_pages: int = 3,
     ) -> list[JobListing]:
-        """Navigate search results and return shallow listings.
+        """
+        Navigate search results and return shallow listings.
 
         Full text is fetched separately via :meth:`extract_detail`.
         """

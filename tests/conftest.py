@@ -1,4 +1,5 @@
-"""Global test configuration — shared fixtures and safety guards.
+"""
+Global test configuration — shared fixtures and safety guards.
 
 This conftest provides:
 
@@ -40,7 +41,8 @@ _PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
 
 @pytest.fixture
 def mock_embedder() -> Embedder:
-    """Embedder with stubbed I/O methods — no Ollama connection needed.
+    """
+    Embedder with stubbed I/O methods — no Ollama connection needed.
 
     Uses ``Embedder.__new__`` to create a real instance without calling
     ``__init__`` (which would create an ``ollama.AsyncClient``).  All
@@ -73,7 +75,8 @@ def decision_recorder(
     mock_embedder: Embedder,
     tmp_path: Path,
 ) -> DecisionRecorder:
-    """Real DecisionRecorder with real ChromaDB and stubbed Embedder.
+    """
+    Real DecisionRecorder with real ChromaDB and stubbed Embedder.
 
     The ``decisions`` collection is pre-created so ``get_decision``
     works even before the first ``record()`` call.
@@ -93,7 +96,8 @@ def decision_recorder(
 
 @pytest.fixture(autouse=True, scope="session")
 def _guard_real_output_dir() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]  # autouse fixture
-    """Make the real output/ directory read-only during tests.
+    """
+    Make the real output/ directory read-only during tests.
 
     Restores original permissions after the session, even on failure.
     If the directory does not exist the guard is silently skipped —

@@ -1,4 +1,5 @@
-"""Logging configuration for jobsearch-rag.
+"""
+Logging configuration for jobsearch-rag.
 
 Sets up standard logging to stderr with a consistent format.
 Import the ``logger`` instance from this module throughout the codebase.
@@ -41,7 +42,8 @@ def configure_file_logging(
     *,
     level: int = logging.INFO,
 ) -> logging.FileHandler:
-    """Add a timestamped file handler to the logger.
+    """
+    Add a timestamped file handler to the logger.
 
     Creates ``log_dir`` if it does not exist.  Returns the handler so
     callers (or tests) can remove it later.

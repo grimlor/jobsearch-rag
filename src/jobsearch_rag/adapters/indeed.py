@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 
 @AdapterRegistry.register
 class IndeedAdapter(JobBoardAdapter):
-    """Browser automation adapter for Indeed.
+    """
+    Browser automation adapter for Indeed.
 
     Indeed is a high-volume board with aggressive bot detection.
     Requires careful throttling and may need stealth patches.

@@ -1,4 +1,5 @@
-"""Interactive review tests — batch decision recording on undecided listings.
+"""
+Interactive review tests — batch decision recording on undecided listings.
 
 Spec classes:
     TestInteractiveReview — ranked review workflow, verdict recording, progress

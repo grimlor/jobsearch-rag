@@ -1,4 +1,5 @@
-"""Integration tests — validate external dependency contracts.
+"""
+Integration tests — validate external dependency contracts.
 
 These tests require **live Ollama** with ``nomic-embed-text`` and
 ``mistral:7b`` models pulled.  They are skipped by default and run
@@ -140,7 +141,8 @@ def sample_archetypes(tmp_path: Path) -> Path:
 
 
 class TestOllamaContract:
-    """REQUIREMENT: Ollama SDK responses match the shapes our code assumes.
+    """
+    REQUIREMENT: Ollama SDK responses match the shapes our code assumes.
 
     WHO: Every unit test that mocks Ollama responses
     WHAT: (1) The system returns embeddings as lists of floats with consistent dimensionality across different inputs.
@@ -301,7 +303,8 @@ class TestOllamaContract:
 
 
 class TestChromaDBContract:
-    """REQUIREMENT: ChromaDB returns distances and results in the format we assume.
+    """
+    REQUIREMENT: ChromaDB returns distances and results in the format we assume.
 
     WHO: VectorStore wrapper and Scorer distance-to-score conversion
     WHAT: (1) The system returns an approximately zero distance when it queries an indexed document with the same embedding vector.
@@ -459,7 +462,8 @@ class TestChromaDBContract:
 
 
 class TestEndToEndScoring:
-    """REQUIREMENT: The full index-then-score pipeline produces valid results.
+    """
+    REQUIREMENT: The full index-then-score pipeline produces valid results.
 
     WHO: The operator running the pipeline for the first time
     WHAT: (1) The system returns a valid ScoreResult with non-zero fit and archetype scores when it scores a matching JD.
@@ -663,7 +667,8 @@ class TestEndToEndScoring:
 
 @pytest.mark.live
 class TestLiveZipRecruiterPipeline:
-    """REQUIREMENT: The full system works end-to-end against live ZipRecruiter.
+    """
+    REQUIREMENT: The full system works end-to-end against live ZipRecruiter.
 
     WHO: The operator validating the tool after installation or upgrade
     WHAT: (1) The system extracts live ZipRecruiter listings, scores them, ranks them in descending order, and exports the results when the full pipeline executes.

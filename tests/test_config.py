@@ -1,4 +1,5 @@
-"""Configuration validation tests.
+"""
+Configuration validation tests.
 
 Maps to BDD spec: TestSettingsValidation
 
@@ -61,7 +62,8 @@ def _write_settings(tmpdir: str, content: str) -> Path:
 
 
 class TestSettingsValidation:
-    """REQUIREMENT: Configuration errors tell the operator exactly what to fix.
+    """
+    REQUIREMENT: Configuration errors tell the operator exactly what to fix.
 
     WHO: The operator who misconfigured settings.toml
     WHAT: (1) The system reports that the `boards` section is missing and tells the operator how to add it.

@@ -1,4 +1,5 @@
-"""CLI command handlers for the Job Search RAG Assistant.
+"""
+CLI command handlers for the Job Search RAG Assistant.
 
 Each public function corresponds to a CLI subcommand and encapsulates
 the wiring, orchestration, and output for that command.
@@ -39,7 +40,8 @@ def _read_jd_text(
     *,
     jd_dir: Path | str = "output/jds",
 ) -> str:
-    """Read the full JD body from the corresponding JD markdown file.
+    """
+    Read the full JD body from the corresponding JD markdown file.
 
     Returns the text after the ``## Job Description`` marker, or an
     empty string if the file is missing or the marker is absent.
@@ -66,7 +68,8 @@ _LOGIN_URLS: dict[str, str] = {
 
 
 def handle_login(args: argparse.Namespace) -> None:
-    """Open an interactive browser session for manual login.
+    """
+    Open an interactive browser session for manual login.
 
     Launches a headed (visible) browser, navigates to the board's
     login page, and waits for the operator to complete authentication
@@ -303,7 +306,8 @@ def handle_decide(args: argparse.Namespace) -> None:
 
 
 def handle_review(args: argparse.Namespace) -> None:
-    """Interactively review undecided listings from the latest search.
+    """
+    Interactively review undecided listings from the latest search.
 
     Walks through each undecided listing in ranked order, displaying
     scores and compensation.  The operator enters y/n/m to record a
@@ -414,7 +418,8 @@ def handle_review(args: argparse.Namespace) -> None:
 
 
 def handle_rescore(args: argparse.Namespace) -> None:
-    """Re-score existing JDs through updated collections without browser automation.
+    """
+    Re-score existing JDs through updated collections without browser automation.
 
     Loads previously exported JD files from ``output/jds/``, re-scores each
     through the current RAG collections (archetypes, negative signals, resume,
@@ -495,7 +500,8 @@ def handle_rescore(args: argparse.Namespace) -> None:
 
 
 def handle_export(args: argparse.Namespace) -> None:
-    """Re-export last results in a specific format.
+    """
+    Re-export last results in a specific format.
 
     Search results are auto-exported during ``search``.  This command
     can re-export from the saved output files in a different format.

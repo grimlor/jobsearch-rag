@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 
 
 async def check_linkedin_detection(page: Page) -> None:
-    """Check current page for LinkedIn bot-detection indicators.
+    """
+    Check current page for LinkedIn bot-detection indicators.
 
     Raises ``ActionableError.authentication`` if detection is found.
     """
@@ -47,7 +48,8 @@ async def check_linkedin_detection(page: Page) -> None:
 
 @AdapterRegistry.register
 class LinkedInAdapter(JobBoardAdapter):
-    """Browser automation adapter for LinkedIn.
+    """
+    Browser automation adapter for LinkedIn.
 
     Requires headed mode and ``playwright-stealth`` fingerprint patches.
     Run via ``--board linkedin --overnight`` for safe, throttled operation.

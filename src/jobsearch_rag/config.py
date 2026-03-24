@@ -1,4 +1,5 @@
-"""Configuration loading and validation.
+"""
+Configuration loading and validation.
 
 Loads ``settings.toml`` and validates all fields at startup, before any
 browser sessions are opened or expensive work begins.  A mid-run config
@@ -107,7 +108,8 @@ DEFAULT_SETTINGS_PATH = Path("config/settings.toml")
 
 
 def load_settings(path: str | Path = DEFAULT_SETTINGS_PATH) -> Settings:
-    """Load and validate settings from a TOML file.
+    """
+    Load and validate settings from a TOML file.
 
     Raises :class:`~jobsearch_rag.errors.ActionableError`:
       - CONFIG if the file is missing or a required field is absent

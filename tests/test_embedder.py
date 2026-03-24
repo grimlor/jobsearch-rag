@@ -1,4 +1,5 @@
-"""Embedder tests — Ollama wrapper with retry and error handling.
+"""
+Embedder tests — Ollama wrapper with retry and error handling.
 
 Spec classes:
     TestEmbedding — text-to-vector embedding via Ollama
@@ -66,7 +67,8 @@ def embedder() -> Embedder:
 
 
 class TestEmbedding:
-    """REQUIREMENT: Text is embedded into a vector via Ollama.
+    """
+    REQUIREMENT: Text is embedded into a vector via Ollama.
 
     WHO: The indexer converting resume chunks and archetypes to vectors
     WHAT: (1) The system returns the embedding vector as a list of floats.
@@ -254,7 +256,8 @@ class TestEmbedding:
 
 
 class TestClassification:
-    """REQUIREMENT: LLM classification prompts are sent via Ollama chat.
+    """
+    REQUIREMENT: LLM classification prompts are sent via Ollama chat.
 
     WHO: The scorer's disqualifier checking for hard-no signals
     WHAT: (1) The system returns the raw LLM response content.
@@ -333,7 +336,8 @@ class TestClassification:
 
 
 class TestHealthCheck:
-    """REQUIREMENT: Ollama unavailability is detected before processing begins.
+    """
+    REQUIREMENT: Ollama unavailability is detected before processing begins.
 
     WHO: The pipeline runner; the operator who may have forgotten to start Ollama
     WHAT: (1) The system completes the health check without raising an error when both models are available in Ollama.
@@ -441,7 +445,8 @@ class TestHealthCheck:
 
 
 class TestRetryLogic:
-    """REQUIREMENT: Transient Ollama failures are retried with backoff.
+    """
+    REQUIREMENT: Transient Ollama failures are retried with backoff.
 
     WHO: The embedding/classification caller during scoring
     WHAT: (1) The system retries `embed()` after a transient 503 error and returns the embedding on the second attempt.

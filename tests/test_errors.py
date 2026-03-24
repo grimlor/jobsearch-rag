@@ -1,4 +1,5 @@
-"""Actionable error hierarchy tests.
+"""
+Actionable error hierarchy tests.
 
 Tests that the error factory methods produce correct, structured,
 recoverable errors per the actionable-error philosophy.
@@ -18,7 +19,8 @@ from jobsearch_rag.errors import ActionableError, AIGuidance, ErrorType
 
 
 class TestErrorFactoryMethods:
-    """REQUIREMENT: Factory methods produce structured errors with embedded guidance.
+    """
+    REQUIREMENT: Factory methods produce structured errors with embedded guidance.
 
     WHO: Any component catching exceptions and wrapping them for consumers
     WHAT: (1) The system returns an authentication error that includes a suggestion and troubleshooting guidance so the operator can re-authenticate.
@@ -172,7 +174,8 @@ class TestErrorFactoryMethods:
 
 
 class TestSuggestionPreservation:
-    """REQUIREMENT: Custom suggestions are always preserved.
+    """
+    REQUIREMENT: Custom suggestions are always preserved.
 
     WHO: Callers providing operation-specific context
     WHAT: (1) The system preserves a caller-provided suggestion verbatim when authentication() creates the error instead of using a generic default.
@@ -220,7 +223,8 @@ class TestSuggestionPreservation:
 
 
 class TestAIGuidanceToDict:
-    """REQUIREMENT: AIGuidance.to_dict() includes only non-None optional fields.
+    """
+    REQUIREMENT: AIGuidance.to_dict() includes only non-None optional fields.
 
     WHO: Logging and API consumers deserializing error guidance
     WHAT: (1) The system includes the `command` key in the dictionary when `command` is set.
@@ -314,7 +318,8 @@ class TestAIGuidanceToDict:
 
 
 class TestActionableErrorToDict:
-    """REQUIREMENT: ActionableError.to_dict() includes troubleshooting and context when set.
+    """
+    REQUIREMENT: ActionableError.to_dict() includes troubleshooting and context when set.
 
     WHO: Error serialization consumers (logs, API responses, AI agents)
     WHAT: (1) The system includes the troubleshooting dictionary with its steps when converting an error with troubleshooting steps to a dictionary.
@@ -366,7 +371,8 @@ class TestActionableErrorToDict:
 
 
 class TestValidationFactory:
-    """REQUIREMENT: validation() factory produces VALIDATION-typed errors.
+    """
+    REQUIREMENT: validation() factory produces VALIDATION-typed errors.
 
     WHO: Config validation and input parsing code
     WHAT: (1) The system returns a VALIDATION error that names the field and provides suggestion and troubleshooting guidance.
@@ -396,7 +402,8 @@ class TestValidationFactory:
 
 
 class TestFromExceptionClassifier:
-    """REQUIREMENT: from_exception() classifies exceptions by keyword patterns.
+    """
+    REQUIREMENT: from_exception() classifies exceptions by keyword patterns.
 
     WHO: Generic exception handlers wrapping unknown errors
     WHAT: (1) The system classifies an exception containing timeout as CONNECTION and provides suggestion and troubleshooting.

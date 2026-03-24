@@ -1,4 +1,5 @@
-"""Rescore pipeline tests — JD file loading and re-scoring workflow.
+"""
+Rescore pipeline tests — JD file loading and re-scoring workflow.
 
 Maps to BDD specs: TestJdFileLoading, TestRescoreWorkflow
 """
@@ -70,7 +71,8 @@ def jd_dir(tmp_path: Path) -> Path:
 
 
 class TestJdFileLoading:
-    """REQUIREMENT: JD files from output/jds/ are loaded back into JobListing objects.
+    """
+    REQUIREMENT: JD files from output/jds/ are loaded back into JobListing objects.
 
     WHO: The rescore pipeline; the operator running ``rescore`` after tuning archetypes
     WHAT: (1) The system returns a JobListing with all metadata fields populated when it loads a well-formed JD file.
@@ -247,7 +249,8 @@ class TestJdFileLoading:
 
 
 class TestRescoreWorkflow:
-    """REQUIREMENT: The rescore pipeline re-scores JDs through updated RAG collections.
+    """
+    REQUIREMENT: The rescore pipeline re-scores JDs through updated RAG collections.
 
     WHO: The operator iterating on archetype tuning or negative signal refinement
     WHAT: (1) The system returns ranked listings without failures when it rescoring a directory of valid JD files with a populated scoring stack.

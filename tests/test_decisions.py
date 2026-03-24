@@ -1,4 +1,5 @@
-"""Decision history tests.
+"""
+Decision history tests.
 
 Maps to BDD spec: TestDecisionRecording
 
@@ -54,7 +55,8 @@ def recorder(store: VectorStore, mock_embedder: Embedder) -> Iterator[DecisionRe
 
 
 class TestDecisionRecording:
-    """REQUIREMENT: User decisions are recorded and build the history signal over time.
+    """
+    REQUIREMENT: User decisions are recorded and build the history signal over time.
 
     WHO: The scorer computing history_score on future runs
     WHAT: (1) The system persists a recorded yes verdict and includes it in the history signal for future scoring.

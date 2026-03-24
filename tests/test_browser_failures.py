@@ -1,4 +1,5 @@
-"""Browser failure mode tests.
+"""
+Browser failure mode tests.
 
 Spec classes:
     TestAuthenticationFailures — session expiry, CAPTCHA, and auth recovery
@@ -72,7 +73,8 @@ class _FakeAdapter(JobBoardAdapter):
 
 
 class TestAuthenticationFailures:
-    """REQUIREMENT: Authentication failures tell the operator exactly how to recover.
+    """
+    REQUIREMENT: Authentication failures tell the operator exactly how to recover.
 
     WHO: The operator running the tool; the pipeline runner
     WHAT: (1) The system reports an authentication error that names the affected board and tells the operator to reauthenticate.
@@ -200,7 +202,8 @@ class TestAuthenticationFailures:
 
 
 class TestRateLimitAndThrottling:
-    """REQUIREMENT: Page loads are throttled to human-like timing per adapter profile.
+    """
+    REQUIREMENT: Page loads are throttled to human-like timing per adapter profile.
 
     WHO: The browser session manager; the operator avoiding platform bans
     WHAT: (1) The system delays for a duration that stays within the adapter's configured minimum and maximum rate limit bounds.
@@ -322,7 +325,8 @@ class TestRateLimitAndThrottling:
 
 
 class TestPageExtractionFailures:
-    """REQUIREMENT: Extraction failures on individual listings do not abort the run.
+    """
+    REQUIREMENT: Extraction failures on individual listings do not abort the run.
 
     WHO: The pipeline runner processing a result set
     WHAT: (1) The system classifies a 404 detail-page failure as a PARSE error and provides actionable guidance.
@@ -459,7 +463,8 @@ class TestPageExtractionFailures:
 
 
 class TestLinkedInDetectionResponse:
-    """REQUIREMENT: LinkedIn bot detection triggers a graceful, safe halt.
+    """
+    REQUIREMENT: LinkedIn bot detection triggers a graceful, safe halt.
 
     WHO: The operator running overnight LinkedIn passes
     WHAT: (1) The system raises an AUTHENTICATION error that advises waiting before retrying when LinkedIn redirects to `/authwall`.

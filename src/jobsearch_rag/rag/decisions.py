@@ -1,4 +1,5 @@
-"""Decision history recording and retrieval.
+"""
+Decision history recording and retrieval.
 
 Records user verdicts (yes / no / maybe) on scored job listings and
 stores them in the ``decisions`` ChromaDB collection.  Only ``yes``
@@ -45,7 +46,8 @@ _DECISIONS_DIR = Path("data/decisions")
 
 
 class DecisionRecorder:
-    """Records and retrieves user verdicts on job listings.
+    """
+    Records and retrieves user verdicts on job listings.
 
     Usage::
 
@@ -82,7 +84,8 @@ class DecisionRecorder:
         company: str = "",
         reason: str = "",
     ) -> None:
-        """Record a user verdict on a job listing.
+        """
+        Record a user verdict on a job listing.
 
         Stores the decision in both ChromaDB (for scoring) and as JSONL
         on disk (for audit).  Re-recording a verdict on the same ``job_id``
@@ -179,7 +182,8 @@ class DecisionRecorder:
         )
 
     def get_decision(self, job_id: str) -> dict[str, str] | None:
-        """Retrieve the stored decision for a job_id, or None if not found.
+        """
+        Retrieve the stored decision for a job_id, or None if not found.
 
         Returns metadata dict with keys: job_id, verdict, board, title,
         company, scoring_signal, recorded_at.

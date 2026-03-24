@@ -1,4 +1,5 @@
-"""Ollama embedding wrapper with retry logic.
+"""
+Ollama embedding wrapper with retry logic.
 
 Wraps the ``ollama`` Python SDK's :class:`AsyncClient` to provide:
 
@@ -45,7 +46,8 @@ _TRUNCATION_MARKER = "\n[…]\n"
 
 
 class Embedder:
-    """Wraps Ollama embedding and LLM calls with backoff and error handling.
+    """
+    Wraps Ollama embedding and LLM calls with backoff and error handling.
 
     Usage::
 
@@ -60,7 +62,8 @@ class Embedder:
     """
 
     MAX_EMBED_CHARS: int = _DEFAULT_MAX_EMBED_CHARS
-    """Maximum character count accepted by the embedding model.
+    """
+    Maximum character count accepted by the embedding model.
 
     The scorer reads this to size its overlapping chunks so that no
     single chunk exceeds the model's context window.
@@ -85,7 +88,8 @@ class Embedder:
     # -- Public API ----------------------------------------------------------
 
     async def embed(self, text: str) -> list[float]:
-        """Return the embedding vector for *text*.
+        """
+        Return the embedding vector for *text*.
 
         Strips whitespace before embedding. Raises VALIDATION for empty
         input; retries transient Ollama errors with exponential backoff.
@@ -123,7 +127,8 @@ class Embedder:
         return await self._with_retry(_call, operation="embed")
 
     async def classify(self, prompt: str) -> str:
-        """Send a classification prompt to the LLM and return the raw response.
+        """
+        Send a classification prompt to the LLM and return the raw response.
 
         Uses a system message to establish the classification role.
         Retries transient errors with exponential backoff.
@@ -148,7 +153,8 @@ class Embedder:
         return await self._with_retry(_call, operation="classify")
 
     async def health_check(self) -> None:
-        """Verify Ollama is reachable and the configured models are available.
+        """
+        Verify Ollama is reachable and the configured models are available.
 
         Raises :class:`~jobsearch_rag.errors.ActionableError`:
           - CONNECTION if Ollama is unreachable
@@ -195,7 +201,8 @@ class Embedder:
         *,
         operation: str,
     ) -> _T:
-        """Call *fn* with exponential backoff on retryable errors.
+        """
+        Call *fn* with exponential backoff on retryable errors.
 
         Non-retryable errors (e.g. 404 model not found) fail immediately.
         After ``max_retries`` attempts, raises an EMBEDDING error.

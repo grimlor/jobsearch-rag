@@ -1,4 +1,5 @@
-"""LinkedIn adapter extraction tests — overnight mode, stealth, throttled.
+"""
+LinkedIn adapter extraction tests — overnight mode, stealth, throttled.
 
 Spec classes:
     TestLinkedInAuthenticate — session verification with bot-detection awareness
@@ -58,7 +59,8 @@ def _make_listing(
 
 
 class TestLinkedInAuthenticate:
-    """REQUIREMENT: LinkedIn session verification detects bot-detection and session expiry.
+    """
+    REQUIREMENT: LinkedIn session verification detects bot-detection and session expiry.
 
     WHO: The pipeline runner during the authenticate step
     WHAT: (1) The system completes authentication without error when the LinkedIn feed loads successfully.
@@ -143,7 +145,8 @@ class TestLinkedInAuthenticate:
 
 
 class TestLinkedInSearch:
-    """REQUIREMENT: search() navigates LinkedIn job search and extracts listings.
+    """
+    REQUIREMENT: search() navigates LinkedIn job search and extracts listings.
 
     WHO: The pipeline runner collecting listings from LinkedIn
     WHAT: (1) The system returns a list of JobListings when LinkedIn search is called on job search results.
@@ -235,7 +238,8 @@ class TestLinkedInSearch:
 
 
 class TestLinkedInExtractDetail:
-    """REQUIREMENT: extract_detail navigates to a listing and populates full_text.
+    """
+    REQUIREMENT: extract_detail navigates to a listing and populates full_text.
 
     WHO: The pipeline runner enriching shallow listings with full JD text
     WHAT: (1) The system populates an empty full_text field with the job description body during detail extraction.

@@ -1,4 +1,5 @@
-"""CDP-based browser launch tests — SessionManager subprocess and cleanup.
+"""
+CDP-based browser launch tests — SessionManager subprocess and cleanup.
 
 Spec classes:
     TestSessionConfigCDP — config carries CDP channel selection
@@ -78,7 +79,8 @@ def _patch_playwright(mock_pw: MagicMock) -> Any:
 
 
 class TestSessionConfigCDP:
-    """REQUIREMENT: SessionConfig carries CDP channel selection through to launch.
+    """
+    REQUIREMENT: SessionConfig carries CDP channel selection through to launch.
 
     WHO: The operator choosing between Playwright-managed and CDP mode
     WHAT: (1) The system defaults browser_channel to None when it creates a SessionConfig without a specified browser_channel.
@@ -123,7 +125,8 @@ class TestSessionConfigCDP:
 
 
 class TestSessionManagerCDP:
-    """REQUIREMENT: CDP mode launches a system browser and connects via DevTools Protocol.
+    """
+    REQUIREMENT: CDP mode launches a system browser and connects via DevTools Protocol.
 
     WHO: The pipeline runner needing a Cloudflare-safe browser session
     WHAT: (1) The session manager launches the browser through CDP and connects Playwright over the CDP endpoint.
@@ -818,7 +821,8 @@ class TestSessionManagerCDP:
 
 
 class TestSessionManagerEdgeCases:
-    """REQUIREMENT: SessionManager handles edge cases gracefully.
+    """
+    REQUIREMENT: SessionManager handles edge cases gracefully.
 
     WHO: The pipeline runner encountering unusual states
     WHAT: (1) The system treats calling `__aexit__` on an uninitialised `SessionManager` as a graceful no-op that raises no error.
@@ -889,7 +893,8 @@ class TestSessionManagerEdgeCases:
 
 
 class TestThrottle:
-    """REQUIREMENT: Rate-limiting sleeps for a random duration within configured bounds.
+    """
+    REQUIREMENT: Rate-limiting sleeps for a random duration within configured bounds.
 
     WHO: The pipeline runner calling throttle between requests
     WHAT: (1) The system sleeps for a duration between 0.5 and 1.0 seconds when throttle is called with rate limit bounds of 0.5 and 1.0 seconds.

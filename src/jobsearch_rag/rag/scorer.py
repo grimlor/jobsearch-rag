@@ -1,4 +1,5 @@
-"""Semantic scoring and LLM disqualifier classification.
+"""
+Semantic scoring and LLM disqualifier classification.
 
 The Scorer bridges two RAG concerns:
 
@@ -45,7 +46,8 @@ _CHUNK_OVERLAP = 2_000
 
 
 def _chunk_text(text: str, chunk_size: int, overlap: int = _CHUNK_OVERLAP) -> list[str]:
-    """Split *text* into overlapping chunks of at most *chunk_size* chars.
+    """
+    Split *text* into overlapping chunks of at most *chunk_size* chars.
 
     Short texts (≤ chunk_size) are returned as-is in a single-element list.
     Overlap ensures signals near chunk boundaries are not lost.
@@ -112,7 +114,8 @@ class ScoreResult:
 
 
 def _distance_to_score(distances: list[float]) -> float:
-    """Convert a list of cosine distances to a single similarity score.
+    """
+    Convert a list of cosine distances to a single similarity score.
 
     ChromaDB returns *cosine distance* (1 - cosine_similarity).  We take
     the *minimum* distance (closest match) and clamp to [0.0, 1.0]:
@@ -126,7 +129,8 @@ def _distance_to_score(distances: list[float]) -> float:
 
 
 class Scorer:
-    """Computes semantic similarity scores and runs the LLM disqualifier.
+    """
+    Computes semantic similarity scores and runs the LLM disqualifier.
 
     Parameters
     ----------
@@ -159,7 +163,8 @@ class Scorer:
     # ------------------------------------------------------------------
 
     async def score(self, jd_text: str) -> ScoreResult:
-        """Score a job description against resume, archetypes, and decision history.
+        """
+        Score a job description against resume, archetypes, and decision history.
 
         For short JDs a single embedding is used.  Long JDs are split into
         overlapping chunks; each chunk is embedded and queried independently,
@@ -232,7 +237,8 @@ class Scorer:
         )
 
     async def disqualify(self, jd_text: str) -> tuple[bool, str | None]:
-        """Run the LLM disqualifier prompt. Returns ``(disqualified, reason)``.
+        """
+        Run the LLM disqualifier prompt. Returns ``(disqualified, reason)``.
 
         Past rejection reasons from "no" verdicts are injected into the
         system prompt so the LLM learns the operator's personal
@@ -262,7 +268,8 @@ class Scorer:
     # ------------------------------------------------------------------
 
     def _query_collection(self, collection_name: str, embedding: list[float]) -> float:
-        """Query a collection and return the best-match similarity score.
+        """
+        Query a collection and return the best-match similarity score.
 
         Raises ``ActionableError.index`` if the collection is empty or
         does not exist.
@@ -299,7 +306,8 @@ class Scorer:
         return _distance_to_score(distances)
 
     def _get_rejection_reasons(self) -> list[str]:
-        """Collect non-empty reasons from 'no' verdicts in the decisions collection.
+        """
+        Collect non-empty reasons from 'no' verdicts in the decisions collection.
 
         Results are cached for the lifetime of the Scorer instance (one
         search run) to avoid repeated ChromaDB queries.
@@ -337,7 +345,8 @@ class Scorer:
 
     @staticmethod
     def _parse_disqualifier_response(raw: str) -> tuple[bool, str | None]:
-        """Parse the LLM disqualifier JSON response.
+        """
+        Parse the LLM disqualifier JSON response.
 
         Expected format::
 

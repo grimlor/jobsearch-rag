@@ -1,4 +1,5 @@
-"""ZipRecruiter adapter — auth, search pagination, JD extraction.
+"""
+ZipRecruiter adapter — auth, search pagination, JD extraction.
 
 ZipRecruiter renders its SERP as a React SPA.  The HTML body contains only
 empty hydration roots (``#react-serp-root``); all job data is delivered as
@@ -76,7 +77,8 @@ _THROTTLE_BASE_DELAY = 2.0  # seconds; doubles each retry
 
 
 def is_throttle_response(text: str) -> bool:
-    """Return True if *text* matches a known ZipRecruiter throttle response.
+    """
+    Return True if *text* matches a known ZipRecruiter throttle response.
 
     Checks for known error phrases that ZR displays in the detail panel
     when rate-limiting a session.  The check is case-insensitive and
@@ -121,7 +123,8 @@ def html_to_text(html: str) -> str:
 
 
 def extract_js_variables(html: str) -> dict[str, Any]:
-    """Parse the ``js_variables`` JSON blob from a ZipRecruiter page.
+    """
+    Parse the ``js_variables`` JSON blob from a ZipRecruiter page.
 
     Args:
         html: Full page HTML source.
@@ -158,7 +161,8 @@ def parse_job_cards(js_vars: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def card_to_listing(card: dict[str, Any]) -> JobListing:
-    """Convert a single job card dict to a ``JobListing``.
+    """
+    Convert a single job card dict to a ``JobListing``.
 
     The ``shortDescription`` snippet from the card is stored in
     ``metadata["short_description"]`` for fallback use when full
@@ -219,7 +223,8 @@ def extract_jd_text(js_vars: dict[str, Any]) -> str:
 
 
 async def _wait_for_cloudflare(page: Page, *, timeout: int = _CF_WAIT_TIMEOUT) -> None:
-    """Wait for a Cloudflare "Just a moment..." challenge to resolve.
+    """
+    Wait for a Cloudflare "Just a moment..." challenge to resolve.
 
     Cloudflare inserts an interstitial page that runs a JS challenge.
     In headed mode it resolves in < 1 s.  In headless mode it usually
@@ -251,7 +256,8 @@ async def _wait_for_cloudflare(page: Page, *, timeout: int = _CF_WAIT_TIMEOUT) -
 
 @AdapterRegistry.register
 class ZipRecruiterAdapter(JobBoardAdapter):
-    """Browser automation adapter for ZipRecruiter.
+    """
+    Browser automation adapter for ZipRecruiter.
 
     Extracts job data from the ``js_variables`` JSON blob embedded in
     ZipRecruiter's React SPA pages.  Full JD text is obtained via
@@ -264,7 +270,8 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         return "ziprecruiter"
 
     async def authenticate(self, page: Page) -> None:
-        """Verify an active session by checking for login/CAPTCHA indicators.
+        """
+        Verify an active session by checking for login/CAPTCHA indicators.
 
         ZipRecruiter auth is cookie-based via ``storage_state``.  This method
         validates the session is still alive rather than performing login.
@@ -309,7 +316,8 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         query: str,
         max_pages: int = 3,
     ) -> list[JobListing]:
-        """Navigate search results, click through cards, and return enriched listings.
+        """
+        Navigate search results, click through cards, and return enriched listings.
 
         Extracts job card metadata from the ``js_variables`` JSON blob, then
         clicks through each card article on the SERP to read full JD text
@@ -399,7 +407,8 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         page: Page,
         listings: list[JobListing],
     ) -> None:
-        """Click each card article on the SERP and read JD from the detail panel.
+        """
+        Click each card article on the SERP and read JD from the detail panel.
 
         Skips listings that already have ``full_text`` populated (e.g. the
         first card extracted from ``js_variables``).  Falls back to
@@ -535,7 +544,8 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         page: Page,
         listing: JobListing,
     ) -> JobListing:
-        """Return the listing — full JD is already populated by click-through.
+        """
+        Return the listing — full JD is already populated by click-through.
 
         The ``search()`` method populates ``full_text`` during SERP
         click-through, so this method is a passthrough.  If ``full_text``

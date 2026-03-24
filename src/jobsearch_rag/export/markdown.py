@@ -21,7 +21,8 @@ class MarkdownExporter:
         *,
         summary: RankSummary | None = None,
     ) -> None:
-        """Write a Markdown file with run summary and ranked listing table.
+        """
+        Write a Markdown file with run summary and ranked listing table.
 
         Disqualified listings (``final_score == 0.0`` and ``disqualified``)
         are excluded.  Results are sorted descending by ``final_score``.

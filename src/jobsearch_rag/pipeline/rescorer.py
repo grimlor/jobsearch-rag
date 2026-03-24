@@ -1,4 +1,5 @@
-"""Rescore pipeline — re-score existing JDs without browser automation.
+"""
+Rescore pipeline — re-score existing JDs without browser automation.
 
 The Rescorer loads previously exported JD files from ``output/jds/``,
 re-scores each through the current RAG collections (which may have
@@ -39,7 +40,8 @@ class RescoreResult:
 
 
 def _parse_jd_header(content: str) -> dict[str, str]:
-    """Extract metadata from a JD file's YAML-style header.
+    """
+    Extract metadata from a JD file's YAML-style header.
 
     Expected format::
 
@@ -76,7 +78,8 @@ def _extract_jd_body(content: str) -> str:
 
 
 def load_jd_files(jd_dir: str | Path) -> list[JobListing]:
-    """Load JobListing objects from exported JD markdown files.
+    """
+    Load JobListing objects from exported JD markdown files.
 
     Reads all ``.md`` files from ``jd_dir``, parses their metadata
     headers and JD bodies, and reconstructs JobListing objects for
@@ -130,7 +133,8 @@ def load_jd_files(jd_dir: str | Path) -> list[JobListing]:
 
 
 class Rescorer:
-    """Re-scores existing JD files through the current RAG collections.
+    """
+    Re-scores existing JD files through the current RAG collections.
 
     Usage::
 
@@ -150,7 +154,8 @@ class Rescorer:
         self._base_salary = base_salary
 
     async def rescore(self, jd_dir: str | Path) -> RescoreResult:
-        """Load JDs from disk, score, rank, and return results.
+        """
+        Load JDs from disk, score, rank, and return results.
 
         Args:
             jd_dir: Path to the directory containing exported JD files.

@@ -26,7 +26,8 @@ __all__ = ["AIGuidance", "ActionableError", "ErrorType", "Troubleshooting"]
 
 
 class ErrorType(StrEnum):
-    """Recovery-path categories — what to *do*, not where it came from.
+    """
+    Recovery-path categories — what to *do*, not where it came from.
 
     Extends the base ``actionable_errors.ErrorType`` with RAG-specific
     values (EMBEDDING, INDEX, PARSE, DECISION).
@@ -49,7 +50,8 @@ class ErrorType(StrEnum):
 
 
 class ActionableError(_ActionableError):
-    """Structured error with embedded recovery guidance.
+    """
+    Structured error with embedded recovery guidance.
 
     Inherits dataclass fields, ``__post_init__``, ``to_dict()``, and
     serialization from the shared library.  Factory classmethods below
@@ -348,7 +350,8 @@ class ActionableError(_ActionableError):
         *,
         suggestion: str | None = None,
     ) -> ActionableError:
-        """Auto-classify an exception by keyword patterns.
+        """
+        Auto-classify an exception by keyword patterns.
 
         A caller-supplied ``suggestion`` is always preserved — it carries
         context the generic classifier cannot infer.

@@ -1,4 +1,5 @@
-"""VectorStore tests — ChromaDB collection management and querying.
+"""
+VectorStore tests — ChromaDB collection management and querying.
 
 Maps to BDD specs: TestCollectionLifecycle, TestDocumentOperations,
 TestSimilarityQuery, TestStoreErrors
@@ -79,7 +80,8 @@ def populated_store(store: VectorStore) -> VectorStore:
 
 
 class TestCollectionLifecycle:
-    """REQUIREMENT: Collections are created, retrieved, and reset reliably.
+    """
+    REQUIREMENT: Collections are created, retrieved, and reset reliably.
 
     WHO: The indexer managing ChromaDB collections
     WHAT: (1) The system creates and returns a new collection when get_or_create_collection is called for an empty store.
@@ -177,7 +179,8 @@ class TestCollectionLifecycle:
 
 
 class TestDocumentOperations:
-    """REQUIREMENT: Documents can be added and retrieved with metadata.
+    """
+    REQUIREMENT: Documents can be added and retrieved with metadata.
 
     WHO: The indexer populating collections with resume chunks and archetypes
     WHAT: (1) The system returns the matching document when get_documents is called with a specific ID.
@@ -274,7 +277,8 @@ class TestDocumentOperations:
 
 
 class TestSimilarityQuery:
-    """REQUIREMENT: Similarity queries return documents ranked by closeness.
+    """
+    REQUIREMENT: Similarity queries return documents ranked by closeness.
 
     WHO: The scorer computing fit, archetype, and history scores
     WHAT: (1) The system returns the architect document first when the query vector is most similar to it.
@@ -384,7 +388,8 @@ class TestSimilarityQuery:
 
 
 class TestStoreErrors:
-    """REQUIREMENT: Store errors are actionable and classified correctly.
+    """
+    REQUIREMENT: Store errors are actionable and classified correctly.
 
     WHO: The pipeline runner catching errors to present clear guidance
     WHAT: (1) The system raises an INDEX error that tells the operator to run the index command when `query` is called on a nonexistent collection.
@@ -484,7 +489,8 @@ class TestStoreErrors:
 
 
 class TestMetadataQuery:
-    """REQUIREMENT: Documents can be retrieved by metadata filter.
+    """
+    REQUIREMENT: Documents can be retrieved by metadata filter.
 
     WHO: The scorer retrieving past rejection reasons for disqualifier augmentation
     WHAT: (1) The system returns only documents whose metadata matches the requested value.

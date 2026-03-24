@@ -1,4 +1,5 @@
-"""ChromaDB collection management.
+"""
+ChromaDB collection management.
 
 Provides a thin wrapper around ChromaDB's client, adding:
 - Consistent error handling via ActionableError
@@ -27,7 +28,8 @@ from jobsearch_rag.logging import logger
 
 
 class VectorStore:
-    """Manages ChromaDB collections for resume, archetypes, and decisions.
+    """
+    Manages ChromaDB collections for resume, archetypes, and decisions.
 
     Usage::
 
@@ -45,7 +47,8 @@ class VectorStore:
     # -- Collection lifecycle ------------------------------------------------
 
     def get_or_create_collection(self, name: str) -> chromadb.Collection:
-        """Return the named ChromaDB collection, creating if necessary.
+        """
+        Return the named ChromaDB collection, creating if necessary.
 
         Uses cosine similarity as the distance function — the natural
         choice for comparing text embeddings.
@@ -58,7 +61,8 @@ class VectorStore:
         return collection
 
     def collection_count(self, name: str) -> int:
-        """Return the document count for collection *name*.
+        """
+        Return the document count for collection *name*.
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection does not exist.
@@ -67,7 +71,8 @@ class VectorStore:
         return collection.count()
 
     def reset_collection(self, name: str) -> None:
-        """Drop and recreate the named collection.
+        """
+        Drop and recreate the named collection.
 
         Safe to call on nonexistent collections (no-op for the delete,
         but always ensures the collection exists and is empty afterward).
@@ -92,7 +97,8 @@ class VectorStore:
         embeddings: list[list[float]],
         metadatas: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Add (or update) documents with pre-computed embeddings.
+        """
+        Add (or update) documents with pre-computed embeddings.
 
         All list arguments must have the same length. Documents with
         existing IDs are **upserted** (updated in place).
@@ -136,7 +142,8 @@ class VectorStore:
         *,
         ids: list[str],
     ) -> dict[str, Any]:
-        """Retrieve documents by ID from a collection.
+        """
+        Retrieve documents by ID from a collection.
 
         Returns a dict with ``ids``, ``documents``, ``metadatas`` keys
         matching ChromaDB's native format.
@@ -155,7 +162,8 @@ class VectorStore:
         where: dict[str, Any],
         include: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Retrieve documents matching a metadata filter.
+        """
+        Retrieve documents matching a metadata filter.
 
         Uses ChromaDB's ``where`` filter syntax (e.g.
         ``{"verdict": "no"}``).  Returns a dict with keys matching
@@ -178,7 +186,8 @@ class VectorStore:
         query_embedding: list[float],
         n_results: int = 5,
     ) -> dict[str, Any]:
-        """Find the *n_results* most similar documents to *query_embedding*.
+        """
+        Find the *n_results* most similar documents to *query_embedding*.
 
         Returns a dict with ``ids``, ``documents``, ``metadatas``,
         ``distances`` keys. Distances are cosine distances (lower = more
@@ -205,7 +214,8 @@ class VectorStore:
     # -- Internal helpers ----------------------------------------------------
 
     def _get_existing_collection(self, name: str) -> chromadb.Collection:
-        """Retrieve a collection that must already exist.
+        """
+        Retrieve a collection that must already exist.
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection has not been created.

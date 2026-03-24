@@ -1,4 +1,5 @@
-"""Individual JD markdown file export.
+"""
+Individual JD markdown file export.
 
 Writes each ranked listing's full job description as a standalone
 Markdown file under ``output/jds/``.  Each file includes a YAML-style
@@ -24,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 class JDFileExporter:
-    """Exports each ranked listing as an individual Markdown file.
+    """
+    Exports each ranked listing as an individual Markdown file.
 
     Usage::
 
@@ -39,7 +41,8 @@ class JDFileExporter:
         *,
         summary: RankSummary | None = None,
     ) -> list[Path]:
-        """Write individual JD files for qualified listings.
+        """
+        Write individual JD files for qualified listings.
 
         Returns the list of file paths created.
 

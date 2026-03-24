@@ -1,4 +1,5 @@
-"""Playwright session manager with storage_state persistence and throttling.
+"""
+Playwright session manager with storage_state persistence and throttling.
 
 Owns browser lifecycle, cookie persistence, and human-like rate limiting.
 Adapters receive a ``Page`` — they never launch browsers themselves.
@@ -81,7 +82,8 @@ class SessionConfig:
 
 
 def _find_browser_binary(channel: str) -> str | None:
-    """Resolve a browser channel name to an executable path.
+    """
+    Resolve a browser channel name to an executable path.
 
     First checks the known paths in ``_BROWSER_PATHS``, then falls back
     to ``shutil.which()`` for PATH-based lookup.
@@ -146,7 +148,8 @@ def _terminate_process(proc: subprocess.Popen[bytes]) -> None:
 
 
 async def throttle(adapter: JobBoardAdapter) -> float:
-    """Sleep for a random duration within the adapter's rate limit range.
+    """
+    Sleep for a random duration within the adapter's rate limit range.
 
     Returns the actual duration slept (useful for assertions).
     """
@@ -163,7 +166,8 @@ async def throttle(adapter: JobBoardAdapter) -> float:
 
 
 class SessionManager:
-    """Manages Playwright browser sessions with storage_state persistence.
+    """
+    Manages Playwright browser sessions with storage_state persistence.
 
     Two launch modes:
 
@@ -242,7 +246,8 @@ class SessionManager:
         )
 
     async def _launch_cdp(self) -> None:
-        """Launch system browser as subprocess and connect via CDP.
+        """
+        Launch system browser as subprocess and connect via CDP.
 
         This avoids Playwright's automation detection flags, allowing
         the browser to pass Cloudflare bot protection.

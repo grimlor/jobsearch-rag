@@ -1,4 +1,5 @@
-"""Throttle detection tests — ZipRecruiter rate-limit recognition and backoff.
+"""
+Throttle detection tests — ZipRecruiter rate-limit recognition and backoff.
 
 Maps to BDD spec: TestThrottleDetection
 
@@ -105,7 +106,8 @@ def _patch_search_to_click_through(
     listings: list[JobListing],
     panel_mock: AsyncMock,
 ) -> Iterator[MagicMock]:
-    """Patch I/O boundaries so ``search()`` reaches click-through with real parsing.
+    """
+    Patch I/O boundaries so ``search()`` reaches click-through with real parsing.
 
     Builds a realistic HTML page containing a ``js_variables`` JSON blob
     derived from *listings*.  Pure-computation functions

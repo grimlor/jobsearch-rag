@@ -1,4 +1,5 @@
-"""CLI handler tests — parser construction, command wiring, output formatting.
+"""
+CLI handler tests — parser construction, command wiring, output formatting.
 
 Maps to BDD specs: TestParserConstruction, TestBoardsCommand, TestIndexCommand,
 TestSearchCommand, TestDecideCommand, TestExportCommand, TestRescoreCommand
@@ -53,7 +54,8 @@ def _make_settings(  # pyright: ignore[reportUnusedFunction]  # test utility for
     output_dir: str | None = None,
     open_top_n: int = 5,
 ) -> Settings:
-    """Write a valid settings.toml in *tmpdir* and load it through the real parser.
+    """
+    Write a valid settings.toml in *tmpdir* and load it through the real parser.
 
     The real ``load_settings`` exercises TOML parsing and field validation
     so that tests are never silently working with an invalid ``Settings``
@@ -97,7 +99,8 @@ def _make_listing(
     title: str = "Staff Architect",
     company: str = "Acme Corp",
 ) -> JobListing:
-    """Create a real JobListing with controlled values.
+    """
+    Create a real JobListing with controlled values.
 
     Uses the actual dataclass rather than MagicMock so that optional
     fields (comp_min, comp_max, etc.) default to ``None`` instead of
@@ -142,7 +145,8 @@ def _make_ranked(
 
 
 def _setup_index_env(tmp_path: Path, *, open_top_n: int = 5) -> AsyncMock:
-    """Create config/data files in *tmp_path* and return a mock Ollama client.
+    """
+    Create config/data files in *tmp_path* and return a mock Ollama client.
 
     Writes ``config/settings.toml``, ``config/role_archetypes.toml``,
     ``config/global_rubric.toml``, and ``data/resume.md`` so that
@@ -231,7 +235,8 @@ def _seed_decision(
     company: str = "Acme",
     jd_text: str = "Full JD text for a staff architect role.",
 ) -> None:
-    """Pre-populate the ChromaDB decisions collection with a test record.
+    """
+    Pre-populate the ChromaDB decisions collection with a test record.
 
     Uses the same ``chroma`` directory that ``_setup_index_env`` configures
     in settings, so that ``handle_decide`` finds the record when it
@@ -265,7 +270,8 @@ def _seed_decision(
 
 
 class TestParserConstruction:
-    """REQUIREMENT: The CLI parser defines all subcommands with correct arguments.
+    """
+    REQUIREMENT: The CLI parser defines all subcommands with correct arguments.
 
     WHO: The operator invoking the tool from the command line
     WHAT: (1) The parser sets `args.command` to `index` when the `index` subcommand is provided.
@@ -526,7 +532,8 @@ class TestParserConstruction:
 
 
 class TestBoardsCommand:
-    """REQUIREMENT: The boards command lists all registered adapters for operator discovery.
+    """
+    REQUIREMENT: The boards command lists all registered adapters for operator discovery.
 
     WHO: The operator checking which boards are available before running a search
     WHAT: (1) The system prints all registered board names in sorted alphabetical order when `handle_boards` runs.
@@ -620,7 +627,8 @@ class TestBoardsCommand:
 
 
 class TestIndexCommand:
-    """REQUIREMENT: The index command wires settings → embedder → indexer correctly.
+    """
+    REQUIREMENT: The index command wires settings → embedder → indexer correctly.
 
     WHO: The operator running first-time setup or re-indexing after resume changes
     WHAT: (1) The system runs the Ollama health check before indexing.
@@ -767,7 +775,8 @@ class TestIndexCommand:
 
 
 class TestSearchCommand:
-    """REQUIREMENT: The search command prints a structured summary and ranked listings.
+    """
+    REQUIREMENT: The search command prints a structured summary and ranked listings.
 
     WHO: The operator reviewing search results in the terminal
     WHAT: (1) The search command prints all required summary fields to stdout when the pipeline returns summary statistics.
@@ -1025,7 +1034,8 @@ class TestSearchCommand:
 
 
 class TestDecideCommand:
-    """REQUIREMENT: The decide command records verdicts with appropriate error handling.
+    """
+    REQUIREMENT: The decide command records verdicts with appropriate error handling.
 
     WHO: The operator recording their assessment of a scored role
     WHAT: (1) The system exits with code 1 and prints 'No job found' when no decision exists for the given job ID.
@@ -1206,7 +1216,8 @@ class TestDecideCommand:
 
 
 class TestExportCommand:
-    """REQUIREMENT: The export command re-exports saved results.
+    """
+    REQUIREMENT: The export command re-exports saved results.
 
     WHO: The operator re-viewing results after a previous search run
     WHAT: (1) The system prints the markdown results content to stdout when export is called with the markdown format.
@@ -1313,7 +1324,8 @@ class TestExportCommand:
 
 
 class TestLoginCommand:
-    """REQUIREMENT: The login command opens a headed browser for interactive authentication.
+    """
+    REQUIREMENT: The login command opens a headed browser for interactive authentication.
 
     WHO: The operator establishing a session before headless search runs
     WHAT: (1) The system opens a headed browser to the board login URL, saves the session, and prints a confirmation after login completes.
@@ -1506,7 +1518,8 @@ class TestLoginCommand:
 
 
 class TestSearchBrowserFailure:
-    """REQUIREMENT: Browser open failures are reported gracefully, not as crashes.
+    """
+    REQUIREMENT: Browser open failures are reported gracefully, not as crashes.
 
     WHO: The operator running a search where webbrowser.open fails
     WHAT: (1) The system prints an error when opening the browser fails and completes the search normally.
@@ -1570,7 +1583,8 @@ class TestSearchBrowserFailure:
 
 
 class TestExportMissing:
-    """REQUIREMENT: Requesting an export format with no file prints a helpful message.
+    """
+    REQUIREMENT: Requesting an export format with no file prints a helpful message.
 
     WHO: The operator running 'export' before any search has been done
     WHAT: (1) The system explains that no CSV export was found when `export --format csv` is run and only markdown results exist.
@@ -1618,7 +1632,8 @@ class TestExportMissing:
 
 
 class TestResetCommand:
-    """REQUIREMENT: The reset command clears ChromaDB collections and optionally output files.
+    """
+    REQUIREMENT: The reset command clears ChromaDB collections and optionally output files.
 
     WHO: The operator starting a fresh run
     WHAT: (1) The system resets all known collections and prints a completion message when no collection is specified.
@@ -2339,7 +2354,8 @@ class TestReviewCommandHandler:
 
 
 class TestIndexArchetypesOnly:
-    """REQUIREMENT: --archetypes-only rebuilds archetypes and negative signals without resume.
+    """
+    REQUIREMENT: --archetypes-only rebuilds archetypes and negative signals without resume.
 
     WHO: The operator tuning archetypes or the global rubric
     WHAT: (1) The system indexes archetypes, negative signals, and positive signals without indexing the resume when `handle_index` runs with `--archetypes-only`.
@@ -2440,7 +2456,8 @@ class TestIndexArchetypesOnly:
 
 
 class TestRescoreCommand:
-    """REQUIREMENT: The rescore command re-scores JDs through updated collections.
+    """
+    REQUIREMENT: The rescore command re-scores JDs through updated collections.
 
     WHO: The operator iterating on archetype tuning or negative signal refinement
     WHAT: (1) The system prints a rescore results summary that includes counts.

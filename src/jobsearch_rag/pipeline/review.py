@@ -1,4 +1,5 @@
-"""Interactive review session — batch decision recording.
+"""
+Interactive review session — batch decision recording.
 
 Provides :class:`ReviewSession` which loads ranked listings, filters
 out already-decided jobs, and exposes methods for formatting display,
@@ -23,7 +24,8 @@ _VERDICT_MAP = {"y": "yes", "n": "no", "m": "maybe"}
 
 
 class ReviewSession:
-    """Manages the state and logic for an interactive review pass.
+    """
+    Manages the state and logic for an interactive review pass.
 
     Constructed with ranked listings and a :class:`DecisionRecorder`.
     The CLI feeds user input into :meth:`record_verdict`,
@@ -42,7 +44,8 @@ class ReviewSession:
         self._jd_dir = jd_dir
 
     def undecided_listings(self) -> list[RankedListing]:
-        """Return ranked listings that have no recorded decision, sorted
+        """
+        Return ranked listings that have no recorded decision, sorted
         by final_score descending (best first)."""
         undecided = [
             r for r in self._listings if self._recorder.get_decision(r.listing.external_id) is None
@@ -57,7 +60,8 @@ class ReviewSession:
         rank: int,
         total: int,
     ) -> str:
-        """Format a single listing for terminal display.
+        """
+        Format a single listing for terminal display.
 
         Includes rank, title, company, URL, final score, component
         breakdown, and compensation range when available.
@@ -98,7 +102,8 @@ class ReviewSession:
         return key.lower() in _VERDICT_MAP
 
     async def record_verdict(self, ranked: RankedListing, key: str, *, reason: str = "") -> None:
-        """Record a verdict for the given listing.
+        """
+        Record a verdict for the given listing.
 
         Args:
             ranked: The listing to record a decision for.
@@ -118,7 +123,8 @@ class ReviewSession:
         )
 
     def open_listing(self, ranked: RankedListing, *, rank: int = 0) -> None:
-        """Open the listing's JD file or URL in the system browser.
+        """
+        Open the listing's JD file or URL in the system browser.
 
         When *rank* is provided the JD file is located using the
         ``{rank:03d}_{company_slug}_{title_slug}.md`` convention.

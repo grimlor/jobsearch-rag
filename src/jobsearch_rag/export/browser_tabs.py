@@ -16,7 +16,8 @@ class BrowserTabOpener:
     """Opens the top-N ranked listing URLs in the default browser."""
 
     def open(self, listings: list[RankedListing], top_n: int = 5) -> None:
-        """Open the first *top_n* listing URLs in browser tabs.
+        """
+        Open the first *top_n* listing URLs in browser tabs.
 
         Disqualified listings are excluded before selecting the top N.
         Listings are sorted descending by ``final_score`` so the best

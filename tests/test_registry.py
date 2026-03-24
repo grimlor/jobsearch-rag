@@ -1,4 +1,5 @@
-"""Adapter registration and IoC contract tests.
+"""
+Adapter registration and IoC contract tests.
 
 Spec classes:
     TestAdapterRegistration — self-registration and discovery by board name
@@ -96,7 +97,8 @@ def _clean_registry() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction
 
 
 class TestAdapterRegistration:
-    """REQUIREMENT: Adapters self-register and are discoverable by board name.
+    """
+    REQUIREMENT: Adapters self-register and are discoverable by board name.
 
     WHO: The pipeline runner loading adapters from settings.toml
     WHAT: (1) The registry returns a ready-to-use adapter instance when the system looks up a registered board name.
@@ -203,7 +205,8 @@ class TestAdapterRegistration:
 
 
 class TestAdapterContract:
-    """REQUIREMENT: All adapters conform to the JobBoardAdapter interface.
+    """
+    REQUIREMENT: All adapters conform to the JobBoardAdapter interface.
 
     WHO: The pipeline runner invoking adapters polymorphically
     WHAT: (1) The adapter returns a non-empty string for board_name.
@@ -329,7 +332,8 @@ class TestAdapterContract:
 
 
 class TestJobListingDataContract:
-    """REQUIREMENT: JobListing is the canonical data contract across all boards.
+    """
+    REQUIREMENT: JobListing is the canonical data contract across all boards.
 
     WHO: The RAG scorer, ranker, and exporter consuming listings
     WHAT: (1) The system preserves all required listing fields as non-empty strings after extraction.
@@ -444,7 +448,8 @@ class TestJobListingDataContract:
 
 
 class TestStubAdapterContract:
-    """REQUIREMENT: Planned adapters conform to the full adapter behavioral contract.
+    """
+    REQUIREMENT: Planned adapters conform to the full adapter behavioral contract.
 
     WHO: The pipeline runner invoking adapters polymorphically
     WHAT: (1) The adapter reports the expected board identifier through its `board_name` property.

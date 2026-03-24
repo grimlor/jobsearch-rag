@@ -1,4 +1,5 @@
-"""Compensation parsing and scoring.
+"""
+Compensation parsing and scoring.
 
 Extracts salary ranges from job description text via regex, normalizes
 hourly rates to annual (x2080), and computes a continuous comp_score
@@ -84,7 +85,8 @@ def _is_hourly(match_text: str) -> bool:
 
 
 def _is_salary_range(value: float) -> bool:
-    """Heuristic: a salary number should be in a reasonable range.
+    """
+    Heuristic: a salary number should be in a reasonable range.
 
     Annual salaries: $20,000 - $1,000,000
     Hourly rates: $10 - $500 (before annualization)
@@ -102,7 +104,8 @@ def _has_false_positive_context(text: str, match_start: int, match_end: int) -> 
 
 
 def parse_compensation(text: str, source: str = "employer") -> CompResult | None:
-    """Extract compensation data from job description text.
+    """
+    Extract compensation data from job description text.
 
     Returns ``None`` if no salary information is found or if detected
     numbers are likely false positives (employee counts, revenue, etc.).
@@ -168,7 +171,8 @@ def parse_compensation(text: str, source: str = "employer") -> CompResult | None
 
 
 def compute_comp_score(comp_max: float | None, base_salary: float) -> float:
-    """Compute a continuous compensation score in [0.0, 1.0].
+    """
+    Compute a continuous compensation score in [0.0, 1.0].
 
     The score is based on where ``comp_max`` falls relative to
     ``base_salary``:

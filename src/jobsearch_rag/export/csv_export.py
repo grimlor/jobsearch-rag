@@ -43,7 +43,8 @@ class CSVExporter:
         *,
         summary: RankSummary | None = None,
     ) -> None:
-        """Write a CSV with header row.  Full JD text is excluded.
+        """
+        Write a CSV with header row.  Full JD text is excluded.
 
         Disqualified listings are excluded.  Results are sorted descending
         by ``final_score``.

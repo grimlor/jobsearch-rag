@@ -9,7 +9,8 @@ if TYPE_CHECKING:
 
 
 class AdapterRegistry:
-    """Decorator-based registry that maps board name strings to adapter classes.
+    """
+    Decorator-based registry that maps board name strings to adapter classes.
 
     Usage::
 

@@ -1,4 +1,5 @@
-"""RAG pipeline tests — Ollama connectivity, resume/archetype indexing, negative scoring.
+"""
+RAG pipeline tests — Ollama connectivity, resume/archetype indexing, negative scoring.
 
 Spec classes
 ------------
@@ -52,7 +53,8 @@ def indexer(store: VectorStore, mock_embedder: Embedder) -> Indexer:
 
 
 class TestOllamaConnectivity:
-    """REQUIREMENT: Ollama unavailability is detected before processing begins
+    """
+    REQUIREMENT: Ollama unavailability is detected before processing begins
     with guidance the operator can act on immediately.
 
     WHO: The pipeline runner; the operator who may have forgotten to start Ollama
@@ -237,7 +239,8 @@ class TestOllamaConnectivity:
 
 
 class TestResumeIndexing:
-    """REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed.
+    """
+    REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed.
 
     WHO: The scorer computing fit_score; the operator running first-time setup
     WHAT: (1) The system raises an INDEX error telling the operator to run the index command when the resume collection is empty.
@@ -437,7 +440,8 @@ Python, cloud, systems.
 
 
 class TestArchetypeIndexing:
-    """REQUIREMENT: Role archetypes are loaded from TOML and embedded correctly.
+    """
+    REQUIREMENT: Role archetypes are loaded from TOML and embedded correctly.
 
     WHO: The scorer computing archetype_score
     WHAT: (1) The system creates one ChromaDB document for each archetype in the TOML file.
@@ -604,7 +608,8 @@ description = \"\"\"
 
 
 class TestNegativeScoring:
-    """REQUIREMENT: JDs matching negative signals receive a continuous penalty score.
+    """
+    REQUIREMENT: JDs matching negative signals receive a continuous penalty score.
 
     WHO: The scorer and ranker computing the final ranked output
     WHAT: (1) The system sets negative_score to 0.0 when the negative_signals collection is missing.
@@ -735,7 +740,8 @@ class TestNegativeScoring:
 
 
 class TestGlobalPositiveSignalIndexing:
-    """REQUIREMENT: Positive signals from the global rubric are indexed into
+    """
+    REQUIREMENT: Positive signals from the global rubric are indexed into
     a dedicated ChromaDB collection that the scorer queries to compute a
     continuous culture score — orthogonal to archetype score.
 
@@ -1011,7 +1017,8 @@ signals_negative = ["equity-only compensation", "unpaid position"]
 
 
 class TestCultureScoring:
-    """REQUIREMENT: culture_score continuously rewards roles whose environment
+    """
+    REQUIREMENT: culture_score continuously rewards roles whose environment
     signals match global rubric positive dimensions — altitude, humane
     culture, domain alignment, scope, company maturity, ethics, and
     ND compatibility — acting as a second scoring axis orthogonal to

@@ -1,4 +1,5 @@
-"""File logging tests — persistent log files for post-run diagnosis.
+"""
+File logging tests — persistent log files for post-run diagnosis.
 
 Maps to BDD spec: TestFileLogging
 

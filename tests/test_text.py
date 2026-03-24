@@ -1,4 +1,5 @@
-"""Tests for :mod:`jobsearch_rag.text` — shared text-processing utilities.
+"""
+Tests for :mod:`jobsearch_rag.text` — shared text-processing utilities.
 
 Covers :class:`TestSlugify`.
 """

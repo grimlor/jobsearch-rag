@@ -1,4 +1,5 @@
-"""Shared test constants.
+"""
+Shared test constants.
 
 Values that multiple test modules reference but that are not fixtures.
 Fixtures belong in ``conftest.py``; plain data belongs here.

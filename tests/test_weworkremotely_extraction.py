@@ -1,4 +1,5 @@
-"""WeWorkRemotely adapter extraction tests — remote-first job board.
+"""
+WeWorkRemotely adapter extraction tests — remote-first job board.
 
 Spec classes:
     TestWeWorkRemotelyAuthenticate — session or public-access verification
@@ -58,7 +59,8 @@ def _make_listing(
 
 
 class TestWeWorkRemotelyAuthenticate:
-    """REQUIREMENT: WeWorkRemotely session verification handles auth and access.
+    """
+    REQUIREMENT: WeWorkRemotely session verification handles auth and access.
 
     WHO: The pipeline runner during the authenticate step
     WHAT: (1) The system completes authentication without error when WeWorkRemotely loads without blocking.
@@ -117,7 +119,8 @@ class TestWeWorkRemotelyAuthenticate:
 
 
 class TestWeWorkRemotelySearch:
-    """REQUIREMENT: search() navigates WeWorkRemotely and extracts remote listings.
+    """
+    REQUIREMENT: search() navigates WeWorkRemotely and extracts remote listings.
 
     WHO: The pipeline runner collecting listings from WeWorkRemotely
     WHAT: (1) The system returns a list of JobListing objects when it searches WeWorkRemotely results.
@@ -209,7 +212,8 @@ class TestWeWorkRemotelySearch:
 
 
 class TestWeWorkRemotelyExtractDetail:
-    """REQUIREMENT: extract_detail navigates to a listing and populates full_text.
+    """
+    REQUIREMENT: extract_detail navigates to a listing and populates full_text.
 
     WHO: The pipeline runner enriching shallow listings with full JD text
     WHAT: (1) The system populates full_text with the job description body when it extracts details for a listing whose full_text is empty.

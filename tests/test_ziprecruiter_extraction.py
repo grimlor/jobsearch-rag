@@ -1,4 +1,5 @@
-"""ZipRecruiter adapter extraction tests.
+"""
+ZipRecruiter adapter extraction tests.
 
 Spec classes:
     TestZipRecruiterJsonExtraction — JSON blob extraction from React SPA
@@ -49,7 +50,8 @@ _REAL_FIXTURE = _FIXTURES / "ziprecruiter_serp_real.html"
 
 
 class TestZipRecruiterJsonExtraction:
-    """REQUIREMENT: Job data is extracted from ZipRecruiter's js_variables JSON blob.
+    """
+    REQUIREMENT: Job data is extracted from ZipRecruiter's js_variables JSON blob.
 
     WHO: The ZipRecruiter adapter extraction pipeline
     WHAT: (1) The ``<script id="js_variables">`` tag is located and parsed as JSON
@@ -467,7 +469,8 @@ class TestZipRecruiterJsonExtraction:
 
 
 class TestHtmlToText:
-    """REQUIREMENT: HTML job descriptions are converted to clean plain text.
+    """
+    REQUIREMENT: HTML job descriptions are converted to clean plain text.
 
     WHO: The JD extraction pipeline before RAG embedding
     WHAT: (1) The system removes all HTML tags and leaves only the text content.
@@ -561,7 +564,8 @@ class TestHtmlToText:
 
 
 class TestRealWorldExtraction:
-    """REQUIREMENT: Extraction works correctly against real ZipRecruiter data.
+    """
+    REQUIREMENT: Extraction works correctly against real ZipRecruiter data.
 
     WHO: The adapter maintainer validating against production HTML
     WHAT: (1) The system produces exactly 20 listings from the real ZipRecruiter SERP fixture.
@@ -780,7 +784,8 @@ def _make_mock_page(
     panel_texts: list[str] | None = None,
     captcha: bool = False,
 ) -> MagicMock:
-    """Create a mock Playwright page with configurable I/O responses.
+    """
+    Create a mock Playwright page with configurable I/O responses.
 
     This is the I/O boundary for all ZipRecruiter adapter tests.
     ``page`` represents the browser automation interface.
@@ -824,7 +829,8 @@ def _make_mock_page(
 
 
 class TestAuthenticate:
-    """REQUIREMENT: Session verification detects expired sessions and Cloudflare blocks.
+    """
+    REQUIREMENT: Session verification detects expired sessions and Cloudflare blocks.
 
     WHO: The pipeline runner during the authenticate step
     WHAT: (1) The system completes authentication without error when the session is valid.
@@ -957,7 +963,8 @@ class TestAuthenticate:
 
 
 class TestSearch:
-    """REQUIREMENT: search() navigates SERP pages, extracts cards, and enriches via click-through.
+    """
+    REQUIREMENT: search() navigates SERP pages, extracts cards, and enriches via click-through.
 
     WHO: The pipeline runner collecting listings from ZipRecruiter
     WHAT: (1) The system returns three listings from the fixture and includes 'Staff Platform Architect' as the first title.
@@ -1541,7 +1548,8 @@ class TestSearch:
 
 
 class TestExtractDetailPassthrough:
-    """REQUIREMENT: extract_detail is a passthrough when full_text is populated.
+    """
+    REQUIREMENT: extract_detail is a passthrough when full_text is populated.
 
     WHO: The pipeline runner calling extract_detail after search
     WHAT: (1) The system returns the listing unchanged when full_text is already populated.

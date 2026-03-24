@@ -1,4 +1,5 @@
-"""Score fusion, deduplication, and final ranking.
+"""
+Score fusion, deduplication, and final ranking.
 
 The Ranker is the bridge between raw scoring outputs and the final ranked
 shortlist the operator reviews.  It performs three operations in sequence:
@@ -40,7 +41,8 @@ class RankedListing:
     duplicate_boards: list[str] = field(default_factory=list[str])
 
     def score_explanation(self) -> str:
-        """Human-readable score breakdown for export output.
+        """
+        Human-readable score breakdown for export output.
 
         Uses ``·`` (middle dot) as separator instead of ``|`` to avoid
         breaking Markdown table column boundaries.
@@ -71,7 +73,8 @@ class RankSummary:
 
 
 class Ranker:
-    """Fuses weighted component scores, deduplicates across boards,
+    """
+    Fuses weighted component scores, deduplicates across boards,
     and produces the final ranked shortlist.
     """
 
@@ -98,7 +101,8 @@ class Ranker:
         listings: list[tuple[JobListing, ScoreResult]],
         embeddings: dict[str, list[float]] | None = None,
     ) -> tuple[list[RankedListing], RankSummary]:
-        """Apply score fusion, deduplication, and threshold filtering.
+        """
+        Apply score fusion, deduplication, and threshold filtering.
 
         Args:
             listings: Pairs of (listing, scores) from the scorer.
@@ -151,7 +155,8 @@ class Ranker:
         return ranked, summary
 
     def compute_final_score(self, scores: ScoreResult) -> float:
-        """Weighted sum of component scores minus negative penalty, zeroed if disqualified.
+        """
+        Weighted sum of component scores minus negative penalty, zeroed if disqualified.
 
         The formula is:
             positive = (archetype_weight * archetype_score
@@ -181,7 +186,8 @@ class Ranker:
 
     @staticmethod
     def _deduplicate_exact(ranked: list[RankedListing]) -> list[RankedListing]:
-        """Remove exact duplicates: same external_id on the same board.
+        """
+        Remove exact duplicates: same external_id on the same board.
 
         Keeps the first (and only meaningful) occurrence.
         """
@@ -200,7 +206,8 @@ class Ranker:
         ranked: list[RankedListing],
         embeddings: dict[str, list[float]],
     ) -> list[RankedListing]:
-        """Collapse near-duplicate listings across boards.
+        """
+        Collapse near-duplicate listings across boards.
 
         Two listings are near-duplicates if the cosine similarity of
         their ``full_text`` embeddings exceeds 0.95.  The instance with
@@ -247,7 +254,8 @@ class Ranker:
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors.
+    """
+    Compute cosine similarity between two vectors.
 
     Returns a value in [-1.0, 1.0].  For normalized embedding vectors
     this is equivalent to the dot product.

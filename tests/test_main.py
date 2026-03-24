@@ -1,4 +1,5 @@
-"""CLI entry point dispatch and error display tests.
+"""
+CLI entry point dispatch and error display tests.
 
 Spec classes:
     TestMainDispatch — main() routes each subcommand to its handler
@@ -22,7 +23,8 @@ from jobsearch_rag.errors import ActionableError, ErrorType
 
 
 class TestMainDispatch:
-    """REQUIREMENT: main() dispatches each CLI subcommand to the correct handler.
+    """
+    REQUIREMENT: main() dispatches each CLI subcommand to the correct handler.
 
     WHO: The operator invoking ``python -m jobsearch_rag <command>``
     WHAT: (1) I invoke the corresponding handle_* function for the provided subcommand.
@@ -90,7 +92,8 @@ class TestMainDispatch:
 
 
 class TestMainErrorDisplay:
-    """REQUIREMENT: main() formats errors with rich context for the operator.
+    """
+    REQUIREMENT: main() formats errors with rich context for the operator.
 
     WHO: The operator seeing a CLI failure in their terminal
     WHAT: (1) The system prints the actionable error type, message, and suggestion to stderr when main() catches an ActionableError with a suggestion.
@@ -208,7 +211,8 @@ class TestMainErrorDisplay:
 
 
 class TestMainModuleEntryPoint:
-    """REQUIREMENT: ``python -m jobsearch_rag`` invokes main() via the __main__ guard.
+    """
+    REQUIREMENT: ``python -m jobsearch_rag`` invokes main() via the __main__ guard.
 
     WHO: The operator running the package as a module
     WHAT: (1) Running the package as ``python -m jobsearch_rag <cmd>`` executes main()

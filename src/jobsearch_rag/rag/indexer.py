@@ -1,4 +1,5 @@
-"""Resume, archetype, negative signal, and positive signal ingestion pipeline.
+"""
+Resume, archetype, negative signal, and positive signal ingestion pipeline.
 
 The Indexer coordinates :class:`VectorStore` and :class:`Embedder` to
 prepare documents for semantic scoring:
@@ -57,7 +58,8 @@ def _normalize_whitespace(text: str) -> str:
 
 
 def build_archetype_embedding_text(archetype: dict[str, Any]) -> str:
-    """Synthesize a rich embedding text from an archetype's description and positive signals.
+    """
+    Synthesize a rich embedding text from an archetype's description and positive signals.
 
     Combines the normalized description with positive signal phrases so the
     resulting embedding captures both the role narrative and specific signal
@@ -86,7 +88,8 @@ def build_archetype_embedding_text(archetype: dict[str, Any]) -> str:
 
 
 def _chunk_resume(content: str) -> list[tuple[str, str, str]]:
-    """Split resume markdown into ``(id, heading, body)`` tuples.
+    """
+    Split resume markdown into ``(id, heading, body)`` tuples.
 
     The ``# Title`` block is skipped.  Each ``## Heading`` starts a new
     chunk; ``### Sub-headings`` are included in their parent chunk.
@@ -110,7 +113,8 @@ def _chunk_resume(content: str) -> list[tuple[str, str, str]]:
 
 
 class Indexer:
-    """Chunks and indexes resume and role archetypes into ChromaDB.
+    """
+    Chunks and indexes resume and role archetypes into ChromaDB.
 
     Usage::
 
@@ -126,7 +130,8 @@ class Indexer:
     # -- Resume ingestion ----------------------------------------------------
 
     async def index_resume(self, resume_path: str) -> int:
-        """Chunk resume by ``##`` headings and index into the ``resume`` collection.
+        """
+        Chunk resume by ``##`` headings and index into the ``resume`` collection.
 
         Re-indexing resets the collection first (replaces, not appends).
         Returns the number of chunks indexed.
@@ -180,7 +185,8 @@ class Indexer:
     # -- Archetype ingestion -------------------------------------------------
 
     async def index_archetypes(self, archetypes_path: str) -> int:
-        """Load archetypes from TOML and index into the ``role_archetypes`` collection.
+        """
+        Load archetypes from TOML and index into the ``role_archetypes`` collection.
 
         Each archetype produces one ChromaDB document with the name stored
         as metadata and the normalized description as the document text.
@@ -258,7 +264,8 @@ class Indexer:
         rubric_path: str,
         archetypes_path: str,
     ) -> int:
-        """Load negative signals from global rubric and archetype files, embed, and index.
+        """
+        Load negative signals from global rubric and archetype files, embed, and index.
 
         Signals are drawn from two sources:
 
@@ -372,7 +379,8 @@ class Indexer:
     # -- Global positive signal ingestion ------------------------------------
 
     async def index_global_positive_signals(self, rubric_path: str) -> int:
-        """Load positive signals from the global rubric and index into ``global_positive_signals``.
+        """
+        Load positive signals from the global rubric and index into ``global_positive_signals``.
 
         Each dimension that has a ``signals_positive`` list produces one
         ChromaDB document.  The signals are synthesized into a single

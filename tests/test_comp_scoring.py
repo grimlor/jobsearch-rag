@@ -1,4 +1,5 @@
-"""Compensation scoring tests — continuous scale, band boundaries, config integration.
+"""
+Compensation scoring tests — continuous scale, band boundaries, config integration.
 
 Maps to BDD specs: TestCompensationScoring
 
@@ -19,7 +20,8 @@ from jobsearch_rag.rag.comp_parser import compute_comp_score
 
 
 class TestCompensationScoring:
-    """REQUIREMENT: Compensation score is a continuous signal relative to a
+    """
+    REQUIREMENT: Compensation score is a continuous signal relative to a
     configurable base_salary target, not a binary gate.
 
     WHO: The ranker consuming comp_score to nudge final ranking;

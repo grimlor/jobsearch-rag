@@ -1,4 +1,5 @@
-"""Pipeline runner — orchestrates adapters → RAG → rank.
+"""
+Pipeline runner — orchestrates adapters → RAG → rank.
 
 The PipelineRunner is the top-level orchestrator that ties the entire
 system together:
@@ -53,7 +54,8 @@ class RunResult:
 
 
 class PipelineRunner:
-    """Top-level orchestrator: loads adapters, runs browser sessions,
+    """
+    Top-level orchestrator: loads adapters, runs browser sessions,
     feeds results through the RAG scorer, and hands off to the ranker.
     """
 
@@ -89,7 +91,8 @@ class PipelineRunner:
         overnight: bool = False,
         force_rescore: bool = False,
     ) -> RunResult:
-        """Execute a full search-score-rank pipeline.
+        """
+        Execute a full search-score-rank pipeline.
 
         Args:
             boards: Specific board names to search.  ``None`` = all enabled.
@@ -121,7 +124,8 @@ class PipelineRunner:
         surfaced_errors: list[ActionableError] = []
 
         async def _search_one(board_name: str) -> tuple[str, list[JobListing], int]:
-            """Search a single board, returning (name, listings, failures).
+            """
+            Search a single board, returning (name, listings, failures).
 
             Board-level errors are caught here so one failure
             doesn't cancel the other concurrent searches.
@@ -214,7 +218,8 @@ class PipelineRunner:
         )
 
     async def _ensure_indexed(self) -> None:
-        """Auto-index resume, archetypes, and positive signals if collections are empty.
+        """
+        Auto-index resume, archetypes, and positive signals if collections are empty.
 
         After a ``reset`` or on first run, the ``resume``,
         ``role_archetypes``, and ``global_positive_signals`` collections
@@ -257,7 +262,8 @@ class PipelineRunner:
         *,
         overnight: bool = False,
     ) -> tuple[list[JobListing], int]:
-        """Search a single board and return (listings, failure_count).
+        """
+        Search a single board and return (listings, failure_count).
 
         Manages the browser session lifecycle for this board.
         """

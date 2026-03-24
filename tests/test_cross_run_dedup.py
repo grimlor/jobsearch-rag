@@ -1,4 +1,5 @@
-"""Cross-run deduplication tests — skip previously-decided listings.
+"""
+Cross-run deduplication tests — skip previously-decided listings.
 
 Maps to BDD spec: TestCrossRunDedup
 
@@ -75,7 +76,8 @@ def _make_runner_with_real_stack(
     *,
     populate_store: bool = True,
 ) -> tuple[PipelineRunner, AsyncMock]:
-    """Create a PipelineRunner with real Embedder/Scorer and mocked Ollama client.
+    """
+    Create a PipelineRunner with real Embedder/Scorer and mocked Ollama client.
 
     The only mock is ``ollama_sdk.AsyncClient`` — the I/O boundary where
     our system ends and the network begins.
@@ -143,7 +145,8 @@ def _seed_decision(store: VectorStore, job_id: str, verdict: str = "yes") -> Non
 
 
 def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
-    """Create a mock Playwright I/O boundary for real SessionManager.
+    """
+    Create a mock Playwright I/O boundary for real SessionManager.
 
     Returns ``(mock_async_playwright, mock_page)``.
     """

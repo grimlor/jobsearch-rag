@@ -1,4 +1,5 @@
-"""Indexer tests — resume chunking, archetype ingestion, and negative signal indexing.
+"""
+Indexer tests — resume chunking, archetype ingestion, and negative signal indexing.
 
 Spec classes:
     TestResumeChunking — resume split on ## headings for semantic coherence
@@ -198,7 +199,8 @@ def rubric_path(tmp_path: Path) -> Path:
 
 
 class TestResumeChunking:
-    """REQUIREMENT: Resume is chunked by ## headings for semantic coherence.
+    """
+    REQUIREMENT: Resume is chunked by ## headings for semantic coherence.
 
     WHO: The indexer preparing resume content for embedding
     WHAT: (1) The system produces one chunk for each ## section heading in a resume.
@@ -346,7 +348,8 @@ class TestResumeChunking:
 
 
 class TestResumeIndexing:
-    """REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed.
+    """
+    REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed.
 
     WHO: The scorer computing fit_score; the operator running first-time setup
     WHAT: (1) The system calls the embedder once for each chunk it creates from a resume.
@@ -453,7 +456,8 @@ class TestResumeIndexing:
 
 
 class TestArchetypeIndexing:
-    """REQUIREMENT: Role archetypes are loaded from TOML and embedded correctly.
+    """
+    REQUIREMENT: Role archetypes are loaded from TOML and embedded correctly.
 
     WHO: The scorer computing archetype_score
     WHAT: (1) The system creates exactly one ChromaDB document for each archetype entry in the TOML file.
@@ -637,7 +641,8 @@ class TestArchetypeIndexing:
 
 
 class TestArchetypeEmbeddingSynthesis:
-    """REQUIREMENT: Archetype embeddings synthesize description + positive signals.
+    """
+    REQUIREMENT: Archetype embeddings synthesize description + positive signals.
 
     WHO: The indexer preparing archetype documents for embedding
     WHAT: (1) The system includes the archetype description and every positive signal in the synthesized embedding text.
@@ -760,7 +765,8 @@ class TestArchetypeEmbeddingSynthesis:
 
 
 class TestGlobalRubricLoading:
-    """REQUIREMENT: Global rubric TOML is loaded and parsed for negative signal extraction.
+    """
+    REQUIREMENT: Global rubric TOML is loaded and parsed for negative signal extraction.
 
     WHO: The indexer building the negative_signals collection
     WHAT: (1) The system indexes all negative signals from both the global rubric and the archetypes into the collection.
@@ -849,7 +855,8 @@ class TestGlobalRubricLoading:
 
 
 class TestNegativeSignalIndexing:
-    """REQUIREMENT: Negative signals from rubric and archetypes are indexed for penalty scoring.
+    """
+    REQUIREMENT: Negative signals from rubric and archetypes are indexed for penalty scoring.
 
     WHO: The scorer computing negative_score for each listing
     WHAT: (1) The system indexes negative signals from both the rubric and the archetypes into the collection.

@@ -1,4 +1,5 @@
-"""Pipeline runner tests — orchestration, error handling, board delegation.
+"""
+Pipeline runner tests — orchestration, error handling, board delegation.
 
 Maps to BDD specs: TestPipelineOrchestration, TestBoardSearchDelegation
 """
@@ -35,7 +36,8 @@ if TYPE_CHECKING:
 
 
 def _create_index_files(tmpdir: str) -> tuple[str, str, str]:
-    """Write minimal resume, archetypes, and rubric files into *tmpdir*.
+    """
+    Write minimal resume, archetypes, and rubric files into *tmpdir*.
 
     Returns ``(resume_path, archetypes_path, global_rubric_path)``.
     """
@@ -129,7 +131,8 @@ def _make_runner_with_real_stack(
     *,
     populate_store: bool = True,
 ) -> tuple[PipelineRunner, AsyncMock]:
-    """Create a PipelineRunner with real Embedder/Scorer and mocked Ollama client.
+    """
+    Create a PipelineRunner with real Embedder/Scorer and mocked Ollama client.
 
     The only mock is ``ollama_sdk.AsyncClient`` — the I/O boundary where
     our system ends and the network begins.  Everything else (``Embedder``,
@@ -182,7 +185,8 @@ def _populate_store(store: VectorStore) -> None:
 
 
 def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
-    """Create a mock Playwright I/O boundary for real SessionManager.
+    """
+    Create a mock Playwright I/O boundary for real SessionManager.
 
     Mocks ``async_playwright`` — the edge where our system ends and the
     Playwright library begins.  ``SessionManager`` runs for real on top.
@@ -218,7 +222,8 @@ def _make_test_adapter(
     *,
     search_results: list[JobListing] | None = None,
 ) -> MagicMock:
-    """Create a test adapter implementing ``JobBoardAdapter``.
+    """
+    Create a test adapter implementing ``JobBoardAdapter``.
 
     Register it via ``patch.dict(AdapterRegistry._registry, ...)``
     so the real ``AdapterRegistry.get()`` returns it.
@@ -238,7 +243,8 @@ def _make_test_adapter(
 
 
 class TestPipelineOrchestration:
-    """REQUIREMENT: The pipeline runner executes steps in correct order with proper error handling.
+    """
+    REQUIREMENT: The pipeline runner executes steps in correct order with proper error handling.
 
     WHO: The operator running a search; downstream consumers of RunResult
     WHAT: (1) The system performs the Ollama health check before it starts any board I/O during a run.
@@ -340,7 +346,8 @@ class TestPipelineOrchestration:
             }, f"Expected both enabled boards, got: {result.boards_searched}"
 
     async def test_explicit_boards_override_enabled_boards(self) -> None:
-        """Given a runner with two enabled boards,
+        """
+        Given a runner with two enabled boards,
         When run(boards=["board_a"]) is called,
         Then only the explicitly specified board is searched.
         """
@@ -684,7 +691,8 @@ class TestPipelineOrchestration:
 
 
 class TestBoardSearchDelegation:
-    """REQUIREMENT: Individual board search delegates correctly to adapter and session manager.
+    """
+    REQUIREMENT: Individual board search delegates correctly to adapter and session manager.
 
     WHO: The pipeline runner calling adapters through the session manager
     WHAT: (1) The system skips a board that has no config section and returns an empty result without error.
@@ -1071,7 +1079,8 @@ class TestBoardSearchDelegation:
 
 
 class TestAutoIndex:
-    """REQUIREMENT: Empty collections are auto-indexed before scoring begins.
+    """
+    REQUIREMENT: Empty collections are auto-indexed before scoring begins.
 
     WHO: The operator running search after a reset or on first use
     WHAT: (1) The system creates a real Indexer and indexes the resume and archetype collections when run() starts with an unpopulated store.
@@ -1254,7 +1263,8 @@ class TestAutoIndex:
 
 
 class TestCompEnrichment:
-    """REQUIREMENT: Listings with salary text have comp fields populated after scoring.
+    """
+    REQUIREMENT: Listings with salary text have comp fields populated after scoring.
 
     WHO: The scorer computing comp_score; the exporter showing salary data
     WHAT: (1) The system sets `comp_min`, `comp_max`, `comp_source`, and `comp_text` on a listing when scoring its pipeline input finds a salary range in `full_text`.

@@ -1,4 +1,5 @@
-"""Indeed adapter extraction tests — high-volume board with aggressive bot detection.
+"""
+Indeed adapter extraction tests — high-volume board with aggressive bot detection.
 
 Spec classes:
     TestIndeedAuthenticate — session verification and bot-detection handling
@@ -58,7 +59,8 @@ def _make_listing(
 
 
 class TestIndeedAuthenticate:
-    """REQUIREMENT: Indeed session verification detects blocks and session expiry.
+    """
+    REQUIREMENT: Indeed session verification detects blocks and session expiry.
 
     WHO: The pipeline runner during the authenticate step
     WHAT: (1) The system completes authentication without error when the Indeed search page loads without detection.
@@ -136,7 +138,8 @@ class TestIndeedAuthenticate:
 
 
 class TestIndeedSearch:
-    """REQUIREMENT: search() navigates Indeed job search and extracts listings.
+    """
+    REQUIREMENT: search() navigates Indeed job search and extracts listings.
 
     WHO: The pipeline runner collecting listings from Indeed
     WHAT: (1) The system returns a list of JobListing objects when Indeed search is called on search results.
@@ -224,7 +227,8 @@ class TestIndeedSearch:
 
 
 class TestIndeedExtractDetail:
-    """REQUIREMENT: extract_detail navigates to a listing and populates full_text.
+    """
+    REQUIREMENT: extract_detail navigates to a listing and populates full_text.
 
     WHO: The pipeline runner enriching shallow listings with full JD text
     WHAT: (1) The system populates full_text with the job description body when full_text is empty.

@@ -1,4 +1,5 @@
-"""Shared text-processing utilities.
+"""
+Shared text-processing utilities.
 
 Pure functions with no domain dependencies — safe to import from any
 layer (CLI, pipeline, export, RAG).
@@ -12,7 +13,8 @@ MAX_SLUG_LEN = 80
 
 
 def slugify(text: str, *, max_len: int = MAX_SLUG_LEN) -> str:
-    """Convert *text* to a filesystem-safe slug.
+    """
+    Convert *text* to a filesystem-safe slug.
 
     Lowercases, strips non-alphanumeric characters (except hyphens),
     collapses whitespace/underscores to single hyphens, and truncates
