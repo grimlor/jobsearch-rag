@@ -196,6 +196,16 @@ def handle_search(args: argparse.Namespace) -> None:
         print(f" Final results:   {len(result.ranked_listings)}")
         print(f"{'=' * 60}\n")
 
+        # Print surfaced errors if any
+        if result.errors:
+            print(" Surfaced Errors")
+            print(f"{'-' * 60}")
+            for surfaced_error in result.errors:
+                print(f" Error:      {surfaced_error.error}")
+                print(f" Service:    {surfaced_error.service or 'unknown'}")
+                print(f" Suggestion: {surfaced_error.suggestion or 'No suggestion available'}")
+                print()
+
         # Print ranked listings
         for i, ranked in enumerate(result.ranked_listings, 1):
             listing = ranked.listing

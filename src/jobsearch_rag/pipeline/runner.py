@@ -49,6 +49,7 @@ class RunResult:
     failed_listings: int = 0
     skipped_decisions: int = 0
     boards_searched: list[str] = field(default_factory=list[str])
+    errors: list[ActionableError] = field(default_factory=list[ActionableError])
 
 
 class PipelineRunner:
@@ -117,6 +118,7 @@ class PipelineRunner:
         # Step 3: Collect listings from all boards (concurrently)
         all_listings: list[JobListing] = []
         failed_count = 0
+        surfaced_errors: list[ActionableError] = []
 
         async def _search_one(board_name: str) -> tuple[str, list[JobListing], int]:
             """Search a single board, returning (name, listings, failures).
@@ -137,6 +139,7 @@ class PipelineRunner:
                 return board_name, board_listings, board_failures
             except ActionableError as exc:
                 logger.error("Board '%s' failed entirely: %s", board_name, exc.error)
+                surfaced_errors.append(exc)
                 return board_name, [], 0
 
         results = await asyncio.gather(*[_search_one(b) for b in board_names])
@@ -150,6 +153,7 @@ class PipelineRunner:
             return RunResult(
                 boards_searched=board_names,
                 failed_listings=failed_count,
+                errors=surfaced_errors,
             )
 
         # Step 4: Score each listing (skip already-decided unless forced)
@@ -194,6 +198,7 @@ class PipelineRunner:
                     listing.url,
                     exc.error,
                 )
+                surfaced_errors.append(exc)
                 failed_count += 1
 
         # Step 5: Rank, deduplicate, filter
@@ -205,6 +210,7 @@ class PipelineRunner:
             failed_listings=failed_count,
             skipped_decisions=skipped_decisions,
             boards_searched=board_names,
+            errors=surfaced_errors,
         )
 
     async def _ensure_indexed(self) -> None:
