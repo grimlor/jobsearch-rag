@@ -77,11 +77,13 @@ select = [
     "SIM",  # flake8-simplify
     "TCH",  # flake8-type-checking
     "RUF",  # ruff-specific rules
+    "D213",  # multi-line-summary-second-line
     "PLC0415",  # import-outside-top-level
     "PLC2701",  # import-private-name (preview)
 ]
 ignore = [
     "E501",   # line length (handled by formatter)
+    "D212",  # multi-line-summary-first-line (conflicts with D213)
 ]
 
 [tool.ruff.lint.isort]

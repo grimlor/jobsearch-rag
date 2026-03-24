@@ -1,4 +1,5 @@
-r"""Actionable error hierarchy for the Job Search RAG Assistant.
+r"""
+Actionable error hierarchy for the Job Search RAG Assistant.
 
 Errors are classified by **recovery path**, not by origin.
 Each error type carries structured guidance for three audiences:

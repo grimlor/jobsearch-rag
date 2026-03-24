@@ -86,7 +86,8 @@ class JobBoardAdapter(ABC):
 
     @property
     def rate_limit_seconds(self) -> tuple[float, float]:
-        """(min, max) seconds to sleep between page loads.
+        """
+        (min, max) seconds to sleep between page loads.
 
         Override in board-specific adapters. Defaults to human-like range.
         """
