@@ -78,6 +78,7 @@ class Embedder:
         max_retries: int = 3,
         base_delay: float = 1.0,
     ) -> None:
+        """Initialize with Ollama connection and model settings."""
         self.base_url = base_url
         self.embed_model = embed_model
         self.llm_model = llm_model

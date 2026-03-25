@@ -22,9 +22,11 @@ class IndeedAdapter(JobBoardAdapter):
 
     @property
     def board_name(self) -> str:
+        """Return the board identifier."""
         return "indeed"
 
     async def authenticate(self, page: Page) -> None:
+        """Authenticate with Indeed."""
         raise NotImplementedError
 
     async def search(
@@ -33,6 +35,7 @@ class IndeedAdapter(JobBoardAdapter):
         query: str,
         max_pages: int = 3,
     ) -> list[JobListing]:
+        """Search Indeed for job listings matching *query*."""
         raise NotImplementedError
 
     async def extract_detail(
@@ -40,4 +43,5 @@ class IndeedAdapter(JobBoardAdapter):
         page: Page,
         listing: JobListing,
     ) -> JobListing:
+        """Extract full job details from an Indeed listing page."""
         raise NotImplementedError

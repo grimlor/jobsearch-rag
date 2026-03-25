@@ -40,6 +40,7 @@ HANDLERS: dict[str, Callable[..., None]] = {
 
 
 def main() -> None:
+    """Parse CLI arguments and dispatch to the appropriate handler."""
     parser = build_parser()
     args = parser.parse_args()
 

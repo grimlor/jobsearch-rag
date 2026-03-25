@@ -57,13 +57,16 @@ class LinkedInAdapter(JobBoardAdapter):
 
     @property
     def board_name(self) -> str:
+        """Return the board identifier."""
         return "linkedin"
 
     @property
     def rate_limit_seconds(self) -> tuple[float, float]:
+        """Return the throttle range in seconds for LinkedIn requests."""
         return (8.0, 20.0)
 
     async def authenticate(self, page: Page) -> None:
+        """Authenticate with LinkedIn."""
         raise NotImplementedError
 
     async def search(
@@ -72,6 +75,7 @@ class LinkedInAdapter(JobBoardAdapter):
         query: str,
         max_pages: int = 3,
     ) -> list[JobListing]:
+        """Search LinkedIn for job listings matching *query*."""
         raise NotImplementedError
 
     async def extract_detail(
@@ -79,4 +83,5 @@ class LinkedInAdapter(JobBoardAdapter):
         page: Page,
         listing: JobListing,
     ) -> JobListing:
+        """Extract full job details from a LinkedIn listing page."""
         raise NotImplementedError

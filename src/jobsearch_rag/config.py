@@ -142,7 +142,6 @@ def load_settings(path: str | Path = DEFAULT_SETTINGS_PATH) -> Settings:
 
 def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     """Validate raw TOML data and return a Settings instance."""
-
     # -- boards section ------------------------------------------------------
     boards_section = _require_section(data, "boards", filepath)
     enabled_boards: list[str] = _require_list(boards_section, "enabled", "boards", filepath)

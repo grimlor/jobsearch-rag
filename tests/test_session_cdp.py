@@ -162,6 +162,7 @@ class TestSessionManagerCDP:
 
     @pytest.fixture()
     def cdp_config(self) -> SessionConfig:
+        """Return a CDP-mode SessionConfig for ZipRecruiter."""
         return SessionConfig(
             board_name="ziprecruiter",
             headless=False,
@@ -170,6 +171,7 @@ class TestSessionManagerCDP:
 
     @pytest.fixture()
     def playwright_config(self) -> SessionConfig:
+        """Return a standard Playwright SessionConfig in headless mode."""
         return SessionConfig(
             board_name="testboard",
             headless=True,

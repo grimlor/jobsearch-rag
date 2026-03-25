@@ -149,6 +149,7 @@ class Rescorer:
         ranker: Ranker,
         base_salary: float = 220_000,
     ) -> None:
+        """Initialize with a scorer, ranker, and base salary for compensation scoring."""
         self._scorer = scorer
         self._ranker = ranker
         self._base_salary = base_salary
@@ -162,6 +163,7 @@ class Rescorer:
 
         Returns:
             A :class:`RescoreResult` with the newly ranked listings.
+
         """
         listings = load_jd_files(jd_dir)
         if not listings:

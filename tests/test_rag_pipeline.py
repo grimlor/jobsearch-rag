@@ -38,12 +38,14 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
+    """Yield a temporary VectorStore for test isolation."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield VectorStore(persist_dir=tmpdir)
 
 
 @pytest.fixture
 def indexer(store: VectorStore, mock_embedder: Embedder) -> Indexer:
+    """Return an Indexer wired to the temporary store and mock embedder."""
     return Indexer(store=store, embedder=mock_embedder)
 
 

@@ -54,6 +54,7 @@ def configure_file_logging(
 
     Returns:
         The :class:`logging.FileHandler` that was added.
+
     """
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)

@@ -74,6 +74,8 @@ class RankSummary:
 
 class Ranker:
     """
+    Score fuser and deduplicator for ranked job listings.
+
     Fuses weighted component scores, deduplicates across boards,
     and produces the final ranked shortlist.
     """
@@ -88,6 +90,7 @@ class Ranker:
         culture_weight: float = 0.0,
         min_score_threshold: float = 0.45,
     ) -> None:
+        """Initialize with scoring weights and threshold."""
         self.archetype_weight = archetype_weight
         self.fit_weight = fit_weight
         self.history_weight = history_weight
@@ -113,6 +116,7 @@ class Ranker:
         Returns:
             A tuple of (ranked_listings sorted descending by final_score,
             summary statistics).
+
         """
         summary = RankSummary(total_found=len(listings))
 

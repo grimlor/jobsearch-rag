@@ -77,13 +77,14 @@ select = [
     "SIM",  # flake8-simplify
     "TCH",  # flake8-type-checking
     "RUF",  # ruff-specific rules
-    "D213",  # multi-line-summary-second-line
+    "D",    # pydocstyle
     "PLC0415",  # import-outside-top-level
     "PLC2701",  # import-private-name (preview)
 ]
 ignore = [
     "E501",   # line length (handled by formatter)
-    "D212",  # multi-line-summary-first-line (conflicts with D213)
+    "D212",   # multi-line-summary-first-line (conflicts with D213)
+    "D203",   # one-blank-line-before-class (conflicts with D211)
 ]
 
 [tool.ruff.lint.isort]
@@ -94,6 +95,10 @@ combine-as-imports = true
 "tests/**/*.py" = [
     "PLC0415",  # import-outside-top-level — tests may import inside functions
     "PLC2701",  # import-private-name — testing internal state is intentional
+    "D205",     # BDD Given/When/Then blocks aren't summary+body
+    "D400",     # BDD steps don't end with periods
+    "D415",     # same as D400
+    "D401",     # fixture docstrings are descriptive, not imperative
 ]
 
 [tool.ruff.format]

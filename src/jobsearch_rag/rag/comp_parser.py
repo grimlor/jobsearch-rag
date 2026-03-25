@@ -117,6 +117,7 @@ def parse_compensation(text: str, source: str = "employer") -> CompResult | None
     source:
         Origin of the salary data — ``"employer"`` (JD body) or
         ``"estimated"`` (board-generated estimate).
+
     """
     # Try range patterns first (more specific)
     for m in _RANGE_PATTERN.finditer(text):

@@ -39,14 +39,17 @@ class ReviewSession:
         *,
         jd_dir: str = "output/jds",
     ) -> None:
+        """Initialize with ranked listings and a decision recorder."""
         self._listings = ranked_listings
         self._recorder = recorder
         self._jd_dir = jd_dir
 
     def undecided_listings(self) -> list[RankedListing]:
         """
-        Return ranked listings that have no recorded decision, sorted
-        by final_score descending (best first)."""
+        Return ranked listings that have no recorded decision.
+
+        Sorted by final_score descending (best first).
+        """
         undecided = [
             r for r in self._listings if self._recorder.get_decision(r.listing.external_id) is None
         ]
@@ -109,6 +112,7 @@ class ReviewSession:
             ranked: The listing to record a decision for.
             key: One of 'y', 'n', 'm'.
             reason: Optional free-text explaining why this verdict was made.
+
         """
         verdict = _VERDICT_MAP[key.lower()]
         listing = ranked.listing

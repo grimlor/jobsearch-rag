@@ -30,12 +30,14 @@ EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
 
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
+    """Yield a temporary VectorStore for test isolation."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield VectorStore(persist_dir=tmpdir)
 
 
 @pytest.fixture
 def mock_embedder() -> Embedder:
+    """Return an Embedder with stubbed async methods."""
     embedder = Embedder.__new__(Embedder)
     embedder.base_url = "http://localhost:11434"
     embedder.embed_model = "nomic-embed-text"
@@ -48,6 +50,7 @@ def mock_embedder() -> Embedder:
 
 @pytest.fixture
 def recorder(store: VectorStore, mock_embedder: Embedder) -> Iterator[DecisionRecorder]:
+    """Yield a DecisionRecorder backed by temporary storage."""
     with tempfile.TemporaryDirectory() as decisions_dir:
         # Ensure decisions collection exists
         store.get_or_create_collection("decisions")
@@ -375,7 +378,6 @@ class TestDecisionRecording:
         WHEN the decision is recorded
         THEN the reason field appears in the daily JSONL audit file alongside the verdict.
         """
-
         with tempfile.TemporaryDirectory() as decisions_dir:
             # Given: a recorder with a fresh decisions directory
             store.get_or_create_collection("decisions")

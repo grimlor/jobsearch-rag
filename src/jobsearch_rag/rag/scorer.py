@@ -144,6 +144,7 @@ class Scorer:
     disqualify_on_llm_flag:
         Whether ``score()`` should run the disqualifier prompt.  When False
         (e.g. for benchmarking), the disqualification step is skipped.
+
     """
 
     def __init__(
@@ -153,6 +154,7 @@ class Scorer:
         embedder: Embedder,
         disqualify_on_llm_flag: bool = True,
     ) -> None:
+        """Initialize with a vector store, embedder, and disqualification flag."""
         self._store = store
         self._embedder = embedder
         self._disqualify_on_llm_flag = disqualify_on_llm_flag

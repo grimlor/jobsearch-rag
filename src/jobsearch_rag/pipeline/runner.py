@@ -55,11 +55,14 @@ class RunResult:
 
 class PipelineRunner:
     """
-    Top-level orchestrator: loads adapters, runs browser sessions,
-    feeds results through the RAG scorer, and hands off to the ranker.
+    Top-level pipeline orchestrator.
+
+    Loads adapters, runs browser sessions, feeds results through
+    the RAG scorer, and hands off to the ranker.
     """
 
     def __init__(self, settings: Settings) -> None:
+        """Initialize pipeline components from application settings."""
         self._settings = settings
         self._embedder = Embedder(
             base_url=settings.ollama.base_url,
@@ -97,9 +100,11 @@ class PipelineRunner:
         Args:
             boards: Specific board names to search.  ``None`` = all enabled.
             overnight: If ``True``, enforce extended throttling for stealth boards.
+            force_rescore: If ``True``, re-score existing JDs instead of searching.
 
         Returns:
             A :class:`RunResult` with ranked listings and summary statistics.
+
         """
         # Step 1: Health check Ollama before any browser work
         await self._embedder.health_check()

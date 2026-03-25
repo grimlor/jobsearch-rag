@@ -40,6 +40,7 @@ class VectorStore:
     """
 
     def __init__(self, persist_dir: str) -> None:
+        """Initialize ChromaDB client at *persist_dir*."""
         self.persist_dir = persist_dir
         self._client = chromadb.PersistentClient(path=persist_dir)
         logger.debug("ChromaDB client initialized at %s", persist_dir)
@@ -109,6 +110,7 @@ class VectorStore:
             documents: Raw text content.
             embeddings: Pre-computed embedding vectors.
             metadatas: Optional per-document metadata dicts.
+
         """
         # Validate lengths match
         lengths = {"ids": len(ids), "documents": len(documents), "embeddings": len(embeddings)}

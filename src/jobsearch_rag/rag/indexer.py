@@ -76,6 +76,7 @@ def build_archetype_embedding_text(archetype: dict[str, Any]) -> str:
     str
         A single text block suitable for embedding: the normalized description
         followed by each positive signal on its own line.
+
     """
     description = _normalize_whitespace(str(archetype.get("description", "")))
     raw_signals = archetype.get("signals_positive", [])
@@ -124,6 +125,7 @@ class Indexer:
     """
 
     def __init__(self, store: VectorStore, embedder: Embedder) -> None:
+        """Initialize with a vector store and embedder."""
         self._store = store
         self._embedder = embedder
 

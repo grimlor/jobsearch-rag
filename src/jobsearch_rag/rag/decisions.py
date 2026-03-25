@@ -69,6 +69,7 @@ class DecisionRecorder:
         embedder: Embedder,
         decisions_dir: str | Path = _DECISIONS_DIR,
     ) -> None:
+        """Initialize with a vector store, embedder, and decisions directory."""
         self._store = store
         self._embedder = embedder
         self._decisions_dir = Path(decisions_dir)
@@ -103,6 +104,7 @@ class DecisionRecorder:
         Raises:
             ActionableError (DECISION): if verdict is invalid.
             ActionableError (VALIDATION): if jd_text is empty.
+
         """
         if verdict not in VALID_VERDICTS:
             raise ActionableError(

@@ -17,9 +17,11 @@ class WeWorkRemotelyAdapter(JobBoardAdapter):
 
     @property
     def board_name(self) -> str:
+        """Return the board identifier."""
         return "weworkremotely"
 
     async def authenticate(self, page: Page) -> None:
+        """Authenticate with WeWorkRemotely."""
         raise NotImplementedError
 
     async def search(
@@ -28,6 +30,7 @@ class WeWorkRemotelyAdapter(JobBoardAdapter):
         query: str,
         max_pages: int = 3,
     ) -> list[JobListing]:
+        """Search WeWorkRemotely for job listings matching *query*."""
         raise NotImplementedError
 
     async def extract_detail(
@@ -35,4 +38,5 @@ class WeWorkRemotelyAdapter(JobBoardAdapter):
         page: Page,
         listing: JobListing,
     ) -> JobListing:
+        """Extract full job details from a WeWorkRemotely listing page."""
         raise NotImplementedError

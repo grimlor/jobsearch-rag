@@ -134,6 +134,7 @@ def extract_js_variables(html: str) -> dict[str, Any]:
 
     Raises:
         ActionableError: If the script tag is missing or JSON is malformed.
+
     """
     pattern = r'<script\s+id="js_variables"\s+type="application/json"[^>]*>(.*?)</script>'
     match = re.search(pattern, html, re.DOTALL)
@@ -267,6 +268,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
 
     @property
     def board_name(self) -> str:
+        """Return the board identifier."""
         return "ziprecruiter"
 
     async def authenticate(self, page: Page) -> None:
@@ -278,6 +280,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
 
         Raises:
             ActionableError: If the session is expired or a CAPTCHA is present.
+
         """
         await page.goto(
             "https://www.ziprecruiter.com/jobs-search",
@@ -332,6 +335,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         Returns:
             List of ``JobListing`` with ``full_text`` already populated
             via click-through.  ``extract_detail`` will be a no-op.
+
         """
         listings: list[JobListing] = []
         pages_processed = 0

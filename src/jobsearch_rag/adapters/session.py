@@ -193,6 +193,7 @@ class SessionManager:
     """
 
     def __init__(self, config: SessionConfig) -> None:
+        """Initialize with browser session configuration."""
         self.config = config
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
@@ -201,6 +202,7 @@ class SessionManager:
         self._cdp_tmpdir: str | None = None
 
     async def __aenter__(self) -> SessionManager:
+        """Start Playwright, launch the browser, and apply stealth patches."""
         self._playwright = await async_playwright().start()
 
         if self.config.browser_channel:
@@ -319,6 +321,7 @@ class SessionManager:
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
+        """Close browser, Playwright, and clean up CDP resources."""
         if self._context:
             await self._context.close()
         if self._browser:
