@@ -1,11 +1,14 @@
 """
-Pipeline runner tests — orchestration, error handling, board delegation.
+Pipeline runner tests — orchestration, error handling, board delegation, error surfacing.
 
-Maps to BDD specs: TestPipelineOrchestration, TestBoardSearchDelegation
+Maps to BDD specs: TestPipelineOrchestration, TestBoardSearchDelegation,
+TestAutoIndex, TestCompEnrichment, TestErrorSurfacing
 """
 
 from __future__ import annotations
 
+import argparse
+import logging
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -28,6 +31,9 @@ from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
+    import pytest
+
+    from jobsearch_rag.pipeline.ranker import RankSummary
     from jobsearch_rag.rag.store import VectorStore
 
 # ---------------------------------------------------------------------------
@@ -1329,3 +1335,571 @@ class TestCompEnrichment:
             assert "$180,000" in listing.comp_text, (
                 f"Expected '$180,000' in comp_text, got: {listing.comp_text}"
             )
+
+
+class TestErrorSurfacing:
+    """
+    REQUIREMENT: Caught ActionableErrors are surfaced through RunResult
+    and rendered in CLI output with actionable suggestions.
+
+    WHO: Operators diagnosing partial failures after a search run
+    WHAT: (1) board-level caught ActionableErrors are appended to RunResult.errors.
+          (2) extraction-level caught ActionableErrors are appended to RunResult.errors.
+          (3) scoring-level caught ActionableErrors are appended to RunResult.errors.
+          (4) every surfaced ActionableError has a non-empty suggestion.
+          (5) CLI summary prints error, service, and suggestion for each surfaced error.
+          (6) rate-limit surfaced errors can advise retry with --overnight where applicable.
+          (7) RunResult.errors defaults to an empty list when no failures occur.
+          (8) unexpected scoring exceptions are wrapped via from_exception() and appended
+              to RunResult.errors so bare RuntimeErrors do not escape the pipeline.
+          (9) errors from multiple boards both accumulate in the same RunResult.errors list.
+          (10) a caught error increments both RunResult.errors and RunResult.failed_listings —
+               the list and the count are not mutually exclusive.
+    WHY: A numeric failure count without contextual guidance forces
+         trial-and-error operations and slows recovery. Cross-board error
+         accumulation ensures no error is silently lost when multiple boards
+         are searched in a single run.
+
+    MOCK BOUNDARY:
+        Mock:  Playwright I/O boundaries, scorer/embedder failure boundaries,
+               runner invocation in CLI handler
+        Real:  PipelineRunner error accumulation, RunResult construction,
+               CLI rendering logic
+        Never: Assert on hand-built output strings without invoking the CLI path
+    """
+
+    async def test_board_level_actionable_errors_are_appended_to_run_result_errors(
+        self,
+    ) -> None:
+        """
+        Given a board search path that raises ActionableError.
+
+        When runner.run() completes
+        Then the caught board-level error appears in RunResult.errors
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a board adapter whose authenticate raises ActionableError
+            settings = _make_settings(tmpdir)
+            runner, _ = _make_runner_with_real_stack(settings)
+
+            auth_error = ActionableError.authentication("testboard", "session expired")
+            mock_adapter = _make_test_adapter()
+            mock_adapter.authenticate = AsyncMock(side_effect=auth_error)
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: pipeline runs and board authentication fails
+                result = await runner.run()
+
+            # Then: the board-level error appears in RunResult.errors
+            assert len(result.errors) == 1, (
+                f"Expected 1 error in RunResult.errors, got: {len(result.errors)}"
+            )
+            assert result.errors[0].error_type == ErrorType.AUTHENTICATION, (
+                f"Expected AUTHENTICATION error type, got: {result.errors[0].error_type}"
+            )
+            assert "testboard" in result.errors[0].error, (
+                f"Expected 'testboard' in error message, got: {result.errors[0].error}"
+            )
+
+    async def test_extraction_level_actionable_errors_are_appended_to_run_result_errors(
+        self,
+    ) -> None:
+        """
+        Given listing extraction paths where one listing raises ActionableError.
+
+        When runner.run() completes
+        Then the caught extraction-level error appears in RunResult.errors
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a listing with empty full_text so extract_detail is called,
+            # and extract_detail raises ActionableError
+            settings = _make_settings(tmpdir)
+            runner, _ = _make_runner_with_real_stack(settings)
+
+            listing = JobListing(
+                board="testboard",
+                external_id="ext-1",
+                title="Staff Architect",
+                company="Acme Corp",
+                location="Remote",
+                url="https://testboard.com/ext-1",
+                full_text="",  # empty → triggers extract_detail
+            )
+
+            extraction_error = ActionableError(
+                error="Parse failure for testboard listing",
+                error_type=ErrorType.PARSE,
+                service="testboard",
+                suggestion="Check the page structure has not changed",
+            )
+            mock_adapter = _make_test_adapter(search_results=[listing])
+            mock_adapter.extract_detail = AsyncMock(side_effect=extraction_error)
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: pipeline runs and extraction fails
+                result = await runner.run()
+
+            # Then: extraction-level error appears in RunResult.errors
+            assert len(result.errors) == 1, (
+                f"Expected 1 error in RunResult.errors, got: {len(result.errors)}"
+            )
+            assert result.errors[0].error_type == ErrorType.PARSE, (
+                f"Expected PARSE error type, got: {result.errors[0].error_type}"
+            )
+            assert "testboard" in (result.errors[0].service or ""), (
+                f"Expected 'testboard' in service, got: {result.errors[0].service}"
+            )
+
+    async def test_scoring_level_actionable_errors_are_appended_to_run_result_errors(
+        self,
+    ) -> None:
+        """
+        Given scoring paths where one listing raises ActionableError.
+
+        When runner.run() completes
+        Then the caught scoring-level error appears in RunResult.errors
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a listing that collects ok, but scoring fails with ActionableError
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+
+            listing = _make_listing()
+            mock_adapter = _make_test_adapter(search_results=[listing])
+
+            # Make embed fail with non-retryable 404 → Embedder wraps as ActionableError
+            mock_client.embed.side_effect = ollama_sdk.ResponseError(
+                "Model not found", status_code=404
+            )
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: pipeline runs and scoring fails
+                result = await runner.run()
+
+            # Then: scoring-level error appears in RunResult.errors
+            assert len(result.errors) >= 1, (
+                f"Expected at least 1 error in RunResult.errors, got: {len(result.errors)}"
+            )
+            assert any(e.error_type == ErrorType.EMBEDDING for e in result.errors), (
+                f"Expected EMBEDDING error in errors, got types: "
+                f"{[e.error_type for e in result.errors]}"
+            )
+
+    async def test_every_surfaced_error_has_non_empty_suggestion(self) -> None:
+        """
+        Given a run that surfaces one or more ActionableErrors.
+
+        When RunResult.errors is inspected
+        Then every surfaced error has a non-empty suggestion
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: two boards, each with a different failure mode
+            settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
+            runner, _ = _make_runner_with_real_stack(settings)
+
+            auth_error = ActionableError.authentication("board_a", "expired cookie")
+            adapter_a = _make_test_adapter(board_name="board_a")
+            adapter_a.authenticate = AsyncMock(side_effect=auth_error)
+
+            parse_error = ActionableError(
+                error="Parse failure",
+                error_type=ErrorType.PARSE,
+                service="board_b",
+                suggestion="Check the page structure",
+            )
+            listing_b = JobListing(
+                board="board_b",
+                external_id="b-1",
+                title="Engineer",
+                company="Corp",
+                location="Remote",
+                url="https://board_b.com/b-1",
+                full_text="",
+            )
+            adapter_b = _make_test_adapter(board_name="board_b", search_results=[listing_b])
+            adapter_b.extract_detail = AsyncMock(side_effect=parse_error)
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(
+                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+                    {
+                        "board_a": lambda: adapter_a,
+                        "board_b": lambda: adapter_b,
+                    },
+                ),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                result = await runner.run()
+
+            # Then: every error has a non-empty suggestion
+            assert len(result.errors) >= 2, (
+                f"Expected at least 2 errors, got: {len(result.errors)}"
+            )
+            for err in result.errors:
+                assert err.suggestion and err.suggestion.strip(), (
+                    f"Expected non-empty suggestion on error '{err.error}', "
+                    f"got: {err.suggestion!r}"
+                )
+
+    def test_cli_summary_prints_error_service_and_suggestion_for_each_error(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Given runner.run() returns RunResult with surfaced ActionableErrors.
+
+        When handle_search() prints the run summary
+        Then each surfaced error includes printed error, service, and suggestion lines
+        """
+        from jobsearch_rag.cli import handle_search
+
+        # Given: a RunResult with surfaced errors
+        error_1 = ActionableError.authentication("linkedin", "session expired")
+        error_2 = ActionableError(
+            error="Rate limit hit on ziprecruiter",
+            error_type=ErrorType.CONNECTION,
+            service="ziprecruiter",
+            suggestion="Retry with --overnight flag",
+        )
+        result = RunResult(
+            ranked_listings=[],
+            summary=_make_rank_summary(),
+            boards_searched=["linkedin", "ziprecruiter"],
+            errors=[error_1, error_2],
+        )
+
+        # Set up minimal config environment
+        _setup_cli_env(tmp_path, monkeypatch)
+        mock_client = _make_mock_ollama_client()
+
+        # When: handle_search renders the result
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
+            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
+        ):
+            handle_search(
+                argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
+            )
+
+        # Then: output contains error, service, and suggestion for each error
+        output = capsys.readouterr().out
+        assert "Surfaced Errors" in output, (
+            f"Expected 'Surfaced Errors' header in output, got: {output!r}"
+        )
+        # Error 1 fields
+        assert "linkedin" in output, f"Expected 'linkedin' service in output, got: {output!r}"
+        assert "session expired" in output, (
+            f"Expected 'session expired' in output, got: {output!r}"
+        )
+        # Error 2 fields
+        assert "ziprecruiter" in output, (
+            f"Expected 'ziprecruiter' service in output, got: {output!r}"
+        )
+        assert "Rate limit" in output, f"Expected 'Rate limit' in output, got: {output!r}"
+        assert "--overnight" in output, f"Expected '--overnight' in suggestion, got: {output!r}"
+
+    def test_rate_limit_error_suggestion_mentions_overnight_when_applicable(self) -> None:
+        """
+        Given a surfaced ActionableError representing board rate-limiting.
+
+        When the error suggestion is inspected or printed in CLI output
+        Then the suggestion can advise retry with --overnight
+        """
+        # Given: a rate-limit error with --overnight suggestion
+        error = ActionableError(
+            error="Rate limit exceeded on linkedin",
+            error_type=ErrorType.CONNECTION,
+            service="linkedin",
+            suggestion="Retry with --overnight flag to use slower pacing",
+        )
+
+        # Then: the suggestion mentions --overnight
+        assert error.suggestion is not None, "Expected non-None suggestion"
+        assert "--overnight" in error.suggestion, (
+            f"Expected '--overnight' in suggestion, got: {error.suggestion!r}"
+        )
+
+    async def test_run_result_errors_defaults_to_empty_list_when_no_failures_occur(
+        self,
+    ) -> None:
+        """
+        Given a run where no error path is triggered.
+
+        When runner.run() returns RunResult
+        Then RunResult.errors is an empty list
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a clean run with one listing that succeeds
+            settings = _make_settings(tmpdir)
+            runner, _ = _make_runner_with_real_stack(settings)
+
+            listing = _make_listing()
+            mock_adapter = _make_test_adapter(search_results=[listing])
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: pipeline runs with no failures
+                result = await runner.run()
+
+            # Then: errors is an empty list
+            assert result.errors == [], f"Expected empty errors list, got: {result.errors}"
+
+    async def test_unexpected_scoring_exception_is_wrapped_and_appended_to_run_result_errors(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """
+        Given a listing where scorer.score() raises a bare RuntimeError (not ActionableError).
+
+        When runner.run() completes
+        Then the error is wrapped via ActionableError.from_exception()
+             and the wrapped error appears in RunResult.errors
+             and no unhandled exception propagates from the runner
+             and the listing URL or job_id appears in the log output at ERROR level
+
+        RATIONALE: TestBoardSearchDelegation covers wrapping at extraction and search levels.
+        This scenario closes the equivalent gap at the scoring level, ensuring the
+        wrapping contract is complete across all three pipeline failure surfaces.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a listing that collects ok, but scoring raises bare RuntimeError
+            settings = _make_settings(tmpdir)
+            runner, _ = _make_runner_with_real_stack(settings)
+
+            listing = _make_listing()
+            mock_adapter = _make_test_adapter(search_results=[listing])
+
+            runtime_error = RuntimeError("unexpected CUDA out of memory")
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch.object(runner._scorer, "score", side_effect=runtime_error),  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_scorer)
+                caplog.at_level(logging.ERROR),
+            ):
+                # When: pipeline runs — RuntimeError should NOT propagate
+                result = await runner.run()
+
+            # Then: error is wrapped and appended
+            assert len(result.errors) >= 1, (
+                f"Expected at least 1 error in RunResult.errors, got: {len(result.errors)}"
+            )
+            wrapped = result.errors[0]
+            assert wrapped.error_type == ErrorType.UNEXPECTED, (
+                f"Expected UNEXPECTED error type, got: {wrapped.error_type}"
+            )
+            assert "CUDA out of memory" in wrapped.error, (
+                f"Expected 'CUDA out of memory' in error message, got: {wrapped.error}"
+            )
+            assert wrapped.suggestion is not None and wrapped.suggestion.strip(), (
+                f"Expected non-empty suggestion, got: {wrapped.suggestion!r}"
+            )
+            # Verify listing URL appears in log
+            assert any(listing.url in record.message for record in caplog.records), (
+                f"Expected listing URL '{listing.url}' in log output, "
+                f"got records: {[r.message for r in caplog.records]}"
+            )
+
+    async def test_errors_from_multiple_boards_all_accumulate_in_run_result(self) -> None:
+        """
+        Given two boards where each raises a distinct ActionableError during search.
+
+        When runner.run() completes
+        Then RunResult.errors contains one error entry originating from each board
+             and both errors have non-empty suggestions
+             and the total error count equals two
+
+        RATIONALE: Per-board tests confirm a single board's error is appended.
+        This scenario confirms errors are not overwritten or deduplicated across
+        boards — accumulation is additive regardless of which board raised.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: two boards, each raises ActionableError on authenticate
+            settings = _make_settings(tmpdir, enabled_boards=["board_x", "board_y"])
+            runner, _ = _make_runner_with_real_stack(settings)
+
+            error_x = ActionableError.authentication("board_x", "captcha detected")
+            adapter_x = _make_test_adapter(board_name="board_x")
+            adapter_x.authenticate = AsyncMock(side_effect=error_x)
+
+            error_y = ActionableError.authentication("board_y", "cookies expired")
+            adapter_y = _make_test_adapter(board_name="board_y")
+            adapter_y.authenticate = AsyncMock(side_effect=error_y)
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(
+                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+                    {
+                        "board_x": lambda: adapter_x,
+                        "board_y": lambda: adapter_y,
+                    },
+                ),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                result = await runner.run()
+
+            # Then: both board errors accumulated
+            assert len(result.errors) == 2, f"Expected exactly 2 errors, got: {len(result.errors)}"
+            error_services = {e.service for e in result.errors}
+            assert "board_x" in error_services, (
+                f"Expected 'board_x' in error services, got: {error_services}"
+            )
+            assert "board_y" in error_services, (
+                f"Expected 'board_y' in error services, got: {error_services}"
+            )
+            for err in result.errors:
+                assert err.suggestion and err.suggestion.strip(), (
+                    f"Expected non-empty suggestion on error '{err.error}', "
+                    f"got: {err.suggestion!r}"
+                )
+
+    async def test_caught_error_increments_both_errors_list_and_failed_listings_count(
+        self,
+    ) -> None:
+        """
+        Given a listing extraction path that raises ActionableError.
+
+        When runner.run() completes
+        Then RunResult.errors is non-empty
+             and RunResult.failed_listings is also incremented
+             confirming the errors list and the failure count are both maintained
+             and are not mutually exclusive mechanisms
+
+        RATIONALE: The errors list (Phase 4j-B) is additive to the existing
+        failed_listings counter (Phase 4j-A). This test locks in that the new
+        surfacing mechanism does not replace the count — both are live simultaneously.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a listing with empty full_text, extract_detail raises ActionableError
+            settings = _make_settings(tmpdir)
+            runner, _ = _make_runner_with_real_stack(settings)
+
+            listing = JobListing(
+                board="testboard",
+                external_id="fail-1",
+                title="Engineer",
+                company="Acme Corp",
+                location="Remote",
+                url="https://testboard.com/fail-1",
+                full_text="",  # triggers extract_detail
+            )
+
+            extraction_error = ActionableError(
+                error="DOM changed, cannot extract JD",
+                error_type=ErrorType.PARSE,
+                service="testboard",
+                suggestion="Check the page structure has not changed",
+            )
+            mock_adapter = _make_test_adapter(search_results=[listing])
+            mock_adapter.extract_detail = AsyncMock(side_effect=extraction_error)
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+            ):
+                result = await runner.run()
+
+            # Then: both errors list and failed count are populated
+            assert len(result.errors) >= 1, (
+                f"Expected at least 1 error in RunResult.errors, got: {len(result.errors)}"
+            )
+            assert result.failed_listings >= 1, (
+                f"Expected failed_listings >= 1, got: {result.failed_listings}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Helpers — TestErrorSurfacing (CLI test support)
+# ---------------------------------------------------------------------------
+
+
+def _make_rank_summary() -> RankSummary:
+    """Create a minimal RankSummary for CLI rendering tests."""
+    from jobsearch_rag.pipeline.ranker import RankSummary
+
+    return RankSummary(total_found=5, total_scored=3)
+
+
+def _setup_cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Write minimal config files so handle_search can construct Settings."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    (config_dir / "settings.toml").write_text(
+        f'resume_path = "{data_dir / "resume.md"}"\n'
+        f'archetypes_path = "{config_dir / "role_archetypes.toml"}"\n'
+        f'global_rubric_path = "{config_dir / "global_rubric.toml"}"\n'
+        "\n[boards]\n"
+        'enabled = ["testboard"]\n'
+        "\n[boards.testboard]\n"
+        'searches = ["https://example.org/search"]\n'
+        "max_pages = 1\nheadless = true\n"
+        "\n[scoring]\n\n[ollama]\n"
+        f'\n[output]\noutput_dir = "{output_dir}"\n'
+        f'\n[chroma]\npersist_dir = "{tmp_path / "chroma"}"\n'
+    )
+    (config_dir / "role_archetypes.toml").write_text(
+        "[[archetypes]]\n"
+        'name = "Test"\ndescription = "A test archetype."\n'
+        'signals_positive = ["positive signal"]\n'
+        'signals_negative = ["negative signal"]\n'
+    )
+    (config_dir / "global_rubric.toml").write_text(
+        "[[dimensions]]\n"
+        'name = "Test Dim"\nsignals_positive = ["good"]\n'
+        'signals_negative = ["bad"]\n'
+    )
+    (data_dir / "resume.md").write_text("## Summary\n\nTest resume.\n")
+    monkeypatch.chdir(tmp_path)
+
+
+def _make_mock_ollama_client() -> AsyncMock:
+    """Create a mock Ollama client with health-check and embed stubs."""
+    mock_client = AsyncMock()
+    model_embed = MagicMock()
+    model_embed.model = "nomic-embed-text"
+    model_llm = MagicMock()
+    model_llm.model = "llama3.2"
+    list_response = MagicMock()
+    list_response.models = [model_embed, model_llm]
+    mock_client.list.return_value = list_response
+    embed_response = MagicMock()
+    embed_response.embeddings = [EMBED_FAKE]
+    mock_client.embed.return_value = embed_response
+    return mock_client

@@ -136,9 +136,10 @@ class PipelineRunner:
             doesn't cancel the other concurrent searches.
             """
             try:
-                board_listings, board_failures = await self._search_board(
+                board_listings, board_failures, board_errors = await self._search_board(
                     board_name, overnight=overnight
                 )
+                surfaced_errors.extend(board_errors)
                 logger.info(
                     "Board '%s': %d listings collected, %d failures",
                     board_name,
@@ -209,6 +210,15 @@ class PipelineRunner:
                 )
                 surfaced_errors.append(exc)
                 failed_count += 1
+            except Exception as exc:
+                logger.error(
+                    "Unexpected scoring error for %s (%s): %s",
+                    listing.title,
+                    listing.url,
+                    exc,
+                )
+                surfaced_errors.append(ActionableError.from_exception(exc, "scorer", listing.url))
+                failed_count += 1
 
         # Step 5: Rank, deduplicate, filter
         ranked, summary = self._ranker.rank(scored, embeddings)
@@ -266,9 +276,9 @@ class PipelineRunner:
         board_name: str,
         *,
         overnight: bool = False,
-    ) -> tuple[list[JobListing], int]:
+    ) -> tuple[list[JobListing], int, list[ActionableError]]:
         """
-        Search a single board and return (listings, failure_count).
+        Search a single board and return (listings, failure_count, errors).
 
         Manages the browser session lifecycle for this board.
         """
@@ -277,7 +287,7 @@ class PipelineRunner:
 
         if board_cfg is None:
             logger.warning("No config section for board '%s' — skipping", board_name)
-            return [], 0
+            return [], 0, []
 
         is_overnight = overnight or board_name in self._settings.overnight_boards
         config = SessionConfig(
@@ -290,6 +300,7 @@ class PipelineRunner:
 
         listings: list[JobListing] = []
         failed = 0
+        caught_errors: list[ActionableError] = []
 
         async with SessionManager(config) as session:
             page = await session.new_page()
@@ -336,12 +347,16 @@ class PipelineRunner:
                             listing.url,
                             exc.error,
                         )
+                        caught_errors.append(exc)
                         failed += 1
-                    except Exception:
+                    except Exception as exc:
                         logger.exception(
                             "Unexpected error extracting %s",
                             listing.url,
                         )
+                        caught_errors.append(
+                            ActionableError.from_exception(exc, board_name, listing.url)
+                        )
                         failed += 1
 
-        return listings, failed
+        return listings, failed, caught_errors
