@@ -160,6 +160,36 @@ class EvalHistory:
             f.write(json.dumps(record) + "\n")
 
 
+@dataclass
+class ModelComparisonResult:
+    """Side-by-side results from evaluating two LLM models."""
+
+    model_a: str
+    model_b: str
+    result_a: EvalResult
+    result_b: EvalResult
+
+    @property
+    def agreement_delta(self) -> float:
+        """result_b.agreement_rate - result_a.agreement_rate."""
+        return self.result_b.agreement_rate - self.result_a.agreement_rate
+
+    @property
+    def precision_delta(self) -> float:
+        """result_b.precision - result_a.precision."""
+        return self.result_b.precision - self.result_a.precision
+
+    @property
+    def recall_delta(self) -> float:
+        """result_b.recall - result_a.recall."""
+        return self.result_b.recall - self.result_a.recall
+
+    @property
+    def spearman_delta(self) -> float:
+        """result_b.spearman - result_a.spearman."""
+        return self.result_b.spearman - self.result_a.spearman
+
+
 class EvalRunner:
     """Re-scores stored decisions and computes agreement metrics."""
 

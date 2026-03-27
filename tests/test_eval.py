@@ -8,6 +8,8 @@ Covers:
     TestEvalReport             — Markdown report file generation
     TestEvalHistory            — JSONL history append
     TestEvalIntegration        — end-to-end handle_eval with report + history
+    TestModelComparisonResult  — delta computation between two EvalResults
+    TestCompareModelsFlag      — --compare-models CLI flag and dual-eval flow
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from jobsearch_rag.pipeline.eval import (
     EvalReport,
     EvalResult,
     EvalRunner,
+    ModelComparisonResult,
     spearman_rank_correlation,
 )
 from jobsearch_rag.pipeline.ranker import Ranker
@@ -64,6 +67,16 @@ from tests.constants import EMBED_FAKE
 #   spearman_rank_correlation(x: Sequence[float], y: Sequence[float]) -> float
 #   EvalReport.write(result: EvalResult, output_dir: str) -> Path
 #   EvalHistory.append(result: EvalResult, history_path: str) -> None
+#
+#   ModelComparisonResult:
+#     model_a: str
+#     model_b: str
+#     result_a: EvalResult
+#     result_b: EvalResult
+#     agreement_delta: float  (property, b - a)
+#     precision_delta: float  (property, b - a)
+#     recall_delta: float     (property, b - a)
+#     spearman_delta: float   (property, b - a)
 #
 # Public API surface (from src/jobsearch_rag/cli):
 #   build_parser() -> ArgumentParser
@@ -1021,7 +1034,9 @@ class TestEvalIntegration:
         ):
             from jobsearch_rag.cli import handle_eval
 
-            handle_eval(MagicMock())
+            args = MagicMock()
+            args.compare_models = None
+            handle_eval(args)
 
         # Then: report file exists in output_dir
         output_dir = Path(settings.output.output_dir)
@@ -1052,3 +1067,338 @@ class TestEvalIntegration:
 
         # Then
         assert isinstance(result.spearman, float)
+
+
+class TestModelComparisonResult:
+    """
+    REQUIREMENT: ``ModelComparisonResult`` computes correct deltas between two
+    EvalResult instances.
+
+    WHO: The eval harness comparing two LLM models' disqualification accuracy.
+
+    WHAT: (1) ``agreement_delta`` equals ``result_b.agreement_rate - result_a.agreement_rate``
+          (2) ``precision_delta`` equals ``result_b.precision - result_a.precision``
+          (3) ``recall_delta`` equals ``result_b.recall - result_a.recall``
+          (4) ``spearman_delta`` equals ``result_b.spearman - result_a.spearman``
+          (5) ``model_a`` and ``model_b`` store the model names passed at construction
+
+    WHY: Without correct deltas the operator cannot determine which model is
+         better — they would have to manually subtract metrics from two
+         separate runs.
+
+    MOCK BOUNDARY:
+        Mock:  nothing — pure dataclass, no I/O
+        Real:  ModelComparisonResult construction and property access
+        Never: mock the delta computation
+    """
+
+    @staticmethod
+    def _make_result(
+        *,
+        agreement_rate: float = 0.5,
+        precision: float = 0.5,
+        recall: float = 0.5,
+        spearman: float = 0.5,
+    ) -> EvalResult:
+        """Build a minimal EvalResult for comparison tests."""
+        return EvalResult(
+            decisions_evaluated=10,
+            agreement_rate=agreement_rate,
+            precision=precision,
+            recall=recall,
+            spearman=spearman,
+            per_decision=[],
+        )
+
+    def test_agreement_delta_equals_b_minus_a(self) -> None:
+        """
+        Given result_a with agreement_rate=0.7 and result_b with agreement_rate=0.9
+        When agreement_delta is accessed
+        Then it equals 0.2
+        """
+        # Given
+        result_a = self._make_result(agreement_rate=0.7)
+        result_b = self._make_result(agreement_rate=0.9)
+        comparison = ModelComparisonResult(
+            model_a="mistral:7b",
+            model_b="llama3:8b",
+            result_a=result_a,
+            result_b=result_b,
+        )
+
+        # When
+        delta = comparison.agreement_delta
+
+        # Then
+        assert delta == pytest.approx(0.2), f"Expected 0.2, got {delta}"
+
+    def test_precision_delta_equals_b_minus_a(self) -> None:
+        """
+        Given result_a with precision=0.6 and result_b with precision=0.8
+        When precision_delta is accessed
+        Then it equals 0.2
+        """
+        # Given
+        result_a = self._make_result(precision=0.6)
+        result_b = self._make_result(precision=0.8)
+        comparison = ModelComparisonResult(
+            model_a="mistral:7b",
+            model_b="llama3:8b",
+            result_a=result_a,
+            result_b=result_b,
+        )
+
+        # When
+        delta = comparison.precision_delta
+
+        # Then
+        assert delta == pytest.approx(0.2), f"Expected 0.2, got {delta}"
+
+    def test_recall_delta_equals_b_minus_a(self) -> None:
+        """
+        Given result_a with recall=0.5 and result_b with recall=0.7
+        When recall_delta is accessed
+        Then it equals 0.2
+        """
+        # Given
+        result_a = self._make_result(recall=0.5)
+        result_b = self._make_result(recall=0.7)
+        comparison = ModelComparisonResult(
+            model_a="mistral:7b",
+            model_b="llama3:8b",
+            result_a=result_a,
+            result_b=result_b,
+        )
+
+        # When
+        delta = comparison.recall_delta
+
+        # Then
+        assert delta == pytest.approx(0.2), f"Expected 0.2, got {delta}"
+
+    def test_spearman_delta_equals_b_minus_a(self) -> None:
+        """
+        Given result_a with spearman=0.3 and result_b with spearman=0.8
+        When spearman_delta is accessed
+        Then it equals 0.5
+        """
+        # Given
+        result_a = self._make_result(spearman=0.3)
+        result_b = self._make_result(spearman=0.8)
+        comparison = ModelComparisonResult(
+            model_a="mistral:7b",
+            model_b="llama3:8b",
+            result_a=result_a,
+            result_b=result_b,
+        )
+
+        # When
+        delta = comparison.spearman_delta
+
+        # Then
+        assert delta == pytest.approx(0.5), f"Expected 0.5, got {delta}"
+
+    def test_model_names_are_stored(self) -> None:
+        """
+        Given model_a="mistral:7b" and model_b="llama3:8b"
+        When ModelComparisonResult is constructed
+        Then model_a == "mistral:7b" and model_b == "llama3:8b"
+        """
+        # Given
+        result_a = self._make_result()
+        result_b = self._make_result()
+
+        # When
+        comparison = ModelComparisonResult(
+            model_a="mistral:7b",
+            model_b="llama3:8b",
+            result_a=result_a,
+            result_b=result_b,
+        )
+
+        # Then
+        assert comparison.model_a == "mistral:7b", (
+            f"Expected 'mistral:7b', got '{comparison.model_a}'"
+        )
+        assert comparison.model_b == "llama3:8b", (
+            f"Expected 'llama3:8b', got '{comparison.model_b}'"
+        )
+
+
+class TestCompareModelsFlag:
+    """
+    REQUIREMENT: The ``eval`` subparser accepts ``--compare-models MODEL_A MODEL_B``
+    and ``handle_eval`` uses the two model names to run dual evaluations.
+
+    WHO: The operator deciding between LLM models for disqualification.
+
+    WHAT: (1) ``--compare-models`` accepts exactly two positional model name strings
+          (2) when ``--compare-models`` is absent, ``handle_eval`` runs the normal
+              single-model evaluation (existing behavior preserved)
+          (3) when ``--compare-models`` is present, ``handle_eval`` constructs two
+              Embedders (one per model), two Scorers, two EvalRunners, runs both,
+              and prints a comparison table with delta values
+          (4) the comparison table includes model_a name, model_b name, all four
+              metrics for each, and the delta for each metric
+          (5) when ``--compare-models`` is present, the normal single-run report and
+              history are NOT written (comparison is stdout-only)
+
+    WHY: Without a dedicated flag the operator must run ``eval`` twice manually
+         with different config files and compute deltas by hand — error-prone
+         and tedious.
+
+    MOCK BOUNDARY:
+        Mock:  ollama_sdk.AsyncClient (embedding + LLM calls), load_settings
+        Real:  argparse parsing, handle_eval control flow, Embedder/Scorer/
+               Ranker/EvalRunner construction, ModelComparisonResult
+        Never: mock the comparison logic or delta computation
+    """
+
+    def test_compare_models_flag_accepts_two_model_names(self) -> None:
+        """
+        Given the eval subparser
+        When --compare-models mistral:7b llama3:8b is parsed
+        Then args.compare_models == ["mistral:7b", "llama3:8b"]
+        """
+        # Given
+        from jobsearch_rag.cli import build_parser
+
+        parser = build_parser()
+
+        # When
+        args = parser.parse_args(["eval", "--compare-models", "mistral:7b", "llama3:8b"])
+
+        # Then
+        assert args.compare_models == ["mistral:7b", "llama3:8b"], (
+            f"Expected ['mistral:7b', 'llama3:8b'], got {args.compare_models}"
+        )
+
+    def test_compare_models_absent_runs_single_eval(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        Given a store with decisions and no --compare-models flag
+        When handle_eval runs
+        Then a single EvalResult is printed (normal flow)
+        And report and history are written
+        """
+        # Given
+        settings = _make_settings(str(tmp_path))
+        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        _seed_required_collections(store, EMBED_FAKE)
+        _seed_decision(store, job_id="cmp-1", verdict="yes")
+
+        _, mock_client = _make_mock_embedder()
+        monkeypatch.chdir(tmp_path)
+
+        # When
+        with (
+            patch("jobsearch_rag.cli.load_settings", return_value=settings),
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
+        ):
+            from jobsearch_rag.cli import handle_eval
+
+            args = MagicMock()
+            args.compare_models = None
+            handle_eval(args)
+
+        # Then: report file exists (normal flow writes report)
+        output_dir = Path(settings.output.output_dir)
+        report_files = list(output_dir.glob("eval_*.md"))
+        assert len(report_files) == 1, f"Expected 1 report (normal flow), found {report_files}"
+
+    def test_compare_models_present_runs_dual_eval(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Given a store with decisions and --compare-models mistral:7b llama3:8b
+        When handle_eval runs
+        Then two evaluations are performed (one per model)
+        And stdout contains both model names and delta values
+        """
+        # Given
+        settings = _make_settings(str(tmp_path))
+        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        _seed_required_collections(store, EMBED_FAKE)
+        _seed_decision(store, job_id="cmp-1", verdict="yes")
+        _seed_decision(store, job_id="cmp-2", verdict="no", embedding=_EMBED_DISTANT)
+
+        _, mock_client = _make_mock_embedder()
+        # Add llama3:8b to the mock model list so health_check passes for both
+        model_b = MagicMock()
+        model_b.model = "llama3:8b"
+        mock_client.list.return_value.models.append(model_b)
+        monkeypatch.chdir(tmp_path)
+
+        # When
+        with (
+            patch("jobsearch_rag.cli.load_settings", return_value=settings),
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
+        ):
+            from jobsearch_rag.cli import handle_eval
+
+            args = MagicMock()
+            args.compare_models = ["mistral:7b", "llama3:8b"]
+            handle_eval(args)
+
+        # Then: stdout contains both model names and delta
+        captured = capsys.readouterr()
+        assert "mistral:7b" in captured.out, "Expected model_a name in output"
+        assert "llama3:8b" in captured.out, "Expected model_b name in output"
+        assert "delta" in captured.out.lower() or "Δ" in captured.out, (
+            "Expected delta label in comparison output"
+        )
+
+    def test_compare_models_skips_report_and_history(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        Given --compare-models mistral:7b llama3:8b
+        When handle_eval runs
+        Then EvalReport.write is NOT called
+        And EvalHistory.append is NOT called
+        """
+        # Given
+        settings = _make_settings(str(tmp_path))
+        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        _seed_required_collections(store, EMBED_FAKE)
+        _seed_decision(store, job_id="cmp-1", verdict="yes")
+
+        _, mock_client = _make_mock_embedder()
+        # Add llama3:8b to the mock model list so health_check passes for both
+        model_b = MagicMock()
+        model_b.model = "llama3:8b"
+        mock_client.list.return_value.models.append(model_b)
+        monkeypatch.chdir(tmp_path)
+
+        # When
+        with (
+            patch("jobsearch_rag.cli.load_settings", return_value=settings),
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
+        ):
+            from jobsearch_rag.cli import handle_eval
+
+            args = MagicMock()
+            args.compare_models = ["mistral:7b", "llama3:8b"]
+            handle_eval(args)
+
+        # Then: no report written
+        output_dir = Path(settings.output.output_dir)
+        report_files = list(output_dir.glob("eval_*.md"))
+        assert len(report_files) == 0, f"Expected no report in compare mode, found {report_files}"
+
+        # And: no history file
+        history_path = tmp_path / "data" / "eval_history.jsonl"
+        assert not history_path.exists(), "Expected no history file in compare mode"

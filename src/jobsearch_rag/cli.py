@@ -18,10 +18,15 @@ from pathlib import Path
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.adapters.session import SessionConfig, SessionManager
-from jobsearch_rag.config import load_settings
+from jobsearch_rag.config import Settings, load_settings
 from jobsearch_rag.export import CSVExporter, JDFileExporter, MarkdownExporter
 from jobsearch_rag.logging import configure_file_logging
-from jobsearch_rag.pipeline.eval import EvalHistory, EvalReport, EvalRunner
+from jobsearch_rag.pipeline.eval import (
+    EvalHistory,
+    EvalReport,
+    EvalRunner,
+    ModelComparisonResult,
+)
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
 from jobsearch_rag.pipeline.rescorer import Rescorer
 from jobsearch_rag.pipeline.review import ReviewSession
@@ -506,13 +511,28 @@ def handle_eval(args: argparse.Namespace) -> None:
 
     Loads all decisions from ChromaDB, re-scores each JD through the
     current scorer/ranker configuration, and prints agreement rate,
-    precision, and recall.
+    precision, recall, and Spearman correlation.
+
+    With ``--compare-models MODEL_A MODEL_B``, runs the evaluation twice
+    (once per model) and prints a side-by-side comparison table.
     """
     settings = load_settings()
+    compare_models: list[str] | None = getattr(args, "compare_models", None)
+
+    if compare_models:
+        _handle_eval_compare(settings, compare_models)
+    else:
+        _handle_eval_single(settings)
+
+
+def _build_eval_stack(
+    settings: Settings, *, llm_model: str | None = None
+) -> tuple[Embedder, EvalRunner]:
+    """Construct an Embedder + EvalRunner from settings."""
     embedder = Embedder(
         base_url=settings.ollama.base_url,
         embed_model=settings.ollama.embed_model,
-        llm_model=settings.ollama.llm_model,
+        llm_model=llm_model or settings.ollama.llm_model,
     )
     store = VectorStore(persist_dir=settings.chroma.persist_dir)
     scorer = Scorer(
@@ -529,8 +549,13 @@ def handle_eval(args: argparse.Namespace) -> None:
         culture_weight=settings.scoring.culture_weight,
         min_score_threshold=settings.scoring.min_score_threshold,
     )
-
     runner = EvalRunner(scorer=scorer, ranker=ranker, store=store)
+    return embedder, runner
+
+
+def _handle_eval_single(settings: Settings) -> None:
+    """Run a single-model evaluation."""
+    embedder, runner = _build_eval_stack(settings)
 
     async def _run() -> None:
         await embedder.health_check()
@@ -555,6 +580,63 @@ def handle_eval(args: argparse.Namespace) -> None:
 
         EvalHistory.append(result, "data/eval_history.jsonl")
         print("History appended to data/eval_history.jsonl")
+
+    asyncio.run(_run())
+
+
+def _handle_eval_compare(settings: Settings, models: list[str]) -> None:
+    """Run dual-model evaluation and print comparison table."""
+    model_a, model_b = models
+    embedder_a, runner_a = _build_eval_stack(settings, llm_model=model_a)
+    embedder_b, runner_b = _build_eval_stack(settings, llm_model=model_b)
+
+    async def _run() -> None:
+        await embedder_a.health_check()
+        result_a = await runner_a.evaluate()
+
+        await embedder_b.health_check()
+        result_b = await runner_b.evaluate()
+
+        comparison = ModelComparisonResult(
+            model_a=model_a,
+            model_b=model_b,
+            result_a=result_a,
+            result_b=result_b,
+        )
+
+        def _sign(v: float) -> str:
+            return f"+{v:.2f}" if v >= 0 else f"{v:.2f}"
+
+        print(f"\n{'=' * 60}")
+        print(" Model Comparison")
+        print(f"{'=' * 60}")
+        print(f" {'Metric':<22} {model_a:<14} {model_b:<14} {'delta':>8}")
+        print(f" {'-' * 58}")
+        print(
+            f" {'Agreement rate':<22} "
+            f"{result_a.agreement_rate:<14.1%} "
+            f"{result_b.agreement_rate:<14.1%} "
+            f"{_sign(comparison.agreement_delta):>8}"
+        )
+        print(
+            f" {'Precision':<22} "
+            f"{result_a.precision:<14.1%} "
+            f"{result_b.precision:<14.1%} "
+            f"{_sign(comparison.precision_delta):>8}"
+        )
+        print(
+            f" {'Recall':<22} "
+            f"{result_a.recall:<14.1%} "
+            f"{result_b.recall:<14.1%} "
+            f"{_sign(comparison.recall_delta):>8}"
+        )
+        print(
+            f" {'Spearman correlation':<22} "
+            f"{result_a.spearman:<14.2f} "
+            f"{result_b.spearman:<14.2f} "
+            f"{_sign(comparison.spearman_delta):>8}"
+        )
+        print(f"{'=' * 60}\n")
 
     asyncio.run(_run())
 
@@ -719,9 +801,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # -- eval ----------------------------------------------------------------
-    sub.add_parser(
+    eval_p = sub.add_parser(
         "eval",
         help="Evaluate scoring pipeline against stored human decisions",
+    )
+    eval_p.add_argument(
+        "--compare-models",
+        nargs=2,
+        metavar=("MODEL_A", "MODEL_B"),
+        default=None,
+        help="Compare two LLM models side-by-side (e.g. mistral:7b llama3:8b)",
     )
     login_p.add_argument(
         "--board",
