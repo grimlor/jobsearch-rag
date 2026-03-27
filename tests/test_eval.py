@@ -10,6 +10,7 @@ Covers:
     TestEvalIntegration        — end-to-end handle_eval with report + history
     TestModelComparisonResult  — delta computation between two EvalResults
     TestCompareModelsFlag      — --compare-models CLI flag and dual-eval flow
+    TestLoadDecisionsResilience — graceful handling of corrupt/missing decision data
 """
 
 from __future__ import annotations
@@ -1402,3 +1403,103 @@ class TestCompareModelsFlag:
         # And: no history file
         history_path = tmp_path / "data" / "eval_history.jsonl"
         assert not history_path.exists(), "Expected no history file in compare mode"
+
+
+class TestLoadDecisionsResilience:
+    """
+    REQUIREMENT: ``_load_decisions`` gracefully handles corrupt or missing
+    decision data in ChromaDB without crashing the eval pipeline.
+
+    WHO: The operator running ``eval`` against a decisions collection that
+         may contain data quality issues from prior runs.
+
+    WHAT: (1) inaccessible decisions collection returns empty list and
+              logs a debug message
+          (2) a decision with missing metadata is skipped with a warning
+          (3) a decision with an empty verdict is skipped with a warning
+
+    WHY: A single corrupt decision entry should not prevent evaluation of
+         all other valid decisions — the pipeline must degrade gracefully.
+
+    MOCK BOUNDARY:
+        Mock:  ``VectorStore.get_or_create_collection`` (for exception test only,
+               at the ChromaDB boundary)
+        Real:  EvalRunner, VectorStore (real ChromaDB for data-quality tests)
+        Never: mock ``_load_decisions`` itself
+    """
+
+    def test_inaccessible_collection_returns_empty_result(self, tmp_path: Path) -> None:
+        """
+        Given a store where the decisions collection raises an exception
+        When evaluate() is called
+        Then the result has 0 decisions and no crash
+        """
+        # Given: a real store with the collection access patched to raise
+        settings = _make_settings(str(tmp_path))
+        runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
+        _seed_required_collections(store, EMBED_FAKE)
+
+        with patch.object(
+            store, "get_or_create_collection", side_effect=RuntimeError("db locked")
+        ):
+            # When
+            result = asyncio.run(runner.evaluate())
+
+        # Then: graceful degradation — 0 decisions, not a crash
+        assert result.decisions_evaluated == 0, (
+            f"Expected 0 decisions, got {result.decisions_evaluated}"
+        )
+
+    def test_decision_with_missing_metadata_is_skipped(self, tmp_path: Path) -> None:
+        """
+        Given a decisions collection with one valid decision and one
+              without metadata
+        When evaluate() is called
+        Then only the valid decision is evaluated
+        """
+        # Given: seed one valid decision
+        settings = _make_settings(str(tmp_path))
+        runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
+        _seed_required_collections(store, EMBED_FAKE)
+        _seed_decision(store, job_id="valid-1", verdict="yes")
+
+        # And: seed a bare document with no metadata via low-level API
+        collection = store.get_or_create_collection("decisions")
+        collection.add(
+            ids=["decision-corrupt-1"],
+            documents=["A job with missing metadata"],
+            embeddings=[EMBED_FAKE],
+            # no metadatas — ChromaDB stores None for this entry
+        )
+
+        # When
+        result = asyncio.run(runner.evaluate())
+
+        # Then: only the valid decision is evaluated
+        assert result.decisions_evaluated == 1, (
+            f"Expected 1 decision (skipped corrupt), got {result.decisions_evaluated}"
+        )
+
+    def test_decision_with_empty_verdict_is_skipped(self, tmp_path: Path) -> None:
+        """
+        Given a decisions collection with one valid decision and one
+              with an empty verdict
+        When evaluate() is called
+        Then only the valid decision is evaluated
+        """
+        # Given: seed one valid decision
+        settings = _make_settings(str(tmp_path))
+        runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
+        _seed_required_collections(store, EMBED_FAKE)
+        _seed_decision(store, job_id="valid-1", verdict="yes")
+
+        # And: seed a decision with empty verdict
+        _seed_decision(store, job_id="no-verdict", verdict="")
+
+        # When
+        result = asyncio.run(runner.evaluate())
+
+        # Then: only the valid decision is evaluated
+        assert result.decisions_evaluated == 1, (
+            f"Expected 1 decision (skipped empty verdict), got {result.decisions_evaluated}"
+        )
