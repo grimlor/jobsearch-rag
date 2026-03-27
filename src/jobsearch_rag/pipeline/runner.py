@@ -20,11 +20,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.session import SessionConfig, SessionManager, throttle
 from jobsearch_rag.errors import ActionableError
+from jobsearch_rag.logging import configure_session_logging, log_event, session_logger
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker, RankSummary
 from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
 from jobsearch_rag.rag.decisions import DecisionRecorder
@@ -106,6 +108,30 @@ class PipelineRunner:
             A :class:`RunResult` with ranked listings and summary statistics.
 
         """
+        # Step 0: Set up structured session logging
+        log_dir = str(Path(self._settings.chroma.persist_dir).parent / "logs")
+        session_handler, session_id = configure_session_logging(log_dir)
+
+        try:
+            return await self._run_inner(
+                boards=boards,
+                overnight=overnight,
+                force_rescore=force_rescore,
+                session_id=session_id,
+            )
+        finally:
+            session_logger.removeHandler(session_handler)
+            session_handler.close()
+
+    async def _run_inner(
+        self,
+        boards: list[str] | None = None,
+        *,
+        overnight: bool = False,
+        force_rescore: bool = False,
+        session_id: str = "",
+    ) -> RunResult:
+        """Inner run logic, called after session logging is configured."""
         # Step 1: Health check Ollama before any browser work
         await self._embedder.health_check()
         logger.info("Ollama health check passed")
@@ -160,6 +186,16 @@ class PipelineRunner:
 
         if not all_listings:
             logger.warning("No listings collected from any board")
+            log_event(
+                "session_summary",
+                jobs_found=0,
+                jobs_scored=0,
+                jobs_excluded=0,
+                jobs_deduplicated=0,
+                failed_listings=failed_count,
+                skipped_decisions=0,
+                boards_searched=board_names,
+            )
             return RunResult(
                 boards_searched=board_names,
                 failed_listings=failed_count,
@@ -198,6 +234,21 @@ class PipelineRunner:
                 score_result.comp_score = compute_comp_score(listing.comp_max, self._base_salary)
 
                 scored.append((listing, score_result))
+
+                # Emit structured score_computed event
+                final = self._ranker.compute_final_score(score_result)
+                log_event(
+                    "score_computed",
+                    job_id=listing.external_id,
+                    archetype=score_result.archetype_score,
+                    fit=score_result.fit_score,
+                    culture=score_result.culture_score,
+                    history=score_result.history_score,
+                    negative=score_result.negative_score,
+                    comp=score_result.comp_score,
+                    final=final,
+                )
+
                 # Cache the embedding for deduplication
                 embedding = await self._embedder.embed(listing.full_text)
                 embeddings[listing.url] = embedding
@@ -222,6 +273,18 @@ class PipelineRunner:
 
         # Step 5: Rank, deduplicate, filter
         ranked, summary = self._ranker.rank(scored, embeddings)
+
+        # Emit structured session_summary event
+        log_event(
+            "session_summary",
+            jobs_found=len(all_listings),
+            jobs_scored=len(scored),
+            jobs_excluded=summary.total_excluded,
+            jobs_deduplicated=summary.total_deduplicated,
+            failed_listings=failed_count,
+            skipped_decisions=skipped_decisions,
+            boards_searched=board_names,
+        )
 
         return RunResult(
             ranked_listings=ranked,
