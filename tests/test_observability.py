@@ -1,7 +1,9 @@
 """
-Observability tests — structured session tracing, per-call tracing, and inference metrics.
+Observability tests — structured session tracing, per-call tracing,
+inference metrics, and retrieval quality metrics.
 
-Maps to BDD spec: TestSessionTracing, TestOllamaCallTracing, TestInferenceMetrics
+Maps to BDD spec: TestSessionTracing, TestOllamaCallTracing,
+                  TestInferenceMetrics, TestRetrievalMetrics
 """
 
 from __future__ import annotations
@@ -51,6 +53,8 @@ if TYPE_CHECKING:
 #   "classify_call" — one per classify() call, includes model, input_chars,
 #       latency_ms, tokens (prompt_eval_count + eval_count or estimate)
 #   "disqualifier_call" — one per disqualify() call, includes model, input_chars, outcome
+#   "retrieval_summary" — one per collection per run; includes collection,
+#       n_scored, score_min, score_p50, score_p90, score_max, below_threshold
 # ---------------------------------------------------------------------------
 
 
@@ -65,6 +69,7 @@ def _make_settings(
     *,
     disqualify_on_llm_flag: bool = False,
     slow_llm_threshold_ms: int | None = None,
+    min_score_threshold: float | None = None,
 ) -> Settings:
     """Create a Settings with temp ChromaDB dir and configurable boards."""
     boards = enabled_boards or ["testboard"]
@@ -79,11 +84,14 @@ def _make_settings(
     ollama_kwargs: dict[str, object] = {}
     if slow_llm_threshold_ms is not None:
         ollama_kwargs["slow_llm_threshold_ms"] = slow_llm_threshold_ms
+    scoring_kwargs: dict[str, object] = {"disqualify_on_llm_flag": disqualify_on_llm_flag}
+    if min_score_threshold is not None:
+        scoring_kwargs["min_score_threshold"] = min_score_threshold
     return Settings(
         enabled_boards=boards,
         overnight_boards=[],
         boards=board_configs,
-        scoring=ScoringConfig(disqualify_on_llm_flag=disqualify_on_llm_flag),
+        scoring=ScoringConfig(**scoring_kwargs),  # type: ignore[arg-type]
         ollama=OllamaConfig(**ollama_kwargs),  # type: ignore[arg-type]
         output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
         chroma=ChromaConfig(persist_dir=str(Path(tmpdir) / "chroma_db")),
@@ -148,6 +156,70 @@ def _populate_store(store: VectorStore) -> None:
             documents=[f"Seed document for {name}"],
             embeddings=[EMBED_FAKE],
         )
+
+
+# An embedding vector distant from EMBED_FAKE — produces cosine distance > 0
+# when JD text is embedded with EMBED_FAKE.  This creates non-trivial score
+# distributions (< 1.0) so retrieval_summary tests exercise real metric computation.
+_EMBED_DISTANT: list[float] = [0.9, 0.1, 0.9, 0.1, 0.9]
+
+# The four collections that contribute to scoring — required and optional.
+# negative_signals and decisions are optional; if empty, scorer returns 0.0.
+_RETRIEVAL_COLLECTIONS = (
+    "resume",
+    "role_archetypes",
+    "global_positive_signals",
+    "negative_signals",
+)
+
+
+def _populate_store_with_distant_embeddings(store: VectorStore) -> None:
+    """
+    Seed collections with distant embeddings so score distributions are non-trivial.
+
+    Uses _EMBED_DISTANT for stored documents while the mock Ollama returns
+    EMBED_FAKE for JD queries — producing cosine distances > 0 and scores < 1.0.
+    """
+    for name in _RETRIEVAL_COLLECTIONS:
+        store.add_documents(
+            name,
+            ids=[f"{name}-seed"],
+            documents=[f"Seed document for {name}"],
+            embeddings=[_EMBED_DISTANT],
+        )
+
+
+def _make_runner_with_distant_store(
+    settings: Settings,
+) -> tuple[PipelineRunner, AsyncMock]:
+    """
+    Like _make_runner_with_real_stack but seeds collections with distant embeddings.
+
+    Produces non-trivial score distributions for retrieval_summary testing.
+    """
+    mock_client = AsyncMock()
+
+    model_embed = MagicMock()
+    model_embed.model = settings.ollama.embed_model
+    model_llm = MagicMock()
+    model_llm.model = settings.ollama.llm_model
+    list_response = MagicMock()
+    list_response.models = [model_embed, model_llm]
+    mock_client.list.return_value = list_response
+
+    embed_response = MagicMock()
+    embed_response.embeddings = [EMBED_FAKE]
+    mock_client.embed.return_value = embed_response
+
+    with patch(
+        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+        return_value=mock_client,
+    ):
+        runner = PipelineRunner(settings)
+
+    _populate_store_with_distant_embeddings(runner._store)  # pyright: ignore[reportPrivateUsage]
+
+    return runner, mock_client
 
 
 def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
@@ -1002,3 +1074,186 @@ class TestInferenceMetrics:
             f"Expected different slow_llm_calls for threshold=1 vs threshold=999999999, "
             f"both got {slow_low}"
         )
+
+
+# ---------------------------------------------------------------------------
+# TestRetrievalMetrics
+# ---------------------------------------------------------------------------
+
+
+class TestRetrievalMetrics:
+    """
+    REQUIREMENT: After each scoring run, the distribution of scores per
+    collection is logged so the operator can detect stale indexes and
+    calibrate weights over time.
+
+    WHO: The operator who re-indexed and wants to confirm the change had
+         the expected effect; the operator tuning collection weights
+    WHAT: After scoring a batch of listings, one retrieval_summary log entry
+          is written per collection that contributed to scoring; each entry
+          names the collection and includes count, score_min, score_p50,
+          score_p90, score_max, and below_threshold; a run against a single
+          listing still produces a retrieval_summary per collection
+    WHY: A collection whose median score is 0.92 for every role it sees is
+         not discriminating — it is noise. Score distribution logging makes
+         this visible
+
+    MOCK BOUNDARY:
+        Mock:  ollama_sdk.AsyncClient (Ollama HTTP); async_playwright
+               (Playwright I/O); asyncio.sleep for throttle bypass
+        Real:  PipelineRunner, ChromaDB via VectorStore with real indexed
+               collections using distant embeddings, log file in tmp_path
+        Never: Mock the retrieval summary computation; index real content
+               via distant embeddings before running the pipeline so score
+               distributions reflect genuine similarity queries
+    """
+
+    def test_one_retrieval_summary_per_collection_is_written_per_run(self) -> None:
+        """
+        Given a run scoring listings against four collections
+        When the log file is read
+        Then exactly four entries with event 'retrieval_summary' are present
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with distant embeddings (4 collections) and one listing
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_distant_store(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: exactly 4 retrieval_summary entries (one per collection)
+            summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
+            assert len(summaries) == len(_RETRIEVAL_COLLECTIONS), (
+                f"Expected {len(_RETRIEVAL_COLLECTIONS)} retrieval_summary entries, "
+                f"got {len(summaries)}. Events: {[e.get('event') for e in entries]}"
+            )
+
+    def test_retrieval_summary_names_the_collection(self) -> None:
+        """
+        Given a completed run
+        When a retrieval_summary log entry is read
+        Then it contains a 'collection' field matching a known collection name
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with distant embeddings and one listing
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_distant_store(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: every retrieval_summary has a 'collection' field from _RETRIEVAL_COLLECTIONS
+            summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
+            assert len(summaries) > 0, "Expected at least one retrieval_summary entry"
+            collection_names = {s["collection"] for s in summaries}
+            for name in collection_names:
+                assert name in _RETRIEVAL_COLLECTIONS, (
+                    f"Unexpected collection name '{name}', "
+                    f"expected one of {_RETRIEVAL_COLLECTIONS}"
+                )
+
+    def test_retrieval_summary_includes_score_distribution_fields(self) -> None:
+        """
+        Given a completed run scoring at least two listings
+        When a retrieval_summary log entry is read
+        Then it contains numeric fields for score_min, score_p50,
+        score_p90, score_max, and below_threshold
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with distant embeddings and two listings
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_distant_store(settings)
+            listings = [
+                _make_listing(external_id="1", title="Role A"),
+                _make_listing(external_id="2", title="Role B"),
+            ]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: each retrieval_summary has distribution fields
+            summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
+            assert len(summaries) > 0, "Expected at least one retrieval_summary entry"
+            for summary in summaries:
+                for field in ("score_min", "score_p50", "score_p90", "score_max"):
+                    assert field in summary, (
+                        f"retrieval_summary for '{summary.get('collection')}' "
+                        f"missing '{field}' field: {summary}"
+                    )
+                    assert isinstance(summary[field], (int, float)), (
+                        f"'{field}' should be numeric, got {type(summary[field])}: "
+                        f"{summary[field]}"
+                    )
+                assert "below_threshold" in summary, (
+                    f"retrieval_summary for '{summary.get('collection')}' "
+                    f"missing 'below_threshold' field: {summary}"
+                )
+                assert isinstance(summary["below_threshold"], int), (
+                    f"'below_threshold' should be int, "
+                    f"got {type(summary['below_threshold'])}: {summary['below_threshold']}"
+                )
+
+    def test_below_threshold_count_reflects_settings_min_score_threshold(self) -> None:
+        """
+        Given min_score_threshold is set to 0.9
+        And a run scores five listings all below 0.9 on one collection
+        When that collection's retrieval_summary entry is read
+        Then below_threshold is 5
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: high threshold (0.9) — distant embeddings produce scores < 0.9
+            settings = _make_settings(tmpdir, min_score_threshold=0.9)
+            runner, mock_client = _make_runner_with_distant_store(settings)
+            listings = [_make_listing(external_id=str(i), title=f"Role {i}") for i in range(1, 6)]
+
+            # When: pipeline runs five listings
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: at least one collection has below_threshold == 5
+            summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
+            assert len(summaries) > 0, "Expected at least one retrieval_summary entry"
+            # With distant embeddings, all scores on a collection should be < 0.9
+            # Check a required collection (resume) which always has scores
+            resume_summaries = [s for s in summaries if s.get("collection") == "resume"]
+            assert len(resume_summaries) == 1, (
+                f"Expected 1 resume retrieval_summary, got {len(resume_summaries)}"
+            )
+            assert resume_summaries[0]["below_threshold"] == 5, (
+                f"Expected below_threshold == 5 with threshold 0.9 and distant embeddings, "
+                f"got {resume_summaries[0]['below_threshold']}"
+            )
+
+    def test_single_listing_run_produces_retrieval_summary_per_collection(self) -> None:
+        """
+        Given a run that scores exactly one listing
+        When the log file is read
+        Then retrieval_summary entries are present (one per collection)
+        and each contains valid numeric fields
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with distant embeddings and exactly one listing
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_distant_store(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: retrieval_summary entries with valid numeric fields
+            summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
+            assert len(summaries) == len(_RETRIEVAL_COLLECTIONS), (
+                f"Expected {len(_RETRIEVAL_COLLECTIONS)} retrieval_summary entries "
+                f"for single listing, got {len(summaries)}"
+            )
+            for summary in summaries:
+                assert "n_scored" in summary, f"retrieval_summary missing 'n_scored': {summary}"
+                assert summary["n_scored"] >= 1, (  # type: ignore[operator]
+                    f"Expected n_scored >= 1, got {summary['n_scored']}"
+                )
+                for field in ("score_min", "score_p50", "score_p90", "score_max"):
+                    assert isinstance(summary.get(field), (int, float)), (
+                        f"'{field}' should be numeric in {summary.get('collection')}: {summary}"
+                    )

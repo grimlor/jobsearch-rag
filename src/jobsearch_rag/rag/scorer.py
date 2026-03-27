@@ -160,6 +160,12 @@ class Scorer:
         self._embedder = embedder
         self._disqualify_on_llm_flag = disqualify_on_llm_flag
         self._cached_rejection_reasons: list[str] | None = None
+        self._collection_scores: dict[str, list[float]] = {}
+
+    @property
+    def collection_scores(self) -> dict[str, list[float]]:
+        """Per-collection score lists accumulated across all ``score()`` calls."""
+        return self._collection_scores
 
     # ------------------------------------------------------------------
     # Public API
@@ -223,6 +229,24 @@ class Scorer:
                 culture_score,
                 self._query_collection_optional("global_positive_signals", embedding),
             )
+
+        # Accumulate per-collection best scores for retrieval metrics.
+        self._collection_scores.setdefault("resume", []).append(fit_score)
+        self._collection_scores.setdefault("role_archetypes", []).append(
+            archetype_score,
+        )
+        for coll_name, coll_score in (
+            ("decisions", history_score),
+            ("negative_signals", negative_score),
+            ("global_positive_signals", culture_score),
+        ):
+            try:
+                if self._store.collection_count(coll_name) > 0:
+                    self._collection_scores.setdefault(coll_name, []).append(
+                        coll_score,
+                    )
+            except ActionableError:
+                pass
 
         disqualified = False
         reason: str | None = None

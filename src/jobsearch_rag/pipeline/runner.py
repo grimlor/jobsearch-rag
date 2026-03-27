@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -278,6 +279,32 @@ class PipelineRunner:
                 )
                 surfaced_errors.append(ActionableError.from_exception(exc, "scorer", listing.url))
                 failed_count += 1
+
+        # Step 4b: Emit per-collection retrieval quality metrics
+        threshold = self._settings.scoring.min_score_threshold
+        for coll_name, scores in self._scorer.collection_scores.items():
+            if not scores:
+                continue
+            sorted_scores = sorted(scores)
+            n = len(sorted_scores)
+            if n >= 2:
+                quantiles = statistics.quantiles(sorted_scores, n=100)
+                p50 = quantiles[49]
+                p90 = quantiles[89]
+            else:
+                p50 = sorted_scores[0]
+                p90 = sorted_scores[0]
+            below = sum(1 for s in sorted_scores if s < threshold) if threshold else 0
+            log_event(
+                "retrieval_summary",
+                collection=coll_name,
+                n_scored=n,
+                score_min=sorted_scores[0],
+                score_p50=p50,
+                score_p90=p90,
+                score_max=sorted_scores[-1],
+                below_threshold=below,
+            )
 
         # Step 5: Rank, deduplicate, filter
         ranked, summary = self._ranker.rank(scored, embeddings)
