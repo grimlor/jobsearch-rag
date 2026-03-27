@@ -21,6 +21,7 @@ from jobsearch_rag.adapters.session import SessionConfig, SessionManager
 from jobsearch_rag.config import load_settings
 from jobsearch_rag.export import CSVExporter, JDFileExporter, MarkdownExporter
 from jobsearch_rag.logging import configure_file_logging
+from jobsearch_rag.pipeline.eval import EvalRunner
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
 from jobsearch_rag.pipeline.rescorer import Rescorer
 from jobsearch_rag.pipeline.review import ReviewSession
@@ -499,6 +500,57 @@ def handle_rescore(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def handle_eval(args: argparse.Namespace) -> None:
+    """
+    Evaluate the scoring pipeline against stored human decisions.
+
+    Loads all decisions from ChromaDB, re-scores each JD through the
+    current scorer/ranker configuration, and prints agreement rate,
+    precision, and recall.
+    """
+    settings = load_settings()
+    embedder = Embedder(
+        base_url=settings.ollama.base_url,
+        embed_model=settings.ollama.embed_model,
+        llm_model=settings.ollama.llm_model,
+    )
+    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    scorer = Scorer(
+        store=store,
+        embedder=embedder,
+        disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
+    )
+    ranker = Ranker(
+        archetype_weight=settings.scoring.archetype_weight,
+        fit_weight=settings.scoring.fit_weight,
+        history_weight=settings.scoring.history_weight,
+        comp_weight=settings.scoring.comp_weight,
+        negative_weight=settings.scoring.negative_weight,
+        culture_weight=settings.scoring.culture_weight,
+        min_score_threshold=settings.scoring.min_score_threshold,
+    )
+
+    runner = EvalRunner(scorer=scorer, ranker=ranker, store=store)
+
+    async def _run() -> None:
+        await embedder.health_check()
+        result = await runner.evaluate()
+
+        print(f"\n{'=' * 60}")
+        print(" Evaluation Results")
+        print(f"{'=' * 60}")
+        print(f" Decisions evaluated: {result.decisions_evaluated}")
+        print(f" Agreement rate:      {result.agreement_rate:.1%}")
+        print(f" Precision:           {result.precision:.1%}")
+        print(f" Recall:              {result.recall:.1%}")
+        print(f"{'=' * 60}\n")
+
+        if result.decisions_evaluated == 0:
+            print("No decisions found. Record some decisions first with 'decide'.")
+
+    asyncio.run(_run())
+
+
 def handle_export(args: argparse.Namespace) -> None:
     """
     Re-export last results in a specific format.
@@ -656,6 +708,12 @@ def build_parser() -> argparse.ArgumentParser:
     login_p = sub.add_parser(
         "login",
         help="Open interactive browser for manual login (saves session cookies)",
+    )
+
+    # -- eval ----------------------------------------------------------------
+    sub.add_parser(
+        "eval",
+        help="Evaluate scoring pipeline against stored human decisions",
     )
     login_p.add_argument(
         "--board",

@@ -13,6 +13,7 @@ from jobsearch_rag.cli import (
     build_parser,
     handle_boards,
     handle_decide,
+    handle_eval,
     handle_export,
     handle_index,
     handle_login,
@@ -34,6 +35,7 @@ HANDLERS: dict[str, Callable[..., None]] = {
     "review": handle_review,
     "export": handle_export,
     "rescore": handle_rescore,
+    "eval": handle_eval,
     "login": handle_login,
     "reset": handle_reset,
 }
