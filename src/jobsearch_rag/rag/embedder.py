@@ -16,6 +16,7 @@ with operator-friendly guidance.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 import ollama as ollama_sdk
 
 from jobsearch_rag.errors import ActionableError
-from jobsearch_rag.logging import logger
+from jobsearch_rag.logging import log_event, logger
 
 _T = TypeVar("_T")
 
@@ -125,7 +126,16 @@ class Embedder:
             response = await self._client.embed(model=self.embed_model, input=cleaned)
             return list(response.embeddings[0])
 
-        return await self._with_retry(_call, operation="embed")
+        t0 = time.monotonic()
+        result = await self._with_retry(_call, operation="embed")
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        log_event(
+            "embed_call",
+            model=self.embed_model,
+            input_chars=len(cleaned),
+            latency_ms=latency_ms,
+        )
+        return result
 
     async def classify(self, prompt: str) -> str:
         """
@@ -151,7 +161,16 @@ class Embedder:
             )
             return response.message.content  # type: ignore[return-value]
 
-        return await self._with_retry(_call, operation="classify")
+        t0 = time.monotonic()
+        result = await self._with_retry(_call, operation="classify")
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        log_event(
+            "classify_call",
+            model=self.llm_model,
+            input_chars=len(prompt),
+            latency_ms=latency_ms,
+        )
+        return result
 
     async def health_check(self) -> None:
         """

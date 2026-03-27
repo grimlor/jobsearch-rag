@@ -42,6 +42,8 @@ if TYPE_CHECKING:
 # Events emitted by structured logging:
 #   "score_computed" — one per scored listing, includes component scores
 #   "session_summary" — one per run, closes the session
+#   "embed_call" — one per Ollama embed() call, includes model and input_chars
+#   "disqualifier_call" — one per disqualify() call, includes model, input_chars, outcome
 # ---------------------------------------------------------------------------
 
 
@@ -53,6 +55,8 @@ if TYPE_CHECKING:
 def _make_settings(
     tmpdir: str,
     enabled_boards: list[str] | None = None,
+    *,
+    disqualify_on_llm_flag: bool = False,
 ) -> Settings:
     """Create a Settings with temp ChromaDB dir and configurable boards."""
     boards = enabled_boards or ["testboard"]
@@ -68,7 +72,7 @@ def _make_settings(
         enabled_boards=boards,
         overnight_boards=[],
         boards=board_configs,
-        scoring=ScoringConfig(disqualify_on_llm_flag=False),
+        scoring=ScoringConfig(disqualify_on_llm_flag=disqualify_on_llm_flag),
         ollama=OllamaConfig(),
         output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
         chroma=ChromaConfig(persist_dir=str(Path(tmpdir) / "chroma_db")),
@@ -182,18 +186,20 @@ def _run_pipeline_and_read_logs(
     runner: PipelineRunner,
     *,
     exclude_files: set[str] | None = None,
+    disqualifier_response: str = '{"disqualified": false}',
 ) -> list[dict[str, object]]:
     """
     Run the pipeline against the given listings and return parsed log entries.
 
-    Sets up the classify mock to return a non-disqualified response,
+    Sets up the classify mock to return a configurable disqualifier response,
     patches Playwright and adapter boundaries, runs the pipeline,
     then reads and parses the JSON-lines log file.
 
     *exclude_files* is a set of filenames from prior runs to skip.
+    *disqualifier_response* is the raw JSON string the LLM mock returns.
     """
     mock_client.chat.return_value = MagicMock(
-        message=MagicMock(content='{"disqualified": false}'),
+        message=MagicMock(content=disqualifier_response),
     )
 
     mock_async_pw, _mock_page = _mock_playwright_boundary()
@@ -454,3 +460,205 @@ class TestSessionTracing:
                     except json.JSONDecodeError as exc:
                         msg = f"Line {i + 1} in {log_file.name} is not valid JSON: {exc}"
                         raise AssertionError(msg) from exc
+
+
+# ---------------------------------------------------------------------------
+# TestOllamaCallTracing
+# ---------------------------------------------------------------------------
+
+
+class TestOllamaCallTracing:
+    """
+    REQUIREMENT: Every Ollama API call (embedding and LLM classification)
+    is logged as a structured event with model, input size, and latency
+    so the operator can diagnose slow inference and understand per-call
+    costs.
+
+    WHO: The operator diagnosing slow runs or unexpected scores after a
+         pipeline completes
+    WHAT: (1) each embed call during scoring produces an 'embed_call' log
+              entry with 'model' and 'input_chars' fields
+          (2) a disqualifier call produces a 'disqualifier_call' log entry
+              with 'model', 'input_chars', and 'outcome' fields
+          (3) the 'outcome' field is 'disqualified' or 'not_disqualified'
+              based on the LLM response
+          (4) all 'embed_call' and 'disqualifier_call' entries share the
+              same session ID as 'score_computed' entries in the same run
+          (5) a run scoring N listings with disqualification enabled
+              produces at least N 'embed_call' entries and N
+              'disqualifier_call' entries
+    WHY: Without per-call logging, the operator cannot distinguish whether
+         a slow run was caused by one expensive LLM call or many slow
+         embedding calls — the session summary alone is not enough
+
+    MOCK BOUNDARY:
+        Mock:  ollama_sdk.AsyncClient (Ollama HTTP); async_playwright
+               (Playwright I/O); asyncio.sleep for throttle bypass
+        Real:  PipelineRunner, Embedder, Scorer, logging infrastructure,
+               log file in tmp_path
+        Never: Mock the logger or log_event; run the real pipeline and
+               verify events by parsing the actual log file
+    """
+
+    def test_embed_call_entry_has_model_and_input_chars(self) -> None:
+        """
+        Given a pipeline run that scores one listing
+        When the log file is read
+        Then at least one entry with event 'embed_call' is present
+        And it contains 'model' matching the configured embed model
+        And it contains 'input_chars' as a positive integer
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with one listing and disqualification off
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: at least one embed_call entry with model and input_chars
+            embed_calls = [e for e in entries if e.get("event") == "embed_call"]
+            assert len(embed_calls) >= 1, (
+                f"Expected at least one embed_call entry, got {len(embed_calls)}. "
+                f"Events found: {[e.get('event') for e in entries]}"
+            )
+            entry = embed_calls[0]
+            assert entry.get("model") == settings.ollama.embed_model, (
+                f"Expected model '{settings.ollama.embed_model}', got '{entry.get('model')}'"
+            )
+            assert isinstance(entry.get("input_chars"), int), (
+                f"Expected 'input_chars' as int, got {type(entry.get('input_chars'))}: "
+                f"{entry.get('input_chars')}"
+            )
+            assert entry["input_chars"] > 0, (  # type: ignore[operator]
+                f"Expected positive input_chars, got {entry['input_chars']}"
+            )
+
+    def test_disqualifier_call_entry_has_model_input_chars_and_outcome(self) -> None:
+        """
+        Given a pipeline run with disqualification enabled that scores one listing
+        When the log file is read
+        Then at least one entry with event 'disqualifier_call' is present
+        And it contains 'model' matching the configured LLM model
+        And it contains 'input_chars' as a positive integer
+        And it contains 'outcome' as a string
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with disqualification enabled
+            settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs with disqualification
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: at least one disqualifier_call with model, input_chars, outcome
+            dq_calls = [e for e in entries if e.get("event") == "disqualifier_call"]
+            assert len(dq_calls) >= 1, (
+                f"Expected at least one disqualifier_call entry, got {len(dq_calls)}. "
+                f"Events found: {[e.get('event') for e in entries]}"
+            )
+            entry = dq_calls[0]
+            assert entry.get("model") == settings.ollama.llm_model, (
+                f"Expected model '{settings.ollama.llm_model}', got '{entry.get('model')}'"
+            )
+            assert isinstance(entry.get("input_chars"), int), (
+                f"Expected 'input_chars' as int, got {type(entry.get('input_chars'))}"
+            )
+            assert entry["input_chars"] > 0, (  # type: ignore[operator]
+                f"Expected positive input_chars, got {entry['input_chars']}"
+            )
+            assert isinstance(entry.get("outcome"), str), (
+                f"Expected 'outcome' as string, got {type(entry.get('outcome'))}"
+            )
+
+    def test_disqualifier_outcome_reflects_llm_response(self) -> None:
+        """
+        Given a pipeline run where the LLM returns disqualified=true
+        When the log file is read
+        Then the disqualifier_call entry's 'outcome' field is 'disqualified'
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with disqualification enabled and a disqualifying response
+            settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs with a disqualified=true LLM response
+            entries = _run_pipeline_and_read_logs(
+                tmpdir,
+                listings,
+                mock_client,
+                runner,
+                disqualifier_response='{"disqualified": true, "reason": "staffing agency"}',
+            )
+
+            # Then: the disqualifier_call outcome is 'disqualified'
+            dq_calls = [e for e in entries if e.get("event") == "disqualifier_call"]
+            assert len(dq_calls) >= 1, (
+                f"Expected at least one disqualifier_call entry, got {len(dq_calls)}"
+            )
+            assert dq_calls[0].get("outcome") == "disqualified", (
+                f"Expected outcome 'disqualified', got '{dq_calls[0].get('outcome')}'"
+            )
+
+    def test_ollama_call_entries_share_session_id_with_score_computed(self) -> None:
+        """
+        Given a completed pipeline run
+        When the log file is read
+        Then embed_call, disqualifier_call, and score_computed entries
+        all contain the same 'session' value
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with disqualification enabled
+            settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: all event types are present and share the same session ID
+            embed_sessions = {e["session"] for e in entries if e.get("event") == "embed_call"}
+            dq_sessions = {e["session"] for e in entries if e.get("event") == "disqualifier_call"}
+            score_sessions = {e["session"] for e in entries if e.get("event") == "score_computed"}
+            assert embed_sessions, "Expected at least one embed_call entry, found none"
+            assert dq_sessions, "Expected at least one disqualifier_call entry, found none"
+            assert score_sessions, "Expected at least one score_computed entry, found none"
+            all_sessions = embed_sessions | dq_sessions | score_sessions
+            assert len(all_sessions) == 1, (
+                f"Expected all Ollama call events to share one session ID, "
+                f"got embed={embed_sessions}, dq={dq_sessions}, score={score_sessions}"
+            )
+
+    def test_n_listings_produce_at_least_n_embed_and_n_disqualifier_entries(self) -> None:
+        """
+        Given a pipeline run that scores three listings with disqualification enabled
+        When the log file is read
+        Then there are at least 3 embed_call entries
+        And there are exactly 3 disqualifier_call entries
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: three listings with disqualification enabled
+            settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [
+                _make_listing(external_id="1", title="Role A"),
+                _make_listing(external_id="2", title="Role B"),
+                _make_listing(external_id="3", title="Role C"),
+            ]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: at least 3 embed_call and exactly 3 disqualifier_call entries
+            embed_calls = [e for e in entries if e.get("event") == "embed_call"]
+            dq_calls = [e for e in entries if e.get("event") == "disqualifier_call"]
+            assert len(embed_calls) >= 3, (
+                f"Expected at least 3 embed_call entries (one per listing), got {len(embed_calls)}"
+            )
+            assert len(dq_calls) == 3, (
+                f"Expected exactly 3 disqualifier_call entries (one per listing), "
+                f"got {len(dq_calls)}"
+            )

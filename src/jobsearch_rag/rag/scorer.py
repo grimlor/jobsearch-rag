@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from jobsearch_rag.errors import ActionableError
+from jobsearch_rag.logging import log_event
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.embedder import Embedder
@@ -262,8 +263,16 @@ class Scorer:
             )
             for r in rejection_reasons:
                 prompt += f"- {r}\n"
-        raw = await self._embedder.classify(prompt + "\n\n" + jd_text)
-        return self._parse_disqualifier_response(raw)
+        full_prompt = prompt + "\n\n" + jd_text
+        raw = await self._embedder.classify(full_prompt)
+        disqualified, reason = self._parse_disqualifier_response(raw)
+        log_event(
+            "disqualifier_call",
+            model=self._embedder.llm_model,
+            input_chars=len(full_prompt),
+            outcome="disqualified" if disqualified else "not_disqualified",
+        )
+        return disqualified, reason
 
     # ------------------------------------------------------------------
     # Internals
