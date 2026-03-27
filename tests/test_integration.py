@@ -349,7 +349,7 @@ class TestChromaDBContract:
         # Then: distance ~0
         distances = results["distances"][0]
         assert len(distances) == 1, f"Expected 1 result, got {len(distances)}"
-        assert distances[0] == pytest.approx(0.0, abs=1e-5), (  # pyright: ignore[reportUnknownMemberType]
+        assert distances[0] == pytest.approx(0.0, abs=1e-5), (
             f"Identical vector should have ~0 distance, got {distances[0]}"
         )
 

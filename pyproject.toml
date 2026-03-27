@@ -111,6 +111,7 @@ indent-style = "space"
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
+stubPath = "typings"
 venvPath = "."
 venv = ".venv"
 

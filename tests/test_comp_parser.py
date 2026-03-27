@@ -71,10 +71,10 @@ class TestCompensationParsing:
 
         # Then: both endpoints are extracted correctly
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(180_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_min == pytest.approx(180_000), (
             f"Expected comp_min=180000, got {result.comp_min}"
         )
-        assert result.comp_max == pytest.approx(220_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_max == pytest.approx(220_000), (
             f"Expected comp_max=220000, got {result.comp_max}"
         )
 
@@ -92,10 +92,10 @@ class TestCompensationParsing:
 
         # Then: k multiplier produces 180000 and 220000
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(180_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_min == pytest.approx(180_000), (
             f"Expected comp_min=180000, got {result.comp_min}"
         )
-        assert result.comp_max == pytest.approx(220_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_max == pytest.approx(220_000), (
             f"Expected comp_max=220000, got {result.comp_max}"
         )
 
@@ -114,10 +114,10 @@ class TestCompensationParsing:
         # Then: hourly rate is annualized via x2080
         expected = 95 * 2080
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(expected), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_min == pytest.approx(expected), (
             f"Expected comp_min={expected}, got {result.comp_min}"
         )
-        assert result.comp_max == pytest.approx(expected), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_max == pytest.approx(expected), (
             f"Expected comp_max={expected}, got {result.comp_max}"
         )
 
@@ -135,10 +135,10 @@ class TestCompensationParsing:
 
         # Then: both hourly endpoints are annualized
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(85 * 2080), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_min == pytest.approx(85 * 2080), (
             f"Expected comp_min={85 * 2080}, got {result.comp_min}"
         )
-        assert result.comp_max == pytest.approx(105 * 2080), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_max == pytest.approx(105 * 2080), (
             f"Expected comp_max={105 * 2080}, got {result.comp_max}"
         )
 
@@ -156,10 +156,10 @@ class TestCompensationParsing:
 
         # Then: both min and max equal the single value
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(200_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_min == pytest.approx(200_000), (
             f"Expected comp_min=200000, got {result.comp_min}"
         )
-        assert result.comp_max == pytest.approx(200_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_max == pytest.approx(200_000), (
             f"Expected comp_max=200000, got {result.comp_max}"
         )
 
@@ -243,10 +243,10 @@ class TestCompensationParsing:
 
         # Then: both endpoints extracted
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(150_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_min == pytest.approx(150_000), (
             f"Expected comp_min=150000, got {result.comp_min}"
         )
-        assert result.comp_max == pytest.approx(200_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_max == pytest.approx(200_000), (
             f"Expected comp_max=200000, got {result.comp_max}"
         )
 
@@ -264,10 +264,10 @@ class TestCompensationParsing:
 
         # Then: both endpoints extracted
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(150_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_min == pytest.approx(150_000), (
             f"Expected comp_min=150000, got {result.comp_min}"
         )
-        assert result.comp_max == pytest.approx(200_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_max == pytest.approx(200_000), (
             f"Expected comp_max=200000, got {result.comp_max}"
         )
 
@@ -286,7 +286,7 @@ class TestCompensationParsing:
 
             # Then: salary is recognized with the given suffix
             assert result is not None, f"Failed to parse salary with suffix '{suffix}'"
-            assert result.comp_min == pytest.approx(200_000), (  # pyright: ignore[reportUnknownMemberType]
+            assert result.comp_min == pytest.approx(200_000), (
                 f"Expected comp_min=200000 for suffix '{suffix}', got {result.comp_min}"
             )
 
@@ -383,7 +383,7 @@ class TestCompensationParsing:
 
             # Then: k multiplier is applied
             assert result is not None, f"Expected a CompResult for '{variant}', got None"
-            assert result.comp_min == pytest.approx(200_000), (  # pyright: ignore[reportUnknownMemberType]
+            assert result.comp_min == pytest.approx(200_000), (
                 f"Expected comp_min=200000 for '{variant}', got {result.comp_min}"
             )
 
@@ -401,10 +401,10 @@ class TestCompensationParsing:
 
         # Then: both endpoints extracted
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(180_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_min == pytest.approx(180_000), (
             f"Expected comp_min=180000, got {result.comp_min}"
         )
-        assert result.comp_max == pytest.approx(220_000), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_max == pytest.approx(220_000), (
             f"Expected comp_max=220000, got {result.comp_max}"
         )
 
@@ -423,7 +423,7 @@ class TestCompensationParsing:
         # Then: decimal hourly rate is annualized
         expected = 95.50 * 2080
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
-        assert result.comp_min == pytest.approx(expected), (  # pyright: ignore[reportUnknownMemberType]
+        assert result.comp_min == pytest.approx(expected), (
             f"Expected comp_min={expected}, got {result.comp_min}"
         )
 

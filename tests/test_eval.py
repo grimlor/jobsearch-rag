@@ -58,11 +58,6 @@ from tests.constants import EMBED_FAKE
 _EMBED_DISTANT: list[float] = [0.9, 0.1, 0.9, 0.1, 0.9]
 
 
-def _approx(expected: float) -> float:
-    """Typed wrapper around ``pytest.approx`` to avoid reportUnknownMemberType."""
-    return pytest.approx(expected)  # type: ignore[return-value]
-
-
 def _make_settings(tmpdir: str, *, min_score_threshold: float = 0.45) -> Settings:
     """Create minimal Settings for eval tests."""
     return Settings(
@@ -359,13 +354,13 @@ class TestEvalMetrics:
             assert result.decisions_evaluated == 3, (
                 f"Expected 3 decisions, got {result.decisions_evaluated}"
             )
-            assert result.agreement_rate == _approx(1.0), (
+            assert result.agreement_rate == pytest.approx(1.0), (
                 f"Expected agreement_rate 1.0, got {result.agreement_rate}"
             )
-            assert result.precision == _approx(1.0), (
+            assert result.precision == pytest.approx(1.0), (
                 f"Expected precision 1.0, got {result.precision}"
             )
-            assert result.recall == _approx(1.0), f"Expected recall 1.0, got {result.recall}"
+            assert result.recall == pytest.approx(1.0), f"Expected recall 1.0, got {result.recall}"
 
     def test_all_no_below_threshold_produces_full_agreement(self) -> None:
         """
@@ -392,7 +387,7 @@ class TestEvalMetrics:
             assert result.decisions_evaluated == 3, (
                 f"Expected 3 decisions, got {result.decisions_evaluated}"
             )
-            assert result.agreement_rate == _approx(1.0), (
+            assert result.agreement_rate == pytest.approx(1.0), (
                 f"Expected agreement_rate 1.0, got {result.agreement_rate}"
             )
 
@@ -431,10 +426,10 @@ class TestEvalMetrics:
             result = asyncio.run(runner.evaluate())
 
             # Then: pipeline says "above threshold" for all, human said "no" → 0 agreement
-            assert result.agreement_rate == _approx(0.0), (
+            assert result.agreement_rate == pytest.approx(0.0), (
                 f"Expected agreement_rate 0.0, got {result.agreement_rate}"
             )
-            assert result.precision == _approx(0.0), (
+            assert result.precision == pytest.approx(0.0), (
                 f"Expected precision 0.0, got {result.precision}"
             )
 
@@ -458,7 +453,7 @@ class TestEvalMetrics:
             assert result.decisions_evaluated == 1, (
                 f"Expected 1 decision, got {result.decisions_evaluated}"
             )
-            assert result.agreement_rate == _approx(1.0), (
+            assert result.agreement_rate == pytest.approx(1.0), (
                 f"Expected agreement_rate 1.0 (maybe=positive, above threshold), "
                 f"got {result.agreement_rate}"
             )
@@ -520,10 +515,10 @@ class TestEvalMetrics:
             result = asyncio.run(runner.evaluate())
 
             # Then: precision = 3/4, recall = 2/2
-            assert result.precision == _approx(0.75), (
+            assert result.precision == pytest.approx(0.75), (
                 f"Expected precision 0.75, got {result.precision}"
             )
-            assert result.recall == _approx(1.0), f"Expected recall 1.0, got {result.recall}"
+            assert result.recall == pytest.approx(1.0), f"Expected recall 1.0, got {result.recall}"
 
     def test_no_decisions_returns_zero_metrics(self) -> None:
         """
@@ -542,8 +537,8 @@ class TestEvalMetrics:
 
             # Then: zero everything
             assert result.decisions_evaluated == 0, f"Expected 0, got {result.decisions_evaluated}"
-            assert result.agreement_rate == _approx(0.0), (
+            assert result.agreement_rate == pytest.approx(0.0), (
                 f"Expected 0.0, got {result.agreement_rate}"
             )
-            assert result.precision == _approx(0.0), f"Expected 0.0, got {result.precision}"
-            assert result.recall == _approx(0.0), f"Expected 0.0, got {result.recall}"
+            assert result.precision == pytest.approx(0.0), f"Expected 0.0, got {result.precision}"
+            assert result.recall == pytest.approx(0.0), f"Expected 0.0, got {result.recall}"

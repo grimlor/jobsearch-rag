@@ -1104,7 +1104,7 @@ class TestScoreFusion:
         # Then: it matches the expected weighted formula
         positive = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.7 + 0.2 * 0.4 + 0.15 * 0.9
         expected = max(0.0, positive - 0.4 * 0.3)
-        assert result == pytest.approx(expected), f"Expected {expected:.4f}, got {result:.4f}"  # pyright: ignore[reportUnknownMemberType]
+        assert result == pytest.approx(expected), f"Expected {expected:.4f}, got {result:.4f}"
 
     def test_weights_are_read_from_settings_not_hardcoded(self) -> None:
         """
@@ -1132,7 +1132,7 @@ class TestScoreFusion:
         result = ranker.compute_final_score(scores)
 
         # Then: only fit matters — score should be 0.8
-        assert result == pytest.approx(0.8), (  # pyright: ignore[reportUnknownMemberType]
+        assert result == pytest.approx(0.8), (
             f"With fit_weight=0.8 and fit_score=1.0, expected 0.8, got {result:.4f}"
         )
 
@@ -1223,7 +1223,7 @@ class TestScoreFusion:
         assert len(ranked) == 1, (
             f"Role at threshold should be included, but got {len(ranked)} ranked"
         )
-        assert ranked[0].final_score == pytest.approx(0.5), (  # pyright: ignore[reportUnknownMemberType]
+        assert ranked[0].final_score == pytest.approx(0.5), (
             f"Expected final_score 0.5, got {ranked[0].final_score}"
         )
 
@@ -1317,7 +1317,7 @@ class TestScoreFusion:
         result = ranker.compute_final_score(scores)
 
         # Then: positive=0.8, penalty=0.5*0.6=0.3, final=0.5
-        assert result == pytest.approx(0.5), f"Expected 0.5 (0.8 - 0.3 penalty), got {result:.4f}"  # pyright: ignore[reportUnknownMemberType]
+        assert result == pytest.approx(0.5), f"Expected 0.5 (0.8 - 0.3 penalty), got {result:.4f}"
 
     def test_final_score_floors_at_zero_when_penalty_exceeds_positive(self) -> None:
         """
@@ -1378,7 +1378,7 @@ class TestScoreFusion:
 
         # Then: the formula reduces to positive sum only
         expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4
-        assert result == pytest.approx(expected), (  # pyright: ignore[reportUnknownMemberType]
+        assert result == pytest.approx(expected), (
             f"Zero negative should produce pure positive sum {expected:.4f}, got {result:.4f}"
         )
 
@@ -1409,7 +1409,7 @@ class TestScoreFusion:
         result = ranker.compute_final_score(scores)
 
         # Then: only comp_weight matters — score should be 0.8
-        assert result == pytest.approx(0.8), (  # pyright: ignore[reportUnknownMemberType]
+        assert result == pytest.approx(0.8), (
             f"With comp_weight=1.0 and comp_score=0.8, expected 0.8, got {result:.4f}"
         )
 
@@ -1441,7 +1441,7 @@ class TestScoreFusion:
 
         # Then: the neutral comp provides a gentle push
         base_expected = 0.5 * 0.6 + 0.3 * 0.8 + 0.2 * 0.4 + 0.15 * 0.5
-        assert result == pytest.approx(base_expected), (  # pyright: ignore[reportUnknownMemberType]
+        assert result == pytest.approx(base_expected), (
             f"Expected {base_expected:.4f} with neutral comp, got {result:.4f}"
         )
 
