@@ -70,6 +70,7 @@ class PipelineRunner:
             base_url=settings.ollama.base_url,
             embed_model=settings.ollama.embed_model,
             llm_model=settings.ollama.llm_model,
+            slow_llm_threshold_ms=settings.ollama.slow_llm_threshold_ms,
         )
         self._store = VectorStore(persist_dir=settings.chroma.persist_dir)
         self._scorer = Scorer(
@@ -186,6 +187,7 @@ class PipelineRunner:
 
         if not all_listings:
             logger.warning("No listings collected from any board")
+            m = self._embedder.metrics
             log_event(
                 "session_summary",
                 jobs_found=0,
@@ -195,6 +197,12 @@ class PipelineRunner:
                 failed_listings=failed_count,
                 skipped_decisions=0,
                 boards_searched=board_names,
+                embed_calls=m.embed_calls,
+                embed_tokens_total=m.embed_tokens_total,
+                llm_calls=m.llm_calls,
+                llm_tokens_total=m.llm_tokens_total,
+                llm_latency_ms_total=m.llm_latency_ms_total,
+                slow_llm_calls=m.slow_llm_calls,
             )
             return RunResult(
                 boards_searched=board_names,
@@ -275,6 +283,7 @@ class PipelineRunner:
         ranked, summary = self._ranker.rank(scored, embeddings)
 
         # Emit structured session_summary event
+        m = self._embedder.metrics
         log_event(
             "session_summary",
             jobs_found=len(all_listings),
@@ -284,6 +293,12 @@ class PipelineRunner:
             failed_listings=failed_count,
             skipped_decisions=skipped_decisions,
             boards_searched=board_names,
+            embed_calls=m.embed_calls,
+            embed_tokens_total=m.embed_tokens_total,
+            llm_calls=m.llm_calls,
+            llm_tokens_total=m.llm_tokens_total,
+            llm_latency_ms_total=m.llm_latency_ms_total,
+            slow_llm_calls=m.slow_llm_calls,
         )
 
         return RunResult(

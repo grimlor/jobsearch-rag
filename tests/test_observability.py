@@ -1,7 +1,7 @@
 """
-Observability tests — structured session tracing and log correlation.
+Observability tests — structured session tracing, per-call tracing, and inference metrics.
 
-Maps to BDD spec: TestSessionTracing
+Maps to BDD spec: TestSessionTracing, TestOllamaCallTracing, TestInferenceMetrics
 """
 
 from __future__ import annotations
@@ -41,8 +41,15 @@ if TYPE_CHECKING:
 #
 # Events emitted by structured logging:
 #   "score_computed" — one per scored listing, includes component scores
-#   "session_summary" — one per run, closes the session
-#   "embed_call" — one per Ollama embed() call, includes model and input_chars
+#   "session_summary" — one per run, closes the session; includes
+#       jobs_found, jobs_scored, jobs_excluded, jobs_deduplicated,
+#       failed_listings, skipped_decisions, boards_searched,
+#       embed_calls, llm_calls, embed_tokens_total, llm_tokens_total,
+#       llm_latency_ms_total, slow_llm_calls
+#   "embed_call" — one per Ollama embed() call, includes model, input_chars,
+#       latency_ms, tokens (prompt_eval_count or estimate)
+#   "classify_call" — one per classify() call, includes model, input_chars,
+#       latency_ms, tokens (prompt_eval_count + eval_count or estimate)
 #   "disqualifier_call" — one per disqualify() call, includes model, input_chars, outcome
 # ---------------------------------------------------------------------------
 
@@ -57,6 +64,7 @@ def _make_settings(
     enabled_boards: list[str] | None = None,
     *,
     disqualify_on_llm_flag: bool = False,
+    slow_llm_threshold_ms: int | None = None,
 ) -> Settings:
     """Create a Settings with temp ChromaDB dir and configurable boards."""
     boards = enabled_boards or ["testboard"]
@@ -68,12 +76,15 @@ def _make_settings(
             max_pages=1,
             headless=True,
         )
+    ollama_kwargs: dict[str, object] = {}
+    if slow_llm_threshold_ms is not None:
+        ollama_kwargs["slow_llm_threshold_ms"] = slow_llm_threshold_ms
     return Settings(
         enabled_boards=boards,
         overnight_boards=[],
         boards=board_configs,
         scoring=ScoringConfig(disqualify_on_llm_flag=disqualify_on_llm_flag),
-        ollama=OllamaConfig(),
+        ollama=OllamaConfig(**ollama_kwargs),  # type: ignore[arg-type]
         output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
         chroma=ChromaConfig(persist_dir=str(Path(tmpdir) / "chroma_db")),
     )
@@ -187,6 +198,7 @@ def _run_pipeline_and_read_logs(
     *,
     exclude_files: set[str] | None = None,
     disqualifier_response: str = '{"disqualified": false}',
+    chat_latency_s: float = 0.0,
 ) -> list[dict[str, object]]:
     """
     Run the pipeline against the given listings and return parsed log entries.
@@ -197,10 +209,21 @@ def _run_pipeline_and_read_logs(
 
     *exclude_files* is a set of filenames from prior runs to skip.
     *disqualifier_response* is the raw JSON string the LLM mock returns.
+    *chat_latency_s* adds a sleep to the chat mock to simulate inference time.
     """
-    mock_client.chat.return_value = MagicMock(
+    chat_response = MagicMock(
         message=MagicMock(content=disqualifier_response),
     )
+    if chat_latency_s > 0:
+        import time as _time
+
+        async def _slow_chat(**_kwargs: object) -> MagicMock:  # type: ignore[type-arg]
+            _time.sleep(chat_latency_s)
+            return chat_response
+
+        mock_client.chat.side_effect = _slow_chat
+    else:
+        mock_client.chat.return_value = chat_response
 
     mock_async_pw, _mock_page = _mock_playwright_boundary()
     adapter = _make_test_adapter(search_results=listings)
@@ -662,3 +685,320 @@ class TestOllamaCallTracing:
                 f"Expected exactly 3 disqualifier_call entries (one per listing), "
                 f"got {len(dq_calls)}"
             )
+
+
+# ---------------------------------------------------------------------------
+# TestInferenceMetrics
+# ---------------------------------------------------------------------------
+
+
+class TestInferenceMetrics:
+    """
+    REQUIREMENT: Each run produces a summary of inference activity so the
+    operator can track efficiency and detect slow calls.
+
+    WHO: The operator tuning prompt length and model selection;
+         the operator monitoring inference time on constrained hardware
+    WHAT: A session_summary log entry is written at the end of every run;
+          it includes total embedding calls, total LLM calls, total tokens
+          processed, and total inference wall-clock time; it includes a count
+          of LLM calls that exceeded the configured slow_llm_threshold_ms;
+          the slow call count is zero when no calls exceeded the threshold
+    WHY: Without token and latency tracking, the operator has no signal for
+         when the disqualifier prompt has grown too large for comfortable
+         local inference
+
+    MOCK BOUNDARY:
+        Mock:  ollama_sdk.AsyncClient (Ollama HTTP); async_playwright
+               (Playwright I/O); asyncio.sleep for throttle bypass
+        Real:  PipelineRunner, logging infrastructure, log file in tmp_path
+        Never: Mock the metrics collection; verify by parsing the real
+               session_summary entry from the log file written to tmp_path
+    """
+
+    def test_session_summary_entry_is_written_at_end_of_run(self) -> None:
+        """
+        Given a completed pipeline run
+        When the log file is read
+        Then exactly one entry with event 'session_summary' is present
+        And it is the last entry in the file
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with one listing
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: exactly one session_summary entry, and it is the last entry
+            summaries = [e for e in entries if e.get("event") == "session_summary"]
+            assert len(summaries) == 1, (
+                f"Expected exactly 1 session_summary entry, got {len(summaries)}"
+            )
+            assert entries[-1].get("event") == "session_summary", (
+                f"Expected session_summary to be the last entry, "
+                f"but last entry has event '{entries[-1].get('event')}'"
+            )
+
+    def test_session_summary_includes_embed_call_count(self) -> None:
+        """
+        Given a run that scores two listings
+        When the session_summary log entry is read
+        Then it contains an 'embed_calls' field with a value >= 2
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with two listings
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [
+                _make_listing(external_id="1", title="Role A"),
+                _make_listing(external_id="2", title="Role B"),
+            ]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: session_summary contains embed_calls >= 2
+            summaries = [e for e in entries if e.get("event") == "session_summary"]
+            assert len(summaries) == 1, "Expected exactly 1 session_summary entry"
+            summary = summaries[0]
+            assert "embed_calls" in summary, (
+                f"session_summary missing 'embed_calls' field: {summary}"
+            )
+            assert isinstance(summary["embed_calls"], int), (
+                f"Expected 'embed_calls' as int, got {type(summary['embed_calls'])}"
+            )
+            assert summary["embed_calls"] >= 2, (  # type: ignore[operator]
+                f"Expected embed_calls >= 2, got {summary['embed_calls']}"
+            )
+
+    def test_session_summary_includes_llm_call_count(self) -> None:
+        """
+        Given a run that scores two listings through the disqualifier
+        When the session_summary log entry is read
+        Then it contains an 'llm_calls' field equal to 2
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with two listings and disqualification enabled
+            settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [
+                _make_listing(external_id="1", title="Role A"),
+                _make_listing(external_id="2", title="Role B"),
+            ]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: session_summary contains llm_calls == 2
+            summaries = [e for e in entries if e.get("event") == "session_summary"]
+            assert len(summaries) == 1, "Expected exactly 1 session_summary entry"
+            summary = summaries[0]
+            assert "llm_calls" in summary, f"session_summary missing 'llm_calls' field: {summary}"
+            assert summary["llm_calls"] == 2, (
+                f"Expected llm_calls == 2, got {summary['llm_calls']}"
+            )
+
+    def test_session_summary_includes_total_inference_latency(self) -> None:
+        """
+        Given a completed pipeline run
+        When the session_summary log entry is read
+        Then it contains an 'llm_latency_ms_total' field with a non-negative integer value
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with one listing and disqualification enabled
+            settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: session_summary contains llm_latency_ms_total as non-negative int
+            summaries = [e for e in entries if e.get("event") == "session_summary"]
+            assert len(summaries) == 1, "Expected exactly 1 session_summary entry"
+            summary = summaries[0]
+            assert "llm_latency_ms_total" in summary, (
+                f"session_summary missing 'llm_latency_ms_total' field: {summary}"
+            )
+            assert isinstance(summary["llm_latency_ms_total"], int), (
+                f"Expected 'llm_latency_ms_total' as int, "
+                f"got {type(summary['llm_latency_ms_total'])}"
+            )
+            assert summary["llm_latency_ms_total"] >= 0, (  # type: ignore[operator]
+                f"Expected non-negative llm_latency_ms_total, "
+                f"got {summary['llm_latency_ms_total']}"
+            )
+
+    def test_session_summary_includes_embed_tokens_total(self) -> None:
+        """
+        Given a run that scores two listings
+        When the session_summary log entry is read
+        Then it contains an 'embed_tokens_total' field with a positive integer value
+        Note: value comes from Ollama prompt_eval_count when available,
+              otherwise falls back to len(text) // 4 estimate
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with two listings
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [
+                _make_listing(external_id="1", title="Role A"),
+                _make_listing(external_id="2", title="Role B"),
+            ]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: session_summary contains embed_tokens_total as positive int
+            summaries = [e for e in entries if e.get("event") == "session_summary"]
+            assert len(summaries) == 1, "Expected exactly 1 session_summary entry"
+            summary = summaries[0]
+            assert "embed_tokens_total" in summary, (
+                f"session_summary missing 'embed_tokens_total' field: {summary}"
+            )
+            assert isinstance(summary["embed_tokens_total"], int), (
+                f"Expected 'embed_tokens_total' as int, got {type(summary['embed_tokens_total'])}"
+            )
+            assert summary["embed_tokens_total"] > 0, (  # type: ignore[operator]
+                f"Expected positive embed_tokens_total, got {summary['embed_tokens_total']}"
+            )
+
+    def test_session_summary_includes_llm_tokens_total(self) -> None:
+        """
+        Given a run that scores two listings through the disqualifier
+        When the session_summary log entry is read
+        Then it contains an 'llm_tokens_total' field with a positive integer value
+        Note: value comes from Ollama prompt_eval_count + eval_count when
+              available, otherwise falls back to len(text) // 4 estimate
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with two listings and disqualification enabled
+            settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [
+                _make_listing(external_id="1", title="Role A"),
+                _make_listing(external_id="2", title="Role B"),
+            ]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: session_summary contains llm_tokens_total as positive int
+            summaries = [e for e in entries if e.get("event") == "session_summary"]
+            assert len(summaries) == 1, "Expected exactly 1 session_summary entry"
+            summary = summaries[0]
+            assert "llm_tokens_total" in summary, (
+                f"session_summary missing 'llm_tokens_total' field: {summary}"
+            )
+            assert isinstance(summary["llm_tokens_total"], int), (
+                f"Expected 'llm_tokens_total' as int, got {type(summary['llm_tokens_total'])}"
+            )
+            assert summary["llm_tokens_total"] > 0, (  # type: ignore[operator]
+                f"Expected positive llm_tokens_total, got {summary['llm_tokens_total']}"
+            )
+
+    def test_slow_llm_calls_counted_when_threshold_exceeded(self) -> None:
+        """
+        Given slow_llm_threshold_ms is set to 1
+        And a run processes at least one listing through the disqualifier
+        When the session_summary log entry is read
+        Then 'slow_llm_calls' is greater than zero
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: threshold of 1ms with a chat mock that sleeps 5ms
+            settings = _make_settings(tmpdir, disqualify_on_llm_flag=True, slow_llm_threshold_ms=1)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs with measurable chat latency
+            entries = _run_pipeline_and_read_logs(
+                tmpdir, listings, mock_client, runner, chat_latency_s=0.005
+            )
+
+            # Then: slow_llm_calls > 0
+            summaries = [e for e in entries if e.get("event") == "session_summary"]
+            assert len(summaries) == 1, "Expected exactly 1 session_summary entry"
+            summary = summaries[0]
+            assert "slow_llm_calls" in summary, (
+                f"session_summary missing 'slow_llm_calls' field: {summary}"
+            )
+            assert summary["slow_llm_calls"] > 0, (  # type: ignore[operator]
+                f"Expected slow_llm_calls > 0 with threshold 1ms, got {summary['slow_llm_calls']}"
+            )
+
+    def test_slow_llm_calls_is_zero_when_no_calls_exceed_threshold(self) -> None:
+        """
+        Given slow_llm_threshold_ms is set to an unreachably high value
+        And a run completes
+        When the session_summary log entry is read
+        Then 'slow_llm_calls' is zero
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: threshold so high no call can exceed it
+            settings = _make_settings(
+                tmpdir,
+                disqualify_on_llm_flag=True,
+                slow_llm_threshold_ms=999_999_999,
+            )
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: slow_llm_calls == 0
+            summaries = [e for e in entries if e.get("event") == "session_summary"]
+            assert len(summaries) == 1, "Expected exactly 1 session_summary entry"
+            summary = summaries[0]
+            assert "slow_llm_calls" in summary, (
+                f"session_summary missing 'slow_llm_calls' field: {summary}"
+            )
+            assert summary["slow_llm_calls"] == 0, (
+                f"Expected slow_llm_calls == 0 with unreachable threshold, "
+                f"got {summary['slow_llm_calls']}"
+            )
+
+    def test_slow_llm_threshold_is_configurable_in_settings(self) -> None:
+        """
+        Given two runs with different slow_llm_threshold_ms values
+        When both session_summary entries are read
+        Then the slow_llm_calls counts differ between the two runs
+        for the same underlying inference time
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: run 1 with threshold=1 (everything is slow) and 5ms chat latency
+            settings_low = _make_settings(
+                tmpdir, disqualify_on_llm_flag=True, slow_llm_threshold_ms=1
+            )
+            runner_low, mock_client_low = _make_runner_with_real_stack(settings_low)
+            listings = [_make_listing()]
+
+            entries_low = _run_pipeline_and_read_logs(
+                tmpdir, listings, mock_client_low, runner_low, chat_latency_s=0.005
+            )
+            summaries_low = [e for e in entries_low if e.get("event") == "session_summary"]
+            assert len(summaries_low) == 1, "Expected 1 session_summary for low-threshold run"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: run 2 with threshold=999999999 (nothing is slow)
+            settings_high = _make_settings(
+                tmpdir, disqualify_on_llm_flag=True, slow_llm_threshold_ms=999_999_999
+            )
+            runner_high, mock_client_high = _make_runner_with_real_stack(settings_high)
+
+            entries_high = _run_pipeline_and_read_logs(
+                tmpdir, listings, mock_client_high, runner_high
+            )
+            summaries_high = [e for e in entries_high if e.get("event") == "session_summary"]
+            assert len(summaries_high) == 1, "Expected 1 session_summary for high-threshold run"
+
+        # Then: slow_llm_calls differs between the two runs
+        slow_low = summaries_low[0].get("slow_llm_calls")
+        slow_high = summaries_high[0].get("slow_llm_calls")
+        assert slow_low != slow_high, (
+            f"Expected different slow_llm_calls for threshold=1 vs threshold=999999999, "
+            f"both got {slow_low}"
+        )

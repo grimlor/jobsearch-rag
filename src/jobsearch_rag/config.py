@@ -61,6 +61,7 @@ class OllamaConfig:
     base_url: str = "http://localhost:11434"
     llm_model: str = "mistral:7b"
     embed_model: str = "nomic-embed-text"
+    slow_llm_threshold_ms: int = 30_000
 
 
 @dataclass

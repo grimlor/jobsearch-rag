@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
@@ -44,6 +45,18 @@ _DEFAULT_MAX_EMBED_CHARS = 8_000
 # us", values statements, and repeated boilerplate.  60/40 split.
 _HEAD_RATIO = 0.6
 _TRUNCATION_MARKER = "\n[…]\n"
+
+
+@dataclass
+class InferenceMetrics:
+    """Accumulated inference metrics for a single session."""
+
+    embed_calls: int = 0
+    embed_tokens_total: int = 0
+    llm_calls: int = 0
+    llm_tokens_total: int = 0
+    llm_latency_ms_total: int = 0
+    slow_llm_calls: int = 0
 
 
 class Embedder:
@@ -78,6 +91,7 @@ class Embedder:
         *,
         max_retries: int = 3,
         base_delay: float = 1.0,
+        slow_llm_threshold_ms: int = 30_000,
     ) -> None:
         """Initialize with Ollama connection and model settings."""
         self.base_url = base_url
@@ -86,8 +100,15 @@ class Embedder:
         self.max_retries = max_retries
         self.base_delay = base_delay
         self._client = ollama_sdk.AsyncClient(host=base_url)
+        self._slow_llm_threshold_ms = slow_llm_threshold_ms
+        self._metrics = InferenceMetrics()
 
     # -- Public API ----------------------------------------------------------
+
+    @property
+    def metrics(self) -> InferenceMetrics:
+        """Accumulated inference metrics for the current session."""
+        return self._metrics
 
     async def embed(self, text: str) -> list[float]:
         """
@@ -122,18 +143,26 @@ class Embedder:
             tail_len = budget - head_len
             cleaned = cleaned[:head_len] + _TRUNCATION_MARKER + cleaned[-tail_len:]
 
+        embed_tokens = 0
+
         async def _call() -> list[float]:
+            nonlocal embed_tokens
             response = await self._client.embed(model=self.embed_model, input=cleaned)
+            raw = getattr(response, "prompt_eval_count", None)
+            embed_tokens = raw if isinstance(raw, int) and raw > 0 else len(cleaned) // 4
             return list(response.embeddings[0])
 
         t0 = time.monotonic()
         result = await self._with_retry(_call, operation="embed")
         latency_ms = int((time.monotonic() - t0) * 1000)
+        self._metrics.embed_calls += 1
+        self._metrics.embed_tokens_total += embed_tokens
         log_event(
             "embed_call",
             model=self.embed_model,
             input_chars=len(cleaned),
             latency_ms=latency_ms,
+            tokens=embed_tokens,
         )
         return result
 
@@ -144,8 +173,10 @@ class Embedder:
         Uses a system message to establish the classification role.
         Retries transient errors with exponential backoff.
         """
+        llm_tokens = 0
 
         async def _call() -> str:
+            nonlocal llm_tokens
             response = await self._client.chat(  # pyright: ignore[reportUnknownMemberType]
                 model=self.llm_model,
                 messages=[
@@ -159,16 +190,27 @@ class Embedder:
                     {"role": "user", "content": prompt},
                 ],
             )
+            raw_prompt = getattr(response, "prompt_eval_count", None)
+            raw_eval = getattr(response, "eval_count", None)
+            prompt_tokens = raw_prompt if isinstance(raw_prompt, int) else 0
+            eval_tokens = raw_eval if isinstance(raw_eval, int) else 0
+            llm_tokens = (prompt_tokens + eval_tokens) or len(prompt) // 4
             return response.message.content  # type: ignore[return-value]
 
         t0 = time.monotonic()
         result = await self._with_retry(_call, operation="classify")
         latency_ms = int((time.monotonic() - t0) * 1000)
+        self._metrics.llm_calls += 1
+        self._metrics.llm_tokens_total += llm_tokens
+        self._metrics.llm_latency_ms_total += latency_ms
+        if latency_ms > self._slow_llm_threshold_ms:
+            self._metrics.slow_llm_calls += 1
         log_event(
             "classify_call",
             model=self.llm_model,
             input_chars=len(prompt),
             latency_ms=latency_ms,
+            tokens=llm_tokens,
         )
         return result
 
