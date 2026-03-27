@@ -21,7 +21,7 @@ from jobsearch_rag.adapters.session import SessionConfig, SessionManager
 from jobsearch_rag.config import load_settings
 from jobsearch_rag.export import CSVExporter, JDFileExporter, MarkdownExporter
 from jobsearch_rag.logging import configure_file_logging
-from jobsearch_rag.pipeline.eval import EvalRunner
+from jobsearch_rag.pipeline.eval import EvalHistory, EvalReport, EvalRunner
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
 from jobsearch_rag.pipeline.rescorer import Rescorer
 from jobsearch_rag.pipeline.review import ReviewSession
@@ -543,10 +543,18 @@ def handle_eval(args: argparse.Namespace) -> None:
         print(f" Agreement rate:      {result.agreement_rate:.1%}")
         print(f" Precision:           {result.precision:.1%}")
         print(f" Recall:              {result.recall:.1%}")
+        print(f" Spearman correlation: {result.spearman:.2f}")
         print(f"{'=' * 60}\n")
 
         if result.decisions_evaluated == 0:
             print("No decisions found. Record some decisions first with 'decide'.")
+            return
+
+        report_path = EvalReport.write(result, settings.output.output_dir)
+        print(f"Report written to {report_path}")
+
+        EvalHistory.append(result, "data/eval_history.jsonl")
+        print("History appended to data/eval_history.jsonl")
 
     asyncio.run(_run())
 

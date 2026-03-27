@@ -1,14 +1,19 @@
 """
-BDD specs for the evaluation harness (Phase 5d-i).
+BDD specs for the evaluation harness (Phase 5d).
 
 Covers:
-    TestEvalCommand  — CLI subcommand wiring and handler integration
-    TestEvalMetrics  — agreement rate, precision, recall computation
+    TestEvalCommand            — CLI subcommand wiring and handler integration
+    TestEvalMetrics            — agreement rate, precision, recall computation
+    TestSpearmanCorrelation    — rank correlation between scores and verdicts
+    TestEvalReport             — Markdown report file generation
+    TestEvalHistory            — JSONL history append
+    TestEvalIntegration        — end-to-end handle_eval with report + history
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,14 +28,21 @@ from jobsearch_rag.config import (
     ScoringConfig,
     Settings,
 )
-from jobsearch_rag.pipeline.eval import EvalResult, EvalRunner
+from jobsearch_rag.pipeline.eval import (
+    EvalDecision,
+    EvalHistory,
+    EvalReport,
+    EvalResult,
+    EvalRunner,
+    spearman_rank_correlation,
+)
 from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.scorer import Scorer
 from jobsearch_rag.rag.store import VectorStore
 from tests.constants import EMBED_FAKE
 
-# Public API surface (from src/jobsearch_rag/pipeline/eval — to be created):
+# Public API surface (from src/jobsearch_rag/pipeline/eval):
 #   EvalRunner(scorer: Scorer, ranker: Ranker, store: VectorStore)
 #   async EvalRunner.evaluate() -> EvalResult
 #
@@ -39,6 +51,7 @@ from tests.constants import EMBED_FAKE
 #     agreement_rate: float
 #     precision: float
 #     recall: float
+#     spearman: float
 #     per_decision: list[EvalDecision]
 #
 #   EvalDecision:
@@ -47,6 +60,10 @@ from tests.constants import EMBED_FAKE
 #     final_score: float
 #     above_threshold: bool
 #     agreed: bool
+#
+#   spearman_rank_correlation(x: Sequence[float], y: Sequence[float]) -> float
+#   EvalReport.write(result: EvalResult, output_dir: str) -> Path
+#   EvalHistory.append(result: EvalResult, history_path: str) -> None
 #
 # Public API surface (from src/jobsearch_rag/cli):
 #   build_parser() -> ArgumentParser
@@ -300,6 +317,9 @@ class TestEvalCommand:
             assert isinstance(result.per_decision, list), (
                 f"per_decision should be list, got {type(result.per_decision)}"
             )
+            assert isinstance(result.spearman, float), (
+                f"spearman should be float, got {type(result.spearman)}"
+            )
 
 
 class TestEvalMetrics:
@@ -542,3 +562,493 @@ class TestEvalMetrics:
             )
             assert result.precision == pytest.approx(0.0), f"Expected 0.0, got {result.precision}"
             assert result.recall == pytest.approx(0.0), f"Expected 0.0, got {result.recall}"
+
+
+class TestSpearmanCorrelation:
+    """
+    REQUIREMENT: Spearman rank correlation is computed between pipeline final
+    scores and human verdict ordering without external dependencies.
+
+    WHO: The eval harness computing correlation between pipeline scores and
+         human judgment
+    WHAT: (1) human verdicts are mapped to ordinal values: no=0, maybe=1, yes=2
+          (2) pipeline final_scores and human ordinals are ranked and correlated
+          (3) perfect agreement yields correlation approx 1.0
+          (4) reversed ordering yields correlation approx -1.0
+          (5) constant inputs (all same verdict or all same score) yield 0.0
+          (6) the function uses only stdlib (no scipy, no numpy)
+    WHY: Without a correlation metric the operator cannot tell whether pipeline
+         rank ordering matches human judgment — agreement rate alone doesn't
+         capture ordering quality
+
+    MOCK BOUNDARY:
+        Mock:  nothing — pure computation, no I/O
+        Real:  spearman_rank_correlation function
+        Never: mock the correlation computation
+    """
+
+    def test_perfect_positive_correlation(self) -> None:
+        """
+        Given 5 items with monotonically increasing scores and verdicts
+        When spearman is computed
+        Then correlation == 1.0
+        """
+        # Given: distinct values — no tied ranks
+        scores = [0.1, 0.3, 0.5, 0.7, 0.9]
+        verdicts = [1.0, 2.0, 3.0, 4.0, 5.0]
+
+        # When: spearman is computed
+        result = spearman_rank_correlation(scores, verdicts)
+
+        # Then: perfect positive correlation
+        assert result == pytest.approx(1.0, abs=1e-9), (
+            f"Expected correlation 1.0 for perfectly ordered data, got {result}"
+        )
+
+    def test_perfect_negative_correlation(self) -> None:
+        """
+        Given 5 items with scores increasing but verdicts decreasing
+        When spearman is computed
+        Then correlation == -1.0
+        """
+        # Given: distinct values — perfectly inverse order
+        scores = [0.1, 0.3, 0.5, 0.7, 0.9]
+        verdicts = [5.0, 4.0, 3.0, 2.0, 1.0]
+
+        # When: spearman is computed
+        result = spearman_rank_correlation(scores, verdicts)
+
+        # Then: perfect negative correlation
+        assert result == pytest.approx(-1.0, abs=1e-9), (
+            f"Expected correlation -1.0 for inversely ordered data, got {result}"
+        )
+
+    def test_constant_verdicts_produce_zero_correlation(self) -> None:
+        """
+        Given all same verdict (3 yes) with varying scores
+        When spearman is computed
+        Then correlation = 0.0 (tied ranks)
+        """
+        # Given: all verdicts the same — ranks are all tied
+        scores = [0.9, 0.5, 0.1]
+        verdicts = [2.0, 2.0, 2.0]
+
+        # When: spearman is computed
+        result = spearman_rank_correlation(scores, verdicts)
+
+        # Then: zero correlation — no ordering to compare
+        assert result == pytest.approx(0.0), f"Expected 0.0 for constant verdicts, got {result}"
+
+    def test_single_decision_produces_zero_correlation(self) -> None:
+        """
+        Given a single decision
+        When spearman is computed
+        Then correlation = 0.0 (insufficient data)
+        """
+        # Given: only one data point — correlation is undefined
+        scores = [0.8]
+        verdicts = [2.0]
+
+        # When: spearman is computed
+        result = spearman_rank_correlation(scores, verdicts)
+
+        # Then: zero — not enough data
+        assert result == pytest.approx(0.0), f"Expected 0.0 for single decision, got {result}"
+
+    def test_mixed_verdicts_with_ordered_scores(self) -> None:
+        """
+        Given mixed verdicts [yes, maybe, no] with scores [0.9, 0.5, 0.1]
+        When spearman is computed
+        Then correlation approx 1.0
+        """
+        # Given: scores perfectly match verdict ordering (yes=2 > maybe=1 > no=0)
+        scores = [0.9, 0.5, 0.1]
+        verdicts = [2.0, 1.0, 0.0]
+
+        # When: spearman is computed
+        result = spearman_rank_correlation(scores, verdicts)
+
+        # Then: perfect rank correlation
+        assert result == pytest.approx(1.0), (
+            f"Expected correlation 1.0 for perfectly ordered mixed verdicts, got {result}"
+        )
+
+
+class TestEvalReport:
+    """
+    REQUIREMENT: A Markdown eval report is written to
+    ``output/eval_YYYY-MM-DD.md`` summarizing the evaluation run.
+
+    WHO: The operator reviewing evaluation results after a configuration change.
+
+    WHY: A persistent, human-readable report file provides a reviewable artifact
+         beyond transient stdout output.
+
+    MOCK BOUNDARY:
+        Mock:  nothing — uses tmp_path for filesystem
+        Real:  EvalReport.write(), file I/O via tmp_path
+        Never: mock file operations
+    """
+
+    @staticmethod
+    def _make_result(
+        *,
+        decisions_evaluated: int = 5,
+        agreement_rate: float = 0.8,
+        precision: float = 0.75,
+        recall: float = 0.85,
+        spearman: float = 0.6,
+        per_decision: list[EvalDecision] | None = None,
+    ) -> EvalResult:
+        """Build an EvalResult with sensible defaults."""
+        if per_decision is None:
+            per_decision = [
+                EvalDecision(
+                    job_id="job-1",
+                    verdict="yes",
+                    final_score=0.9,
+                    above_threshold=True,
+                    agreed=True,
+                ),
+                EvalDecision(
+                    job_id="job-2",
+                    verdict="yes",
+                    final_score=0.8,
+                    above_threshold=True,
+                    agreed=True,
+                ),
+                EvalDecision(
+                    job_id="job-3",
+                    verdict="no",
+                    final_score=0.2,
+                    above_threshold=False,
+                    agreed=True,
+                ),
+                # Disagreement: pipeline says high, human said no
+                EvalDecision(
+                    job_id="job-4",
+                    verdict="no",
+                    final_score=0.7,
+                    above_threshold=True,
+                    agreed=False,
+                ),
+                # Disagreement: pipeline says low, human said yes
+                EvalDecision(
+                    job_id="job-5",
+                    verdict="yes",
+                    final_score=0.2,
+                    above_threshold=False,
+                    agreed=False,
+                ),
+            ]
+        return EvalResult(
+            decisions_evaluated=decisions_evaluated,
+            agreement_rate=agreement_rate,
+            precision=precision,
+            recall=recall,
+            spearman=spearman,
+            per_decision=per_decision,
+        )
+
+    def test_known_metrics_produce_correct_report(self, tmp_path: Path) -> None:
+        """
+        Given an EvalResult with known metrics and 5 per_decision entries
+        When write() is called
+        Then the file exists with correct heading, all metric values, and
+             disagreement entries
+        """
+        # Given
+        result = self._make_result()
+
+        # When
+        path = EvalReport.write(result, str(tmp_path))
+
+        # Then: file exists and name matches pattern
+        assert path.exists()
+        assert path.name.startswith("eval_")
+        assert path.suffix == ".md"
+
+        content = path.read_text()
+
+        # Heading and metrics
+        assert "# Eval Report" in content or "# Evaluation Report" in content
+        assert "5" in content  # decisions_evaluated
+        assert "0.8" in content or "80" in content  # agreement_rate
+        assert "0.75" in content or "75" in content  # precision
+        assert "0.85" in content or "85" in content  # recall
+        assert "0.6" in content or "60" in content  # spearman
+
+        # Disagreements
+        assert "job-4" in content
+        assert "job-5" in content
+
+    def test_zero_decisions_produce_zero_metrics(self, tmp_path: Path) -> None:
+        """
+        Given an EvalResult with 0 decisions
+        When write() is called
+        Then the file exists with zero metrics and an empty disagreement section
+        """
+        # Given
+        result = self._make_result(
+            decisions_evaluated=0,
+            agreement_rate=0.0,
+            precision=0.0,
+            recall=0.0,
+            spearman=0.0,
+            per_decision=[],
+        )
+
+        # When
+        path = EvalReport.write(result, str(tmp_path))
+
+        # Then
+        assert path.exists()
+        content = path.read_text()
+        assert "0" in content  # decisions_evaluated = 0
+
+    def test_nonexistent_output_dir_is_created(self, tmp_path: Path) -> None:
+        """
+        Given a non-existent output_dir
+        When write() is called
+        Then the directory is created and the file is written
+        """
+        # Given
+        output_dir = tmp_path / "nested" / "output"
+        assert not output_dir.exists()
+        result = self._make_result()
+
+        # When
+        path = EvalReport.write(result, str(output_dir))
+
+        # Then
+        assert output_dir.exists()
+        assert path.exists()
+
+    def test_no_disagreements_produces_empty_section(self, tmp_path: Path) -> None:
+        """
+        Given an EvalResult with no disagreements
+        When write() is called
+        Then the disagreement section is present but empty
+        """
+        # Given: all decisions agree
+        all_agreed = [
+            EvalDecision(
+                job_id="job-1",
+                verdict="yes",
+                final_score=0.9,
+                above_threshold=True,
+                agreed=True,
+            ),
+            EvalDecision(
+                job_id="job-2",
+                verdict="no",
+                final_score=0.2,
+                above_threshold=False,
+                agreed=True,
+            ),
+        ]
+        result = self._make_result(
+            decisions_evaluated=2,
+            agreement_rate=1.0,
+            per_decision=all_agreed,
+        )
+
+        # When
+        path = EvalReport.write(result, str(tmp_path))
+
+        # Then: file exists, no disagreement job IDs
+        content = path.read_text()
+        assert path.exists()
+        # Neither job should appear in a disagreement list
+        # (they agreed, so they shouldn't be called out)
+        assert "job-1" not in content or "agreed" in content.lower()
+
+
+class TestEvalHistory:
+    """
+    REQUIREMENT: Each eval run appends one JSON line to
+    ``data/eval_history.jsonl`` so the operator can track eval metrics
+    over time.
+
+    WHO: The operator tracking whether successive config changes improve
+         pipeline quality.
+
+    WHY: Without a persistent history the operator loses the ability to
+         compare across runs — they can only see the latest eval, not the
+         trend.
+
+    MOCK BOUNDARY:
+        Mock:  nothing — uses tmp_path for filesystem
+        Real:  EvalHistory.append(), file I/O via tmp_path
+        Never: mock file operations
+    """
+
+    @staticmethod
+    def _make_result(
+        *,
+        decisions_evaluated: int = 10,
+        agreement_rate: float = 0.9,
+        precision: float = 0.85,
+        recall: float = 0.95,
+        spearman: float = 0.7,
+    ) -> EvalResult:
+        """Build an EvalResult with sensible defaults for history tests."""
+        return EvalResult(
+            decisions_evaluated=decisions_evaluated,
+            agreement_rate=agreement_rate,
+            precision=precision,
+            recall=recall,
+            spearman=spearman,
+            per_decision=[],
+        )
+
+    def test_append_creates_file_with_one_json_line(self, tmp_path: Path) -> None:
+        """
+        Given an EvalResult with known metrics
+        When append() is called
+        Then the file contains exactly one JSON line with all metrics and
+             a timestamp
+        """
+        # Given
+        history_path = tmp_path / "eval_history.jsonl"
+        result = self._make_result()
+
+        # When
+        EvalHistory.append(result, str(history_path))
+
+        # Then
+        lines = history_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+
+        record = json.loads(lines[0])
+        assert record["decisions_evaluated"] == 10
+        assert record["agreement_rate"] == pytest.approx(0.9)
+        assert record["precision"] == pytest.approx(0.85)
+        assert record["recall"] == pytest.approx(0.95)
+        assert record["spearman"] == pytest.approx(0.7)
+        assert "timestamp" in record
+
+    def test_append_preserves_existing_lines(self, tmp_path: Path) -> None:
+        """
+        Given a history file already containing 2 lines
+        When append() is called
+        Then the file contains 3 lines and the last line has the new metrics
+        """
+        # Given: seed 2 existing lines
+        history_path = tmp_path / "eval_history.jsonl"
+        existing = [
+            json.dumps({"timestamp": "2026-01-01T00:00:00", "agreement_rate": 0.5}),
+            json.dumps({"timestamp": "2026-01-02T00:00:00", "agreement_rate": 0.6}),
+        ]
+        history_path.write_text("\n".join(existing) + "\n")
+
+        result = self._make_result(agreement_rate=0.9)
+
+        # When
+        EvalHistory.append(result, str(history_path))
+
+        # Then
+        lines = history_path.read_text().strip().splitlines()
+        assert len(lines) == 3
+
+        last = json.loads(lines[2])
+        assert last["agreement_rate"] == pytest.approx(0.9)
+
+    def test_append_creates_nonexistent_file(self, tmp_path: Path) -> None:
+        """
+        Given a non-existent history file path
+        When append() is called
+        Then the file is created with one line
+        """
+        # Given
+        history_path = tmp_path / "deep" / "eval_history.jsonl"
+        assert not history_path.exists()
+        result = self._make_result()
+
+        # When
+        EvalHistory.append(result, str(history_path))
+
+        # Then
+        assert history_path.exists()
+        lines = history_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+
+
+class TestEvalIntegration:
+    """
+    REQUIREMENT: ``handle_eval`` writes both the report and history after
+    evaluation completes.
+
+    WHO: The operator running ``python -m jobsearch_rag eval``.
+
+    WHY: The eval command must produce all three outputs (stdout, report file,
+         history log) in a single invocation.
+
+    MOCK BOUNDARY:
+        Mock:  ollama_sdk.AsyncClient (embedding + LLM calls)
+        Real:  EvalRunner, Scorer, Ranker, VectorStore, EvalReport, EvalHistory
+        Never: mock the report generation or history append
+    """
+
+    def test_handle_eval_produces_report_and_history(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        Given a store with decisions
+        When handle_eval runs
+        Then an eval report file exists in output_dir and
+             eval_history.jsonl has a new line
+        """
+        # Given: pre-seed the store that handle_eval will open
+        settings = _make_settings(str(tmp_path))
+        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        _seed_required_collections(store, EMBED_FAKE)
+        _seed_decision(store, job_id="eval-1", verdict="yes")
+        _seed_decision(store, job_id="eval-2", verdict="no", embedding=_EMBED_DISTANT)
+
+        _, mock_client = _make_mock_embedder()
+
+        # chdir so relative "data/eval_history.jsonl" lands in tmp_path
+        monkeypatch.chdir(tmp_path)
+
+        # When
+        with (
+            patch("jobsearch_rag.cli.load_settings", return_value=settings),
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
+        ):
+            from jobsearch_rag.cli import handle_eval
+
+            handle_eval(MagicMock())
+
+        # Then: report file exists in output_dir
+        output_dir = Path(settings.output.output_dir)
+        report_files = list(output_dir.glob("eval_*.md"))
+        assert len(report_files) == 1, f"Expected 1 report, found {report_files}"
+
+        # And: history file exists with one line
+        history_path = tmp_path / "data" / "eval_history.jsonl"
+        assert history_path.exists(), "eval_history.jsonl should exist"
+        lines = history_path.read_text().strip().splitlines()
+        assert len(lines) == 1, f"Expected 1 history line, found {len(lines)}"
+
+    def test_eval_result_has_spearman_field(self, tmp_path: Path) -> None:
+        """
+        Given a store with decisions
+        When evaluate() runs
+        Then EvalResult.spearman is a float
+        """
+        # Given
+        settings = _make_settings(str(tmp_path))
+        runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
+        _seed_required_collections(store, EMBED_FAKE)
+        _seed_decision(store, job_id="s-1", verdict="yes")
+        _seed_decision(store, job_id="s-2", verdict="no", embedding=_EMBED_DISTANT)
+
+        # When
+        result = asyncio.run(runner.evaluate())
+
+        # Then
+        assert isinstance(result.spearman, float)

@@ -2,21 +2,29 @@
 Evaluation harness — measures pipeline-vs-human agreement.
 
 Re-scores every stored decision's JD through the current scorer/ranker
-configuration and computes agreement rate, precision, and recall against
-the human verdicts.
+configuration and computes agreement rate, precision, recall, and Spearman
+rank correlation against the human verdicts.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from jobsearch_rag.logging import logger
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from jobsearch_rag.pipeline.ranker import Ranker
     from jobsearch_rag.rag.scorer import Scorer
     from jobsearch_rag.rag.store import VectorStore
+
+
+_VERDICT_ORDINAL: dict[str, float] = {"no": 0.0, "maybe": 1.0, "yes": 2.0}
 
 
 @dataclass
@@ -38,7 +46,118 @@ class EvalResult:
     agreement_rate: float
     precision: float
     recall: float
+    spearman: float = 0.0
     per_decision: list[EvalDecision] = field(default_factory=lambda: list[EvalDecision]())
+
+
+def spearman_rank_correlation(x: Sequence[float], y: Sequence[float]) -> float:
+    """
+    Compute Spearman rank correlation between two sequences.
+
+    Uses average ranks for ties. Returns 0.0 for fewer than 2 items or
+    when either sequence has zero variance (all identical values).
+    No external dependencies — stdlib only.
+    """
+    n = len(x)
+    if n != len(y) or n < 2:
+        return 0.0
+
+    def _rank(values: Sequence[float]) -> list[float]:
+        indexed = sorted(enumerate(values), key=lambda pair: pair[1])
+        ranks = [0.0] * n
+        i = 0
+        while i < n:
+            j = i
+            while j < n - 1 and indexed[j + 1][1] == indexed[i][1]:
+                j += 1
+            avg_rank = (i + j) / 2.0 + 1.0  # 1-based average rank
+            for k in range(i, j + 1):
+                ranks[indexed[k][0]] = avg_rank
+            i = j + 1
+        return ranks
+
+    rx = _rank(x)
+    ry = _rank(y)
+
+    mean_x = sum(rx) / n
+    mean_y = sum(ry) / n
+
+    cov = sum((a - mean_x) * (b - mean_y) for a, b in zip(rx, ry, strict=True))
+    std_x = sum((a - mean_x) ** 2 for a in rx) ** 0.5
+    std_y = sum((b - mean_y) ** 2 for b in ry) ** 0.5
+
+    if std_x == 0.0 or std_y == 0.0:
+        return 0.0
+
+    return cov / (std_x * std_y)
+
+
+class EvalReport:
+    """Writes a Markdown evaluation report to disk."""
+
+    @staticmethod
+    def write(result: EvalResult, output_dir: str) -> Path:
+        """Write an eval report to ``{output_dir}/eval_YYYY-MM-DD.md``."""
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        path = out / f"eval_{today}.md"
+
+        lines: list[str] = [
+            f"# Evaluation Report — {today}",
+            "",
+            f"**Decisions evaluated:** {result.decisions_evaluated}",
+            f"**Agreement rate:** {result.agreement_rate:.2f}",
+            f"**Precision:** {result.precision:.2f}",
+            f"**Recall:** {result.recall:.2f}",
+            f"**Spearman correlation:** {result.spearman:.2f}",
+            "",
+            "## Disagreements",
+            "",
+        ]
+
+        has_disagreement = False
+        for d in result.per_decision:
+            if not d.agreed:
+                has_disagreement = True
+                direction = (
+                    "pipeline high / human said no"
+                    if d.above_threshold
+                    else "pipeline low / human said yes"
+                )
+                lines.append(
+                    f"- **{d.job_id}**: verdict={d.verdict}, "
+                    f"score={d.final_score:.2f} ({direction})"
+                )
+        if not has_disagreement:
+            lines.append("No disagreements.")
+
+        lines.append("")  # trailing newline
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return path
+
+
+class EvalHistory:
+    """Appends eval run summaries to a JSONL history file."""
+
+    @staticmethod
+    def append(result: EvalResult, history_path: str) -> None:
+        """Append one JSON line to the eval history file."""
+        hp = Path(history_path)
+        hp.parent.mkdir(parents=True, exist_ok=True)
+
+        record = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "decisions_evaluated": result.decisions_evaluated,
+            "agreement_rate": result.agreement_rate,
+            "precision": result.precision,
+            "recall": result.recall,
+            "spearman": result.spearman,
+        }
+
+        with hp.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
 
 
 class EvalRunner:
@@ -122,11 +241,16 @@ class EvalRunner:
         precision = true_positive / pipeline_positive_count if pipeline_positive_count > 0 else 0.0
         recall = human_yes_above / human_yes_count if human_yes_count > 0 else 0.0
 
+        scores = [d.final_score for d in per_decision]
+        ordinals = [_VERDICT_ORDINAL.get(d.verdict, 0.0) for d in per_decision]
+        spearman = spearman_rank_correlation(scores, ordinals)
+
         return EvalResult(
             decisions_evaluated=total,
             agreement_rate=agreement_rate,
             precision=precision,
             recall=recall,
+            spearman=spearman,
             per_decision=per_decision,
         )
 
