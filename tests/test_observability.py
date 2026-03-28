@@ -771,11 +771,23 @@ class TestInferenceMetrics:
 
     WHO: The operator tuning prompt length and model selection;
          the operator monitoring inference time on constrained hardware
-    WHAT: A session_summary log entry is written at the end of every run;
-          it includes total embedding calls, total LLM calls, total tokens
-          processed, and total inference wall-clock time; it includes a count
-          of LLM calls that exceeded the configured slow_llm_threshold_ms;
-          the slow call count is zero when no calls exceeded the threshold
+    WHAT: (1) a session_summary log entry is written at the end of every
+              run and is the last entry in the log file
+          (2) session_summary includes embed_calls as a count of embedding
+              API calls made during the run
+          (3) session_summary includes llm_calls as a count of disqualifier
+              LLM calls made during the run
+          (4) session_summary includes llm_latency_ms_total as the
+              cumulative inference wall-clock time
+          (5) session_summary includes embed_tokens_total as the cumulative
+              embedding token count
+          (6) session_summary includes llm_tokens_total as the cumulative
+              LLM token count
+          (7) slow_llm_calls counts LLM calls that exceeded
+              slow_llm_threshold_ms
+          (8) slow_llm_calls is zero when no calls exceed the threshold
+          (9) the slow_llm_threshold_ms setting is respected — different
+              values produce different slow_llm_calls counts
     WHY: Without token and latency tracking, the operator has no signal for
          when the disqualifier prompt has grown too large for comfortable
          local inference
@@ -1089,11 +1101,18 @@ class TestRetrievalMetrics:
 
     WHO: The operator who re-indexed and wants to confirm the change had
          the expected effect; the operator tuning collection weights
-    WHAT: After scoring a batch of listings, one retrieval_summary log entry
-          is written per collection that contributed to scoring; each entry
-          names the collection and includes count, score_min, score_p50,
-          score_p90, score_max, and below_threshold; a run against a single
-          listing still produces a retrieval_summary per collection
+    WHAT: (1) one retrieval_summary log entry is written per collection
+              that contributed to scoring
+          (2) each retrieval_summary names the collection via a
+              'collection' field
+          (3) each retrieval_summary includes score_min, score_p50,
+              score_p90, score_max, and below_threshold as numeric fields
+          (4) below_threshold reflects the count of scores below
+              min_score_threshold from settings
+          (5) a run scoring a single listing still produces one
+              retrieval_summary per collection
+          (6) a collection_scores entry with an empty list is skipped
+              gracefully
     WHY: A collection whose median score is 0.92 for every role it sees is
          not discriminating — it is noise. Score distribution logging makes
          this visible
@@ -1257,3 +1276,34 @@ class TestRetrievalMetrics:
                     assert isinstance(summary.get(field), (int, float)), (
                         f"'{field}' should be numeric in {summary.get('collection')}: {summary}"
                     )
+
+    def test_empty_collection_scores_entry_is_skipped(self) -> None:
+        """
+        Given a scorer whose collection_scores contains a phantom entry
+              with an empty list
+        When the pipeline runs and emits retrieval_summary entries
+        Then no retrieval_summary is emitted for the phantom collection
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with distant embeddings and one listing
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_distant_store(settings)
+            listings = [_make_listing()]
+
+            # Override: inject an empty-list entry into the scorer's accumulator.
+            # This exercises the defensive guard (if not scores: continue).
+            runner._scorer._collection_scores["phantom_empty"] = []  # pyright: ignore[reportPrivateUsage]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: no retrieval_summary for the phantom collection
+            summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
+            phantom_summaries = [s for s in summaries if s.get("collection") == "phantom_empty"]
+            assert len(phantom_summaries) == 0, (
+                f"Expected no retrieval_summary for phantom_empty, got {phantom_summaries}"
+            )
+            # And: real collections still have summaries
+            assert len(summaries) >= 1, (
+                f"Expected at least 1 real retrieval_summary, got {len(summaries)}"
+            )

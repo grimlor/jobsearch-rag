@@ -2,15 +2,16 @@
 BDD specs for the evaluation harness (Phase 5d).
 
 Covers:
-    TestEvalCommand            — CLI subcommand wiring and handler integration
-    TestEvalMetrics            — agreement rate, precision, recall computation
-    TestSpearmanCorrelation    — rank correlation between scores and verdicts
-    TestEvalReport             — Markdown report file generation
-    TestEvalHistory            — JSONL history append
-    TestEvalIntegration        — end-to-end handle_eval with report + history
-    TestModelComparisonResult  — delta computation between two EvalResults
-    TestCompareModelsFlag      — --compare-models CLI flag and dual-eval flow
+    TestEvalCommand             — CLI subcommand wiring and handler integration
+    TestEvalMetrics             — agreement rate, precision, recall computation
+    TestSpearmanCorrelation     — rank correlation between scores and verdicts
+    TestEvalReport              — Markdown report file generation
+    TestEvalHistory             — JSONL history append
+    TestEvalIntegration         — end-to-end handle_eval with report + history
+    TestModelComparisonResult   — delta computation between two EvalResults
+    TestCompareModelsFlag       — --compare-models CLI flag and dual-eval flow
     TestLoadDecisionsResilience — graceful handling of corrupt/missing decision data
+    TestEvalSinglePath          — _handle_eval_single early-return on empty decisions
 """
 
 from __future__ import annotations
@@ -356,6 +357,8 @@ class TestEvalMetrics:
           (6) a decision set with zero agreement produces agreement_rate=0.0
           (7) each per_decision entry records job_id, verdict, final_score,
               above_threshold, agreed
+          (8) a yes-decision scoring below threshold is counted for recall
+              denominator but not numerator (recall miss)
     WHY: Without closed-loop metrics, the operator cannot tell whether a
          weight change made things better or worse — they are flying blind
 
@@ -577,6 +580,40 @@ class TestEvalMetrics:
             assert result.precision == pytest.approx(0.0), f"Expected 0.0, got {result.precision}"
             assert result.recall == pytest.approx(0.0), f"Expected 0.0, got {result.recall}"
 
+    def test_yes_verdict_below_threshold_is_recall_miss(self) -> None:
+        """
+        Given 1 yes-decision scoring below threshold and 1 no-decision
+              scoring below threshold
+        When evaluate() runs
+        Then recall is 0.0 (the yes-decision missed) and agreement for the
+             yes-decision is False
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: EMBED_DISTANT produces low cosine similarity against
+            # EMBED_FAKE-seeded collections; high threshold ensures below
+            settings = _make_settings(tmpdir, min_score_threshold=0.99)
+            runner, _s, _r, store, _mock = _make_eval_stack(
+                settings,
+                embed_return=_EMBED_DISTANT,
+            )
+            _seed_required_collections(store, EMBED_FAKE)
+            _seed_decision(store, job_id="yes-1", verdict="yes")
+            _seed_decision(store, job_id="no-1", verdict="no")
+
+            # When: evaluate runs — all score below 0.99 threshold
+            result = asyncio.run(runner.evaluate())
+
+            # Then: the yes-decision scored below threshold → recall miss
+            assert result.recall == pytest.approx(0.0), (
+                f"Expected recall 0.0 (yes-decision below threshold), got {result.recall}"
+            )
+            # The yes-decision disagrees (pipeline says below, human says yes)
+            yes_decisions = [d for d in result.per_decision if d.verdict == "yes"]
+            assert len(yes_decisions) == 1, f"Expected 1 yes-decision, got {len(yes_decisions)}"
+            assert not yes_decisions[0].agreed, (
+                "yes-decision below threshold should disagree with pipeline"
+            )
+
 
 class TestSpearmanCorrelation:
     """
@@ -694,6 +731,14 @@ class TestEvalReport:
     ``output/eval_YYYY-MM-DD.md`` summarizing the evaluation run.
 
     WHO: The operator reviewing evaluation results after a configuration change.
+
+    WHAT: (1) write() produces a Markdown file named eval_YYYY-MM-DD.md
+              containing heading, all five metrics, and disagreement entries
+          (2) an EvalResult with zero decisions produces a report with zero
+              metrics and an empty disagreement section
+          (3) write() creates a non-existent output directory before writing
+          (4) a result with no disagreements produces a report whose
+              disagreement section is present but empty
 
     WHY: A persistent, human-readable report file provides a reviewable artifact
          beyond transient stdout output.
@@ -887,6 +932,12 @@ class TestEvalHistory:
     WHO: The operator tracking whether successive config changes improve
          pipeline quality.
 
+    WHAT: (1) append() creates the file with one JSON line containing all
+              five metrics and a timestamp
+          (2) append() preserves existing lines and appends the new record
+              as the last line
+          (3) append() creates a non-existent file and parent directories
+
     WHY: Without a persistent history the operator loses the ability to
          compare across runs — they can only see the latest eval, not the
          trend.
@@ -994,6 +1045,10 @@ class TestEvalIntegration:
     evaluation completes.
 
     WHO: The operator running ``python -m jobsearch_rag eval``.
+
+    WHAT: (1) handle_eval writes a report file to output_dir and appends
+              one line to eval_history.jsonl
+          (2) EvalResult.spearman is a float after evaluation completes
 
     WHY: The eval command must produce all three outputs (stdout, report file,
          history log) in a single invocation.
@@ -1503,3 +1558,77 @@ class TestLoadDecisionsResilience:
         assert result.decisions_evaluated == 1, (
             f"Expected 1 decision (skipped empty verdict), got {result.decisions_evaluated}"
         )
+
+
+class TestEvalSinglePath:
+    """
+    REQUIREMENT: ``_handle_eval_single`` prints a guidance message and skips
+    report/history writing when the decisions collection is empty.
+
+    WHO: The operator running ``eval`` before recording any decisions.
+
+    WHAT: (1) when decisions_evaluated == 0, stdout includes a "no decisions"
+              guidance message
+          (2) when decisions_evaluated == 0, no report file is written
+          (3) when decisions_evaluated == 0, no history file is written
+
+    WHY: Without this guard the operator would see a meaningless 0-metric
+         report and an empty history entry that pollutes trend analysis.
+
+    MOCK BOUNDARY:
+        Mock:  ollama_sdk.AsyncClient (embedding + LLM calls), load_settings
+        Real:  handle_eval, _handle_eval_single, EvalRunner, VectorStore
+        Never: mock the early-return guard itself
+    """
+
+    def test_empty_decisions_prints_guidance_and_skips_artifacts(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Given a store with no decisions
+        When handle_eval runs in single-model mode
+        Then stdout contains a "no decisions" message
+        And no report file is written
+        And no history file is written
+        """
+        # Given: pre-seed required collections but NO decisions
+        settings = _make_settings(str(tmp_path))
+        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        _seed_required_collections(store, EMBED_FAKE)
+
+        _, mock_client = _make_mock_embedder()
+        monkeypatch.chdir(tmp_path)
+
+        # When
+        with (
+            patch("jobsearch_rag.cli.load_settings", return_value=settings),
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
+        ):
+            from jobsearch_rag.cli import handle_eval
+
+            args = MagicMock()
+            args.compare_models = None
+            handle_eval(args)
+
+        # Then: guidance message printed
+        captured = capsys.readouterr()
+        assert "no decisions" in captured.out.lower(), (
+            f"Expected 'no decisions' guidance in stdout, got: {captured.out[:300]}"
+        )
+
+        # And: no report file
+        output_dir = Path(settings.output.output_dir)
+        report_files = list(output_dir.glob("eval_*.md"))
+        assert len(report_files) == 0, (
+            f"Expected no report for empty decisions, found {report_files}"
+        )
+
+        # And: no history file
+        history_path = tmp_path / "data" / "eval_history.jsonl"
+        assert not history_path.exists(), "Expected no history file when decisions are empty"
