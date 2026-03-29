@@ -153,6 +153,25 @@ is required — the skills apply automatically across all workspaces.
 5. **Describe what and why** in the PR description. If it changes adapter
    behavior, note whether existing tests needed modification (ideally not).
 
+### Security-Sensitive Changes
+
+Changes to the following paths have security implications and require
+explicit justification in the PR description:
+
+- `src/jobsearch_rag/adapters/` — adapter code runs authenticated Playwright
+  sessions; changes here can affect session cookie handling and browser behavior
+- `src/jobsearch_rag/rag/scorer.py` — constructs the disqualifier LLM prompt;
+  changes here affect prompt injection attack surface
+- `src/jobsearch_rag/adapters/base.py` — `JobListing` dataclass is the trust
+  boundary; changes to validation affect all downstream processing
+- `src/jobsearch_rag/output/jd_files.py` — constructs file paths from
+  user-influenced data; changes here affect path traversal risk
+
+CI flags PRs touching these paths with a security warning. When your PR
+modifies security-sensitive paths, include a brief note in the description
+explaining why the change is safe. See [SECURITY.md](SECURITY.md) for the
+full threat model.
+
 ## Reporting Issues
 
 When filing an issue:
