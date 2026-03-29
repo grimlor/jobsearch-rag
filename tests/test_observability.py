@@ -862,7 +862,7 @@ class TestInferenceMetrics:
         """
         Given a run that scores two listings through the disqualifier
         When the session_summary log entry is read
-        Then it contains an 'llm_calls' field equal to 2
+        Then it contains an 'llm_calls' field equal to 4 (2 screening + 2 disqualifier)
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with two listings and disqualification enabled
@@ -876,13 +876,14 @@ class TestInferenceMetrics:
             # When: pipeline runs
             entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
 
-            # Then: session_summary contains llm_calls == 2
+            # Then: session_summary contains llm_calls == 4
+            # (2 listings x 2 classify calls each: injection screening + disqualifier)
             summaries = [e for e in entries if e.get("event") == "session_summary"]
             assert len(summaries) == 1, "Expected exactly 1 session_summary entry"
             summary = summaries[0]
             assert "llm_calls" in summary, f"session_summary missing 'llm_calls' field: {summary}"
-            assert summary["llm_calls"] == 2, (
-                f"Expected llm_calls == 2, got {summary['llm_calls']}"
+            assert summary["llm_calls"] == 4, (
+                f"Expected llm_calls == 4, got {summary['llm_calls']}"
             )
 
     def test_session_summary_includes_total_inference_latency(self) -> None:

@@ -12,7 +12,7 @@ via the decisions collection.
 
 | SAFE-MCP TTP | Attack Vector | Severity | Mitigation Status |
 |---|---|---|---|
-| SAFE-T1102 Prompt Injection | Adversarial JD text containing LLM instructions injected into the disqualifier prompt | Medium — attacker controls JD content on the board | Phase 6b — input sanitization + output validation |
+| SAFE-T1102 Prompt Injection | Adversarial JD text containing LLM instructions injected into the disqualifier prompt | Medium — attacker controls JD content on the board | **Implemented** — defense-in-depth (see below) |
 | SAFE-T2106 Context Memory Poisoning | A poisoned JD, once marked as a decision, enters ChromaDB and influences all future scoring via the `decisions` collection | Medium — persistent across sessions | Phase 6d — decision audit + surgical removal |
 | SAFE-T1104 Over-Privileged Tool Abuse | Playwright session has access to authenticated board session; a compromised adapter could exfiltrate cookies | Low — adapter code is local and auditable | Adapter code review policy (see CONTRIBUTING.md) |
 | SAFE-T1105 Path Traversal | JD title or company name containing `../` sequences used to construct export filenames | Low — file writes are scoped to `output/` | Phase 6c — input validation at adapter boundary |
@@ -73,6 +73,24 @@ Changes to these paths have security implications and require careful review:
 
 CI enforces this via `security-paths-check` — any PR touching these paths
 is flagged with a warning in the workflow output.
+
+## Prompt Injection Defense-in-Depth
+
+No single technique defeats prompt injection. The disqualifier pipeline uses
+four layers — an attacker must bypass all of them simultaneously:
+
+| Layer | Mechanism | Catches | Fails When |
+|---|---|---|---|
+| LLM screening | Separate classify call detects AI-directed instructions in JD text | Novel semantic injection patterns | Recursive injection evades the screener |
+| Output validation | Hardened JSON parser defaults to *not disqualified* on any parse failure | Malformed JSON from successful injection | Attacker produces schema-valid JSON |
+| Regex pre-filter | Strips known injection signatures (`ignore previous instructions`, embedded `{"disqualified":...}` blobs) | Known low-effort patterns | Novel phrasing, encoding tricks |
+| Human review | Operator reviews qualifying JDs during `review` mode; verdict overrides pipeline | Everything the pipeline misses | Operator doesn't review (by design, they always do) |
+
+The screening layer sees the **original** JD text (unsanitized) so it can
+detect injection language. If suspicious, the disqualifier is **skipped** —
+denying the injection its target prompt. If the screening layer itself fails
+(malformed JSON, exception), it defaults to **not suspicious** and the
+disqualifier proceeds normally.
 
 ## Reporting a Vulnerability
 
