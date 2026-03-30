@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from playwright.async_api import Page
 
-_MAX_FULL_TEXT = 500_000
+_MAX_FULL_TEXT = 250_000
 
 _FILENAME_UNSAFE_RE = re.compile(r'[<>:"|?*\x00-\x1f]')
 _PATH_SEP_RE = re.compile(r"[/\\]")

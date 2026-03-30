@@ -52,8 +52,8 @@ class TestJobListingValidation:
     boundary where untrusted web content enters the system.
 
     WHO: The scoring pipeline; the exporter constructing output filenames
-    WHAT: (1) a listing whose full_text exceeds 500,000 characters is rejected with a ValueError
-          (2) full_text at exactly 500,000 characters constructs without error
+    WHAT: (1) a listing whose full_text exceeds 250,000 characters is rejected with a ValueError
+          (2) full_text at exactly 250,000 characters constructs without error
           (3) path traversal sequences in title are replaced, leaving no path separators
           (4) path traversal sequences in company are replaced, leaving no path separators
           (5) filesystem-unsafe characters (< > : " | ? *) are stripped from title
@@ -71,33 +71,33 @@ class TestJobListingValidation:
                JobListing(...) with adversarial input strings
     """
 
-    def test_full_text_exceeding_500k_chars_raises_value_error(self) -> None:
+    def test_full_text_exceeding_250k_chars_raises_value_error(self) -> None:
         """
-        GIVEN a JobListing constructed with full_text of 500,001 characters
+        GIVEN a JobListing constructed with full_text of 250,001 characters
         WHEN the constructor executes
         THEN a ValueError is raised.
         """
         # Given: oversized full_text
-        oversized = "x" * 500_001
+        oversized = "x" * 250_001
 
         # Then: construction raises ValueError
         with pytest.raises(ValueError, match="full_text exceeds maximum length"):
             _make(full_text=oversized)
 
-    def test_full_text_at_500k_chars_constructs_without_error(self) -> None:
+    def test_full_text_at_250k_chars_constructs_without_error(self) -> None:
         """
-        GIVEN a JobListing constructed with full_text of exactly 500,000 characters
+        GIVEN a JobListing constructed with full_text of exactly 250,000 characters
         WHEN the constructor executes
         THEN no error is raised.
         """
         # Given: exactly at the boundary
-        at_limit = "x" * 500_000
+        at_limit = "x" * 250_000
 
         # When: construction succeeds
         listing = _make(full_text=at_limit)
 
         # Then: full_text is preserved
-        assert len(listing.full_text) == 500_000
+        assert len(listing.full_text) == 250_000
 
     def test_path_traversal_in_title_is_removed(self) -> None:
         r"""
