@@ -311,6 +311,63 @@ def handle_decide(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
+def handle_decisions(args: argparse.Namespace) -> None:
+    """Dispatch decisions subcommands: show, remove, audit."""
+    settings = load_settings()
+    embedder = Embedder(
+        base_url=settings.ollama.base_url,
+        embed_model=settings.ollama.embed_model,
+        llm_model=settings.ollama.llm_model,
+    )
+    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    recorder = DecisionRecorder(store=store, embedder=embedder)
+
+    sub = args.decisions_command
+    if sub == "show":
+        _handle_decisions_show(recorder, args.job_id)
+    elif sub == "remove":
+        _handle_decisions_remove(recorder, args.job_id)
+    elif sub == "audit":
+        _handle_decisions_audit(recorder)
+    else:
+        print("Usage: jobsearch-rag decisions {show,remove,audit}")
+        sys.exit(1)
+
+
+def _handle_decisions_show(recorder: DecisionRecorder, job_id: str) -> None:
+    """Print metadata for a specific decision."""
+    decision = recorder.get_decision(job_id)
+    if decision is None:
+        print(f"No decision found for job_id '{job_id}'")
+        return
+
+    print(f"Decision for {job_id}:")
+    for key, value in sorted(decision.items()):
+        print(f"  {key}: {value}")
+
+
+def _handle_decisions_remove(recorder: DecisionRecorder, job_id: str) -> None:
+    """Remove a decision from ChromaDB (JSONL audit log is preserved)."""
+    removed = recorder.remove_decision(job_id)
+    if removed:
+        print(f"Removed decision for '{job_id}' from ChromaDB")
+        print("  Note: JSONL audit log is preserved (append-only)")
+    else:
+        print(f"No decision found for job_id '{job_id}'")
+
+
+def _handle_decisions_audit(recorder: DecisionRecorder) -> None:
+    """List all decisions that have a non-empty reason field."""
+    results = recorder.audit_decisions()
+    if not results:
+        print("No decisions with reasons to audit.")
+        return
+
+    print(f"Decisions with reasons ({len(results)}):\n")
+    for entry in results:
+        print(f"  {entry['job_id']}  [{entry['verdict']}]  {entry['reason']}")
+
+
 def handle_review(args: argparse.Namespace) -> None:
     """
     Interactively review undecided listings from the latest search.
@@ -771,6 +828,41 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "review",
         help="Interactively review and decide on undecided listings",
+    )
+
+    # -- decisions -----------------------------------------------------------
+    decisions_p = sub.add_parser(
+        "decisions",
+        help="Inspect, audit, and manage the decisions collection",
+    )
+    decisions_sub = decisions_p.add_subparsers(
+        dest="decisions_command",
+        required=True,
+    )
+
+    decisions_show_p = decisions_sub.add_parser(
+        "show",
+        help="Print metadata for a specific decision",
+    )
+    decisions_show_p.add_argument(
+        "job_id",
+        type=str,
+        help="Job ID to look up in the decisions collection",
+    )
+
+    decisions_remove_p = decisions_sub.add_parser(
+        "remove",
+        help="Remove a decision from ChromaDB (JSONL audit log is preserved)",
+    )
+    decisions_remove_p.add_argument(
+        "job_id",
+        type=str,
+        help="Job ID to remove from the decisions collection",
+    )
+
+    decisions_sub.add_parser(
+        "audit",
+        help="List all decisions that have a non-empty reason field",
     )
 
     # -- boards --------------------------------------------------------------

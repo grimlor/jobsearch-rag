@@ -13,7 +13,7 @@ via the decisions collection.
 | SAFE-MCP TTP | Attack Vector | Severity | Mitigation Status |
 |---|---|---|---|
 | SAFE-T1102 Prompt Injection | Adversarial JD text containing LLM instructions injected into the disqualifier prompt | Medium — attacker controls JD content on the board | **Implemented** — defense-in-depth (see below) |
-| SAFE-T2106 Context Memory Poisoning | A poisoned JD, once marked as a decision, enters ChromaDB and influences all future scoring via the `decisions` collection | Medium — persistent across sessions | Phase 6d — decision audit + surgical removal |
+| SAFE-T2106 Context Memory Poisoning | A poisoned JD, once marked as a decision, enters ChromaDB and influences all future scoring via the `decisions` collection | Medium — persistent across sessions | **Implemented** — decision audit + surgical removal (Phase 6d) |
 | SAFE-T1104 Over-Privileged Tool Abuse | Playwright session has access to authenticated board session; a compromised adapter could exfiltrate cookies | Low — adapter code is local and auditable | Adapter code review policy (see CONTRIBUTING.md) |
 | SAFE-T1105 Path Traversal | JD title or company name containing `../` sequences used to construct export filenames | Low — file writes are scoped to `output/` | Phase 6c — input validation at adapter boundary |
 | SAFE-T1503 Env-Var Scraping | N/A — no API keys stored; Ollama runs unauthenticated on localhost | Not applicable | — |
@@ -42,6 +42,26 @@ The following common AI system threats do not apply to this architecture:
   run. This is executable proof of the privacy claim, not just a README
   assertion. *(Phase 6e — not yet implemented)*
 
+## Decision Collection Integrity
+
+The `decisions` collection is the system's long-term memory. A poisoned
+entry (e.g., a malicious JD marked `yes`) persists and influences all
+future scoring. Mitigation is auditability and surgical removal:
+
+- **JSONL audit log is append-only.** Files in `data/decisions/` are the
+  forensic record of every decision. They are never modified or deleted by
+  any system operation, including `decisions remove`.
+- **ChromaDB is rebuildable.** The `decisions` collection in ChromaDB can
+  be reconstructed from the JSONL audit log via `rescore`. Removing an
+  entry from ChromaDB does not destroy evidence — it only stops the entry
+  from influencing future scoring.
+- **Surgical removal:** `python -m jobsearch_rag decisions remove <job_id>`
+  deletes a single entry from ChromaDB without touching the audit log.
+- **Audit:** `python -m jobsearch_rag decisions audit` lists all decisions
+  that include an operator-provided reason, for human review.
+- **Inspection:** `python -m jobsearch_rag decisions show <job_id>` prints
+  the stored metadata for a specific decision.
+
 ## Sensitive Files
 
 | File / Directory | Contains | Git-ignored? |
@@ -69,6 +89,7 @@ Changes to these paths have security implications and require careful review:
 | `src/jobsearch_rag/adapters/session.py` | Session persistence, browser launch | Controls cookie storage and browser process spawning |
 | `src/jobsearch_rag/rag/scorer.py` | Prompt injection | Constructs the disqualifier LLM prompt from JD text |
 | `src/jobsearch_rag/adapters/base.py` | Input validation bypass | `JobListing` dataclass — the system's trust boundary |
+| `src/jobsearch_rag/rag/decisions.py` | Context memory poisoning | Records and removes decisions that influence future scoring |
 | `src/jobsearch_rag/output/jd_files.py` | Path traversal | Constructs file paths from user-influenced data |
 
 CI enforces this via `security-paths-check` — any PR touching these paths

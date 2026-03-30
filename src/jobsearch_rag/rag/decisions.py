@@ -213,6 +213,52 @@ class DecisionRecorder:
         except ActionableError:
             return 0
 
+    def audit_decisions(self) -> list[dict[str, str]]:
+        """
+        Return all decisions that have a non-empty reason field.
+
+        Each entry is a dict with ``job_id``, ``verdict``, and ``reason``.
+        Returns an empty list when no decisions have reasons or when the
+        decisions collection does not exist.
+        """
+        try:
+            results = self._store.get_by_metadata(
+                "decisions",
+                where={"reason": {"$ne": ""}},  # type: ignore[dict-item]
+                include=["metadatas"],
+            )
+        except ActionableError:
+            return []
+
+        metadatas: list[dict[str, str]] = results.get("metadatas", [])
+        return [
+            {
+                "job_id": m.get("job_id", ""),
+                "verdict": m.get("verdict", ""),
+                "reason": m.get("reason", ""),
+            }
+            for m in metadatas
+            if m and m.get("reason")
+        ]
+
+    def remove_decision(self, job_id: str) -> bool:
+        """
+        Remove a decision from the ChromaDB collection.
+
+        Does **not** modify the JSONL audit log — that is append-only.
+
+        Returns ``True`` if the decision existed and was removed,
+        ``False`` if no decision was found for the given *job_id*.
+        """
+        existing = self.get_decision(job_id)
+        if existing is None:
+            return False
+
+        doc_id = f"decision-{job_id}"
+        self._store.delete_by_id("decisions", ids=[doc_id])
+        logger.info("Removed decision for %s from ChromaDB", job_id)
+        return True
+
     def _append_jsonl(
         self,
         *,

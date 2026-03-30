@@ -5,19 +5,46 @@ Spec classes:
     TestJobListingValidation — construction rejects malformed input at the
                                adapter boundary where untrusted web content
                                enters the system
+    TestDecisionAudit        — operator can inspect, audit, and surgically
+                               remove individual decisions without losing
+                               the append-only audit trail
 """
 
 from __future__ import annotations
 
+import tempfile
+from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
+
 import pytest
 
 from jobsearch_rag.adapters.base import JobListing
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from jobsearch_rag.rag.decisions import DecisionRecorder
+    from jobsearch_rag.rag.store import VectorStore
 
 # Public API surface (from src/jobsearch_rag/adapters/base):
 #   JobListing(board, external_id, title, company, location, url, full_text,
 #              posted_at=None, raw_html=None, comp_min=None, comp_max=None,
 #              comp_source=None, comp_text=None, metadata={})
 #   _sanitize_filename_field(value: str) -> str   (module-level helper)
+#
+# Public API surface (from src/jobsearch_rag/cli — Phase 6d):
+#   handle_decisions_show(args: argparse.Namespace) -> None
+#   handle_decisions_remove(args: argparse.Namespace) -> None
+#   handle_decisions_audit(args: argparse.Namespace) -> None
+#
+# Public API surface (from src/jobsearch_rag/rag/store):
+#   VectorStore.delete_by_id(collection_name: str, *, ids: list[str]) -> None
+#
+# Public API surface (from src/jobsearch_rag/rag/decisions):
+#   DecisionRecorder.record(job_id, verdict, jd_text, board, ...) -> None
+#   DecisionRecorder.get_decision(job_id) -> dict | None
+#   DecisionRecorder.audit_decisions() -> list[dict[str, str]]
+#   DecisionRecorder.remove_decision(job_id) -> bool
 
 
 # ---------------------------------------------------------------------------
@@ -174,3 +201,280 @@ class TestJobListingValidation:
         assert listing.comp_source is None
         assert listing.comp_text is None
         assert listing.metadata == {}
+
+
+# ---------------------------------------------------------------------------
+# Decision audit fixtures
+# ---------------------------------------------------------------------------
+
+EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
+
+
+@pytest.fixture
+def _store() -> Iterator[VectorStore]:  # pyright: ignore[reportUnusedFunction]
+    """Yield a temporary VectorStore for test isolation."""
+    from jobsearch_rag.rag.store import VectorStore
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield VectorStore(persist_dir=tmpdir)
+
+
+@pytest.fixture
+def _mock_embedder() -> object:  # pyright: ignore[reportUnusedFunction]
+    """Return an Embedder with stubbed async methods."""
+    from jobsearch_rag.rag.embedder import Embedder
+
+    embedder = Embedder.__new__(Embedder)
+    embedder.base_url = "http://localhost:11434"
+    embedder.embed_model = "nomic-embed-text"
+    embedder.llm_model = "mistral:7b"
+    embedder.max_retries = 3
+    embedder.base_delay = 0.0
+    embedder.embed = AsyncMock(return_value=EMBED_TEST)  # type: ignore[method-assign]
+    return embedder
+
+
+@pytest.fixture
+def _decisions_dir(tmp_path: object) -> object:  # pyright: ignore[reportUnusedFunction]
+    """Return a temporary decisions directory path."""
+    from pathlib import Path
+
+    d = Path(str(tmp_path)) / "decisions"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+@pytest.fixture
+def _recorder(  # pyright: ignore[reportUnusedFunction]
+    _store: VectorStore,
+    _mock_embedder: object,
+    _decisions_dir: object,
+) -> DecisionRecorder:
+    """Yield a DecisionRecorder backed by temporary storage."""
+    from jobsearch_rag.rag.decisions import DecisionRecorder
+
+    _store.get_or_create_collection("decisions")
+    return DecisionRecorder(store=_store, embedder=_mock_embedder, decisions_dir=_decisions_dir)  # type: ignore[arg-type]
+
+
+async def _record_decision(
+    recorder: DecisionRecorder,
+    *,
+    job_id: str,
+    verdict: str = "yes",
+    reason: str = "",
+    board: str = "test-board",
+    title: str = "Staff Architect",
+    company: str = "Acme Corp",
+) -> None:
+    """Helper to record a decision with sensible defaults."""
+    await recorder.record(
+        job_id=job_id,
+        verdict=verdict,
+        jd_text=f"Job description for {job_id}",
+        board=board,
+        title=title,
+        company=company,
+        reason=reason,
+    )
+
+
+# ---------------------------------------------------------------------------
+# TestDecisionAudit
+# ---------------------------------------------------------------------------
+
+
+class TestDecisionAudit:
+    """
+    REQUIREMENT: The operator can inspect, audit, and surgically remove
+    individual entries from the decisions collection without losing the
+    append-only audit trail.
+
+    WHO: The operator who suspects a poisoned or erroneous decision is
+         skewing future scoring
+    WHAT: (1) `decisions audit` lists all recorded decisions that have a non-empty reason field with their job_id, verdict, and reason.
+          (2) The audit output includes job_id, verdict, and reason for each listed decision.
+          (3) The system prints an advisory when no decisions have reasons to audit.
+          (4) `decisions show <job_id>` prints metadata for the specified decision.
+          (5) `decisions remove <job_id>` deletes the entry from the ChromaDB collection.
+          (6) `decisions remove` does not modify the JSONL audit log.
+          (7) After removal, `decisions audit` no longer lists the removed entry.
+          (8) `decisions remove` with a nonexistent job_id prints a clear message rather than silently succeeding.
+    WHY: The decisions collection is the system's persistent memory. Any
+         poisoned entry influences all future scoring until removed.
+         The JSONL audit log must remain unmodified as the forensic record
+
+    MOCK BOUNDARY:
+        Mock:  mock_embedder fixture (Ollama HTTP — for recording decisions)
+        Real:  DecisionRecorder, ChromaDB via vector_store fixture,
+               JSONL audit log in tmp_path via output directory guard
+        Never: Insert or delete ChromaDB documents directly; always use
+               DecisionRecorder.record() to add decisions and verify removal
+               through DecisionRecorder.get_decision() returning None
+    """
+
+    @pytest.mark.asyncio
+    async def test_audit_lists_decisions_with_non_empty_reasons(
+        self, _recorder: DecisionRecorder
+    ) -> None:
+        """
+        GIVEN two recorded decisions, one with a reason and one without
+        WHEN audit_decisions() is called
+        THEN only the decision with a reason appears in the result.
+        """
+        # Given: two decisions — one with reason, one without
+        await _record_decision(
+            _recorder, job_id="zr_001", verdict="yes", reason="Great culture fit"
+        )
+        await _record_decision(_recorder, job_id="zr_002", verdict="no", reason="")
+
+        # When: audit decisions
+        results = _recorder.audit_decisions()
+
+        # Then: only the one with a reason appears
+        job_ids = [d["job_id"] for d in results]
+        assert "zr_001" in job_ids, "decision with reason must appear in audit"
+        assert "zr_002" not in job_ids, "decision without reason must not appear in audit"
+
+    @pytest.mark.asyncio
+    async def test_audit_output_includes_job_id_verdict_and_reason(
+        self, _recorder: DecisionRecorder
+    ) -> None:
+        """
+        GIVEN a recorded decision with a reason
+        WHEN audit_decisions() is called
+        THEN the result entry contains job_id, verdict, and reason.
+        """
+        # Given: a decision with a reason
+        await _record_decision(_recorder, job_id="zr_100", verdict="yes", reason="Strong match")
+
+        # When: audit decisions
+        results = _recorder.audit_decisions()
+
+        # Then: the entry has all three fields
+        assert len(results) >= 1, "audit must return at least one result"
+        entry = next(d for d in results if d["job_id"] == "zr_100")
+        assert entry["verdict"] == "yes", "verdict must be present"
+        assert entry["reason"] == "Strong match", "reason must be present"
+
+    @pytest.mark.asyncio
+    async def test_audit_with_no_decisions_having_reasons_prints_advisory(
+        self, _recorder: DecisionRecorder
+    ) -> None:
+        """
+        GIVEN decisions exist but none have reasons
+        WHEN audit_decisions() is called
+        THEN the result is an empty list.
+        """
+        # Given: decisions with no reasons
+        await _record_decision(_recorder, job_id="zr_200", verdict="yes", reason="")
+        await _record_decision(_recorder, job_id="zr_201", verdict="no", reason="")
+
+        # When: audit decisions
+        results = _recorder.audit_decisions()
+
+        # Then: no results — caller renders advisory
+        assert results == [], "audit must return empty list when no decisions have reasons"
+
+    @pytest.mark.asyncio
+    async def test_show_prints_metadata_for_the_given_job_id(
+        self, _recorder: DecisionRecorder
+    ) -> None:
+        """
+        GIVEN a recorded decision for job_id 'zr_12345'
+        WHEN get_decision('zr_12345') is called
+        THEN the result includes the verdict and recorded_at timestamp.
+        """
+        # Given: a recorded decision
+        await _record_decision(_recorder, job_id="zr_12345", verdict="yes", reason="Good fit")
+
+        # When: show the decision
+        result = _recorder.get_decision("zr_12345")
+
+        # Then: metadata is present
+        assert result is not None, "decision must be found"
+        assert result["verdict"] == "yes", "verdict must be present"
+        assert "recorded_at" in result, "timestamp must be present"
+
+    @pytest.mark.asyncio
+    async def test_remove_deletes_entry_from_chroma_collection(
+        self, _recorder: DecisionRecorder
+    ) -> None:
+        """
+        GIVEN a recorded decision for job_id 'zr_12345'
+        WHEN remove_decision('zr_12345') is called
+        THEN get_decision('zr_12345') returns None.
+        """
+        # Given: a recorded decision
+        await _record_decision(_recorder, job_id="zr_12345", verdict="yes", reason="Good fit")
+
+        # When: remove the decision
+        removed = _recorder.remove_decision("zr_12345")
+
+        # Then: the decision is gone
+        assert removed is True, "remove_decision must return True for existing entries"
+        assert _recorder.get_decision("zr_12345") is None, "decision must be gone after removal"
+
+    @pytest.mark.asyncio
+    async def test_remove_does_not_modify_jsonl_audit_log(
+        self, _recorder: DecisionRecorder, _decisions_dir: object
+    ) -> None:
+        """
+        GIVEN a recorded decision that was also written to the JSONL audit log
+        WHEN remove_decision is called for that job_id
+        THEN the JSONL audit log still contains the original entry.
+        """
+        from pathlib import Path
+
+        # Given: a recorded decision (which writes to JSONL)
+        await _record_decision(_recorder, job_id="zr_12345", verdict="yes", reason="Good fit")
+
+        # Verify JSONL exists with the entry
+        decisions_path = Path(str(_decisions_dir))
+        jsonl_files = list(decisions_path.glob("*.jsonl"))
+        assert len(jsonl_files) >= 1, "JSONL file must exist after recording"
+        original_content = jsonl_files[0].read_text()
+        assert "zr_12345" in original_content, "JSONL must contain the recorded decision"
+
+        # When: remove the decision from ChromaDB
+        _recorder.remove_decision("zr_12345")
+
+        # Then: JSONL audit log is unmodified
+        after_content = jsonl_files[0].read_text()
+        assert after_content == original_content, "JSONL audit log must not be modified by removal"
+
+    @pytest.mark.asyncio
+    async def test_remove_followed_by_audit_no_longer_lists_removed_entry(
+        self, _recorder: DecisionRecorder
+    ) -> None:
+        """
+        GIVEN a recorded decision with a reason
+        WHEN remove_decision is called for that job_id
+        AND audit_decisions() is called afterwards
+        THEN the removed entry does not appear in audit output.
+        """
+        # Given: a decision with a reason
+        await _record_decision(_recorder, job_id="zr_777", verdict="yes", reason="Culture match")
+
+        # When: remove and then audit
+        _recorder.remove_decision("zr_777")
+        results = _recorder.audit_decisions()
+
+        # Then: removed entry is not in audit
+        job_ids = [d["job_id"] for d in results]
+        assert "zr_777" not in job_ids, "removed decision must not appear in audit"
+
+    @pytest.mark.asyncio
+    async def test_remove_nonexistent_job_id_returns_false(
+        self, _recorder: DecisionRecorder
+    ) -> None:
+        """
+        GIVEN no decision recorded for job_id 'zr_99999'
+        WHEN remove_decision('zr_99999') is called
+        THEN it returns False without raising an exception.
+        """
+        # When: remove a nonexistent decision
+        removed = _recorder.remove_decision("zr_99999")
+
+        # Then: returns False, no exception
+        assert removed is False, "remove_decision must return False for nonexistent entries"

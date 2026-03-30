@@ -181,6 +181,31 @@ class VectorStore:
 
     # -- Similarity query ----------------------------------------------------
 
+    def delete_by_id(
+        self,
+        collection_name: str,
+        *,
+        ids: list[str],
+    ) -> None:
+        """
+        Delete documents by ID from a collection.
+
+        Silently ignores IDs that do not exist in the collection.
+
+        Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
+        if the collection does not exist.
+        """
+        collection = self._get_existing_collection(collection_name)
+        collection.delete(ids=ids)
+        logger.info(
+            "Deleted %d document(s) from '%s' (total: %d)",
+            len(ids),
+            collection_name,
+            collection.count(),
+        )
+
+    # -- Similarity query (continued) ----------------------------------------
+
     def query(
         self,
         collection_name: str,
