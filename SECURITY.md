@@ -37,10 +37,10 @@ The following common AI system threats do not apply to this architecture:
   keys required.
 - **Resume, archetypes, and decision history** are stored only in local
   ChromaDB (`data/chroma_db/`) and JSONL files (`data/decisions/`).
-- **Automated verification:** `TestNoExternalNetworkCalls` in `test_privacy.py`
+- **Automated verification:** `TestPrivacyGuarantee` in `test_privacy.py`
   asserts that no outbound network calls are made during a scoring pipeline
   run. This is executable proof of the privacy claim, not just a README
-  assertion. *(Phase 6e — not yet implemented)*
+  assertion.
 
 ## Decision Collection Integrity
 

@@ -2,7 +2,8 @@
 CLI handler tests — parser construction, command wiring, output formatting.
 
 Maps to BDD specs: TestParserConstruction, TestBoardsCommand, TestIndexCommand,
-TestSearchCommand, TestDecideCommand, TestExportCommand, TestRescoreCommand
+TestSearchCommand, TestDecideCommand, TestDecisionsCommand, TestExportCommand,
+TestRescoreCommand
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from jobsearch_rag.cli import (
     build_parser,
     handle_boards,
     handle_decide,
+    handle_decisions,
     handle_export,
     handle_index,
     handle_login,
@@ -1209,6 +1211,277 @@ class TestDecideCommand:
         assert "Could not retrieve JD text" in output, (
             f"Expected 'Could not retrieve JD text' in output, got: {output!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# TestDecisionsCommand
+# ---------------------------------------------------------------------------
+
+
+class TestDecisionsCommand:
+    """
+    REQUIREMENT: The decisions subcommand dispatches show, remove, and audit
+    correctly through the full CLI stack.
+
+    WHO: The operator managing their decision history from the command line
+    WHAT: (1) ``decisions show`` prints all metadata fields for a known decision.
+          (2) ``decisions show`` prints 'No decision found' when no decision
+              exists for the given job ID.
+          (3) ``decisions remove`` removes a known decision from ChromaDB and
+              prints a confirmation including the JSONL audit note.
+          (4) ``decisions remove`` prints 'No decision found' when no decision
+              exists for the given job ID.
+          (5) ``decisions audit`` lists decisions that have a non-empty reason.
+          (6) ``decisions audit`` prints 'No decisions with reasons' when all
+              reasons are empty.
+          (7) An unknown subcommand exits with code 1 and prints usage.
+    WHY: Each sub-handler formats output differently and has distinct
+         not-found branches — an untested handler means silent data loss
+
+    MOCK BOUNDARY:
+        Mock:  ollama_sdk.AsyncClient (Ollama network I/O)
+        Real:  load_settings, Embedder, VectorStore, DecisionRecorder,
+               ChromaDB storage, JSONL audit log
+        Never: Patch load_settings, Embedder, VectorStore, or DecisionRecorder
+    """
+
+    def test_show_prints_metadata_for_known_decision(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """
+        Given a decision exists for the job ID
+        When ``decisions show`` is invoked
+        Then all metadata fields are printed.
+        """
+        # Given: real environment with a seeded decision
+        mock_client = _setup_index_env(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        _seed_decision(tmp_path, job_id="zr-100", verdict="yes")
+
+        # When: handle_decisions dispatches to show
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            handle_decisions(
+                argparse.Namespace(decisions_command="show", job_id="zr-100"),
+            )
+
+        # Then: output contains the job_id and verdict
+        output = capsys.readouterr().out
+        assert "zr-100" in output, f"Expected job_id in output, got: {output!r}"
+        assert "yes" in output, f"Expected verdict in output, got: {output!r}"
+
+    def test_show_prints_not_found_for_unknown_job_id(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """
+        Given no decision exists for the job ID
+        When ``decisions show`` is invoked
+        Then 'No decision found' is printed.
+        """
+        # Given: real environment with empty decisions collection
+        mock_client = _setup_index_env(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+        store.get_or_create_collection("decisions")
+
+        # When: handle_decisions dispatches to show
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            handle_decisions(
+                argparse.Namespace(decisions_command="show", job_id="nonexistent"),
+            )
+
+        # Then: not-found message is printed
+        output = capsys.readouterr().out
+        assert "No decision found" in output, (
+            f"Expected 'No decision found' in output, got: {output!r}"
+        )
+
+    def test_remove_prints_confirmation_for_known_decision(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """
+        Given a decision exists for the job ID
+        When ``decisions remove`` is invoked
+        Then removal confirmation and JSONL audit note are printed.
+        """
+        # Given: real environment with a seeded decision
+        mock_client = _setup_index_env(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        _seed_decision(tmp_path, job_id="zr-200", verdict="no")
+
+        # When: handle_decisions dispatches to remove
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            handle_decisions(
+                argparse.Namespace(decisions_command="remove", job_id="zr-200"),
+            )
+
+        # Then: confirmation and audit note are printed
+        output = capsys.readouterr().out
+        assert "Removed decision" in output, (
+            f"Expected removal confirmation in output, got: {output!r}"
+        )
+        assert "JSONL audit log" in output, f"Expected JSONL audit note in output, got: {output!r}"
+
+    def test_remove_prints_not_found_for_unknown_job_id(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """
+        Given no decision exists for the job ID
+        When ``decisions remove`` is invoked
+        Then 'No decision found' is printed.
+        """
+        # Given: real environment with empty decisions collection
+        mock_client = _setup_index_env(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+        store.get_or_create_collection("decisions")
+
+        # When: handle_decisions dispatches to remove
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            handle_decisions(
+                argparse.Namespace(decisions_command="remove", job_id="nonexistent"),
+            )
+
+        # Then: not-found message is printed
+        output = capsys.readouterr().out
+        assert "No decision found" in output, (
+            f"Expected 'No decision found' in output, got: {output!r}"
+        )
+
+    def test_audit_lists_decisions_with_reasons(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """
+        Given a decision exists with a non-empty reason
+        When ``decisions audit`` is invoked
+        Then the decision's job_id, verdict, and reason are listed.
+        """
+        # Given: real environment with a decision that has a reason
+        mock_client = _setup_index_env(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+        store.get_or_create_collection("decisions")
+        store.add_documents(
+            collection_name="decisions",
+            ids=["decision-zr-300"],
+            documents=["Staff engineer role requiring Kubernetes expertise."],
+            embeddings=[[0.1, 0.2, 0.3, 0.4, 0.5]],
+            metadatas=[
+                {
+                    "job_id": "zr-300",
+                    "verdict": "no",
+                    "board": "ziprecruiter",
+                    "title": "Staff Engineer",
+                    "company": "K8s Corp",
+                    "scoring_signal": "false",
+                    "reason": "Requires 5 days on-site",
+                    "recorded_at": "2026-01-15T00:00:00",
+                }
+            ],
+        )
+
+        # When: handle_decisions dispatches to audit
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            handle_decisions(argparse.Namespace(decisions_command="audit"))
+
+        # Then: output contains the reason and verdict
+        output = capsys.readouterr().out
+        assert "zr-300" in output, f"Expected job_id in audit output, got: {output!r}"
+        assert "Requires 5 days on-site" in output, (
+            f"Expected reason in audit output, got: {output!r}"
+        )
+
+    def test_audit_prints_empty_message_when_no_reasons(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """
+        Given decisions exist but none have a non-empty reason
+        When ``decisions audit`` is invoked
+        Then 'No decisions with reasons to audit' is printed.
+        """
+        # Given: real environment with a reason-less decision
+        mock_client = _setup_index_env(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        _seed_decision(tmp_path, job_id="zr-400", verdict="yes")  # _seed_decision uses reason=""
+
+        # When: handle_decisions dispatches to audit
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            handle_decisions(argparse.Namespace(decisions_command="audit"))
+
+        # Then: empty message is printed
+        output = capsys.readouterr().out
+        assert "No decisions with reasons" in output, (
+            f"Expected empty-reasons message in output, got: {output!r}"
+        )
+
+    def test_unknown_subcommand_exits_with_usage(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """
+        Given an unrecognized decisions subcommand
+        When handle_decisions is invoked
+        Then it exits with code 1 and prints usage hint.
+        """
+        # Given: real environment
+        mock_client = _setup_index_env(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        # Ensure decisions collection exists so dispatcher gets past setup
+        store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+        store.get_or_create_collection("decisions")
+
+        # When/Then: unknown subcommand exits
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            handle_decisions(
+                argparse.Namespace(decisions_command="bogus", job_id="x"),
+            )
+
+        assert exc_info.value.code == 1, f"Expected exit code 1, got {exc_info.value.code}"
+        output = capsys.readouterr().out
+        assert "Usage" in output, f"Expected usage hint in output, got: {output!r}"
 
 
 # ---------------------------------------------------------------------------

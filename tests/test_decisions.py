@@ -77,6 +77,7 @@ class TestDecisionRecording:
           (13) The system returns None from get_decision() when the decisions collection is missing instead of raising an error.
           (14) The system returns None from get_decision() when the decisions collection exists but no matching document is found.
           (15) The system returns 0 from history_count() when the decisions collection is missing instead of raising an error.
+          (16) The system returns an empty list from audit_decisions() when the decisions collection is missing instead of raising an error.
     WHY: If 'no' decisions contributed to scoring, roles similar to rejected ones
          would score lower — but the signal we want is 'what did I like',
          not 'what did I reject' (rejections have too many confounding reasons)
@@ -459,3 +460,24 @@ class TestDecisionRecording:
 
             # When/Then: history_count returns 0 gracefully
             assert recorder.history_count() == 0, "Should return 0 when collection is missing"
+
+    def test_audit_decisions_returns_empty_list_when_collection_missing(
+        self, mock_embedder: Embedder
+    ) -> None:
+        """
+        GIVEN a store where the decisions collection does not exist
+        WHEN audit_decisions() is called
+        THEN an empty list is returned instead of raising.
+        """
+        # Given: a fresh store with no decisions collection
+        with tempfile.TemporaryDirectory() as tmpdir:
+            empty_store = VectorStore(persist_dir=tmpdir)
+            recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
+
+            # When: audit_decisions is called
+            results = recorder.audit_decisions()
+
+            # Then: empty list returned gracefully
+            assert results == [], (
+                f"Should return empty list when collection is missing, got: {results}"
+            )
