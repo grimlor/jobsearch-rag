@@ -12,7 +12,9 @@ Spec classes:
 
 from __future__ import annotations
 
+import json
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
@@ -23,8 +25,9 @@ from jobsearch_rag.adapters.base import JobListing
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from jobsearch_rag.rag.decisions import DecisionRecorder
-    from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.decisions import DecisionRecorder
+from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.store import VectorStore
 
 # Public API surface (from src/jobsearch_rag/adapters/base):
 #   JobListing(board, external_id, title, company, location, url, full_text,
@@ -213,8 +216,6 @@ EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
 @pytest.fixture
 def _store() -> Iterator[VectorStore]:  # pyright: ignore[reportUnusedFunction]
     """Yield a temporary VectorStore for test isolation."""
-    from jobsearch_rag.rag.store import VectorStore
-
     with tempfile.TemporaryDirectory() as tmpdir:
         yield VectorStore(persist_dir=tmpdir)
 
@@ -222,8 +223,6 @@ def _store() -> Iterator[VectorStore]:  # pyright: ignore[reportUnusedFunction]
 @pytest.fixture
 def _mock_embedder() -> object:  # pyright: ignore[reportUnusedFunction]
     """Return an Embedder with stubbed async methods."""
-    from jobsearch_rag.rag.embedder import Embedder
-
     embedder = Embedder.__new__(Embedder)
     embedder.base_url = "http://localhost:11434"
     embedder.embed_model = "nomic-embed-text"
@@ -237,8 +236,6 @@ def _mock_embedder() -> object:  # pyright: ignore[reportUnusedFunction]
 @pytest.fixture
 def _decisions_dir(tmp_path: object) -> object:  # pyright: ignore[reportUnusedFunction]
     """Return a temporary decisions directory path."""
-    from pathlib import Path
-
     d = Path(str(tmp_path)) / "decisions"
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -251,8 +248,6 @@ def _recorder(  # pyright: ignore[reportUnusedFunction]
     _decisions_dir: object,
 ) -> DecisionRecorder:
     """Yield a DecisionRecorder backed by temporary storage."""
-    from jobsearch_rag.rag.decisions import DecisionRecorder
-
     _store.get_or_create_collection("decisions")
     return DecisionRecorder(store=_store, embedder=_mock_embedder, decisions_dir=_decisions_dir)  # type: ignore[arg-type]
 
@@ -297,9 +292,10 @@ class TestDecisionAudit:
           (3) The system prints an advisory when no decisions have reasons to audit.
           (4) `decisions show <job_id>` prints metadata for the specified decision.
           (5) `decisions remove <job_id>` deletes the entry from the ChromaDB collection.
-          (6) `decisions remove` does not modify the JSONL audit log.
+          (6) `decisions remove` preserves existing JSONL entries (append-only).
           (7) After removal, `decisions audit` no longer lists the removed entry.
           (8) `decisions remove` with a nonexistent job_id prints a clear message rather than silently succeeding.
+          (9) `decisions remove` appends a verdict: "removed" entry to the JSONL audit log for full replay.
     WHY: The decisions collection is the system's persistent memory. Any
          poisoned entry influences all future scoring until removed.
          The JSONL audit log must remain unmodified as the forensic record
@@ -416,16 +412,15 @@ class TestDecisionAudit:
         assert _recorder.get_decision("zr_12345") is None, "decision must be gone after removal"
 
     @pytest.mark.asyncio
-    async def test_remove_does_not_modify_jsonl_audit_log(
+    async def test_remove_preserves_original_jsonl_and_appends_removed_entry(
         self, _recorder: DecisionRecorder, _decisions_dir: object
     ) -> None:
         """
         GIVEN a recorded decision that was also written to the JSONL audit log
         WHEN remove_decision is called for that job_id
-        THEN the JSONL audit log still contains the original entry.
+        THEN the JSONL audit log still contains the original entry
+        AND a new entry with verdict "removed" is appended.
         """
-        from pathlib import Path
-
         # Given: a recorded decision (which writes to JSONL)
         await _record_decision(_recorder, job_id="zr_12345", verdict="yes", reason="Good fit")
 
@@ -433,15 +428,27 @@ class TestDecisionAudit:
         decisions_path = Path(str(_decisions_dir))
         jsonl_files = list(decisions_path.glob("*.jsonl"))
         assert len(jsonl_files) >= 1, "JSONL file must exist after recording"
-        original_content = jsonl_files[0].read_text()
-        assert "zr_12345" in original_content, "JSONL must contain the recorded decision"
+        original_lines = jsonl_files[0].read_text().strip().splitlines()
+        assert any("zr_12345" in line for line in original_lines), (
+            "JSONL must contain the recorded decision"
+        )
+        original_count = len(original_lines)
 
         # When: remove the decision from ChromaDB
         _recorder.remove_decision("zr_12345")
 
-        # Then: JSONL audit log is unmodified
-        after_content = jsonl_files[0].read_text()
-        assert after_content == original_content, "JSONL audit log must not be modified by removal"
+        # Then: original entry is preserved and a "removed" entry is appended
+        after_lines = jsonl_files[0].read_text().strip().splitlines()
+        assert len(after_lines) == original_count + 1, (
+            "JSONL must have one additional line after removal"
+        )
+        # Original lines are unchanged
+        for i, orig in enumerate(original_lines):
+            assert after_lines[i] == orig, f"original JSONL line {i} must be unchanged"
+        # New line is a "removed" entry
+        removed_entry = json.loads(after_lines[-1])
+        assert removed_entry["job_id"] == "zr_12345", "removed entry must have correct job_id"
+        assert removed_entry["verdict"] == "removed", "removed entry must have verdict 'removed'"
 
     @pytest.mark.asyncio
     async def test_remove_followed_by_audit_no_longer_lists_removed_entry(
@@ -478,3 +485,29 @@ class TestDecisionAudit:
 
         # Then: returns False, no exception
         assert removed is False, "remove_decision must return False for nonexistent entries"
+
+    @pytest.mark.asyncio
+    async def test_remove_jsonl_entry_contains_job_id_verdict_and_timestamp(
+        self, _recorder: DecisionRecorder, _decisions_dir: object
+    ) -> None:
+        """
+        GIVEN a recorded decision for job_id 'zr_12345'
+        WHEN remove_decision('zr_12345') is called
+        THEN the appended JSONL entry contains job_id 'zr_12345',
+        verdict 'removed', and a recorded_at timestamp.
+        """
+        # Given: a recorded decision
+        await _record_decision(_recorder, job_id="zr_12345", verdict="yes", reason="Good fit")
+
+        # When: remove the decision
+        _recorder.remove_decision("zr_12345")
+
+        # Then: the appended JSONL entry has the right fields
+        decisions_path = Path(str(_decisions_dir))
+        jsonl_files = list(decisions_path.glob("*.jsonl"))
+        assert len(jsonl_files) >= 1, "JSONL file must exist"
+        lines = jsonl_files[0].read_text().strip().splitlines()
+        removed_entry = json.loads(lines[-1])
+        assert removed_entry["job_id"] == "zr_12345", "job_id must match"
+        assert removed_entry["verdict"] == "removed", "verdict must be 'removed'"
+        assert "recorded_at" in removed_entry, "recorded_at timestamp must be present"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import shutil
 import typing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1753,8 +1754,6 @@ class TestResetCommand:
         monkeypatch.chdir(tmp_path)
         out_dir = tmp_path / "output"
         if out_dir.exists():
-            import shutil
-
             shutil.rmtree(out_dir)
 
         # When: handle_reset runs with --clear-output

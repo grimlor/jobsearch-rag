@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from jobsearch_rag.cli import build_parser
 from jobsearch_rag.config import (
     BoardConfig,
     ChromaConfig,
@@ -245,8 +246,6 @@ class TestEvalCommand:
         When ``build_parser()`` is called
         Then the parser recognizes ``eval``
         """
-        from jobsearch_rag.cli import build_parser
-
         # Given: the CLI parser is built
         parser = build_parser()
 
@@ -1088,7 +1087,7 @@ class TestEvalIntegration:
                 return_value=mock_client,
             ),
         ):
-            from jobsearch_rag.cli import handle_eval
+            from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
 
             args = MagicMock()
             args.compare_models = None
@@ -1317,8 +1316,6 @@ class TestCompareModelsFlag:
         Then args.compare_models == ["mistral:7b", "llama3:8b"]
         """
         # Given
-        from jobsearch_rag.cli import build_parser
-
         parser = build_parser()
 
         # When
@@ -1355,7 +1352,7 @@ class TestCompareModelsFlag:
                 return_value=mock_client,
             ),
         ):
-            from jobsearch_rag.cli import handle_eval
+            from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
 
             args = MagicMock()
             args.compare_models = None
@@ -1400,7 +1397,7 @@ class TestCompareModelsFlag:
                 return_value=mock_client,
             ),
         ):
-            from jobsearch_rag.cli import handle_eval
+            from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
 
             args = MagicMock()
             args.compare_models = ["mistral:7b", "llama3:8b"]
@@ -1444,7 +1441,7 @@ class TestCompareModelsFlag:
                 return_value=mock_client,
             ),
         ):
-            from jobsearch_rag.cli import handle_eval
+            from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
 
             args = MagicMock()
             args.compare_models = ["mistral:7b", "llama3:8b"]
@@ -1610,7 +1607,7 @@ class TestEvalSinglePath:
                 return_value=mock_client,
             ),
         ):
-            from jobsearch_rag.cli import handle_eval
+            from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
 
             args = MagicMock()
             args.compare_models = None

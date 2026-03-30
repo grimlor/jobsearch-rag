@@ -245,7 +245,9 @@ class DecisionRecorder:
         """
         Remove a decision from the ChromaDB collection.
 
-        Does **not** modify the JSONL audit log — that is append-only.
+        Appends a ``verdict: "removed"`` entry to the JSONL audit log
+        so the full history is replayable, then deletes the entry from
+        ChromaDB.
 
         Returns ``True`` if the decision existed and was removed,
         ``False`` if no decision was found for the given *job_id*.
@@ -253,6 +255,16 @@ class DecisionRecorder:
         existing = self.get_decision(job_id)
         if existing is None:
             return False
+
+        self._append_jsonl(
+            job_id=job_id,
+            verdict="removed",
+            board=existing.get("board", ""),
+            title=existing.get("title", ""),
+            company=existing.get("company", ""),
+            jd_text="",
+            reason="",
+        )
 
         doc_id = f"decision-{job_id}"
         self._store.delete_by_id("decisions", ids=[doc_id])

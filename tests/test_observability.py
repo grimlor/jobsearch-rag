@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
+import time as _time
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -287,7 +288,6 @@ def _run_pipeline_and_read_logs(
         message=MagicMock(content=disqualifier_response),
     )
     if chat_latency_s > 0:
-        import time as _time
 
         async def _slow_chat(**_kwargs: object) -> MagicMock:  # type: ignore[type-arg]
             _time.sleep(chat_latency_s)

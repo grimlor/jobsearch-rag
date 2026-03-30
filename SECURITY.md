@@ -50,13 +50,14 @@ future scoring. Mitigation is auditability and surgical removal:
 
 - **JSONL audit log is append-only.** Files in `data/decisions/` are the
   forensic record of every decision. They are never modified or deleted by
-  any system operation, including `decisions remove`.
+  any system operation. `decisions remove` appends a `verdict: "removed"`
+  entry so the full history is replayable.
 - **ChromaDB is rebuildable.** The `decisions` collection in ChromaDB can
   be reconstructed from the JSONL audit log via `rescore`. Removing an
   entry from ChromaDB does not destroy evidence — it only stops the entry
   from influencing future scoring.
 - **Surgical removal:** `python -m jobsearch_rag decisions remove <job_id>`
-  deletes a single entry from ChromaDB without touching the audit log.
+  deletes a single entry from ChromaDB and logs the removal to JSONL.
 - **Audit:** `python -m jobsearch_rag decisions audit` lists all decisions
   that include an operator-provided reason, for human review.
 - **Inspection:** `python -m jobsearch_rag decisions show <job_id>` prints

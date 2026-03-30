@@ -33,8 +33,9 @@ from tests.constants import EMBED_FAKE
 if TYPE_CHECKING:
     import pytest
 
-    from jobsearch_rag.pipeline.ranker import RankSummary
     from jobsearch_rag.rag.store import VectorStore
+
+from jobsearch_rag.pipeline.ranker import RankSummary
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1570,7 +1571,7 @@ class TestErrorSurfacing:
         When handle_search() prints the run summary
         Then each surfaced error includes printed error, service, and suggestion lines
         """
-        from jobsearch_rag.cli import handle_search
+        from jobsearch_rag.cli import handle_search  # noqa: PLC0415
 
         # Given: a RunResult with surfaced errors
         error_1 = ActionableError.authentication("linkedin", "session expired")
@@ -1847,8 +1848,6 @@ class TestErrorSurfacing:
 
 def _make_rank_summary() -> RankSummary:
     """Create a minimal RankSummary for CLI rendering tests."""
-    from jobsearch_rag.pipeline.ranker import RankSummary
-
     return RankSummary(total_found=5, total_scored=3)
 
 

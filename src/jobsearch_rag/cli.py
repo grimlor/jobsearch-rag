@@ -351,7 +351,7 @@ def _handle_decisions_remove(recorder: DecisionRecorder, job_id: str) -> None:
     removed = recorder.remove_decision(job_id)
     if removed:
         print(f"Removed decision for '{job_id}' from ChromaDB")
-        print("  Note: JSONL audit log is preserved (append-only)")
+        print("  Note: 'removed' entry appended to JSONL audit log")
     else:
         print(f"No decision found for job_id '{job_id}'")
 
