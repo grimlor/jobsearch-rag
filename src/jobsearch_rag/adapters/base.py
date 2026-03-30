@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -10,6 +11,19 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from playwright.async_api import Page
+
+_MAX_FULL_TEXT = 500_000
+
+_FILENAME_UNSAFE_RE = re.compile(r'[<>:"|?*\x00-\x1f]')
+_PATH_SEP_RE = re.compile(r"[/\\]")
+_TRAVERSAL_RE = re.compile(r"\.\.")
+
+
+def _sanitize_filename_field(value: str) -> str:
+    """Remove path traversal sequences and filesystem-unsafe characters."""
+    value = _PATH_SEP_RE.sub("-", value)
+    value = _TRAVERSAL_RE.sub("", value)
+    return _FILENAME_UNSAFE_RE.sub("", value).strip()
 
 
 @dataclass
@@ -35,6 +49,14 @@ class JobListing:
     comp_source: str | None = None
     comp_text: str | None = None
     metadata: dict[str, str] = field(default_factory=dict[str, str])
+
+    def __post_init__(self) -> None:
+        """Validate field bounds and sanitize filename-unsafe content."""
+        if self.full_text and len(self.full_text) > _MAX_FULL_TEXT:
+            msg = f"full_text exceeds maximum length: {len(self.full_text)} chars"
+            raise ValueError(msg)
+        self.title = _sanitize_filename_field(self.title)
+        self.company = _sanitize_filename_field(self.company)
 
 
 class JobBoardAdapter(ABC):
