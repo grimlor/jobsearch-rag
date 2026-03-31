@@ -470,7 +470,7 @@ class TestEndToEndScoring:
           (2) The system assigns higher fit and archetype scores to a matching JD than to an unrelated JD.
           (3) The system returns a valid boolean `disqualified` field when it scores a matching JD with the LLM disqualifier enabled.
           (4) The system produces 5 resume chunks and makes the collection queryable when it indexes the real resume file.
-          (5) The system produces 3 archetypes when it indexes the real archetypes file.
+          (5) The system produces 4 archetypes when it indexes the real archetypes file.
     WHY: Unit tests mock Ollama, so they can't catch integration failures
          like dimension mismatches between embed() and ChromaDB, or
          LLM classification prompts that produce unparseable output
@@ -639,7 +639,7 @@ class TestEndToEndScoring:
         """
         GIVEN the actual project role_archetypes.toml file
         WHEN index_archetypes is called
-        THEN 3 archetypes are produced.
+        THEN 4 archetypes are produced.
         """
         # Given: real archetypes file
         real_archetypes = Path("config/role_archetypes.toml")
@@ -651,7 +651,7 @@ class TestEndToEndScoring:
         count = await indexer.index_archetypes(str(real_archetypes))
 
         # Then: expected count
-        assert count == 3, f"Expected 3 archetypes, got {count}"
+        assert count == 4, f"Expected 4 archetypes, got {count}"
 
 
 # ---------------------------------------------------------------------------
