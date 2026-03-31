@@ -193,11 +193,11 @@ class TestCrossRunDedup:
     have a recorded decision.
 
     WHO: The pipeline runner performing a follow-up search
-    WHAT: (1) The system excludes listings with existing decisions from scoring and only generates embeddings for new listings.
+    WHAT: (1) The system excludes listings with existing decisions from ranked results and increments `skipped_decisions`.
           (2) The system omits listings with existing decisions from the exported ranked results and includes only new roles.
           (3) The system records excluded listings in the run summary by incrementing `skipped_decisions`.
-          (4) The system scores a listing normally when no prior decision exists and generates embeddings for it.
-          (5) The system scores a listing even when a prior decision exists if `force_rescore=True` is set.
+          (4) The system scores a listing normally when no prior decision exists and includes it in ranked results.
+          (5) The system scores a listing even when a prior decision exists if `force_rescore=True` is set and includes it in ranked results.
           (6) The system looks up prior decisions by job ID rather than URL and skips a listing whose `external_id` already has a decision.
     WHY: Without deduplication, repeated searches would re-score and
          re-present listings the operator has already acted on,
@@ -217,16 +217,16 @@ class TestCrossRunDedup:
         """
         Given a decision for "already-decided" pre-seeded in the store,
         When run() processes listings including "already-decided" and "brand-new",
-        Then only the new listing triggers Ollama embed calls.
+        Then only the new listing appears in ranked results and the decided one is skipped.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision for "already-decided"
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner, _mock_client = _make_runner_with_real_stack(settings)
             _seed_decision(runner._store, "already-decided")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
 
-            decided_listing = _make_listing(external_id="already-decided")
-            new_listing = _make_listing(external_id="brand-new")
+            decided_listing = _make_listing(external_id="already-decided", title="Old Role")
+            new_listing = _make_listing(external_id="brand-new", title="New Role")
 
             adapter = _make_test_adapter(search_results=[decided_listing, new_listing])
             mock_pw_fn, _ = _mock_playwright_boundary()
@@ -237,13 +237,16 @@ class TestCrossRunDedup:
                 patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: the pipeline runs
-                await runner.run()
+                result = await runner.run()
 
-            # Then: embed calls are only for the new listing (score + cache),
-            #       not for the decided one
-            assert mock_client.embed.call_count == 2, (
-                f"Expected 2 embed calls (score + cache) for 1 scored listing, "
-                f"got {mock_client.embed.call_count}"
+            # Then: decided listing was skipped
+            assert result.skipped_decisions >= 1, (
+                f"Expected at least 1 skipped decision, got {result.skipped_decisions}"
+            )
+            # Then: only the new listing appears in ranked results
+            titles = [r.listing.title for r in result.ranked_listings]
+            assert "Old Role" not in titles, (
+                f"Decided listing should be excluded from ranked results, got titles: {titles}"
             )
 
     async def test_excluded_listing_does_not_appear_in_export(self) -> None:
@@ -317,14 +320,14 @@ class TestCrossRunDedup:
         """
         Given no pre-existing decisions in the store,
         When run() processes a listing "never-seen",
-        Then the listing proceeds through scoring (embed calls are made).
+        Then the listing appears in the ranked results.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with no decisions seeded
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner, _mock_client = _make_runner_with_real_stack(settings)
 
-            new_listing = _make_listing(external_id="never-seen")
+            new_listing = _make_listing(external_id="never-seen", title="Fresh Role")
 
             adapter = _make_test_adapter(search_results=[new_listing])
             mock_pw_fn, _ = _mock_playwright_boundary()
@@ -335,12 +338,15 @@ class TestCrossRunDedup:
                 patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: the pipeline runs
-                await runner.run()
+                result = await runner.run()
 
-            # Then: embed was called for scoring + cache (2 calls for 1 listing)
-            assert mock_client.embed.call_count == 2, (
-                f"Expected 2 embed calls (score + cache) for 1 scored listing, "
-                f"got {mock_client.embed.call_count}"
+            # Then: the listing was scored and appears in ranked results
+            titles = [r.listing.title for r in result.ranked_listings]
+            assert "Fresh Role" in titles, (
+                f"New listing should appear in ranked results, got titles: {titles}"
+            )
+            assert result.skipped_decisions == 0, (
+                f"Expected 0 skipped decisions, got {result.skipped_decisions}"
             )
 
     async def test_force_rescore_flag_overrides_exclusion(self) -> None:
@@ -352,7 +358,7 @@ class TestCrossRunDedup:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner, _mock_client = _make_runner_with_real_stack(settings)
             _seed_decision(runner._store, "decided-1")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
 
             decided = _make_listing(external_id="decided-1")
@@ -369,9 +375,8 @@ class TestCrossRunDedup:
                 result = await runner.run(force_rescore=True)
 
             # Then: listing was scored despite having a prior decision
-            assert mock_client.embed.call_count >= 2, (
-                f"Expected embed calls for force-rescored listing, "
-                f"got {mock_client.embed.call_count}"
+            assert result.ranked_listings, (
+                "Expected decided listing to appear in ranked results with force_rescore"
             )
             assert result.skipped_decisions == 0, (
                 f"Expected 0 skipped decisions with force_rescore, got {result.skipped_decisions}"
@@ -387,7 +392,7 @@ class TestCrossRunDedup:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with decision keyed by job_id
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner, _mock_client = _make_runner_with_real_stack(settings)
             _seed_decision(runner._store, "canonical-id-123")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
 
             # Listing uses external_id matching the decision, but different URL
@@ -408,8 +413,4 @@ class TestCrossRunDedup:
             assert result.skipped_decisions == 1, (
                 f"Expected listing skipped by job_id lookup, "
                 f"got skipped_decisions={result.skipped_decisions}"
-            )
-            # No embed calls for scoring (only health_check calls client.list)
-            assert mock_client.embed.call_count == 0, (
-                f"Expected 0 embed calls for skipped listing, got {mock_client.embed.call_count}"
             )

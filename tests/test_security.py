@@ -16,7 +16,6 @@ import json
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -28,6 +27,7 @@ if TYPE_CHECKING:
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.store import VectorStore
+from tests.conftest import make_mock_ollama_client
 
 # Public API surface (from src/jobsearch_rag/adapters/base):
 #   JobListing(board, external_id, title, company, location, url, full_text,
@@ -127,7 +127,9 @@ class TestJobListingValidation:
         listing = _make(full_text=at_limit)
 
         # Then: full_text is preserved
-        assert len(listing.full_text) == 250_000
+        assert len(listing.full_text) == 250_000, (
+            f"Expected full_text length 250,000, got {len(listing.full_text)}"
+        )
 
     def test_path_traversal_in_title_is_removed(self) -> None:
         r"""
@@ -179,13 +181,25 @@ class TestJobListingValidation:
         listing = _make()
 
         # Then: all required fields accessible
-        assert listing.board == "test-board"
-        assert listing.external_id == "sec-001"
-        assert listing.title == "Staff Platform Architect"
-        assert listing.company == "Acme Corp"
-        assert listing.location == "Remote (USA)"
-        assert listing.url == "https://example.org/job/sec-001"
-        assert listing.full_text == "A normal job description."
+        assert listing.board == "test-board", f"Expected board 'test-board', got {listing.board!r}"
+        assert listing.external_id == "sec-001", (
+            f"Expected external_id 'sec-001', got {listing.external_id!r}"
+        )
+        assert listing.title == "Staff Platform Architect", (
+            f"Expected title 'Staff Platform Architect', got {listing.title!r}"
+        )
+        assert listing.company == "Acme Corp", (
+            f"Expected company 'Acme Corp', got {listing.company!r}"
+        )
+        assert listing.location == "Remote (USA)", (
+            f"Expected location 'Remote (USA)', got {listing.location!r}"
+        )
+        assert listing.url == "https://example.org/job/sec-001", (
+            f"Expected url 'https://example.org/job/sec-001', got {listing.url!r}"
+        )
+        assert listing.full_text == "A normal job description.", (
+            f"Expected full_text 'A normal job description.', got {listing.full_text!r}"
+        )
 
     def test_sanitisation_does_not_affect_optional_fields(self) -> None:
         """
@@ -197,13 +211,15 @@ class TestJobListingValidation:
         listing = _make()
 
         # Then: optional fields are their defaults
-        assert listing.posted_at is None
-        assert listing.raw_html is None
-        assert listing.comp_min is None
-        assert listing.comp_max is None
-        assert listing.comp_source is None
-        assert listing.comp_text is None
-        assert listing.metadata == {}
+        assert listing.posted_at is None, f"Expected posted_at=None, got {listing.posted_at!r}"
+        assert listing.raw_html is None, f"Expected raw_html=None, got {listing.raw_html!r}"
+        assert listing.comp_min is None, f"Expected comp_min=None, got {listing.comp_min!r}"
+        assert listing.comp_max is None, f"Expected comp_max=None, got {listing.comp_max!r}"
+        assert listing.comp_source is None, (
+            f"Expected comp_source=None, got {listing.comp_source!r}"
+        )
+        assert listing.comp_text is None, f"Expected comp_text=None, got {listing.comp_text!r}"
+        assert listing.metadata == {}, f"Expected metadata={{}}, got {listing.metadata!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -222,14 +238,16 @@ def _store() -> Iterator[VectorStore]:  # pyright: ignore[reportUnusedFunction]
 
 @pytest.fixture
 def _mock_embedder() -> object:  # pyright: ignore[reportUnusedFunction]
-    """Return an Embedder with stubbed async methods."""
-    embedder = Embedder.__new__(Embedder)
-    embedder.base_url = "http://localhost:11434"
-    embedder.embed_model = "nomic-embed-text"
-    embedder.llm_model = "mistral:7b"
-    embedder.max_retries = 3
-    embedder.base_delay = 0.0
-    embedder.embed = AsyncMock(return_value=EMBED_TEST)  # type: ignore[method-assign]
+    """Real Embedder with ollama client stubbed at the I/O boundary."""
+    mock_client = make_mock_ollama_client(embed_vector=EMBED_TEST)
+    embedder = Embedder(
+        base_url="http://localhost:11434",
+        embed_model="nomic-embed-text",
+        llm_model="mistral:7b",
+        max_retries=1,
+        base_delay=0.0,
+    )
+    embedder._client = mock_client  # type: ignore[attr-defined]
     return embedder
 
 
@@ -301,8 +319,8 @@ class TestDecisionAudit:
          The JSONL audit log must remain unmodified as the forensic record
 
     MOCK BOUNDARY:
-        Mock:  mock_embedder fixture (Ollama HTTP — for recording decisions)
-        Real:  DecisionRecorder, ChromaDB via vector_store fixture,
+        Mock:  ollama.AsyncClient (Ollama HTTP I/O via conftest make_mock_ollama_client)
+        Real:  DecisionRecorder, Embedder, ChromaDB via vector_store fixture,
                JSONL audit log in tmp_path via output directory guard
         Never: Insert or delete ChromaDB documents directly; always use
                DecisionRecorder.record() to add decisions and verify removal

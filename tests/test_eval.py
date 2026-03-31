@@ -815,30 +815,36 @@ class TestEvalReport:
         Then the file exists with correct heading, all metric values, and
              disagreement entries
         """
-        # Given
+        # Given: an EvalResult with known metrics and 2 disagreements
         result = self._make_result()
 
-        # When
+        # When: the report is written
         path = EvalReport.write(result, str(tmp_path))
 
         # Then: file exists and name matches pattern
-        assert path.exists()
-        assert path.name.startswith("eval_")
-        assert path.suffix == ".md"
+        assert path.exists(), f"Report file not created at {path}"
+        assert path.name.startswith("eval_"), (
+            f"Expected filename starting with 'eval_', got {path.name!r}"
+        )
+        assert path.suffix == ".md", f"Expected .md suffix, got {path.suffix!r}"
 
         content = path.read_text()
 
-        # Heading and metrics
-        assert "# Eval Report" in content or "# Evaluation Report" in content
-        assert "5" in content  # decisions_evaluated
-        assert "0.8" in content or "80" in content  # agreement_rate
-        assert "0.75" in content or "75" in content  # precision
-        assert "0.85" in content or "85" in content  # recall
-        assert "0.6" in content or "60" in content  # spearman
+        # Then: heading and metrics are present
+        assert "# Eval Report" in content or "# Evaluation Report" in content, (
+            "Report must contain heading"
+        )
+        assert "5" in content, "Report must contain decisions_evaluated (5)"
+        assert "0.8" in content or "80" in content, (
+            "Report must contain agreement_rate (0.8 or 80%)"
+        )
+        assert "0.75" in content or "75" in content, "Report must contain precision (0.75 or 75%)"
+        assert "0.85" in content or "85" in content, "Report must contain recall (0.85 or 85%)"
+        assert "0.6" in content or "60" in content, "Report must contain spearman (0.6 or 60%)"
 
-        # Disagreements
-        assert "job-4" in content
-        assert "job-5" in content
+        # Then: disagreement entries appear
+        assert "job-4" in content, "Disagreement job-4 must appear in report"
+        assert "job-5" in content, "Disagreement job-5 must appear in report"
 
     def test_zero_decisions_produce_zero_metrics(self, tmp_path: Path) -> None:
         """
@@ -846,7 +852,7 @@ class TestEvalReport:
         When write() is called
         Then the file exists with zero metrics and an empty disagreement section
         """
-        # Given
+        # Given: an EvalResult with zero decisions
         result = self._make_result(
             decisions_evaluated=0,
             agreement_rate=0.0,
@@ -856,13 +862,13 @@ class TestEvalReport:
             per_decision=[],
         )
 
-        # When
+        # When: the report is written
         path = EvalReport.write(result, str(tmp_path))
 
-        # Then
-        assert path.exists()
+        # Then: file exists with zero metric
+        assert path.exists(), f"Report file not created at {path}"
         content = path.read_text()
-        assert "0" in content  # decisions_evaluated = 0
+        assert "0" in content, "Report must contain decisions_evaluated = 0"
 
     def test_nonexistent_output_dir_is_created(self, tmp_path: Path) -> None:
         """
@@ -870,17 +876,17 @@ class TestEvalReport:
         When write() is called
         Then the directory is created and the file is written
         """
-        # Given
+        # Given: a non-existent output directory
         output_dir = tmp_path / "nested" / "output"
-        assert not output_dir.exists()
+        assert not output_dir.exists(), "Precondition: output_dir must not exist"
         result = self._make_result()
 
-        # When
+        # When: the report is written
         path = EvalReport.write(result, str(output_dir))
 
-        # Then
-        assert output_dir.exists()
-        assert path.exists()
+        # Then: directory and file are created
+        assert output_dir.exists(), "Output directory must be created"
+        assert path.exists(), f"Report file not created at {path}"
 
     def test_no_disagreements_produces_empty_section(self, tmp_path: Path) -> None:
         """
@@ -911,15 +917,16 @@ class TestEvalReport:
             per_decision=all_agreed,
         )
 
-        # When
+        # When: the report is written
         path = EvalReport.write(result, str(tmp_path))
 
         # Then: file exists, no disagreement job IDs
         content = path.read_text()
-        assert path.exists()
-        # Neither job should appear in a disagreement list
-        # (they agreed, so they shouldn't be called out)
-        assert "job-1" not in content or "agreed" in content.lower()
+        assert path.exists(), f"Report file not created at {path}"
+        # Then: neither job should appear in a disagreement list
+        assert "job-1" not in content or "agreed" in content.lower(), (
+            "Agreed jobs must not appear in disagreement section"
+        )
 
 
 class TestEvalHistory:
@@ -973,24 +980,34 @@ class TestEvalHistory:
         Then the file contains exactly one JSON line with all metrics and
              a timestamp
         """
-        # Given
+        # Given: a history path and an EvalResult with known metrics
         history_path = tmp_path / "eval_history.jsonl"
         result = self._make_result()
 
-        # When
+        # When: append is called
         EvalHistory.append(result, str(history_path))
 
-        # Then
+        # Then: file contains exactly one JSON line with all metrics
         lines = history_path.read_text().strip().splitlines()
-        assert len(lines) == 1
+        assert len(lines) == 1, f"Expected 1 line, got {len(lines)}"
 
         record = json.loads(lines[0])
-        assert record["decisions_evaluated"] == 10
-        assert record["agreement_rate"] == pytest.approx(0.9)
-        assert record["precision"] == pytest.approx(0.85)
-        assert record["recall"] == pytest.approx(0.95)
-        assert record["spearman"] == pytest.approx(0.7)
-        assert "timestamp" in record
+        assert record["decisions_evaluated"] == 10, (
+            f"Expected decisions_evaluated=10, got {record['decisions_evaluated']}"
+        )
+        assert record["agreement_rate"] == pytest.approx(0.9), (
+            f"Expected agreement_rate~0.9, got {record['agreement_rate']}"
+        )
+        assert record["precision"] == pytest.approx(0.85), (
+            f"Expected precision~0.85, got {record['precision']}"
+        )
+        assert record["recall"] == pytest.approx(0.95), (
+            f"Expected recall~0.95, got {record['recall']}"
+        )
+        assert record["spearman"] == pytest.approx(0.7), (
+            f"Expected spearman~0.7, got {record['spearman']}"
+        )
+        assert "timestamp" in record, "History record must include a timestamp"
 
     def test_append_preserves_existing_lines(self, tmp_path: Path) -> None:
         """
@@ -1008,15 +1025,17 @@ class TestEvalHistory:
 
         result = self._make_result(agreement_rate=0.9)
 
-        # When
+        # When: append is called
         EvalHistory.append(result, str(history_path))
 
-        # Then
+        # Then: file has 3 lines, last line has the new metrics
         lines = history_path.read_text().strip().splitlines()
-        assert len(lines) == 3
+        assert len(lines) == 3, f"Expected 3 lines, got {len(lines)}"
 
         last = json.loads(lines[2])
-        assert last["agreement_rate"] == pytest.approx(0.9)
+        assert last["agreement_rate"] == pytest.approx(0.9), (
+            f"Expected agreement_rate~0.9 in appended line, got {last['agreement_rate']}"
+        )
 
     def test_append_creates_nonexistent_file(self, tmp_path: Path) -> None:
         """
@@ -1024,18 +1043,18 @@ class TestEvalHistory:
         When append() is called
         Then the file is created with one line
         """
-        # Given
+        # Given: a non-existent history path
         history_path = tmp_path / "deep" / "eval_history.jsonl"
-        assert not history_path.exists()
+        assert not history_path.exists(), "Precondition: file must not exist"
         result = self._make_result()
 
-        # When
+        # When: append is called
         EvalHistory.append(result, str(history_path))
 
-        # Then
-        assert history_path.exists()
+        # Then: file is created with one line
+        assert history_path.exists(), "History file must be created"
         lines = history_path.read_text().strip().splitlines()
-        assert len(lines) == 1
+        assert len(lines) == 1, f"Expected 1 line, got {len(lines)}"
 
 
 class TestEvalIntegration:
@@ -1079,7 +1098,7 @@ class TestEvalIntegration:
         # chdir so relative "data/eval_history.jsonl" lands in tmp_path
         monkeypatch.chdir(tmp_path)
 
-        # When
+        # When: handle_eval is invoked with patched settings and ollama client
         with (
             patch("jobsearch_rag.cli.load_settings", return_value=settings),
             patch(
@@ -1110,18 +1129,20 @@ class TestEvalIntegration:
         When evaluate() runs
         Then EvalResult.spearman is a float
         """
-        # Given
+        # Given: a store with signed decisions
         settings = _make_settings(str(tmp_path))
         runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="s-1", verdict="yes")
         _seed_decision(store, job_id="s-2", verdict="no", embedding=_EMBED_DISTANT)
 
-        # When
+        # When: evaluate() is run
         result = asyncio.run(runner.evaluate())
 
-        # Then
-        assert isinstance(result.spearman, float)
+        # Then: spearman is a float
+        assert isinstance(result.spearman, float), (
+            f"Expected spearman to be float, got {type(result.spearman).__name__}"
+        )
 
 
 class TestModelComparisonResult:
@@ -1171,7 +1192,7 @@ class TestModelComparisonResult:
         When agreement_delta is accessed
         Then it equals 0.2
         """
-        # Given
+        # Given: result_a with agreement_rate=0.7 and result_b with agreement_rate=0.9
         result_a = self._make_result(agreement_rate=0.7)
         result_b = self._make_result(agreement_rate=0.9)
         comparison = ModelComparisonResult(
@@ -1181,10 +1202,10 @@ class TestModelComparisonResult:
             result_b=result_b,
         )
 
-        # When
+        # When: agreement_delta is accessed
         delta = comparison.agreement_delta
 
-        # Then
+        # Then: it equals 0.2
         assert delta == pytest.approx(0.2), f"Expected 0.2, got {delta}"
 
     def test_precision_delta_equals_b_minus_a(self) -> None:
@@ -1193,7 +1214,7 @@ class TestModelComparisonResult:
         When precision_delta is accessed
         Then it equals 0.2
         """
-        # Given
+        # Given: result_a with precision=0.6 and result_b with precision=0.8
         result_a = self._make_result(precision=0.6)
         result_b = self._make_result(precision=0.8)
         comparison = ModelComparisonResult(
@@ -1203,10 +1224,10 @@ class TestModelComparisonResult:
             result_b=result_b,
         )
 
-        # When
+        # When: precision_delta is accessed
         delta = comparison.precision_delta
 
-        # Then
+        # Then: it equals 0.2
         assert delta == pytest.approx(0.2), f"Expected 0.2, got {delta}"
 
     def test_recall_delta_equals_b_minus_a(self) -> None:
@@ -1215,7 +1236,7 @@ class TestModelComparisonResult:
         When recall_delta is accessed
         Then it equals 0.2
         """
-        # Given
+        # Given: result_a with recall=0.5 and result_b with recall=0.7
         result_a = self._make_result(recall=0.5)
         result_b = self._make_result(recall=0.7)
         comparison = ModelComparisonResult(
@@ -1225,10 +1246,10 @@ class TestModelComparisonResult:
             result_b=result_b,
         )
 
-        # When
+        # When: recall_delta is accessed
         delta = comparison.recall_delta
 
-        # Then
+        # Then: it equals 0.2
         assert delta == pytest.approx(0.2), f"Expected 0.2, got {delta}"
 
     def test_spearman_delta_equals_b_minus_a(self) -> None:
@@ -1237,7 +1258,7 @@ class TestModelComparisonResult:
         When spearman_delta is accessed
         Then it equals 0.5
         """
-        # Given
+        # Given: result_a with spearman=0.3 and result_b with spearman=0.8
         result_a = self._make_result(spearman=0.3)
         result_b = self._make_result(spearman=0.8)
         comparison = ModelComparisonResult(
@@ -1247,10 +1268,10 @@ class TestModelComparisonResult:
             result_b=result_b,
         )
 
-        # When
+        # When: spearman_delta is accessed
         delta = comparison.spearman_delta
 
-        # Then
+        # Then: it equals 0.5
         assert delta == pytest.approx(0.5), f"Expected 0.5, got {delta}"
 
     def test_model_names_are_stored(self) -> None:
@@ -1259,11 +1280,11 @@ class TestModelComparisonResult:
         When ModelComparisonResult is constructed
         Then model_a == "mistral:7b" and model_b == "llama3:8b"
         """
-        # Given
+        # Given: model_a="mistral:7b" and model_b="llama3:8b"
         result_a = self._make_result()
         result_b = self._make_result()
 
-        # When
+        # When: ModelComparisonResult is constructed
         comparison = ModelComparisonResult(
             model_a="mistral:7b",
             model_b="llama3:8b",
@@ -1271,7 +1292,7 @@ class TestModelComparisonResult:
             result_b=result_b,
         )
 
-        # Then
+        # Then: model names are stored correctly
         assert comparison.model_a == "mistral:7b", (
             f"Expected 'mistral:7b', got '{comparison.model_a}'"
         )
@@ -1315,13 +1336,13 @@ class TestCompareModelsFlag:
         When --compare-models mistral:7b llama3:8b is parsed
         Then args.compare_models == ["mistral:7b", "llama3:8b"]
         """
-        # Given
+        # Given: the eval subparser
         parser = build_parser()
 
-        # When
+        # When: --compare-models mistral:7b llama3:8b is parsed
         args = parser.parse_args(["eval", "--compare-models", "mistral:7b", "llama3:8b"])
 
-        # Then
+        # Then: args.compare_models == ["mistral:7b", "llama3:8b"]
         assert args.compare_models == ["mistral:7b", "llama3:8b"], (
             f"Expected ['mistral:7b', 'llama3:8b'], got {args.compare_models}"
         )
@@ -1335,7 +1356,7 @@ class TestCompareModelsFlag:
         Then a single EvalResult is printed (normal flow)
         And report and history are written
         """
-        # Given
+        # Given: a store with decisions and no --compare-models flag
         settings = _make_settings(str(tmp_path))
         store = VectorStore(persist_dir=settings.chroma.persist_dir)
         _seed_required_collections(store, EMBED_FAKE)
@@ -1344,7 +1365,7 @@ class TestCompareModelsFlag:
         _, mock_client = _make_mock_embedder()
         monkeypatch.chdir(tmp_path)
 
-        # When
+        # When: handle_eval runs
         with (
             patch("jobsearch_rag.cli.load_settings", return_value=settings),
             patch(
@@ -1375,7 +1396,7 @@ class TestCompareModelsFlag:
         Then two evaluations are performed (one per model)
         And stdout contains both model names and delta values
         """
-        # Given
+        # Given: a store with decisions and --compare-models mistral:7b llama3:8b
         settings = _make_settings(str(tmp_path))
         store = VectorStore(persist_dir=settings.chroma.persist_dir)
         _seed_required_collections(store, EMBED_FAKE)
@@ -1389,7 +1410,7 @@ class TestCompareModelsFlag:
         mock_client.list.return_value.models.append(model_b)
         monkeypatch.chdir(tmp_path)
 
-        # When
+        # When: handle_eval runs
         with (
             patch("jobsearch_rag.cli.load_settings", return_value=settings),
             patch(
@@ -1420,7 +1441,7 @@ class TestCompareModelsFlag:
         Then EvalReport.write is NOT called
         And EvalHistory.append is NOT called
         """
-        # Given
+        # Given: --compare-models mistral:7b llama3:8b
         settings = _make_settings(str(tmp_path))
         store = VectorStore(persist_dir=settings.chroma.persist_dir)
         _seed_required_collections(store, EMBED_FAKE)
@@ -1433,7 +1454,7 @@ class TestCompareModelsFlag:
         mock_client.list.return_value.models.append(model_b)
         monkeypatch.chdir(tmp_path)
 
-        # When
+        # When: handle_eval runs
         with (
             patch("jobsearch_rag.cli.load_settings", return_value=settings),
             patch(
@@ -1494,7 +1515,7 @@ class TestLoadDecisionsResilience:
         with patch.object(
             store, "get_or_create_collection", side_effect=RuntimeError("db locked")
         ):
-            # When
+            # When: evaluate() is called
             result = asyncio.run(runner.evaluate())
 
         # Then: graceful degradation — 0 decisions, not a crash
@@ -1524,7 +1545,7 @@ class TestLoadDecisionsResilience:
             # no metadatas — ChromaDB stores None for this entry
         )
 
-        # When
+        # When: evaluate() is called
         result = asyncio.run(runner.evaluate())
 
         # Then: only the valid decision is evaluated
@@ -1548,7 +1569,7 @@ class TestLoadDecisionsResilience:
         # And: seed a decision with empty verdict
         _seed_decision(store, job_id="no-verdict", verdict="")
 
-        # When
+        # When: evaluate() is called
         result = asyncio.run(runner.evaluate())
 
         # Then: only the valid decision is evaluated
@@ -1599,7 +1620,7 @@ class TestEvalSinglePath:
         _, mock_client = _make_mock_embedder()
         monkeypatch.chdir(tmp_path)
 
-        # When
+        # When: handle_eval runs in single-model mode
         with (
             patch("jobsearch_rag.cli.load_settings", return_value=settings),
             patch(

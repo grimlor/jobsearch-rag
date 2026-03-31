@@ -6,11 +6,12 @@ This conftest provides:
 1. **Output guard** — makes the real ``output/`` directory read-only so
    tests that forget to use ``tmp_path`` get an immediate ``PermissionError``.
 
-2. **Shared I/O-boundary fixtures** — ``mock_embedder`` (Embedder with
-   stubbed Ollama methods), ``vector_store`` (real ChromaDB backed by
-   ``tmp_path``), and ``decision_recorder`` (real recorder wired to the
-   above).  Individual test files may shadow these with local fixtures
-   that use different return values.
+2. **Shared I/O-boundary fixtures** — ``mock_embedder`` (real Embedder with
+   ollama client stubbed at the I/O boundary), ``mock_ollama_client`` (the
+   raw mock), ``vector_store`` (real ChromaDB backed by ``tmp_path``), and
+   ``decision_recorder`` (real recorder wired to the above).  Individual
+   test files may shadow these with local fixtures that use different
+   return values.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import contextlib
 import stat
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -35,31 +36,80 @@ _PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
 
 
 # ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def make_mock_ollama_client(
+    embed_vector: list[float] | None = None,
+    classify_response: str = '{"disqualified": false}',
+) -> AsyncMock:
+    """
+    Build a stubbed ``ollama.AsyncClient`` — the I/O boundary.
+
+    Returns realistic response objects for ``embed`` and ``chat`` so that
+    all Embedder logic (retry, truncation, metrics, token counting) runs
+    for real.  Only the final HTTP call is replaced.
+
+    The ``embed_vector`` defaults to ``EMBED_FAKE`` if not provided.
+    """
+    if embed_vector is None:
+        embed_vector = list(EMBED_FAKE)  # copy to avoid mutation
+
+    client = AsyncMock()
+
+    # embed() → response with embeddings list and token count
+    embed_response = MagicMock()
+    embed_response.embeddings = [embed_vector]
+    embed_response.prompt_eval_count = 42
+    client.embed = AsyncMock(return_value=embed_response)
+
+    # chat() → response with message.content
+    chat_message = MagicMock()
+    chat_message.content = classify_response
+    chat_response = MagicMock()
+    chat_response.message = chat_message
+    chat_response.prompt_eval_count = 100
+    chat_response.eval_count = 20
+    client.chat = AsyncMock(return_value=chat_response)
+
+    # list() → response with available models (for health_check)
+    model_embed = MagicMock()
+    model_embed.model = "nomic-embed-text"
+    model_llm = MagicMock()
+    model_llm.model = "mistral:7b"
+    client.list = AsyncMock(return_value=MagicMock(models=[model_embed, model_llm]))
+
+    return client
+
+
+# ---------------------------------------------------------------------------
 # Shared I/O-boundary fixtures
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def mock_embedder() -> Embedder:
-    """
-    Embedder with stubbed I/O methods — no Ollama connection needed.
+def mock_ollama_client() -> AsyncMock:  # pyright: ignore[reportUnusedFunction]
+    """Stubbed ollama.AsyncClient — the I/O boundary."""
+    return make_mock_ollama_client()
 
-    Uses ``Embedder.__new__`` to create a real instance without calling
-    ``__init__`` (which would create an ``ollama.AsyncClient``).  All
-    async methods are replaced with ``AsyncMock`` stubs that return
-    deterministic values.
+
+@pytest.fixture
+def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
     """
-    embedder = Embedder.__new__(Embedder)
-    embedder.base_url = "http://localhost:11434"
-    embedder.embed_model = "nomic-embed-text"
-    embedder.llm_model = "mistral:7b"
-    embedder.max_retries = 3
-    embedder.base_delay = 0.0
-    embedder.embed = AsyncMock(return_value=EMBED_FAKE)  # type: ignore[method-assign]
-    embedder.classify = AsyncMock(  # type: ignore[method-assign]
-        return_value='{"disqualified": false}',
+    Real Embedder with ollama client stubbed at the I/O boundary.
+
+    All Embedder logic — retry, truncation, metrics, token counting —
+    runs for real.  Only the ollama HTTP call is replaced.
+    """
+    embedder = Embedder(
+        base_url="http://localhost:11434",
+        embed_model="nomic-embed-text",
+        llm_model="mistral:7b",
+        max_retries=1,
+        base_delay=0.0,
     )
-    embedder.health_check = AsyncMock()  # type: ignore[method-assign]
+    embedder._client = mock_ollama_client  # type: ignore[attr-defined]
     return embedder
 
 

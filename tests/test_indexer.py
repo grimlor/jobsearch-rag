@@ -15,7 +15,6 @@ from __future__ import annotations
 import tempfile
 import textwrap
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -23,6 +22,7 @@ from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer, build_archetype_embedding_text
 from jobsearch_rag.rag.store import VectorStore
+from tests.conftest import make_mock_ollama_client
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -144,14 +144,16 @@ def store() -> Iterator[VectorStore]:
 
 @pytest.fixture
 def mock_embedder() -> Embedder:
-    """An Embedder with embed() mocked to return a fake vector."""
-    embedder = Embedder.__new__(Embedder)
-    embedder.base_url = "http://localhost:11434"
-    embedder.embed_model = "nomic-embed-text"
-    embedder.llm_model = "mistral:7b"
-    embedder.max_retries = 3
-    embedder.base_delay = 0.0
-    embedder.embed = AsyncMock(return_value=FAKE_EMBEDDING)  # type: ignore[method-assign]
+    """Real Embedder with ollama client stubbed at the I/O boundary."""
+    mock_client = make_mock_ollama_client(embed_vector=FAKE_EMBEDDING)
+    embedder = Embedder(
+        base_url="http://localhost:11434",
+        embed_model="nomic-embed-text",
+        llm_model="mistral:7b",
+        max_retries=1,
+        base_delay=0.0,
+    )
+    embedder._client = mock_client  # type: ignore[attr-defined]
     return embedder
 
 
@@ -214,9 +216,10 @@ class TestResumeChunking:
          embedding a mix of "Core Strengths" and "Experience" dilutes both
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API)
-        Real:  Indexer.index_resume, _chunk_resume, VectorStore (real temp dir)
-        Never: Patch chunking logic or VectorStore internals
+        Mock:  ollama.AsyncClient (Ollama HTTP I/O)
+        Real:  Indexer.index_resume, _chunk_resume, Embedder (embed, retry,
+               truncation), VectorStore (real temp dir)
+        Never: Patch chunking logic, Embedder methods, or VectorStore internals
     """
 
     async def test_resume_is_chunked_by_section_heading(
@@ -352,7 +355,7 @@ class TestResumeIndexing:
     REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed.
 
     WHO: The scorer computing fit_score; the operator running first-time setup
-    WHAT: (1) The system calls the embedder once for each chunk it creates from a resume.
+    WHAT: (1) The system stores one document per chunk in the resume collection when it indexes a resume.
           (2) The system replaces previously indexed resume content instead of duplicating it during reindexing.
           (3) The system returns the number of chunks it creates as an integer when it indexes a resume.
           (4) The system records "resume" in each chunk's source metadata for traceability.
@@ -361,25 +364,27 @@ class TestResumeIndexing:
          roles — a harder bug to catch than an explicit missing-index error
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API)
-        Real:  Indexer.index_resume, VectorStore (real temp dir)
-        Never: Patch embed or VectorStore internals
+        Mock:  ollama.AsyncClient (Ollama HTTP I/O)
+        Real:  Indexer.index_resume, Embedder (embed, retry, truncation),
+               VectorStore (real temp dir)
+        Never: Patch Embedder methods or VectorStore internals
     """
 
     async def test_embedder_is_called_for_each_chunk(
-        self, indexer: Indexer, mock_embedder: Embedder, resume_path: Path
+        self, indexer: Indexer, store: VectorStore, resume_path: Path
     ) -> None:
         """
         GIVEN a resume with multiple sections
         WHEN index_resume is called
-        THEN the embedder is called once per chunk.
+        THEN the returned count matches the number of documents stored.
         """
         # When: index the resume
         count = await indexer.index_resume(str(resume_path))
 
-        # Then: embed called once per chunk
-        assert mock_embedder.embed.call_count == count, (  # type: ignore[attr-defined]
-            f"Expected {count} embed calls, got {mock_embedder.embed.call_count}"  # type: ignore[attr-defined]
+        # Then: collection has exactly count documents
+        assert store.collection_count("resume") == count, (
+            f"Expected {count} documents in resume collection, "
+            f"got {store.collection_count('resume')}"
         )
 
     async def test_reindex_replaces_previous_content(
@@ -472,9 +477,10 @@ class TestArchetypeIndexing:
          the most insidious failure mode since ranking still appears to work
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API)
-        Real:  Indexer.index_archetypes, TOML parsing, VectorStore (real temp dir)
-        Never: Patch TOML parsing or VectorStore internals
+        Mock:  ollama.AsyncClient (Ollama HTTP I/O)
+        Real:  Indexer.index_archetypes, TOML parsing, Embedder (embed, retry,
+               truncation), VectorStore (real temp dir)
+        Never: Patch TOML parsing, Embedder methods, or VectorStore internals
     """
 
     async def test_each_toml_archetype_produces_one_chroma_document(
@@ -544,8 +550,8 @@ class TestArchetypeIndexing:
         await indexer.index_archetypes(str(archetypes_path))
 
         # Then: all embedded texts are normalized
-        for call in mock_embedder.embed.call_args_list:  # type: ignore[attr-defined]
-            text = str(call.args[0] if call.args else call.kwargs.get("text", ""))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        for call in mock_embedder._client.embed.call_args_list:  # type: ignore[union-attr]
+            text = str(call.kwargs.get("input", ""))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
             assert text == text.strip(), f"Leading/trailing whitespace found: {text!r}"
             assert "  " not in text, f"Double spaces found: {text!r}"
             assert "\n\n" not in text, f"Double newlines found: {text!r}"
@@ -655,9 +661,9 @@ class TestArchetypeEmbeddingSynthesis:
          e.g. "cross-team architecture ownership" as a distinct signal
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API, for index_archetypes test)
+        Mock:  ollama.AsyncClient (Ollama HTTP I/O, for index_archetypes test)
         Real:  build_archetype_embedding_text, Indexer.index_archetypes,
-               VectorStore (real temp dir)
+               Embedder (embed, retry, truncation), VectorStore (real temp dir)
         Never: Patch synthesis logic or whitespace normalization
     """
 
@@ -777,9 +783,10 @@ class TestGlobalRubricLoading:
          negative scoring is incomplete
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API)
-        Real:  Indexer.index_negative_signals, TOML parsing, VectorStore
-        Never: Patch TOML parsing or signal extraction
+        Mock:  ollama.AsyncClient (Ollama HTTP I/O)
+        Real:  Indexer.index_negative_signals, TOML parsing, Embedder (embed,
+               retry, truncation), VectorStore
+        Never: Patch TOML parsing, Embedder methods, or signal extraction
     """
 
     async def test_rubric_signals_are_loaded_and_indexed(
@@ -860,7 +867,7 @@ class TestNegativeSignalIndexing:
 
     WHO: The scorer computing negative_score for each listing
     WHAT: (1) The system indexes negative signals from both the rubric and the archetypes into the collection.
-          (2) The system embeds each negative signal text exactly once during indexing.
+          (2) The system stores one document per signal in the negative_signals collection.
           (3) The system records each indexed negative signal with source metadata prefixed by `rubric:` or `archetype:`.
           (4) The system replaces previously indexed negative signals when reindexing instead of appending duplicates.
           (5) The system indexes only archetype negative signals when the rubric has no dimensions.
@@ -872,10 +879,10 @@ class TestNegativeSignalIndexing:
          dealbreakers while archetype negatives catch role-specific mismatches
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API)
+        Mock:  ollama.AsyncClient (Ollama HTTP I/O)
         Real:  Indexer.index_negative_signals, signal combining logic,
-               VectorStore (real temp dir)
-        Never: Patch signal extraction or VectorStore internals
+               Embedder (embed, retry, truncation), VectorStore (real temp dir)
+        Never: Patch signal extraction, Embedder methods, or VectorStore internals
     """
 
     async def test_rubric_and_archetype_negatives_are_combined(
@@ -904,23 +911,24 @@ class TestNegativeSignalIndexing:
     async def test_each_signal_is_individually_embedded(
         self,
         indexer: Indexer,
-        mock_embedder: Embedder,
+        store: VectorStore,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
         """
         GIVEN a rubric and archetypes with negative signals
-        WHEN index_negative_signals embeds them
-        THEN each signal text triggers one embed call.
+        WHEN index_negative_signals is called
+        THEN the returned count matches the number of documents stored.
         """
         # When: index negative signals
         count = await indexer.index_negative_signals(
             str(rubric_path), str(archetypes_with_signals_path)
         )
 
-        # Then: one embed call per signal
-        assert mock_embedder.embed.call_count == count, (  # type: ignore[attr-defined]
-            f"Expected {count} embed calls, got {mock_embedder.embed.call_count}"  # type: ignore[attr-defined]
+        # Then: collection has exactly count documents
+        assert store.collection_count("negative_signals") == count, (
+            f"Expected {count} documents in negative_signals collection, "
+            f"got {store.collection_count('negative_signals')}"
         )
 
     async def test_signal_metadata_records_source(

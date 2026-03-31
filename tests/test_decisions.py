@@ -13,7 +13,6 @@ import json as json_mod
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -21,6 +20,7 @@ from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.store import VectorStore
+from tests.conftest import make_mock_ollama_client
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -37,14 +37,16 @@ def store() -> Iterator[VectorStore]:
 
 @pytest.fixture
 def mock_embedder() -> Embedder:
-    """Return an Embedder with stubbed async methods."""
-    embedder = Embedder.__new__(Embedder)
-    embedder.base_url = "http://localhost:11434"
-    embedder.embed_model = "nomic-embed-text"
-    embedder.llm_model = "mistral:7b"
-    embedder.max_retries = 3
-    embedder.base_delay = 0.0
-    embedder.embed = AsyncMock(return_value=EMBED_TEST)  # type: ignore[method-assign]
+    """Real Embedder with ollama client stubbed at the I/O boundary."""
+    mock_client = make_mock_ollama_client(embed_vector=EMBED_TEST)
+    embedder = Embedder(
+        base_url="http://localhost:11434",
+        embed_model="nomic-embed-text",
+        llm_model="mistral:7b",
+        max_retries=1,
+        base_delay=0.0,
+    )
+    embedder._client = mock_client  # type: ignore[attr-defined]
     return embedder
 
 
@@ -83,9 +85,11 @@ class TestDecisionRecording:
          not 'what did I reject' (rejections have too many confounding reasons)
 
     MOCK BOUNDARY:
-        Mock: Embedder.embed (Ollama API call)
-        Real: DecisionRecorder, VectorStore (via tmpdir), JSONL file I/O
-        Never: Patch DecisionRecorder internals or verdict classification logic
+        Mock:  ollama.AsyncClient (Ollama HTTP I/O — the only I/O boundary)
+        Real:  Embedder (embed, retry, truncation, metrics), DecisionRecorder,
+               VectorStore (via tmpdir), JSONL file I/O
+        Never: Patch Embedder methods, DecisionRecorder internals, or verdict
+               classification logic
     """
 
     async def test_yes_verdict_is_stored_in_history_collection(
@@ -179,9 +183,9 @@ class TestDecisionRecording:
         )
 
         # Then: embedder receives enriched text
-        mock_embedder.embed.assert_called_once_with(  # type: ignore[attr-defined]
-            f"{jd}\n\nOperator reasoning: {reason}"
-        )
+        embed_input = mock_embedder._client.embed.call_args.kwargs["input"]  # type: ignore[union-attr]
+        expected = f"{jd}\n\nOperator reasoning: {reason}"
+        assert embed_input == expected, f"Expected enriched text {expected!r}, got {embed_input!r}"
 
     async def test_empty_reason_does_not_enrich_embedding(
         self, recorder: DecisionRecorder, mock_embedder: Embedder
@@ -203,7 +207,8 @@ class TestDecisionRecording:
         )
 
         # Then: embedder receives bare JD text only
-        mock_embedder.embed.assert_called_once_with(jd)  # type: ignore[attr-defined]
+        embed_input = mock_embedder._client.embed.call_args.kwargs["input"]  # type: ignore[union-attr]
+        assert embed_input == jd, f"Expected bare JD text {jd!r}, got {embed_input!r}"
 
     async def test_no_verdict_is_stored_but_excluded_from_scoring_signal(
         self, recorder: DecisionRecorder
