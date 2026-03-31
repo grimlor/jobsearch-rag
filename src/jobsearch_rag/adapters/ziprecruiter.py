@@ -1,21 +1,20 @@
 """
 ZipRecruiter adapter — auth, search pagination, JD extraction.
 
-ZipRecruiter renders its SERP as a React SPA.  The HTML body contains only
-empty hydration roots (``#react-serp-root``); all job data is delivered as
-JSON inside a ``<script id="js_variables" type="application/json">`` tag.
+ZipRecruiter renders its SERP as a Next.js application with server-side
+rendered article elements and JSON-LD structured data.
 
 Extraction strategy:
   1. Navigate to the search URL and wait for DOM content.
   2. Wait for any Cloudflare challenge to resolve (important: Cloudflare
      presents a "Just a moment..." interstitial on first visit).
-  3. Read the ``js_variables`` script tag and ``JSON.parse`` it.
-  4. Job cards live at ``hydrateJobCardsResponse.jobCards[]``.
-  5. Full JD HTML for the initially-selected card is at
-     ``getJobDetailsResponse.jobDetails.htmlFullDescription``.
-  6. For remaining cards, **click each card article** on the SERP to
-     update the detail panel (``[data-testid='job-details-scroll-container']``)
-     and read the full JD text via ``inner_text()``.
+  3. Parse job card metadata from ``<article id="job-card-{id}">``
+     elements server-rendered in the HTML.
+  4. Extract job URLs from ``<script type="application/ld+json">``
+     structured data (schema.org ItemList).
+  5. **Click each card article** on the SERP to update the detail panel
+     (``[data-testid='job-details-scroll-container']``) and read the
+     full JD text via ``inner_text()``.
 
 The adapter stays on the SERP page and uses click-through extraction
 rather than navigating to individual detail URLs, which avoids triggering
@@ -51,9 +50,8 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 _SELECTORS = {
-    "js_variables": "script#js_variables",
     "captcha_indicator": "iframe[src*='captcha'], div.g-recaptcha",
-    "card_articles": "[class*='job_result'] article",
+    "card_articles": "article[id^='job-card-']",
     "detail_panel": "[data-testid='job-details-scroll-container']",
 }
 
@@ -118,104 +116,167 @@ def html_to_text(html: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# JSON extraction helpers
+# DOM extraction helpers
 # ---------------------------------------------------------------------------
 
 
-def extract_js_variables(html: str) -> dict[str, Any]:
+def extract_json_ld_urls(html: str) -> list[str]:
     """
-    Parse the ``js_variables`` JSON blob from a ZipRecruiter page.
+    Extract job URLs from JSON-LD ItemList structured data.
+
+    ZipRecruiter embeds a ``<script type="application/ld+json">`` block
+    with a schema.org ``ItemList`` containing job URLs, titles, and
+    positions.  This function parses that block and returns the URLs
+    in position order.
 
     Args:
         html: Full page HTML source.
 
     Returns:
-        Parsed dict of the ``js_variables`` content.
-
-    Raises:
-        ActionableError: If the script tag is missing or JSON is malformed.
+        List of absolute job URLs in position order, or empty list if
+        JSON-LD is missing or malformed.
 
     """
-    pattern = r'<script\s+id="js_variables"\s+type="application/json"[^>]*>(.*?)</script>'
+    pattern = r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>'
     match = re.search(pattern, html, re.DOTALL)
     if not match:
-        raise ActionableError.parse(
-            "ziprecruiter",
-            "script#js_variables",
-            "js_variables script tag not found — page structure may have changed",
-        )
+        return []
     try:
-        return json.loads(match.group(1))  # type: ignore[no-any-return]
-    except json.JSONDecodeError as exc:
-        raise ActionableError.parse(
-            "ziprecruiter",
-            "script#js_variables",
-            f"Failed to parse js_variables JSON: {exc}",
-        ) from exc
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return []
+    items: list[dict[str, Any]] = data.get("itemListElement", [])
+    return [item["url"] for item in items if "url" in item]
 
 
-def parse_job_cards(js_vars: dict[str, Any]) -> list[dict[str, Any]]:
-    """Extract the job card list from parsed js_variables."""
-    hydrate = js_vars.get("hydrateJobCardsResponse", {})
-    cards: list[dict[str, Any]] = hydrate.get("jobCards", [])
+def parse_salary_text(text: str) -> tuple[float | None, float | None]:
+    """
+    Parse salary text like ``$185K - $240K/yr`` into annual (min, max).
+
+    Handles K (thousands) and M (millions) suffixes.  Returns
+    ``(None, None)`` when no salary pattern is found.
+    """
+    pattern = r"\$([\d,.]+)([KkMm]?)\s*[-\u2013]\s*\$([\d,.]+)([KkMm]?)(?:/yr)?"
+    match = re.search(pattern, text)
+    if not match:
+        return None, None
+
+    def _to_annual(val_str: str, suffix: str) -> float:
+        val = float(val_str.replace(",", ""))
+        if suffix.upper() == "K":
+            val *= 1_000
+        elif suffix.upper() == "M":
+            val *= 1_000_000
+        return val
+
+    min_val = _to_annual(match.group(1), match.group(2))
+    max_val = _to_annual(match.group(3), match.group(4))
+    return min_val, max_val
+
+
+def extract_job_cards(html: str) -> list[dict[str, Any]]:
+    """
+    Extract job card data from Next.js server-rendered article elements.
+
+    ZipRecruiter's Next.js SERP renders each job as an
+    ``<article id="job-card-{external_id}">`` element containing the
+    title (``<h2>``), company (``data-testid="job-card-company"``),
+    location (``data-testid="job-card-location"``), and optional salary
+    text.
+
+    Articles appear twice in the HTML (desktop and mobile responsive
+    variants).  This function deduplicates by ``external_id``.
+
+    Returns:
+        List of dicts with keys: ``external_id``, ``title``, ``company``,
+        ``location``, ``salary_text``.
+
+    """
+    cards: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    for art_match in re.finditer(
+        r'<article[^>]*\bid="job-card-([^"]+)"[^>]*>(.*?)</article>',
+        html,
+        re.DOTALL,
+    ):
+        ext_id = art_match.group(1)
+        if ext_id in seen_ids:
+            continue
+        seen_ids.add(ext_id)
+
+        content = art_match.group(2)
+
+        # Title from <h2>
+        h2_match = re.search(r"<h2[^>]*>(.*?)</h2>", content, re.DOTALL)
+        title = re.sub(r"<[^>]+>", "", h2_match.group(1)).strip() if h2_match else ""
+
+        # Company from data-testid="job-card-company"
+        company_match = re.search(r'data-testid="job-card-company"[^>]*>([^<]+)', content)
+        company = company_match.group(1).strip() if company_match else "Unknown"
+
+        # Location from data-testid="job-card-location"
+        loc_match = re.search(r'data-testid="job-card-location"[^>]*>([^<]+)', content)
+        location = loc_match.group(1).strip() if loc_match else "Unknown"
+
+        # Salary text (if present)
+        sal_match = re.search(
+            r"\$([\d,.]+[KkMm]?)\s*[-\u2013]\s*\$([\d,.]+[KkMm]?)(?:/yr)?",
+            content,
+        )
+        salary_text = sal_match.group(0) if sal_match else ""
+
+        cards.append(
+            {
+                "external_id": ext_id,
+                "title": title,
+                "company": company,
+                "location": location,
+                "salary_text": salary_text,
+            }
+        )
+
     return cards
 
 
 def card_to_listing(card: dict[str, Any]) -> JobListing:
     """
-    Convert a single job card dict to a ``JobListing``.
+    Convert an extracted card dict to a ``JobListing``.
 
-    The ``shortDescription`` snippet from the card is stored in
-    ``metadata["short_description"]`` for fallback use when full
-    JD extraction from the detail page is blocked.
+    Expected card keys:
+        ``external_id``, ``title``, ``company``, ``location``,
+        ``url`` (from JSON-LD matching), ``salary_text`` (optional).
     """
-    listing_key = card.get("listingKey", "")
-    title = card.get("title", "")
-    company = card.get("company", {}).get("name", "Unknown")
+    ext_id: str = card.get("external_id", "")
+    title: str = card.get("title", "")
+    company: str = card.get("company", "Unknown")
+    location: str = card.get("location", "Unknown")
+    url: str = card.get("url", "")
+    salary_text: str = card.get("salary_text", "")
 
-    # Location: use displayName from the nested location object
-    loc_obj = card.get("location", {})
-    location = loc_obj.get("displayName", "Unknown")
-
-    # Canonical URL — top-level field in card, falls back to applyButtonConfig
-    raw_url = card.get("rawCanonicalZipJobPageUrl", "")
-    if not raw_url:
-        apply_cfg = card.get("applyButtonConfig", {})
-        raw_url = apply_cfg.get("rawCanonicalZipJobPageUrl", "")
-    url = f"{_BASE_URL}{raw_url}" if raw_url else ""
-
-    # Salary metadata
-    pay = card.get("pay", {})
-    salary_min = pay.get("minAnnual")
-    salary_max = pay.get("maxAnnual")
     metadata: dict[str, str] = {}
-    if salary_min is not None and salary_max is not None:
-        metadata["salary_range"] = f"${salary_min:,.0f} - ${salary_max:,.0f}"
+    comp_min: float | None = None
+    comp_max: float | None = None
 
-    # Capture short description for fallback scoring
-    short_desc = card.get("shortDescription", "")
-    if short_desc:
-        metadata["short_description"] = short_desc
+    if salary_text:
+        comp_min, comp_max = parse_salary_text(salary_text)
+        if comp_min is not None and comp_max is not None:
+            metadata["salary_range"] = f"${comp_min:,.0f} - ${comp_max:,.0f}"
 
     return JobListing(
         board="ziprecruiter",
-        external_id=listing_key,
+        external_id=ext_id,
         title=title,
         company=company,
         location=location,
         url=url,
-        full_text="",  # Populated by extract_detail
+        full_text="",  # Populated by click-through
+        comp_min=comp_min,
+        comp_max=comp_max,
+        comp_source="serp" if comp_min is not None else None,
+        comp_text=salary_text or None,
         metadata=metadata,
     )
-
-
-def extract_jd_text(js_vars: dict[str, Any]) -> str:
-    """Extract full JD plain text from the detail response in js_variables."""
-    details = js_vars.get("getJobDetailsResponse", {}).get("jobDetails", {})
-    html_desc = details.get("htmlFullDescription", "")
-    if not html_desc:
-        return ""
-    return html_to_text(html_desc)
 
 
 # ---------------------------------------------------------------------------
@@ -260,8 +321,8 @@ class ZipRecruiterAdapter(JobBoardAdapter):
     """
     Browser automation adapter for ZipRecruiter.
 
-    Extracts job data from the ``js_variables`` JSON blob embedded in
-    ZipRecruiter's React SPA pages.  Full JD text is obtained via
+    Extracts job card metadata from server-rendered Next.js article
+    elements and JSON-LD structured data.  Full JD text is obtained via
     SERP click-through: clicking each card article updates the detail
     panel, avoiding per-URL navigation and Cloudflare challenges.
     """
@@ -322,10 +383,9 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         """
         Navigate search results, click through cards, and return enriched listings.
 
-        Extracts job card metadata from the ``js_variables`` JSON blob, then
-        clicks through each card article on the SERP to read full JD text
-        from the detail panel.  This avoids navigating to individual detail
-        URLs, which would trigger fresh Cloudflare challenges per listing.
+        Extracts job card metadata from server-rendered article elements
+        and JSON-LD structured data, then clicks through each card on the
+        SERP to read full JD text from the detail panel.
 
         Args:
             page: Playwright page with an active session.
@@ -352,50 +412,29 @@ class ZipRecruiterAdapter(JobBoardAdapter):
             logger.info("Processing search results page %d", page_num)
 
             html = await page.content()
-            try:
-                js_vars = extract_js_variables(html)
-            except ActionableError:
-                logger.warning(
-                    "Could not extract js_variables on page %d — stopping",
-                    page_num,
-                )
-                break
-
-            cards = parse_job_cards(js_vars)
+            cards = extract_job_cards(html)
             if not cards:
                 logger.info("No job cards on page %d — stopping", page_num)
                 break
 
+            # Match URLs from JSON-LD structured data
+            urls = extract_json_ld_urls(html)
+
             # Parse card metadata into listings
             page_listings: list[JobListing] = []
-            for card in cards:
+            for i, card in enumerate(cards):
                 try:
+                    card["url"] = urls[i] if i < len(urls) else ""
                     listing = card_to_listing(card)
                     page_listings.append(listing)
                 except Exception as exc:
                     logger.warning("Failed to parse a job card: %s", exc)
 
-            # --- Click-through extraction ---
-            # The first card's JD may already be in js_variables
-            first_jd = extract_jd_text(js_vars)
-            if first_jd and page_listings:
-                page_listings[0].full_text = first_jd
-                logger.debug(
-                    "First card JD from js_variables (%d chars)",
-                    len(first_jd),
-                )
-
-            # Click remaining cards to extract full JD from detail panel
+            # Click through all cards to extract full JD from detail panel
             await self._click_through_cards(page, page_listings)
 
             listings.extend(page_listings)
             pages_processed = page_num
-
-            # Check if there are more pages
-            site_max_pages = js_vars.get("maxPages", 1)
-            if page_num >= site_max_pages:
-                logger.info("Reached last page (%d)", page_num)
-                break
 
         enriched = sum(1 for ls in listings if ls.full_text.strip())
         logger.info(
@@ -414,38 +453,28 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         """
         Click each card article on the SERP and read JD from the detail panel.
 
-        Skips listings that already have ``full_text`` populated (e.g. the
-        first card extracted from ``js_variables``).  Falls back to
-        ``shortDescription`` from metadata when the panel text is too short.
+        Skips listings that already have ``full_text`` populated.  Falls
+        back to title/company context when the panel text is too short.
 
         Detects ZipRecruiter throttle responses (error messages instead of
         real JD text) and retries with exponential backoff before skipping.
         """
-        card_locator = page.locator(_SELECTORS["card_articles"])
         panel_locator = page.locator(_SELECTORS["detail_panel"])
-
-        card_count = await card_locator.count()
-        if card_count == 0:
-            logger.warning("No card articles found on SERP — cannot click-through")
-            return
 
         consecutive_throttles = 0
 
         for i, listing in enumerate(listings):
-            # Skip if already populated (first card from js_variables)
+            # Skip if already populated
             if listing.full_text.strip():
                 continue
 
-            if i >= card_count:
-                logger.debug("Card index %d exceeds DOM card count %d", i, card_count)
-                break
+            # Locate this card by its external_id
+            card_locator = page.locator(f"article[id='job-card-{listing.external_id}']").first
 
             retry = 0
             while retry <= _THROTTLE_MAX_RETRIES:
                 try:
-                    # Click the card article
-                    card = card_locator.nth(i)
-                    await card.click()
+                    await card_locator.click()
 
                     # Human-like delay
                     delay = random.uniform(*_CLICK_DELAY)
@@ -492,11 +521,6 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                     break
 
                 except Exception as exc:
-                    # The wait_for timeout may fire even though the panel
-                    # eventually rendered with throttle text.  Try reading
-                    # the panel before giving up — if it *is* a throttle
-                    # response, enter the backoff/retry loop instead of
-                    # immediately falling back to the short description.
                     try:
                         late_text = await panel_locator.inner_text()
                     except Exception:

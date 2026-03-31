@@ -26,6 +26,7 @@ import pytest
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.adapters.ziprecruiter import (
+    _SELECTORS,  # pyright: ignore[reportPrivateUsage]  # test coupling to selector dict
     ZipRecruiterAdapter,
     is_throttle_response,
 )
@@ -70,34 +71,24 @@ def _make_listing(**overrides: Any) -> JobListing:
     return JobListing(**defaults)
 
 
-def _listing_to_card(listing: JobListing) -> dict[str, Any]:
-    """Convert a ``JobListing`` to a ZR card dict for the HTML fixture."""
-    card: dict[str, Any] = {
-        "listingKey": listing.external_id,
-        "title": listing.title,
-        "company": {"name": listing.company},
-        "location": {"displayName": listing.location},
-        "rawCanonicalZipJobPageUrl": listing.url.replace(
-            "https://www.ziprecruiter.com",
-            "",
-        ),
-    }
-    short_desc = listing.metadata.get("short_description", "")
-    if short_desc:
-        card["shortDescription"] = short_desc
-    return card
-
-
-def _build_zr_html(cards: list[dict[str, Any]]) -> str:
-    """Build a realistic ZipRecruiter page with a ``js_variables`` JSON blob."""
-    js_vars = {
-        "hydrateJobCardsResponse": {"jobCards": cards},
-        "maxPages": 1,
-    }
+def _build_zr_html(listings: list[JobListing]) -> str:
+    """Build a realistic ZipRecruiter page with server-rendered articles and JSON-LD."""
+    articles = ""
+    ld_items: list[dict[str, str]] = []
+    for ls in listings:
+        articles += (
+            f'<article id="job-card-{ls.external_id}">'
+            f"<h2>{ls.title}</h2>"
+            f'<a data-testid="job-card-company">{ls.company}</a>'
+            f'<a data-testid="job-card-location">{ls.location}</a>'
+            "</article>"
+        )
+        ld_items.append({"@type": "ListItem", "url": ls.url})
+    json_ld = json.dumps({"@type": "ItemList", "itemListElement": ld_items})
     return (
         "<html><head><title>Jobs</title></head><body>"
-        '<script id="js_variables" type="application/json">'
-        f"{json.dumps(js_vars)}</script></body></html>"
+        f'<script type="application/ld+json">{json_ld}</script>'
+        f"{articles}</body></html>"
     )
 
 
@@ -109,29 +100,48 @@ def _patch_search_to_click_through(
     """
     Patch I/O boundaries so ``search()`` reaches click-through with real parsing.
 
-    Builds a realistic HTML page containing a ``js_variables`` JSON blob
-    derived from *listings*.  Pure-computation functions
-    (``extract_js_variables``, ``parse_job_cards``, ``card_to_listing``,
-    ``extract_jd_text``) run on **real data** — only I/O boundaries
-    (page navigation, Playwright locators) are stubbed.  ``_wait_for_cloudflare``
-    runs for real against a page whose title is "Jobs" (passes immediately).
+    Builds a realistic HTML page containing server-rendered article elements
+    and a JSON-LD block derived from *listings*.  Pure-computation functions
+    (``extract_job_cards``, ``extract_json_ld_urls``, ``card_to_listing``)
+    run on **real data** — only I/O boundaries (page navigation, Playwright
+    locators) are stubbed.  ``_wait_for_cloudflare`` runs for real against a
+    page whose title is "Jobs" (passes immediately).
 
     Yields the ``page`` mock for passing to ``adapter.search()``.
     """
-    html = _build_zr_html([_listing_to_card(ls) for ls in listings])
+    html = _build_zr_html(listings)
 
-    card_mock = AsyncMock()
-    card_mock.click = AsyncMock()
+    # Derive selector patterns from the adapter's own _SELECTORS dict
+    _panel_sel = _SELECTORS["detail_panel"]
+    _card_prefix = _SELECTORS["card_articles"].replace("^=", "='")
 
-    card_locator = MagicMock()
-    card_locator.count = AsyncMock(return_value=len(listings))
-    card_locator.nth = MagicMock(return_value=card_mock)
+    # Card locators by ID
+    _card_mocks: dict[str, MagicMock] = {}
+    for ls in listings:
+        card_mock = MagicMock()
+        first_mock = MagicMock()
+        first_mock.click = AsyncMock()
+        card_mock.first = first_mock
+        _card_mocks[ls.external_id] = card_mock
+
+    def _locator_dispatch(sel: str) -> MagicMock | AsyncMock:
+        if sel == _panel_sel:
+            return panel_mock
+        if sel.startswith(_card_prefix):
+            cid = sel[len(_card_prefix) :].rstrip("']")
+            if cid in _card_mocks:
+                return _card_mocks[cid]
+        fallback = MagicMock()
+        fallback.first = MagicMock()
+        fallback.first.click = AsyncMock()
+        return fallback
 
     page = MagicMock()
     page.goto = AsyncMock()
     page.content = AsyncMock(return_value=html)
     page.title = AsyncMock(return_value="Jobs")
-    page.locator = MagicMock(side_effect=[card_locator, panel_mock])
+    page.query_selector = AsyncMock(return_value=None)
+    page.locator = MagicMock(side_effect=_locator_dispatch)  # pyright: ignore[reportUnknownLambdaType]
 
     yield page
 
@@ -156,8 +166,8 @@ class TestThrottleDetection:
           (7) The system logs a throttle event at WARNING with the listing identifier.
           (8) The system populates the listing `full_text` with the real JD content when extraction succeeds after throttle backoff.
           (9) The system detects throttle text that appears after a timeout and retries with backoff.
-          (10) The system uses fallback text after repeated late throttle responses exhaust all retries.
-          (11) The system falls back to `short_description` immediately when a timeout is not followed by throttle text.
+          (10) The system uses empty fallback text after repeated late throttle responses exhaust all retries (no short_description in DOM flow).
+          (11) The system falls back to empty text immediately when a timeout is not followed by throttle text (no short_description in DOM flow).
     WHY: Without throttle detection, error messages would be indexed as
          JD content, corrupting scoring results
 
@@ -165,8 +175,8 @@ class TestThrottleDetection:
         Mock:  Playwright page/locator (browser I/O),
                asyncio.sleep (time I/O)
         Real:  ZipRecruiterAdapter.search, _wait_for_cloudflare,
-               is_throttle_response, extract_js_variables,
-               parse_job_cards, card_to_listing, extract_jd_text —
+               is_throttle_response, extract_job_cards,
+               extract_json_ld_urls, card_to_listing —
                all parsing/detection logic runs for real
         Never: Patch is_throttle_response or internal adapter methods
     """
@@ -435,14 +445,13 @@ class TestThrottleDetection:
     @pytest.mark.asyncio
     async def test_late_throttle_exhausts_retries_then_falls_back(self) -> None:
         """
-        Given a listing with a short_description fallback that always throttles
+        Given a listing that always throttles via late-detected panel text
         When wait_for always times out and panel reads show throttle text
-        Then all retries are exhausted and fallback text is used
+        Then all retries are exhausted and listing has empty fallback text
         """
-        # Given: a listing with a short_description fallback, always throttled
+        # Given: a listing that always throttles (no short_description in DOM flow)
         adapter = ZipRecruiterAdapter()
         listing = _make_listing()
-        listing.metadata["short_description"] = "Fallback desc"
 
         panel_mock = AsyncMock()
         panel_mock.wait_for = AsyncMock(side_effect=TimeoutError("5000ms exceeded"))
@@ -455,9 +464,9 @@ class TestThrottleDetection:
             # When: search exhausts all retries
             results = await adapter.search(page, _SEARCH_URL, max_pages=1)
 
-        # Then: fallback short_description is used as full_text
-        assert "Fallback desc" in results[0].full_text, (
-            f"Expected fallback 'Fallback desc' in full_text after retry exhaustion. "
+        # Then: listing has empty full_text (no short_description in DOM-based flow)
+        assert not results[0].full_text.strip(), (
+            f"Expected empty full_text after retry exhaustion (no short_description in DOM flow). "
             f"Got: {results[0].full_text[:100]!r}"
         )
 
@@ -468,12 +477,11 @@ class TestThrottleDetection:
         """
         Given a listing where both wait_for and inner_text fail
         When the adapter attempts to read the panel after timeout
-        Then it falls back to short_description without retrying
+        Then it falls back to empty text without retrying (no short_description in DOM flow)
         """
         # Given: a listing where both wait_for and inner_text fail
         adapter = ZipRecruiterAdapter()
         listing = _make_listing()
-        listing.metadata["short_description"] = "Short desc for fallback"
 
         panel_mock = AsyncMock()
         panel_mock.wait_for = AsyncMock(side_effect=TimeoutError("5000ms exceeded"))
@@ -486,8 +494,8 @@ class TestThrottleDetection:
             # When: search encounters timeout with no throttle text available
             results = await adapter.search(page, _SEARCH_URL, max_pages=1)
 
-        # Then: falls back to short_description immediately (no retry)
-        assert "Short desc for fallback" in results[0].full_text, (
-            f"Expected 'Short desc for fallback' in full_text after immediate fallback. "
+        # Then: falls back to empty text immediately (no short_description in DOM flow)
+        assert not results[0].full_text.strip(), (
+            f"Expected empty full_text after immediate fallback (no short_description in DOM flow). "
             f"Got: {results[0].full_text[:100]!r}"
         )

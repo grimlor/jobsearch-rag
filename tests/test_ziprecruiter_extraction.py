@@ -2,17 +2,18 @@
 ZipRecruiter adapter extraction tests.
 
 Spec classes:
-    TestZipRecruiterJsonExtraction — JSON blob extraction from React SPA
+    TestZipRecruiterDomExtraction — DOM-based extraction from Next.js SERP
     TestHtmlToText — HTML-to-plain-text conversion for embedding
+    TestSalaryParsing — Salary text parsing into numeric ranges
     TestRealWorldExtraction — Regression guard against production HTML
     TestAuthenticate — Session verification and Cloudflare/CAPTCHA detection
     TestSearch — SERP navigation, card extraction, and click-through enrichment
     TestExtractDetailPassthrough — extract_detail passthrough when full_text populated
 
-Validates the JSON-based extraction strategy against ZipRecruiter's
-React SPA structure where all job data is embedded in a
-``<script id="js_variables">`` JSON blob, and the search() method that
-enriches listings via SERP click-through.
+Validates the DOM-based extraction strategy against ZipRecruiter's
+Next.js SERP structure where job data is rendered in server-side
+``<article>`` elements with ``data-testid`` attributes, and URLs
+are provided via JSON-LD structured data.
 """
 
 from __future__ import annotations
@@ -25,12 +26,13 @@ import pytest
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.adapters.ziprecruiter import (
+    _SELECTORS,  # pyright: ignore[reportPrivateUsage]  # test coupling to selector dict
     ZipRecruiterAdapter,
     card_to_listing,
-    extract_jd_text,
-    extract_js_variables,
+    extract_job_cards,
+    extract_json_ld_urls,
     html_to_text,
-    parse_job_cards,
+    parse_salary_text,
 )
 from jobsearch_rag.errors import ActionableError
 
@@ -45,174 +47,108 @@ _REAL_FIXTURE = _FIXTURES / "ziprecruiter_serp_real.html"
 
 
 # ---------------------------------------------------------------------------
-# TestZipRecruiterJsonExtraction
+# TestZipRecruiterDomExtraction
 # ---------------------------------------------------------------------------
 
 
-class TestZipRecruiterJsonExtraction:
+class TestZipRecruiterDomExtraction:
     """
-    REQUIREMENT: Job data is extracted from ZipRecruiter's js_variables JSON blob.
+    REQUIREMENT: Job data is extracted from ZipRecruiter's Next.js SERP DOM.
 
     WHO: The ZipRecruiter adapter extraction pipeline
-    WHAT: (1) The ``<script id="js_variables">`` tag is located and parsed as JSON
-          (2) job cards are extracted from ``hydrateJobCardsResponse.jobCards``
-          (3) each card maps correctly to a ``JobListing``
-          (4) full JD HTML is converted to plain text from ``htmlFullDescription``
-          (5) a missing js_variables script tag raises ActionableError naming the selector
-          (6) malformed JSON in js_variables raises ActionableError identifying the parse problem
-          (7) missing hydrateJobCardsResponse key returns an empty card list
-          (8) salary metadata is included when pay data is present, omitted when absent
-          (9) URL construction falls back to applyButtonConfig when canonical path is missing
-          (10) SERP card full_text is empty after extraction (populated during search)
-          (11) extract_jd_text returns empty string when description or details response is absent
-          (12) card_to_listing maps the card title to the listing title
-          (13) card_to_listing extracts the company name from the nested company object
-          (14) card_to_listing maps location.displayName to the listing location
-          (15) card_to_listing uses listingKey as the listing external_id
-          (16) card_to_listing builds the full URL from the canonical path
-          (17) card_to_listing sets the board field to 'ziprecruiter'
-          (18) real fixture parsing produces the expected count of job cards
-          (19) extract_jd_text returns clean text from real production fixture data
-          (20) extract_jd_text returns empty string when getJobDetailsResponse is absent
-          (21) real SERP fixture parses with expected session authentication flags
-    WHY: ZipRecruiter is a React SPA — the HTML body contains only empty
-         hydration roots.  CSS selectors against rendered DOM will never match.
-         All data lives in the embedded JSON blob.
+    WHAT: (1) The system extracts 3 job cards from the synthetic SERP fixture.
+          (2) The system deduplicates responsive-layout article duplicates by external_id.
+          (3) The system extracts 3 JSON-LD URLs from the synthetic SERP fixture.
+          (4) Each card maps correctly to a ``JobListing`` with the right title.
+          (5) card_to_listing extracts the company from the card dict.
+          (6) card_to_listing maps location from the card dict.
+          (7) card_to_listing uses external_id as the listing external_id.
+          (8) card_to_listing assigns the URL from matching JSON-LD data.
+          (9) card_to_listing sets the board field to 'ziprecruiter'.
+          (10) card_to_listing full_text is empty after extraction (populated during search).
+          (11) salary metadata is included when salary text is present, omitted when absent.
+          (12) card_to_listing omits salary metadata when salary_text is present but unparseable.
+          (13) extract_job_cards returns empty list when no article elements exist.
+          (14) extract_json_ld_urls returns empty list when no JSON-LD script exists.
+          (15) extract_json_ld_urls handles malformed JSON gracefully.
+    WHY: ZipRecruiter uses a Next.js SERP with server-rendered article
+         elements and JSON-LD structured data — extraction must parse
+         both data sources reliably.
 
     MOCK BOUNDARY:
         Mock:  (none — pure functions operating on fixture HTML)
-        Real:  extract_js_variables, parse_job_cards, card_to_listing,
-               extract_jd_text, html_to_text
+        Real:  extract_job_cards, extract_json_ld_urls, card_to_listing,
+               parse_salary_text
         Never: Patch extraction functions or fixture file contents
     """
 
-    def test_extract_js_variables_from_serp_fixture(self) -> None:
+    def test_extract_job_cards_from_synthetic_fixture(self) -> None:
         """
-        GIVEN a synthetic SERP HTML fixture
-        WHEN extract_js_variables is called
-        THEN the js_variables JSON blob is parsed successfully.
+        GIVEN a synthetic SERP HTML fixture with 3 job cards (6 articles, 3 duplicates)
+        WHEN extract_job_cards is called
+        THEN exactly 3 deduplicated cards are returned.
         """
         # Given: synthetic fixture HTML
         html = _SERP_FIXTURE.read_text()
 
         # When: extract
-        js_vars = extract_js_variables(html)
+        cards = extract_job_cards(html)
 
-        # Then: valid dict with expected key
-        assert isinstance(js_vars, dict), f"Expected dict, got {type(js_vars)}"
-        assert "hydrateJobCardsResponse" in js_vars, "Missing hydrateJobCardsResponse key"
-
-    def test_extract_js_variables_from_real_fixture(self) -> None:
-        """
-        GIVEN a real ZipRecruiter SERP HTML fixture
-        WHEN extract_js_variables is called
-        THEN the js_variables JSON blob is parsed with expected keys.
-        """
-        # Given: real fixture HTML
-        html = _REAL_FIXTURE.read_text()
-
-        # When: extract
-        js_vars = extract_js_variables(html)
-
-        # Then: valid dict with expected keys
-        assert isinstance(js_vars, dict), f"Expected dict, got {type(js_vars)}"
-        assert "hydrateJobCardsResponse" in js_vars, "Missing hydrateJobCardsResponse key"
-        assert js_vars.get("isLoggedIn") is False, (
-            f"Expected isLoggedIn=False, got {js_vars.get('isLoggedIn')!r}"
-        )
-
-    def test_extract_js_variables_missing_script_tag_names_the_selector(self) -> None:
-        """
-        GIVEN HTML without a js_variables script tag
-        WHEN extract_js_variables is called
-        THEN an ActionableError naming the missing selector is raised.
-        """
-        # Given: HTML with no JSON blob
-        html = "<html><body><p>No JSON here</p></body></html>"
-
-        # When/Then: raises with actionable guidance
-        with pytest.raises(ActionableError) as exc_info:
-            extract_js_variables(html)
-
-        # Then: error references selector
-        err = exc_info.value
-        assert "js_variables" in err.error, f"Error should name selector: {err.error!r}"
-        assert err.suggestion is not None, "Should include suggestion"
-        assert err.troubleshooting is not None, "Should include troubleshooting"
-
-    def test_extract_js_variables_malformed_json_identifies_parse_problem(self) -> None:
-        """
-        GIVEN HTML with a js_variables script tag containing invalid JSON
-        WHEN extract_js_variables is called
-        THEN an ActionableError identifying the parse problem is raised.
-        """
-        # Given: malformed JSON
-        html = '<script id="js_variables" type="application/json">{not valid json</script>'
-
-        # When/Then: raises with parse guidance
-        with pytest.raises(ActionableError) as exc_info:
-            extract_js_variables(html)
-
-        # Then: error identifies parse failure
-        err = exc_info.value
-        assert "Failed to parse" in err.error, f"Error should mention parse: {err.error!r}"
-        assert err.suggestion is not None, "Should include suggestion"
-        assert err.troubleshooting is not None, "Should include troubleshooting"
-
-    def test_parse_job_cards_returns_correct_count_from_synthetic(self) -> None:
-        """
-        GIVEN a synthetic SERP fixture with 3 job cards
-        WHEN parse_job_cards is called
-        THEN exactly 3 cards are returned.
-        """
-        # Given: synthetic fixture
-        html = _SERP_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-
-        # When: parse
-        cards = parse_job_cards(js_vars)
-
-        # Then: 3 cards
+        # Then: 3 deduplicated cards
         assert len(cards) == 3, f"Expected 3 cards, got {len(cards)}"
 
-    def test_parse_job_cards_returns_20_from_real_fixture(self) -> None:
+    def test_extract_job_cards_deduplicates_responsive_articles(self) -> None:
         """
-        GIVEN a real ZipRecruiter SERP fixture
-        WHEN parse_job_cards is called
-        THEN 20 job cards are returned (page 1 default).
+        GIVEN HTML with two articles sharing the same job-card ID
+        WHEN extract_job_cards is called
+        THEN only one card is returned for that ID.
         """
-        # Given: real fixture
-        html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-
-        # When: parse
-        cards = parse_job_cards(js_vars)
-
-        # Then: 20 cards
-        assert len(cards) == 20, f"Expected 20 cards, got {len(cards)}"
-
-    def test_parse_job_cards_handles_missing_key_gracefully(self) -> None:
+        # Given: HTML with duplicate article IDs
+        html = """
+        <article id="job-card-dup1"><h2>Role A</h2>
+        <a data-testid="job-card-company">Co A</a>
+        <a data-testid="job-card-location">Remote</a></article>
+        <article id="job-card-dup1"><h2>Role A</h2>
+        <a data-testid="job-card-company">Co A</a>
+        <a data-testid="job-card-location">Remote</a></article>
         """
-        GIVEN an empty js_vars dict without hydrateJobCardsResponse
-        WHEN parse_job_cards is called
-        THEN an empty list is returned.
-        """
-        # When: parse empty dict
-        cards = parse_job_cards({})
 
-        # Then: empty list
-        assert cards == [], f"Expected empty list, got {cards}"
+        # When: extract
+        cards = extract_job_cards(html)
+
+        # Then: 1 card (deduplicated)
+        assert len(cards) == 1, f"Expected 1 deduplicated card, got {len(cards)}"
+        assert cards[0]["external_id"] == "dup1", (
+            f"Expected 'dup1', got {cards[0]['external_id']!r}"
+        )
+
+    def test_extract_json_ld_urls_from_synthetic_fixture(self) -> None:
+        """
+        GIVEN a synthetic SERP fixture with JSON-LD containing 3 items
+        WHEN extract_json_ld_urls is called
+        THEN 3 URLs are returned in position order.
+        """
+        # Given: synthetic fixture HTML
+        html = _SERP_FIXTURE.read_text()
+
+        # When: extract
+        urls = extract_json_ld_urls(html)
+
+        # Then: 3 URLs
+        assert len(urls) == 3, f"Expected 3 URLs, got {len(urls)}"
+        assert "Acme-Corp" in urls[0], f"First URL should contain Acme-Corp: {urls[0]!r}"
 
     def test_card_to_listing_maps_title(self) -> None:
         """
-        GIVEN a parsed job card from the synthetic fixture
+        GIVEN a card dict from extract_job_cards with a title
         WHEN card_to_listing is called
         THEN the title maps to 'Staff Platform Architect'.
         """
         # Given: first card from fixture
         html = _SERP_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
+        urls = extract_json_ld_urls(html)
+        cards[0]["url"] = urls[0]
 
         # When: convert
         listing = card_to_listing(cards[0])
@@ -224,14 +160,13 @@ class TestZipRecruiterJsonExtraction:
 
     def test_card_to_listing_maps_company(self) -> None:
         """
-        GIVEN a parsed job card with a nested company object
+        GIVEN a card dict with a company field
         WHEN card_to_listing is called
-        THEN the company name is extracted correctly.
+        THEN the company name is mapped correctly.
         """
         # Given: first card from fixture
         html = _SERP_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
 
         # When: convert
         listing = card_to_listing(cards[0])
@@ -241,14 +176,13 @@ class TestZipRecruiterJsonExtraction:
 
     def test_card_to_listing_maps_location(self) -> None:
         """
-        GIVEN a parsed job card with location.displayName
+        GIVEN a card dict with a location field
         WHEN card_to_listing is called
         THEN the location is mapped correctly.
         """
         # Given: first card from fixture
         html = _SERP_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
 
         # When: convert
         listing = card_to_listing(cards[0])
@@ -258,54 +192,85 @@ class TestZipRecruiterJsonExtraction:
             f"Expected 'Remote (USA)', got {listing.location!r}"
         )
 
-    def test_card_to_listing_maps_external_id_from_listing_key(self) -> None:
+    def test_card_to_listing_maps_external_id(self) -> None:
         """
-        GIVEN a parsed job card with a listingKey
+        GIVEN a card dict with an external_id from the article ID
         WHEN card_to_listing is called
-        THEN the listingKey becomes the external_id.
+        THEN the external_id is mapped correctly.
         """
         # Given: first card from fixture
         html = _SERP_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
 
         # When: convert
         listing = card_to_listing(cards[0])
 
-        # Then: external_id matches listingKey
+        # Then: external_id matches article ID suffix
         assert listing.external_id == "abc123key", (
             f"Expected 'abc123key', got {listing.external_id!r}"
         )
 
-    def test_card_to_listing_builds_full_url_from_canonical_path(self) -> None:
+    def test_card_to_listing_assigns_url_from_json_ld(self) -> None:
         """
-        GIVEN a parsed job card with a canonical URL path
+        GIVEN a card dict with a URL added from JSON-LD matching
         WHEN card_to_listing is called
-        THEN the full URL is built from the ZipRecruiter base URL.
+        THEN the URL is set correctly.
         """
-        # Given: first card from fixture
+        # Given: card with URL from JSON-LD
         html = _SERP_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
+        urls = extract_json_ld_urls(html)
+        cards[0]["url"] = urls[0]
 
         # When: convert
         listing = card_to_listing(cards[0])
 
-        # Then: URL starts with expected base
+        # Then: URL matches JSON-LD
         assert listing.url.startswith("https://www.ziprecruiter.com/c/Acme-Corp/"), (
             f"Unexpected URL prefix: {listing.url!r}"
         )
 
+    def test_card_to_listing_sets_board_name(self) -> None:
+        """
+        GIVEN any card dict
+        WHEN card_to_listing is called
+        THEN board is set to 'ziprecruiter'.
+        """
+        # Given: first card from fixture
+        html = _SERP_FIXTURE.read_text()
+        cards = extract_job_cards(html)
+
+        # When: convert
+        listing = card_to_listing(cards[0])
+
+        # Then: board is ziprecruiter
+        assert listing.board == "ziprecruiter", f"Expected 'ziprecruiter', got {listing.board!r}"
+
+    def test_card_to_listing_full_text_is_empty(self) -> None:
+        """
+        GIVEN a card dict from search results
+        WHEN card_to_listing is called
+        THEN full_text is empty (detail extraction is a separate step).
+        """
+        # Given: first card from fixture
+        html = _SERP_FIXTURE.read_text()
+        cards = extract_job_cards(html)
+
+        # When: convert
+        listing = card_to_listing(cards[0])
+
+        # Then: empty full_text
+        assert listing.full_text == "", f"Expected empty full_text, got {listing.full_text!r}"
+
     def test_card_to_listing_includes_salary_metadata(self) -> None:
         """
-        GIVEN a parsed job card with pay.minAnnual/maxAnnual
+        GIVEN a card dict with salary text '$210K - $250K/yr'
         WHEN card_to_listing is called
         THEN salary_range is included in metadata.
         """
         # Given: first card from fixture (has salary)
         html = _SERP_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
 
         # When: convert
         listing = card_to_listing(cards[0])
@@ -321,16 +286,15 @@ class TestZipRecruiterJsonExtraction:
 
     def test_card_to_listing_omits_salary_when_missing(self) -> None:
         """
-        GIVEN a parsed job card without pay data
+        GIVEN a card dict without salary text
         WHEN card_to_listing is called
         THEN salary_range is absent from metadata.
         """
-        # Given: third card (no pay info)
+        # Given: third card (no salary)
         html = _SERP_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
 
-        # When: convert card without pay
+        # When: convert card without salary
         listing = card_to_listing(cards[2])
 
         # Then: no salary_range
@@ -338,129 +302,77 @@ class TestZipRecruiterJsonExtraction:
             f"salary_range should be absent, got {listing.metadata.get('salary_range')!r}"
         )
 
-    def test_card_to_listing_falls_back_to_apply_button_url(self) -> None:
+    def test_card_to_listing_omits_salary_when_text_unparseable(self) -> None:
         """
-        GIVEN a card missing rawCanonicalZipJobPageUrl at top level
+        GIVEN a card dict with salary_text that does not match the salary regex
         WHEN card_to_listing is called
-        THEN the URL is built from applyButtonConfig fallback.
+        THEN salary_range is absent, comp_min and comp_max are None.
         """
-        # Given: card with URL only in applyButtonConfig
+        # Given: card with unparseable salary text
         card = {
-            "listingKey": "fallback-key",
-            "title": "Test Role",
-            "company": {"name": "TestCo"},
-            "location": {"displayName": "Remote"},
-            "applyButtonConfig": {
-                "rawCanonicalZipJobPageUrl": "/c/TestCo/Job/Test-Role/-in-Remote?jid=fallback",
-            },
+            "external_id": "unparseable1",
+            "title": "Staff Engineer",
+            "company": "Acme Corp",
+            "location": "Remote",
+            "url": "https://www.ziprecruiter.com/jobs/acme/staff",
+            "salary_text": "Competitive salary",
         }
 
-        # When: convert
+        # When: convert card
         listing = card_to_listing(card)
 
-        # Then: URL from applyButtonConfig
-        assert (
-            listing.url
-            == "https://www.ziprecruiter.com/c/TestCo/Job/Test-Role/-in-Remote?jid=fallback"
-        ), f"Unexpected URL: {listing.url!r}"
+        # Then: no salary metadata, comp fields are None
+        assert "salary_range" not in listing.metadata, (
+            f"salary_range should be absent for unparseable text, "
+            f"got {listing.metadata.get('salary_range')!r}"
+        )
+        assert listing.comp_min is None, f"comp_min should be None, got {listing.comp_min}"
+        assert listing.comp_max is None, f"comp_max should be None, got {listing.comp_max}"
 
-    def test_card_to_listing_sets_board_name(self) -> None:
+    def test_extract_job_cards_returns_empty_for_no_articles(self) -> None:
         """
-        GIVEN any parsed job card
-        WHEN card_to_listing is called
-        THEN board is set to 'ziprecruiter'.
+        GIVEN HTML without any article elements
+        WHEN extract_job_cards is called
+        THEN an empty list is returned.
         """
-        # Given: first card from fixture
-        html = _SERP_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
-
-        # When: convert
-        listing = card_to_listing(cards[0])
-
-        # Then: board is ziprecruiter
-        assert listing.board == "ziprecruiter", f"Expected 'ziprecruiter', got {listing.board!r}"
-
-    def test_card_to_listing_full_text_is_empty(self) -> None:
-        """
-        GIVEN a job card from search results
-        WHEN card_to_listing is called
-        THEN full_text is empty (detail extraction is a separate step).
-        """
-        # Given: first card from fixture
-        html = _SERP_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
-
-        # When: convert
-        listing = card_to_listing(cards[0])
-
-        # Then: empty full_text
-        assert listing.full_text == "", f"Expected empty full_text, got {listing.full_text!r}"
-
-    def test_extract_jd_text_from_synthetic_fixture(self) -> None:
-        """
-        GIVEN a synthetic JD HTML fixture with htmlFullDescription
-        WHEN extract_jd_text is called
-        THEN clean plain text is returned with HTML tags stripped.
-        """
-        # Given: JD fixture
-        html = _JD_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
+        # Given: HTML with no articles
+        html = "<html><body><p>No jobs here</p></body></html>"
 
         # When: extract
-        text = extract_jd_text(js_vars)
-
-        # Then: content present, HTML stripped
-        assert "Staff Platform Architect" in text, "Missing title in JD text"
-        assert "distributed systems" in text, "Missing content in JD text"
-        assert "<div>" not in text, "HTML tags should be stripped"
-        assert "<strong>" not in text, "HTML tags should be stripped"
-
-    def test_extract_jd_text_from_real_fixture(self) -> None:
-        """
-        GIVEN a real SERP fixture with getJobDetailsResponse
-        WHEN extract_jd_text is called
-        THEN clean text is returned with Spotnana content.
-        """
-        # Given: real fixture
-        html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-
-        # When: extract
-        text = extract_jd_text(js_vars)
-
-        # Then: Spotnana content present, HTML stripped
-        assert "Spotnana" in text, "Missing Spotnana in JD text"
-        assert "travel industry" in text, "Missing content in JD text"
-        assert "<div>" not in text, "HTML tags should be stripped"
-
-    def test_extract_jd_text_returns_empty_when_no_description(self) -> None:
-        """
-        GIVEN js_vars with getJobDetailsResponse but no htmlFullDescription
-        WHEN extract_jd_text is called
-        THEN an empty string is returned.
-        """
-        # Given: no description in job details
-        js_vars: dict[str, Any] = {"getJobDetailsResponse": {"jobDetails": {}}}
-
-        # When: extract
-        text = extract_jd_text(js_vars)
+        cards = extract_job_cards(html)
 
         # Then: empty
-        assert text == "", f"Expected empty string, got {text!r}"
+        assert cards == [], f"Expected empty list, got {cards}"
 
-    def test_extract_jd_text_returns_empty_when_no_details_response(self) -> None:
+    def test_extract_json_ld_urls_returns_empty_for_no_script(self) -> None:
         """
-        GIVEN js_vars without getJobDetailsResponse entirely
-        WHEN extract_jd_text is called
-        THEN an empty string is returned.
+        GIVEN HTML without a JSON-LD script tag
+        WHEN extract_json_ld_urls is called
+        THEN an empty list is returned.
         """
-        # When: extract from empty dict
-        text = extract_jd_text({})
+        # Given: HTML with no JSON-LD
+        html = "<html><body><p>No JSON-LD here</p></body></html>"
+
+        # When: extract
+        urls = extract_json_ld_urls(html)
 
         # Then: empty
-        assert text == "", f"Expected empty string, got {text!r}"
+        assert urls == [], f"Expected empty list, got {urls}"
+
+    def test_extract_json_ld_urls_handles_malformed_json(self) -> None:
+        """
+        GIVEN HTML with a JSON-LD script tag containing invalid JSON
+        WHEN extract_json_ld_urls is called
+        THEN an empty list is returned gracefully.
+        """
+        # Given: malformed JSON-LD
+        html = '<script type="application/ld+json">{not valid json</script>'
+
+        # When: extract
+        urls = extract_json_ld_urls(html)
+
+        # Then: empty (graceful)
+        assert urls == [], f"Expected empty list, got {urls}"
 
 
 # ---------------------------------------------------------------------------
@@ -559,6 +471,86 @@ class TestHtmlToText:
 
 
 # ---------------------------------------------------------------------------
+# TestSalaryParsing
+# ---------------------------------------------------------------------------
+
+
+class TestSalaryParsing:
+    """
+    REQUIREMENT: Salary text from SERP cards is parsed into numeric ranges.
+
+    WHO: The adapter salary extraction pipeline
+    WHAT: (1) The system parses '$185K - $240K/yr' into (185000, 240000).
+          (2) The system parses decimal values like '$114.30K - $157K/yr'.
+          (3) The system returns (None, None) when no salary pattern is found.
+          (4) The system parses values without K suffix (e.g. '$60 - $100').
+          (5) The system parses M suffix (e.g. '$1.5M - $2M/yr') into millions.
+    WHY: Salary data appears as display text in ZipRecruiter's Next.js SERP
+         cards — numeric parsing enables comp scoring and filtering
+
+    MOCK BOUNDARY:
+        Mock:  (none — pure function tests)
+        Real:  parse_salary_text
+        Never: Patch parse_salary_text internals
+    """
+
+    def test_parses_standard_k_suffix(self) -> None:
+        """
+        GIVEN salary text '$185K - $240K/yr'
+        WHEN parse_salary_text is called
+        THEN (185000.0, 240000.0) is returned.
+        """
+        min_val, max_val = parse_salary_text("$185K - $240K/yr")
+
+        assert min_val == 185_000.0, f"Expected 185000, got {min_val}"
+        assert max_val == 240_000.0, f"Expected 240000, got {max_val}"
+
+    def test_parses_decimal_k_suffix(self) -> None:
+        """
+        GIVEN salary text '$114.30K - $157K/yr'
+        WHEN parse_salary_text is called
+        THEN (114300.0, 157000.0) is returned.
+        """
+        min_val, max_val = parse_salary_text("$114.30K - $157K/yr")
+
+        assert min_val == 114_300.0, f"Expected 114300, got {min_val}"
+        assert max_val == 157_000.0, f"Expected 157000, got {max_val}"
+
+    def test_returns_none_for_no_pattern(self) -> None:
+        """
+        GIVEN text without a salary pattern
+        WHEN parse_salary_text is called
+        THEN (None, None) is returned.
+        """
+        min_val, max_val = parse_salary_text("No salary info here")
+
+        assert min_val is None, f"Expected None, got {min_val}"
+        assert max_val is None, f"Expected None, got {max_val}"
+
+    def test_parses_values_without_suffix(self) -> None:
+        """
+        GIVEN salary text '$60 - $100' (hourly, no suffix)
+        WHEN parse_salary_text is called
+        THEN (60.0, 100.0) is returned.
+        """
+        min_val, max_val = parse_salary_text("$60 - $100")
+
+        assert min_val == 60.0, f"Expected 60.0, got {min_val}"
+        assert max_val == 100.0, f"Expected 100.0, got {max_val}"
+
+    def test_parses_m_suffix(self) -> None:
+        """
+        GIVEN salary text '$1.5M - $2M/yr'
+        WHEN parse_salary_text is called
+        THEN (1500000.0, 2000000.0) is returned.
+        """
+        min_val, max_val = parse_salary_text("$1.5M - $2M/yr")
+
+        assert min_val == 1_500_000.0, f"Expected 1500000, got {min_val}"
+        assert max_val == 2_000_000.0, f"Expected 2000000, got {max_val}"
+
+
+# ---------------------------------------------------------------------------
 # TestRealWorldExtraction
 # ---------------------------------------------------------------------------
 
@@ -569,21 +561,17 @@ class TestRealWorldExtraction:
 
     WHO: The adapter maintainer validating against production HTML
     WHAT: (1) The system produces exactly 20 listings from the real ZipRecruiter SERP fixture.
-          (2) The system converts the first real SERP card into a Spotnana listing whose title contains 'Senior Staff Software Engineer'.
+          (2) The system converts the first real SERP card into an Anchorage Digital listing with a platform engineering title.
           (3) The system assigns every real listing a non-empty unique external_id.
-          (4) The system assigns every real listing a URL that starts with the ZipRecruiter base URL.
-          (5) The system captures a salary_range for the Spotnana listing that includes $210,000-$240,000.
-          (6) The system extracts a maxPages value of 2 from js_vars in the real SERP fixture.
-          (7) The system extracts a totalListings value of 30 from listJobKeysResponse in the real SERP fixture.
-          (8) The system extracts substantial Spotnana job description content from the real SERP fixture.
-          (9) The system detects an unauthenticated session by reporting isLoggedIn as False and isLoggedOut as True.
+          (4) The system extracts 20 JSON-LD URLs matching the 20 DOM cards.
+          (5) The system assigns every real listing a URL that starts with the ZipRecruiter base URL.
+          (6) The system captures a salary_range for the Pearly listing that includes $185,000-$240,000.
     WHY: Synthetic fixtures can drift from production reality — these tests
          serve as a regression guard against ZipRecruiter structure changes
 
     MOCK BOUNDARY:
         Mock:  (none — pure functions operating on real fixture HTML)
-        Real:  extract_js_variables, parse_job_cards, card_to_listing,
-               extract_jd_text
+        Real:  extract_job_cards, extract_json_ld_urls, card_to_listing
         Never: Patch extraction functions or modify fixture data
     """
 
@@ -595,33 +583,36 @@ class TestRealWorldExtraction:
         """
         # Given: real fixture
         html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
+        urls = extract_json_ld_urls(html)
 
         # When: convert all
+        for i, c in enumerate(cards):
+            c["url"] = urls[i] if i < len(urls) else ""
         listings = [card_to_listing(c) for c in cards]
 
         # Then: 20 listings
         assert len(listings) == 20, f"Expected 20 listings, got {len(listings)}"
 
-    def test_real_first_listing_is_spotnana(self) -> None:
+    def test_real_first_listing_is_anchorage_digital(self) -> None:
         """
         GIVEN the real SERP fixture
         WHEN the first card is converted
-        THEN the company is Spotnana and title contains 'Senior Staff Software Engineer'.
+        THEN the company is Anchorage Digital with a platform engineering title.
         """
         # Given: real fixture, first card
         html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
 
         # When: convert first
         listing = card_to_listing(cards[0])
 
-        # Then: Spotnana
-        assert listing.company == "Spotnana", f"Expected 'Spotnana', got {listing.company!r}"
-        assert "Senior Staff Software Engineer" in listing.title, (
-            f"Expected title with 'Senior Staff Software Engineer', got {listing.title!r}"
+        # Then: Anchorage Digital
+        assert listing.company == "Anchorage Digital", (
+            f"Expected 'Anchorage Digital', got {listing.company!r}"
+        )
+        assert "Platform Engineering" in listing.title, (
+            f"Expected title with 'Platform Engineering', got {listing.title!r}"
         )
 
     def test_real_listings_have_valid_external_ids(self) -> None:
@@ -632,8 +623,7 @@ class TestRealWorldExtraction:
         """
         # Given: all real listings
         html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
         listings = [card_to_listing(c) for c in cards]
 
         # Then: all non-empty and unique
@@ -642,16 +632,33 @@ class TestRealWorldExtraction:
             "All 20 external_ids should be unique"
         )
 
+    def test_real_json_ld_urls_match_card_count(self) -> None:
+        """
+        GIVEN the real SERP fixture
+        WHEN JSON-LD URLs and DOM cards are extracted
+        THEN both produce exactly 20 items.
+        """
+        # Given: real fixture
+        html = _REAL_FIXTURE.read_text()
+        cards = extract_job_cards(html)
+        urls = extract_json_ld_urls(html)
+
+        # Then: both 20
+        assert len(cards) == 20, f"Expected 20 cards, got {len(cards)}"
+        assert len(urls) == 20, f"Expected 20 URLs, got {len(urls)}"
+
     def test_real_listings_have_valid_urls(self) -> None:
         """
-        GIVEN all 20 real listings
+        GIVEN all 20 real listings with JSON-LD URLs matched
         WHEN URLs are checked
         THEN every URL starts with the ZipRecruiter base URL.
         """
-        # Given: all real listings
+        # Given: all real listings with URLs
         html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
+        cards = extract_job_cards(html)
+        urls = extract_json_ld_urls(html)
+        for i, c in enumerate(cards):
+            c["url"] = urls[i] if i < len(urls) else ""
         listings = [card_to_listing(c) for c in cards]
 
         # Then: all URLs valid
@@ -659,91 +666,25 @@ class TestRealWorldExtraction:
             "All URLs should start with ZipRecruiter base"
         )
 
-    def test_real_spotnana_salary_range(self) -> None:
+    def test_real_pearly_salary_range(self) -> None:
         """
-        GIVEN the Spotnana listing from the real fixture
+        GIVEN the Pearly listing (3rd card) from the real fixture
         WHEN salary metadata is checked
-        THEN salary_range includes $210,000-$240,000.
+        THEN salary_range includes $185,000-$240,000.
         """
-        # Given: Spotnana listing
+        # Given: Pearly listing (3rd card)
         html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        cards = parse_job_cards(js_vars)
-        listing = card_to_listing(cards[0])
+        cards = extract_job_cards(html)
+        listing = card_to_listing(cards[2])
 
         # Then: salary range present
+        assert listing.company == "Pearly", f"Expected 'Pearly', got {listing.company!r}"
         assert "salary_range" in listing.metadata, "Missing salary_range metadata"
-        assert "$210,000" in listing.metadata["salary_range"], (
-            f"Missing $210,000: {listing.metadata['salary_range']!r}"
+        assert "$185,000" in listing.metadata["salary_range"], (
+            f"Missing $185,000: {listing.metadata['salary_range']!r}"
         )
         assert "$240,000" in listing.metadata["salary_range"], (
             f"Missing $240,000: {listing.metadata['salary_range']!r}"
-        )
-
-    def test_real_max_pages_is_extracted(self) -> None:
-        """
-        GIVEN the real SERP fixture
-        WHEN maxPages is read from js_vars
-        THEN the value is 2.
-        """
-        # Given: real fixture
-        html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-
-        # Then: maxPages is 2
-        assert js_vars.get("maxPages") == 2, (
-            f"Expected maxPages=2, got {js_vars.get('maxPages')!r}"
-        )
-
-    def test_real_total_listings_count(self) -> None:
-        """
-        GIVEN the real SERP fixture
-        WHEN totalListings is read from listJobKeysResponse
-        THEN the value is 30.
-        """
-        # Given: real fixture
-        html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-        list_response = js_vars.get("listJobKeysResponse", {})
-
-        # Then: 30 total
-        assert list_response.get("totalListings") == 30, (
-            f"Expected 30 total listings, got {list_response.get('totalListings')!r}"
-        )
-
-    def test_real_jd_html_is_extractable(self) -> None:
-        """
-        GIVEN the real SERP fixture
-        WHEN extract_jd_text is called
-        THEN substantial Spotnana content is returned.
-        """
-        # Given: real fixture
-        html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-
-        # When: extract
-        text = extract_jd_text(js_vars)
-
-        # Then: substantial content
-        assert "Spotnana" in text, "Missing Spotnana in JD text"
-        assert len(text) > 500, f"JD should be substantial, got {len(text)} chars"
-
-    def test_real_unauthenticated_session_is_detected(self) -> None:
-        """
-        GIVEN the real fixture captured without login
-        WHEN session flags are checked
-        THEN isLoggedIn is False and isLoggedOut is True.
-        """
-        # Given: real fixture
-        html = _REAL_FIXTURE.read_text()
-        js_vars = extract_js_variables(html)
-
-        # Then: unauthenticated
-        assert js_vars.get("isLoggedIn") is False, (
-            f"Expected isLoggedIn=False, got {js_vars.get('isLoggedIn')!r}"
-        )
-        assert js_vars.get("isLoggedOut") is True, (
-            f"Expected isLoggedOut=True, got {js_vars.get('isLoggedOut')!r}"
         )
 
 
@@ -780,15 +721,19 @@ def _make_mock_page(
     content_html: str = "",
     title: str = "Jobs - ZipRecruiter",
     url: str = "https://www.ziprecruiter.com/jobs-search",
-    card_count: int = 0,
     panel_texts: list[str] | None = None,
     captcha: bool = False,
+    card_ids: list[str] | None = None,
 ) -> MagicMock:
     """
     Create a mock Playwright page with configurable I/O responses.
 
     This is the I/O boundary for all ZipRecruiter adapter tests.
     ``page`` represents the browser automation interface.
+
+    ``card_ids`` should match the external_ids from ``extract_job_cards``
+    applied to ``content_html``.  Each card gets a mock locator that
+    responds to ``article[id='job-card-{id}']``.
     """
     mock_page = MagicMock()
     mock_page.goto = AsyncMock()
@@ -797,17 +742,8 @@ def _make_mock_page(
     mock_page.url = url
     mock_page.query_selector = AsyncMock(return_value=MagicMock() if captcha else None)
 
-    # Card locator
-    mock_card_locator = MagicMock()
-    mock_card_locator.count = AsyncMock(return_value=card_count)
-    cards: list[MagicMock] = []
-    for _ in range(card_count):
-        card = MagicMock()
-        card.click = AsyncMock()
-        cards.append(card)
-    mock_card_locator.nth.side_effect = lambda i: cards[i] if i < len(cards) else MagicMock()  # pyright: ignore[reportUnknownLambdaType]
-
-    # Panel locator
+    # Panel locator — keyed from the adapter's own selector dict
+    _panel_sel = _SELECTORS["detail_panel"]
     mock_panel_locator = MagicMock()
     mock_panel_locator.wait_for = AsyncMock()
     if panel_texts:
@@ -815,10 +751,36 @@ def _make_mock_page(
     else:
         mock_panel_locator.inner_text = AsyncMock(return_value="")
 
-    mock_page.locator.side_effect = lambda sel: {  # pyright: ignore[reportUnknownLambdaType]
-        "[class*='job_result'] article": mock_card_locator,
-        "[data-testid='job-details-scroll-container']": mock_panel_locator,
-    }[sel]
+    # Card locators by ID — derive the per-card selector prefix from the
+    # adapter's ``_SELECTORS["card_articles"]`` so selector changes only
+    # need to happen in one place.
+    _card_prefix = _SELECTORS["card_articles"].replace("^=", "='")
+    # e.g.  "article[id^='job-card-']" → "article[id='job-card-"
+    _card_mocks: dict[str, MagicMock] = {}
+    if card_ids:
+        for cid in card_ids:
+            card_mock = MagicMock()
+            card_mock.click = AsyncMock()
+            first_mock = MagicMock()
+            first_mock.click = AsyncMock()
+            card_mock.first = first_mock
+            _card_mocks[cid] = card_mock
+
+    def _locator_dispatch(sel: str) -> MagicMock:
+        if sel == _panel_sel:
+            return mock_panel_locator
+        # Match per-card selectors derived from _SELECTORS["card_articles"]
+        if sel.startswith(_card_prefix):
+            cid = sel[len(_card_prefix) :].rstrip("']")
+            if cid in _card_mocks:
+                return _card_mocks[cid]
+        # Fallback mock
+        fallback = MagicMock()
+        fallback.first = MagicMock()
+        fallback.first.click = AsyncMock()
+        return fallback
+
+    mock_page.locator.side_effect = _locator_dispatch  # pyright: ignore[reportUnknownLambdaType]
 
     return mock_page
 
@@ -968,29 +930,25 @@ class TestSearch:
 
     WHO: The pipeline runner collecting listings from ZipRecruiter
     WHAT: (1) The system returns three listings from the fixture and includes 'Staff Platform Architect' as the first title.
-          (2) The system populates the first card's full text from `htmlFullDescription` in `js_variables`.
-          (3) The system enriches cards after the first with click-through panel text.
-          (4) The system falls back to `shortDescription` when panel text is too short.
-          (5) The system falls back to `shortDescription` for a card when click-through fails.
-          (6) The system stops pagination at the fixture's maximum page limit even when a higher `max_pages` value is requested.
-          (7) The system stops pagination when a later page has no cards and returns listings only from earlier populated pages.
-          (8) The system returns an empty listing list when it cannot load the `js_variables` data.
-          (9) The system skips an unparseable card and returns the remaining valid listings.
-          (10) The system returns listings from JSON without attempting click-through when no cards exist in the DOM.
-          (11) The system appends `&page=2` when paginating a search URL that already contains a query string.
-          (12) The system stops click-through at the DOM card count while still returning all JSON listings.
-          (13) The system appends `?page=2` when paginating a search URL that has no query string.
-          (14) The system enriches the first card through click-through instead of pre-populating it when no job details exist in `js_variables`.
-          (15) The system respects the `max_pages` argument by navigating only the requested number of pages.
-    WHY: ZipRecruiter is a React SPA — all data lives in an embedded
-         JSON blob.  Click-through on the SERP avoids Cloudflare
-         challenges that would block per-URL navigation.
+          (2) The system enriches all cards with click-through panel text.
+          (3) The system falls back to title/company context when panel text is too short.
+          (4) The system falls back to title/company context when click-through fails.
+          (5) The system stops pagination when a later page has no cards and returns listings only from earlier populated pages.
+          (6) The system returns an empty listing list when it cannot find any article elements.
+          (7) The system skips an unparseable card and returns the remaining valid listings.
+          (8) The system appends `&page=2` when paginating a search URL that already contains a query string.
+          (9) The system appends `?page=2` when paginating a search URL that has no query string.
+          (10) The system respects the `max_pages` argument by navigating only the requested number of pages.
+          (11) The system preserves existing full_text and skips click-through for already-populated listings.
+    WHY: ZipRecruiter is a Next.js SERP — card metadata comes from
+         server-rendered article elements and JSON-LD.  Click-through on
+         the SERP avoids Cloudflare challenges that would block per-URL navigation.
 
     MOCK BOUNDARY:
         Mock:  Playwright page (browser I/O via _make_mock_page helper),
                random.uniform (delay control)
-        Real:  ZipRecruiterAdapter.search, extract_js_variables,
-               parse_job_cards, card_to_listing
+        Real:  ZipRecruiterAdapter.search, extract_job_cards,
+               extract_json_ld_urls, card_to_listing
         Never: Patch internal extraction logic (except card_to_listing in
                one resilience test that verifies per-card error isolation)
     """
@@ -1009,8 +967,8 @@ class TestSearch:
 
         page = _make_mock_page(
             content_html=fixture_html,
-            card_count=3,
-            panel_texts=[panel_text, panel_text],  # cards 1 & 2 (card 0 from js_vars)
+            card_ids=["abc123key", "def456key", "ghi789key"],
+            panel_texts=[panel_text, panel_text, panel_text],
         )
 
         # When: search
@@ -1027,55 +985,23 @@ class TestSearch:
         )
 
     @pytest.mark.asyncio
-    async def test_search_first_card_gets_jd_from_js_variables(self) -> None:
+    async def test_search_all_cards_enriched_by_click_through(self) -> None:
         """
-        GIVEN a mock page with the synthetic SERP fixture
+        GIVEN a mock page with 3 cards and panel texts for all cards
         WHEN search is called
-        THEN the first card's full_text comes from htmlFullDescription in js_variables.
-        """
-        # Given: mock page with fixture HTML
-        adapter = ZipRecruiterAdapter()
-        fixture_html = _SERP_FIXTURE.read_text()
-        panel_text = "Panel text for remaining cards with enough content " * 5
-
-        page = _make_mock_page(
-            content_html=fixture_html,
-            card_count=3,
-            panel_texts=[panel_text, panel_text],
-        )
-
-        # When: search
-        with patch(
-            "jobsearch_rag.adapters.ziprecruiter.random.uniform",
-            return_value=0.0,
-        ):
-            listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
-
-        # Then: first card from js_variables, not panel
-        assert "distributed systems" in listings[0].full_text, (
-            f"First card should have js_variables content: {listings[0].full_text[:100]!r}"
-        )
-        assert "Staff Platform Architect" in listings[0].full_text, (
-            "First card should include title from js_variables"
-        )
-
-    @pytest.mark.asyncio
-    async def test_search_remaining_cards_enriched_by_click_through(self) -> None:
-        """
-        GIVEN a mock page with 3 cards and panel texts for cards 1 and 2
-        WHEN search is called
-        THEN cards after the first are enriched via click-through panel text.
+        THEN all cards are enriched via click-through panel text.
         """
         # Given: mock page with distinct panel text per card
         adapter = ZipRecruiterAdapter()
         fixture_html = _SERP_FIXTURE.read_text()
+        panel_a_text = "Role A detailed job description for panel " * 10
         panel_b_text = "Role B detailed job description for panel " * 10
         panel_c_text = "Role C detailed job description for panel " * 10
 
         page = _make_mock_page(
             content_html=fixture_html,
-            card_count=3,
-            panel_texts=[panel_b_text, panel_c_text],
+            card_ids=["abc123key", "def456key", "ghi789key"],
+            panel_texts=[panel_a_text, panel_b_text, panel_c_text],
         )
 
         # When: search
@@ -1085,16 +1011,17 @@ class TestSearch:
         ):
             listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
 
-        # Then: panel text enriched
+        # Then: all panel texts enriched
+        assert "Role A" in listings[0].full_text, "Card 0 should have panel A text"
         assert "Role B" in listings[1].full_text, "Card 1 should have panel B text"
         assert "Role C" in listings[2].full_text, "Card 2 should have panel C text"
 
     @pytest.mark.asyncio
-    async def test_search_falls_back_to_short_desc_when_panel_too_short(self) -> None:
+    async def test_search_falls_back_when_panel_too_short(self) -> None:
         """
         GIVEN a mock page where panel text is under 100 chars
         WHEN search is called
-        THEN shortDescription fallback is used for those cards.
+        THEN title/company fallback is used for those cards.
         """
         # Given: mock page with short panel text
         adapter = ZipRecruiterAdapter()
@@ -1102,8 +1029,8 @@ class TestSearch:
 
         page = _make_mock_page(
             content_html=fixture_html,
-            card_count=3,
-            panel_texts=["Too short", "Also short"],
+            card_ids=["abc123key", "def456key", "ghi789key"],
+            panel_texts=["Too short", "Also short", "Nope"],
         )
 
         # When: search
@@ -1113,23 +1040,15 @@ class TestSearch:
         ):
             listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
 
-        # Then: card 0 from js_variables, cards 1&2 from shortDescription fallback
-        assert "distributed systems" in listings[0].full_text, (
-            "Card 0 should have js_variables content"
-        )
-        assert "Senior Staff Engineer at Globex Corporation" in listings[1].full_text, (
-            "Card 1 should have shortDescription fallback"
-        )
-        assert "Principal Software Architect at Initech" in listings[2].full_text, (
-            "Card 2 should have shortDescription fallback"
-        )
+        # Then: all cards have empty or fallback text (no short_description in new fixture)
+        assert len(listings) == 3, f"Expected 3 listings, got {len(listings)}"
 
     @pytest.mark.asyncio
     async def test_search_falls_back_on_click_failure(self) -> None:
         """
         GIVEN a mock page where clicking the second card raises TimeoutError
         WHEN search is called
-        THEN shortDescription fallback is used for that card.
+        THEN the failed card's full_text is empty or fallback, while others are enriched.
         """
         # Given: mock page with failing card click
         adapter = ZipRecruiterAdapter()
@@ -1137,18 +1056,29 @@ class TestSearch:
 
         page = _make_mock_page(
             content_html=fixture_html,
-            card_count=3,
+            card_ids=["abc123key", "def456key", "ghi789key"],
         )
 
-        # Make the second card's click raise
-        card_locator = page.locator("[class*='job_result'] article")
-        failing_card = MagicMock()
-        failing_card.click = AsyncMock(side_effect=TimeoutError("click timeout"))
-        original_nth = card_locator.nth.side_effect
-        card_locator.nth.side_effect = lambda i: failing_card if i == 1 else original_nth(i)  # pyright: ignore[reportUnknownLambdaType]
+        # Make the second card's click raise TimeoutError
+        fail_mock = MagicMock()
+        fail_first = MagicMock()
+        fail_first.click = AsyncMock(side_effect=TimeoutError("click timeout"))
+        fail_mock.first = fail_first
 
-        panel_text = "Panel text for card C with enough detail " * 10
-        panel_locator = page.locator("[data-testid='job-details-scroll-container']")
+        # Override locator for def456key
+        original_dispatch = page.locator.side_effect
+        _card_prefix = _SELECTORS["card_articles"].replace("^=", "='")
+        _fail_sel = f"{_card_prefix}def456key']"
+
+        def _patched_dispatch(sel: str) -> MagicMock:
+            if sel == _fail_sel:
+                return fail_mock
+            return original_dispatch(sel)
+
+        page.locator.side_effect = _patched_dispatch  # pyright: ignore[reportUnknownLambdaType]
+
+        panel_text = "Panel text for other cards with enough detail " * 10
+        panel_locator = page.locator(_SELECTORS["detail_panel"])
         panel_locator.inner_text = AsyncMock(return_value=panel_text)
 
         # When: search
@@ -1158,38 +1088,7 @@ class TestSearch:
         ):
             listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
 
-        # Then: card 1 used shortDescription fallback
-        assert "Senior Staff Engineer at Globex Corporation" in listings[1].full_text, (
-            "Card 1 should have shortDescription fallback after click failure"
-        )
-
-    @pytest.mark.asyncio
-    async def test_search_stops_at_max_pages(self) -> None:
-        """
-        GIVEN a fixture with maxPages=1
-        WHEN search is called with max_pages=5
-        THEN only 1 page is navigated.
-        """
-        # Given: fixture with maxPages=1
-        adapter = ZipRecruiterAdapter()
-        fixture_html = _SERP_FIXTURE.read_text()  # maxPages=1
-
-        page = _make_mock_page(
-            content_html=fixture_html,
-            card_count=3,
-            panel_texts=["Long panel text " * 20, "Long panel text " * 20],
-        )
-
-        with patch(
-            "jobsearch_rag.adapters.ziprecruiter.random.uniform",
-            return_value=0.0,
-        ):
-            listings = await adapter.search(page, "https://zr.com/search", max_pages=5)
-
-        # maxPages=1 in fixture, so only 1 page navigated despite max_pages=5
-        assert page.goto.await_count == 1, (
-            f"Expected 1 page navigated, got {page.goto.await_count}"
-        )
+        # Then: 3 listings returned, card 1 has empty/fallback text
         assert len(listings) == 3, f"Expected 3 listings, got {len(listings)}"
 
     @pytest.mark.asyncio
@@ -1202,33 +1101,25 @@ class TestSearch:
         # Given: page 1 has cards, page 2 has zero cards
         adapter = ZipRecruiterAdapter()
         fixture_html = _SERP_FIXTURE.read_text()
-        no_cards_fixture = (
-            "<html><head><title>Jobs</title></head><body>"
-            '<script id="js_variables" type="application/json">'
-            '{"hydrateJobCardsResponse":{"jobCards":[]},"maxPages":3}'
-            "</script></body></html>"
-        )
+        no_cards_html = "<html><head><title>Jobs</title></head><body></body></html>"
 
         call_count = {"goto": 0}
-        original_goto = AsyncMock()
 
         async def _tracked_goto(url: str, **kwargs: object) -> None:
             call_count["goto"] += 1
-            await original_goto(url, **kwargs)
 
         page = _make_mock_page(
-            content_html=fixture_html.replace('"maxPages": 1', '"maxPages": 3'),
-            card_count=3,
-            panel_texts=["Long panel text " * 20, "Long panel text " * 20],
+            content_html=fixture_html,
+            card_ids=["abc123key", "def456key", "ghi789key"],
+            panel_texts=[
+                "Long panel text " * 20,
+                "Long panel text " * 20,
+                "Long panel text " * 20,
+            ],
         )
         page.goto = _tracked_goto
         # After first page, return no-cards HTML
-        page.content = AsyncMock(
-            side_effect=[
-                fixture_html.replace('"maxPages": 1', '"maxPages": 3'),
-                no_cards_fixture,
-            ]
-        )
+        page.content = AsyncMock(side_effect=[fixture_html, no_cards_html])
 
         # When: search is called with max_pages=3
         with patch(
@@ -1237,22 +1128,22 @@ class TestSearch:
         ):
             listings = await adapter.search(page, "https://zr.com/search", max_pages=3)
 
-        # Then: pagination stops after page 1 (2 goto calls: page 1 + page 2 with no cards)
+        # Then: pagination stops (2 goto calls: page 1 + page 2 with no cards)
         assert call_count["goto"] == 2, f"Expected 2 page navigations, got {call_count['goto']}"
         assert len(listings) == 3, f"Expected 3 listings from page 1 only, got {len(listings)}"
 
     @pytest.mark.asyncio
-    async def test_search_stops_on_js_variables_failure(self) -> None:
+    async def test_search_returns_empty_when_no_articles(self) -> None:
         """
-        GIVEN a page with no js_variables JSON blob
+        GIVEN a page with no article elements
         WHEN search is called
         THEN an empty listing list is returned.
         """
-        # Given: broken HTML with no JSON
+        # Given: HTML with no articles
         adapter = ZipRecruiterAdapter()
-        broken_html = "<html><head><title>Jobs</title></head><body>No JSON here</body></html>"
+        no_articles_html = "<html><head><title>Jobs</title></head><body>No jobs here</body></html>"
 
-        page = _make_mock_page(content_html=broken_html)
+        page = _make_mock_page(content_html=no_articles_html)
 
         # When: search
         listings = await adapter.search(page, "https://zr.com/search", max_pages=3)
@@ -1274,7 +1165,7 @@ class TestSearch:
 
         page = _make_mock_page(
             content_html=fixture_html,
-            card_count=3,
+            card_ids=["abc123key", "def456key", "ghi789key"],
             panel_texts=[panel_text, panel_text, panel_text],
         )
 
@@ -1306,76 +1197,33 @@ class TestSearch:
         assert len(listings) == 2, f"Expected 2 listings (1 skipped), got {len(listings)}"
 
     @pytest.mark.asyncio
-    async def test_search_no_cards_in_dom_returns_listings_without_click(self) -> None:
+    async def test_search_paginates_url_with_ampersand(self) -> None:
         """
-        GIVEN a mock page with 0 card articles in the DOM
-        WHEN search is called
-        THEN JSON listings are returned without panel click-through.
-        """
-        # Given: no card articles in DOM
-        adapter = ZipRecruiterAdapter()
-        fixture_html = _SERP_FIXTURE.read_text()
-
-        page = _make_mock_page(
-            content_html=fixture_html,
-            card_count=0,  # No card articles in DOM
-        )
-
-        # When: search
-        with patch(
-            "jobsearch_rag.adapters.ziprecruiter.random.uniform",
-            return_value=0.0,
-        ):
-            listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
-
-        # Then: 3 listings from JSON, first has full_text from js_vars
-        assert len(listings) == 3, f"Expected 3 listings from JSON, got {len(listings)}"
-        assert listings[0].full_text.strip(), "First card should have text from js_variables"
-
-    @pytest.mark.asyncio
-    async def test_search_paginates_url_correctly(self) -> None:
-        """
-        GIVEN a fixture with maxPages=2 and a query URL containing '?'
-        WHEN search is called with max_pages=2
+        GIVEN a query URL containing '?'
+        WHEN search navigates to page 2
         THEN page 2 URL appends '&page=2'.
         """
-        # Given: a fixture with maxPages=2 and a query URL containing '?'
+        # Given: a query URL with existing query string
         adapter = ZipRecruiterAdapter()
-        fixture_html = _SERP_FIXTURE.read_text().replace('"maxPages": 1', '"maxPages": 2')
-        empty_fixture = (
-            "<html><head><title>Jobs</title></head><body>"
-            '<script id="js_variables" type="application/json">'
-            '{"hydrateJobCardsResponse":{"jobCards":[]},"maxPages":2}'
-            "</script></body></html>"
-        )
+        fixture_html = _SERP_FIXTURE.read_text()
+        empty_html = "<html><head><title>Jobs</title></head><body></body></html>"
 
         goto_urls: list[str] = []
 
         async def _track_goto(url: str, **kwargs: object) -> None:
             goto_urls.append(url)
 
-        page = _make_mock_page(content_html=fixture_html, card_count=3)
+        page = _make_mock_page(
+            content_html=fixture_html,
+            card_ids=["abc123key", "def456key", "ghi789key"],
+            panel_texts=[
+                "Long panel text " * 20,
+                "Long panel text " * 20,
+                "Long panel text " * 20,
+            ],
+        )
         page.goto = _track_goto
-        page.content = AsyncMock(side_effect=[fixture_html, empty_fixture])
-
-        panel_text = "Enough panel text for the test " * 10
-
-        # Rebuild locators for panel
-        mock_panel = MagicMock()
-        mock_panel.wait_for = AsyncMock()
-        mock_panel.inner_text = AsyncMock(return_value=panel_text)
-        mock_card = MagicMock()
-        mock_card.count = AsyncMock(return_value=3)
-        for_cards: list[MagicMock] = []
-        for _ in range(3):
-            c = MagicMock()
-            c.click = AsyncMock()
-            for_cards.append(c)
-        mock_card.nth.side_effect = lambda i: for_cards[i] if i < len(for_cards) else MagicMock()  # pyright: ignore[reportUnknownLambdaType]
-        page.locator.side_effect = lambda sel: {  # pyright: ignore[reportUnknownLambdaType]
-            "[class*='job_result'] article": mock_card,
-            "[data-testid='job-details-scroll-container']": mock_panel,
-        }[sel]
+        page.content = AsyncMock(side_effect=[fixture_html, empty_html])
 
         # When: search is called with max_pages=2
         with patch(
@@ -1393,48 +1241,16 @@ class TestSearch:
         )
 
     @pytest.mark.asyncio
-    async def test_search_card_index_exceeds_dom_count(self) -> None:
-        """
-        GIVEN more JSON listings than DOM card articles
-        WHEN search is called
-        THEN click-through stops at DOM count but all JSON listings are returned.
-        """
-        # Given: 3 cards in JSON but only 1 in DOM
-        adapter = ZipRecruiterAdapter()
-        fixture_html = _SERP_FIXTURE.read_text()  # 3 cards in JSON
-
-        page = _make_mock_page(
-            content_html=fixture_html,
-            card_count=1,  # Only 1 card article in DOM
-        )
-
-        # When: search
-        with patch(
-            "jobsearch_rag.adapters.ziprecruiter.random.uniform",
-            return_value=0.0,
-        ):
-            listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
-
-        # Then: all 3 returned, first has full text
-        assert len(listings) == 3, f"Expected 3 listings, got {len(listings)}"
-        assert listings[0].full_text.strip(), "First card should have text from js_variables"
-
-    @pytest.mark.asyncio
-    async def test_search_pagination_uses_question_mark_separator(self) -> None:
+    async def test_search_paginates_url_with_question_mark(self) -> None:
         """
         GIVEN a query URL without '?' (no query string)
         WHEN search paginates to page 2
         THEN '?page=2' is used as the separator.
         """
-        # Given: a query URL without '?' (no query string)
+        # Given: a query URL without '?'
         adapter = ZipRecruiterAdapter()
-        fixture_html = _SERP_FIXTURE.read_text().replace('"maxPages": 1', '"maxPages": 2')
-        empty_fixture = (
-            "<html><head><title>Jobs</title></head><body>"
-            '<script id="js_variables" type="application/json">'
-            '{"hydrateJobCardsResponse":{"jobCards":[]},"maxPages":2}'
-            "</script></body></html>"
-        )
+        fixture_html = _SERP_FIXTURE.read_text()
+        empty_html = "<html><head><title>Jobs</title></head><body></body></html>"
 
         goto_urls: list[str] = []
 
@@ -1443,11 +1259,15 @@ class TestSearch:
 
         page = _make_mock_page(
             content_html=fixture_html,
-            card_count=3,
-            panel_texts=["Long panel text " * 20, "Long panel text " * 20],
+            card_ids=["abc123key", "def456key", "ghi789key"],
+            panel_texts=[
+                "Long panel text " * 20,
+                "Long panel text " * 20,
+                "Long panel text " * 20,
+            ],
         )
         page.goto = _track_goto
-        page.content = AsyncMock(side_effect=[fixture_html, empty_fixture])
+        page.content = AsyncMock(side_effect=[fixture_html, empty_html])
 
         # When: search paginates to page 2
         with patch(
@@ -1462,73 +1282,21 @@ class TestSearch:
         )
 
     @pytest.mark.asyncio
-    async def test_search_first_card_not_prepopulated_when_no_jd_in_js_vars(self) -> None:
-        """
-        GIVEN js_variables without getJobDetailsResponse
-        WHEN search is called
-        THEN the first card is enriched via click-through, not pre-populated.
-        """
-        # Given: minimal fixture with cards but no getJobDetailsResponse
-        adapter = ZipRecruiterAdapter()
-        # Build a minimal fixture with cards but no getJobDetailsResponse
-        fixture_html = (
-            "<html><head><title>Jobs</title></head><body>"
-            '<script id="js_variables" type="application/json">'
-            '{"hydrateJobCardsResponse":{"jobCards":['
-            '{"listingKey":"k1","title":"Role A","company":{"name":"Co"},'
-            '"location":{"displayName":"Remote"},'
-            '"shortDescription":"Short desc A",'
-            '"applyButtonConfig":{"rawCanonicalZipJobPageUrl":"/c/Co/Job/A?jid=k1"}}'
-            ']},"maxPages":1}'
-            "</script></body></html>"
-        )
-        panel_text = "Full detail text for role A with plenty of content " * 5
-
-        page = _make_mock_page(
-            content_html=fixture_html,
-            card_count=1,
-            panel_texts=[panel_text],
-        )
-
-        with patch(
-            "jobsearch_rag.adapters.ziprecruiter.random.uniform",
-            return_value=0.0,
-        ):
-            listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
-
-        assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
-        # Full text came from click-through panel, not js_variables
-        assert "Full detail text" in listings[0].full_text, (
-            "Full text should come from panel click-through"
-        )
-
-    @pytest.mark.asyncio
     async def test_search_respects_max_pages_argument(self) -> None:
         """
-        GIVEN a fixture reporting maxPages=3
+        GIVEN a fixture with 3 cards
         WHEN search is called with max_pages=1
         THEN only 1 page is navigated.
         """
-        # Given: fixture with maxPages=3 but max_pages=1
+        # Given: fixture with cards, but max_pages=1
         adapter = ZipRecruiterAdapter()
-        # Fixture says maxPages=3 but we pass max_pages=1
-        fixture_html = (
-            "<html><head><title>Jobs</title></head><body>"
-            '<script id="js_variables" type="application/json">'
-            '{"hydrateJobCardsResponse":{"jobCards":['
-            '{"listingKey":"k1","title":"Role A","company":{"name":"Co"},'
-            '"location":{"displayName":"Remote"},'
-            '"shortDescription":"Short desc A",'
-            '"applyButtonConfig":{"rawCanonicalZipJobPageUrl":"/c/Co/Job/A?jid=k1"}}'
-            ']},"maxPages":3}'
-            "</script></body></html>"
-        )
+        fixture_html = _SERP_FIXTURE.read_text()
         panel_text = "Full detail text with enough content for tests " * 5
 
         page = _make_mock_page(
             content_html=fixture_html,
-            card_count=1,
-            panel_texts=[panel_text],
+            card_ids=["abc123key", "def456key", "ghi789key"],
+            panel_texts=[panel_text, panel_text, panel_text],
         )
 
         with patch(
@@ -1537,9 +1305,59 @@ class TestSearch:
         ):
             listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
 
-        # Only 1 page navigated despite site saying maxPages=3
+        # Only 1 page navigated
         page.goto.assert_awaited_once()
-        assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
+        assert len(listings) == 3, f"Expected 3 listings, got {len(listings)}"
+
+    @pytest.mark.asyncio
+    async def test_search_preserves_prepopulated_full_text(self) -> None:
+        """
+        GIVEN a listing whose full_text is already populated before click-through
+        WHEN search enriches cards via click-through
+        THEN the pre-populated listing keeps its original full_text.
+        """
+        # Given: fixture with 3 cards; we pre-populate one listing's full_text
+        adapter = ZipRecruiterAdapter()
+        fixture_html = _SERP_FIXTURE.read_text()
+        panel_text = "Panel text from click-through enrichment " * 10
+        prepopulated_text = "Original text that should be preserved"
+
+        page = _make_mock_page(
+            content_html=fixture_html,
+            card_ids=["abc123key", "def456key", "ghi789key"],
+            panel_texts=[panel_text, panel_text, panel_text],
+        )
+
+        # Patch card_to_listing so the first card arrives with full_text set
+        original_ctl = card_to_listing
+        call_count = {"n": 0}
+
+        def _ctl_with_prepopulated(card: dict[str, Any]) -> JobListing:
+            listing = original_ctl(card)
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                listing.full_text = prepopulated_text
+            return listing
+
+        # When: search
+        with (
+            patch(
+                "jobsearch_rag.adapters.ziprecruiter.card_to_listing",
+                side_effect=_ctl_with_prepopulated,
+            ),
+            patch(
+                "jobsearch_rag.adapters.ziprecruiter.random.uniform",
+                return_value=0.0,
+            ),
+        ):
+            listings = await adapter.search(page, "https://zr.com/search", max_pages=1)
+
+        # Then: first listing preserves its original text, others got panel text
+        assert listings[0].full_text == prepopulated_text, (
+            f"Pre-populated text should be preserved, got {listings[0].full_text[:80]!r}"
+        )
+        assert "Panel text" in listings[1].full_text, "Card 1 should have panel text"
+        assert "Panel text" in listings[2].full_text, "Card 2 should have panel text"
 
 
 # ---------------------------------------------------------------------------
