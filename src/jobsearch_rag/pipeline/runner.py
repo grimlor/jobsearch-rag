@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import statistics
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -134,6 +135,8 @@ class PipelineRunner:
         session_id: str = "",
     ) -> RunResult:
         """Inner run logic, called after session logging is configured."""
+        t0 = time.perf_counter()
+
         # Step 1: Health check Ollama before any browser work
         await self._embedder.health_check()
         logger.info("Ollama health check passed")
@@ -204,6 +207,7 @@ class PipelineRunner:
                 llm_tokens_total=m.llm_tokens_total,
                 llm_latency_ms_total=m.llm_latency_ms_total,
                 slow_llm_calls=m.slow_llm_calls,
+                wall_clock_ms=int((time.perf_counter() - t0) * 1000),
             )
             return RunResult(
                 boards_searched=board_names,
@@ -326,6 +330,7 @@ class PipelineRunner:
             llm_tokens_total=m.llm_tokens_total,
             llm_latency_ms_total=m.llm_latency_ms_total,
             slow_llm_calls=m.slow_llm_calls,
+            wall_clock_ms=int((time.perf_counter() - t0) * 1000),
         )
 
         return RunResult(

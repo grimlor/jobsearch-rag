@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 #       jobs_found, jobs_scored, jobs_excluded, jobs_deduplicated,
 #       failed_listings, skipped_decisions, boards_searched,
 #       embed_calls, llm_calls, embed_tokens_total, llm_tokens_total,
-#       llm_latency_ms_total, slow_llm_calls
+#       llm_latency_ms_total, slow_llm_calls, wall_clock_ms
 #   "embed_call" — one per Ollama embed() call, includes model, input_chars,
 #       latency_ms, tokens (prompt_eval_count or estimate)
 #   "classify_call" — one per classify() call, includes model, input_chars,
@@ -788,6 +788,10 @@ class TestInferenceMetrics:
           (8) slow_llm_calls is zero when no calls exceed the threshold
           (9) the slow_llm_threshold_ms setting is respected — different
               values produce different slow_llm_calls counts
+          (10) session_summary includes wall_clock_ms as the end-to-end
+               pipeline duration in milliseconds
+          (11) wall_clock_ms is present even when no listings are found
+               (early return path)
     WHY: Without token and latency tracking, the operator has no signal for
          when the disqualifier prompt has grown too large for comfortable
          local inference
@@ -1087,6 +1091,64 @@ class TestInferenceMetrics:
             f"Expected different slow_llm_calls for threshold=1 vs threshold=999999999, "
             f"both got {slow_low}"
         )
+
+    def test_session_summary_includes_wall_clock_ms(self) -> None:
+        """
+        Given a completed pipeline run that scores at least one listing
+        When the session_summary log entry is read
+        Then it contains a 'wall_clock_ms' field as a non-negative integer
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with one listing
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings = [_make_listing()]
+
+            # When: pipeline runs
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: session_summary contains wall_clock_ms as non-negative int
+            summaries = [e for e in entries if e.get("event") == "session_summary"]
+            assert len(summaries) == 1, "Expected exactly 1 session_summary entry"
+            summary = summaries[0]
+            assert "wall_clock_ms" in summary, (
+                f"session_summary missing 'wall_clock_ms' field: {summary}"
+            )
+            assert isinstance(summary["wall_clock_ms"], int), (
+                f"Expected 'wall_clock_ms' as int, got {type(summary['wall_clock_ms'])}"
+            )
+            assert summary["wall_clock_ms"] >= 0, (  # type: ignore[operator]
+                f"Expected non-negative wall_clock_ms, got {summary['wall_clock_ms']}"
+            )
+
+    def test_session_summary_includes_wall_clock_ms_on_empty_run(self) -> None:
+        """
+        Given a pipeline run where no listings are found
+        When the session_summary log entry is read
+        Then it still contains a 'wall_clock_ms' field as a non-negative integer
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a runner with no listings (board returns empty)
+            settings = _make_settings(tmpdir)
+            runner, mock_client = _make_runner_with_real_stack(settings)
+            listings: list[JobListing] = []
+
+            # When: pipeline runs with no listings
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+
+            # Then: session_summary still contains wall_clock_ms
+            summaries = [e for e in entries if e.get("event") == "session_summary"]
+            assert len(summaries) == 1, "Expected exactly 1 session_summary entry"
+            summary = summaries[0]
+            assert "wall_clock_ms" in summary, (
+                f"session_summary missing 'wall_clock_ms' on empty run: {summary}"
+            )
+            assert isinstance(summary["wall_clock_ms"], int), (
+                f"Expected 'wall_clock_ms' as int, got {type(summary['wall_clock_ms'])}"
+            )
+            assert summary["wall_clock_ms"] >= 0, (  # type: ignore[operator]
+                f"Expected non-negative wall_clock_ms, got {summary['wall_clock_ms']}"
+            )
 
 
 # ---------------------------------------------------------------------------
