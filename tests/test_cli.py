@@ -2048,15 +2048,19 @@ class TestResetCommand:
 
 class TestReviewJdLoading:
     """
-    REQUIREMENT: The review command populates each listing's full_text
-    from JD files on disk, since CSV export does not store full text.
+    REQUIREMENT: The review command populates each listing's full_text from
+    JD files on disk so DecisionRecorder can embed the content for history.
 
-    WHO: The review CLI handler reconstructing RankedListing objects
-         from CSV rows for the interactive review session
-    WHAT: (1) The review session finds the JD file using the rank company title slug convention when the operator opens a JD.
-    WHY: DecisionRecorder requires full_text to generate embeddings for
-         the history signal. Without it, recording a verdict fails with
-         an empty-text validation error on the second listing reviewed
+    WHO: The review CLI handler reconstructing listings from CSV rows
+    WHAT: (1) JD file content is loaded into listing full_text using external_id-based filename lookup.
+          (2) JD body extraction starts after the '## Job Description' marker.
+          (3) missing JD files return empty full_text without crashing.
+          (4) files missing marker return empty full_text without crashing.
+          (5) slugify normalizes to lowercase hyphenated ASCII with truncation.
+          (6) open_listing resolves files using external_id slug convention.
+          (7) open_listing falls back to URL when file is missing.
+    WHY: DecisionRecorder requires full_text to generate embeddings.
+         Without it, recording a verdict fails with an empty-text validation error
 
     MOCK BOUNDARY:
         Mock:  webbrowser.open (browser I/O)
@@ -2065,21 +2069,21 @@ class TestReviewJdLoading:
         Never: Patch slugify or file path construction
     """
 
-    def test_open_listing_resolves_jd_file_via_slug_convention(self, tmp_path: Path) -> None:
+    def test_open_listing_resolves_jd_file_via_external_id_slug(self, tmp_path: Path) -> None:
         """
-        Given a JD file named with the rank/company/title slug convention
-        When the operator presses 'o' to open a JD
-        Then the review session finds the JD file using the slug convention
+        Given a listing with external_id="abc123" and an existing JD file named abc123_acme-corp_staff-architect.md
+        When open_listing executes
+        Then open target resolves to the JD file path
         """
-        # Given: A JD file named with the slug convention at rank 3
+        # Given: A JD file named with the external_id slug convention
         jd_dir = tmp_path / "jds"
         jd_dir.mkdir()
         company = "Acme Corp"
         title = "Staff Architect"
-        slug_name = "003_acme-corp_staff-architect.md"
+        slug_name = "abc123_acme-corp_staff-architect.md"
         (jd_dir / slug_name).write_text("## Job Description\nFull JD here.")
 
-        ranked = _make_ranked(title=title, company=company, external_id="zr-42")
+        ranked = _make_ranked(title=title, company=company, external_id="abc123")
         recorder = MagicMock()
         recorder.get_decision = MagicMock(return_value=None)
         session = ReviewSession(
@@ -2088,15 +2092,45 @@ class TestReviewJdLoading:
             jd_dir=str(jd_dir),
         )
 
-        # When: open_listing is called with the rank
+        # When: open_listing is called
         with patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_open:
-            session.open_listing(ranked, rank=3)
+            session.open_listing(ranked)
             mock_open.assert_called_once()
             opened_path = mock_open.call_args[0][0]
 
-        # Then: It opened the slug-based JD file, not external_id.md
+        # Then: It opened the external_id-based JD file
         assert slug_name in opened_path, (
-            f"Expected slug-based filename '{slug_name}' in opened path, got: {opened_path}"
+            f"Expected external_id-based filename '{slug_name}' in opened path, got: {opened_path}"
+        )
+
+    def test_open_listing_falls_back_to_url_when_jd_file_missing(self, tmp_path: Path) -> None:
+        """
+        Given a listing without a matching JD file on disk
+        When open_listing executes
+        Then open target falls back to the listing URL
+        """
+        # Given: No JD file exists
+        jd_dir = tmp_path / "jds"
+        jd_dir.mkdir()
+
+        ranked = _make_ranked(title="Missing Role", company="Ghost Corp", external_id="no-file")
+        recorder = MagicMock()
+        recorder.get_decision = MagicMock(return_value=None)
+        session = ReviewSession(
+            ranked_listings=[ranked],
+            recorder=recorder,
+            jd_dir=str(jd_dir),
+        )
+
+        # When: open_listing is called
+        with patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_open:
+            session.open_listing(ranked)
+            mock_open.assert_called_once()
+            opened_target = mock_open.call_args[0][0]
+
+        # Then: Falls back to URL
+        assert opened_target == ranked.listing.url, (
+            f"Expected URL fallback '{ranked.listing.url}', got: {opened_target}"
         )
 
 
@@ -2125,8 +2159,9 @@ class TestReviewCommandHandler:
           (11) The system reprints the valid command list when the operator enters an invalid command.
           (12) The system prints "Review complete" after the operator reviews every listing.
           (13) The system treats an `EOFError` during command input as quit and stops the review.
-          (14) The system delegates the open action to `webbrowser.open` when the operator enters `o`.
+          (14) The system delegates the open action to `webbrowser.open` when the operator enters `o` (file resolved by external_id).
           (15) The system records the verdict with an empty reason when an `EOFError` occurs during the reason prompt.
+          (16) The system reads external_id from CSV column, not URL derivation.
     WHY: The handler is the orchestration boundary between user input
          and domain logic — untested wiring means the operator gets
          silent failures, missing output, or wired-wrong dependencies
@@ -2147,6 +2182,7 @@ class TestReviewCommandHandler:
         "title",
         "company",
         "board",
+        "external_id",
         "location",
         "url",
         "fit_score",
@@ -2167,6 +2203,7 @@ class TestReviewCommandHandler:
             "title": "Staff Architect",
             "company": "Acme Corp",
             "board": "ziprecruiter",
+            "external_id": "job-1",
             "location": "Remote",
             "url": "https://example.org/job-1",
             "fit_score": "0.85",
@@ -2290,7 +2327,7 @@ class TestReviewCommandHandler:
         self._write_csv(
             review["csv_path"],
             [
-                self._csv_row(url="https://example.org/done-1"),
+                self._csv_row(external_id="done-1", url="https://example.org/done-1"),
             ],
         )
         # Pre-seed a decision for this listing (external_id = "done-1")
@@ -2322,8 +2359,8 @@ class TestReviewCommandHandler:
         self._write_csv(
             review["csv_path"],
             [
-                self._csv_row(title="Job A", url="https://example.org/a"),
-                self._csv_row(title="Job B", url="https://example.org/b"),
+                self._csv_row(title="Job A", external_id="a", url="https://example.org/a"),
+                self._csv_row(title="Job B", external_id="b", url="https://example.org/b"),
             ],
         )
 
@@ -2371,9 +2408,17 @@ class TestReviewCommandHandler:
         self._write_csv(
             review["csv_path"],
             [
-                self._csv_row(title="First Job", final_score="0.90", url="https://example.org/j1"),
                 self._csv_row(
-                    title="Second Job", final_score="0.80", url="https://example.org/j2"
+                    title="First Job",
+                    final_score="0.90",
+                    external_id="j1",
+                    url="https://example.org/j1",
+                ),
+                self._csv_row(
+                    title="Second Job",
+                    final_score="0.80",
+                    external_id="j2",
+                    url="https://example.org/j2",
                 ),
             ],
         )
@@ -2402,7 +2447,7 @@ class TestReviewCommandHandler:
         # Given: one undecided listing with a JD file
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
-        jd_file = jd_dir / "001_acme-corp_staff-architect.md"
+        jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
         jd_file.write_text("## Job Description\nStaff Architect role at Acme Corp.")
 
         # When: operator approves with reason
@@ -2429,10 +2474,10 @@ class TestReviewCommandHandler:
         When the operator records a verdict
         Then the listing's full_text from the JD is stored in ChromaDB
         """
-        # Given: A CSV row and a matching JD file with the slug convention
+        # Given: A CSV row and a matching JD file with the external_id slug convention
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
-        jd_file = jd_dir / "001_acme-corp_staff-architect.md"
+        jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
         jd_file.write_text(
             "# Staff Architect\n\n"
             "## Job Description\n"
@@ -2462,7 +2507,7 @@ class TestReviewCommandHandler:
         # Given: a JD file with no marker section
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
-        jd_file = jd_dir / "001_acme-corp_staff-architect.md"
+        jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
         jd_file.write_text("# Staff Architect\n\nSome summary without the marker.")
 
         # When: handle_review is called and user approves, the real
@@ -2490,7 +2535,7 @@ class TestReviewCommandHandler:
         # Given: one undecided listing with a JD file
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
-        jd_file = jd_dir / "001_acme-corp_staff-architect.md"
+        jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
         jd_file.write_text("## Job Description\nSome JD content here.")
 
         # When: operator enters 'n' with empty reason
@@ -2532,7 +2577,7 @@ class TestReviewCommandHandler:
         # Given: one undecided listing with a JD file
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
-        jd_file = jd_dir / "001_acme-corp_staff-architect.md"
+        jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
         jd_file.write_text("## Job Description\nSome JD content here.")
 
         # When: operator approves the only listing
@@ -2576,7 +2621,7 @@ class TestReviewCommandHandler:
         self._write_csv(
             review["csv_path"],
             [
-                self._csv_row(url="https://example.org/open-me"),
+                self._csv_row(external_id="open-me", url="https://example.org/open-me"),
             ],
         )
 
@@ -2601,7 +2646,7 @@ class TestReviewCommandHandler:
         # Given: one undecided listing with a JD file
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
-        jd_file = jd_dir / "001_acme-corp_staff-architect.md"
+        jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
         jd_file.write_text("## Job Description\nSome JD content here.")
 
         # When: verdict entered, then EOF on reason prompt
@@ -2618,6 +2663,42 @@ class TestReviewCommandHandler:
         assert len(result["ids"]) == 1, f"Expected 1 decision in ChromaDB, got: {result['ids']}"
         meta = result["metadatas"][0]
         assert meta["reason"] == "", f"Expected empty reason, got: {meta['reason']!r}"
+
+    def test_review_handler_reads_external_id_from_csv_column(
+        self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """
+        Given a CSV with external_id column containing "81cb444f00994fff"
+        And URL column containing a full ZipRecruiter URL with different tail
+        When review handler loads listings from CSV
+        Then listing.external_id equals "81cb444f00994fff" (from column, not URL)
+        """
+        # Given: CSV with explicit external_id different from URL tail
+        self._write_csv(
+            review["csv_path"],
+            [
+                self._csv_row(
+                    external_id="81cb444f00994fff",
+                    url="https://www.ziprecruiter.com/jobs/co/DIFFERENT-TAIL",
+                ),
+            ],
+        )
+        jd_dir = review["out_dir"] / "jds"
+        jd_file = jd_dir / "81cb444f00994fff_acme-corp_staff-architect.md"
+        jd_file.write_text("## Job Description\nSome JD content.")
+
+        # When: operator quits immediately — we just need to verify the listing was built
+        with patch("builtins.input", side_effect=["y", ""]):
+            handle_review(review["args"])
+
+        # Then: decision was recorded using the CSV external_id, not URL-derived
+        store: VectorStore = review["store"]
+        result = store.get_documents(
+            collection_name="decisions", ids=["decision-81cb444f00994fff"]
+        )
+        assert len(result["ids"]) == 1, (
+            f"Expected decision keyed by CSV external_id '81cb444f00994fff', got: {result['ids']}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2756,18 +2837,19 @@ class TestRescoreCommand:
         company: str = "Acme Corp",
         board: str = "testboard",
         url: str = "https://example.org/job-1",
-        rank: int = 1,
+        external_id: str = "ext-1",
     ) -> Path:
         """Write a JD markdown file in the format expected by load_jd_files."""
         jd_dir.mkdir(parents=True, exist_ok=True)
         slug_company = company.lower().replace(" ", "-")
         slug_title = title.lower().replace(" ", "-")
-        filename = f"{rank:03d}_{slug_company}_{slug_title}.md"
+        filename = f"{external_id}_{slug_company}_{slug_title}.md"
         content = (
             f"# {title}\n\n"
             f"**Company:** {company}\n"
             f"**Board:** {board}\n"
-            f"**URL:** {url}\n\n"
+            f"**URL:** {url}\n"
+            f"**External ID:** {external_id}\n\n"
             f"## Job Description\n"
             f"{title} role at {company}. Responsibilities include "
             f"architecture, design, and technical leadership.\n"

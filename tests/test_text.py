@@ -171,17 +171,17 @@ class TestSlugify:
         """
         Given realistic company and title values from a job listing
         When company and title are slugified and assembled into the JD filename pattern
-        Then the result matches the NNN_company_title.md convention
+        Then the result matches the {external_id}_{company}_{title}.md convention
         """
         # Given: realistic values from a job listing
         company = "Acme Corp."
         title = "Staff Engineer — Platform"
-        rank = 7
+        external_id = "zr-42abc"
 
         # When: company and title are slugified into the JD filename pattern
-        filename = f"{rank:03d}_{slugify(company)}_{slugify(title)}.md"
+        filename = f"{external_id}_{slugify(company)}_{slugify(title)}.md"
 
-        # Then: the result matches the NNN_company_title.md convention
-        assert filename == "007_acme-corp_staff-engineer-platform.md", (
+        # Then: the result matches the {external_id}_{company}_{title}.md convention
+        assert filename == "zr-42abc_acme-corp_staff-engineer-platform.md", (
             f"Expected JD filename convention, got {filename!r}"
         )

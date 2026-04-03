@@ -40,7 +40,7 @@ from jobsearch_rag.text import slugify
 
 
 def _read_jd_text(
-    rank: int,
+    external_id: str,
     title: str,
     company: str,
     *,
@@ -53,7 +53,7 @@ def _read_jd_text(
     empty string if the file is missing or the marker is absent.
     """
     jd_dir = Path(jd_dir)
-    filename = f"{rank:03d}_{slugify(company)}_{slugify(title)}.md"
+    filename = f"{external_id}_{slugify(company)}_{slugify(title)}.md"
     jd_path = jd_dir / filename
     if not jd_path.exists():
         return ""
@@ -400,10 +400,13 @@ def handle_review(args: argparse.Namespace) -> None:
         for _i, row in enumerate(reader, 1):
             title = row.get("title", "")
             company = row.get("company", "")
-            full_text = _read_jd_text(_i, title, company, jd_dir=jd_dir)
+            external_id = (
+                row.get("external_id") or row.get("url", "").rstrip("/").rsplit("/", 1)[-1]
+            )
+            full_text = _read_jd_text(external_id, title, company, jd_dir=jd_dir)
             listing = JobListing(
                 board=row.get("board", "unknown"),
-                external_id=row.get("url", "").rstrip("/").rsplit("/", 1)[-1],
+                external_id=external_id,
                 title=title,
                 company=company,
                 location=row.get("location", ""),
@@ -872,6 +875,11 @@ def build_parser() -> argparse.ArgumentParser:
     reset_p = sub.add_parser(
         "reset",
         help="Reset ChromaDB collections (clears all indexed data)",
+        epilog=(
+            "Note: repeated resets leave orphan segment directories in "
+            "data/chroma_db/. For a full hard reset, run: "
+            "rm -rf data/chroma_db && uv run python -m jobsearch_rag index"
+        ),
     )
     reset_p.add_argument(
         "--collection",

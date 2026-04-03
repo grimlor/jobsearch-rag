@@ -36,10 +36,10 @@ _SAMPLE_JD_CONTENT = textwrap.dedent("""\
     **Location:** Remote
     **Board:** ziprecruiter
     **URL:** https://example.org/job/42
+    **External ID:** zr-42
 
     ## Score
 
-    - **Rank:** #1
     - **Final Score:** 0.85
     - **Fit Score:** 0.80
     - **Archetype Score:** 0.90
@@ -61,7 +61,7 @@ def jd_dir(tmp_path: Path) -> Path:
     """Create a temp directory with a sample JD file."""
     d = tmp_path / "jds"
     d.mkdir()
-    (d / "001_acme-corp_staff-platform-architect.md").write_text(_SAMPLE_JD_CONTENT)
+    (d / "zr-42_acme-corp_staff-platform-architect.md").write_text(_SAMPLE_JD_CONTENT)
     return d
 
 
@@ -72,16 +72,17 @@ def jd_dir(tmp_path: Path) -> Path:
 
 class TestJdFileLoading:
     """
-    REQUIREMENT: JD files from output/jds/ are loaded back into JobListing objects.
+    REQUIREMENT: The rescore command faithfully reconstructs JobListing objects
+    from JD markdown files.
 
-    WHO: The rescore pipeline; the operator running ``rescore`` after tuning archetypes
-    WHAT: (1) The system returns a JobListing with all metadata fields populated when it loads a well-formed JD file.
-          (2) The system includes the Job Description body text in the listing's full_text when it parses a JD file.
-          (3) The system derives the external_id from the trailing path segment of the JD file URL.
+    WHO: The rescorer rebuilding listings from disk
+    WHAT: (1) metadata headers populate reconstructed JobListing fields.
+          (2) JD body under the job-description marker becomes full_text.
+          (3) external_id is read from JD file metadata when present, falling back to URL derivation.
           (4) The system returns an empty list when asked to load JD files from a nonexistent directory.
           (5) The system skips a JD file that lacks a Job Description section.
           (6) The system uses default values for missing metadata fields when a JD file provides only a body.
-          (7) The system returns listings in filename-sorted order when it loads multiple JD files from a directory.
+          (7) external_id can be extracted from the filename prefix for files using the new naming convention.
     WHY: Without correct JD loading, rescoring would fail silently or produce
          garbled results — the operator would have to re-run full browser sessions
 
@@ -130,18 +131,18 @@ class TestJdFileLoading:
             f"Expected tech keywords in full_text, got {listings[0].full_text[:100]!r}"
         )
 
-    def test_external_id_derived_from_url(self, jd_dir: Path) -> None:
+    def test_external_id_is_read_from_jd_metadata_when_present(self, jd_dir: Path) -> None:
         """
-        GIVEN a JD file with a URL ending in /42
-        WHEN load_jd_files() parses it
-        THEN the external_id is '42'.
+        Given a JD file with **External ID:** metadata containing "zr-42"
+        When rescore loader reconstructs JobListing objects
+        Then external_id equals "zr-42" (from metadata, not URL derivation)
         """
         # When: load the listing
         listings = load_jd_files(jd_dir)
 
-        # Then: external_id is the last URL segment
-        assert listings[0].external_id == "42", (
-            f"Expected external_id '42', got {listings[0].external_id!r}"
+        # Then: external_id comes from **External ID:** metadata
+        assert listings[0].external_id == "zr-42", (
+            f"Expected external_id 'zr-42' from metadata, got {listings[0].external_id!r}"
         )
 
     def test_nonexistent_directory_returns_empty_list(self, tmp_path: Path) -> None:
@@ -165,7 +166,7 @@ class TestJdFileLoading:
         # Given: a JD file with no body section
         d = tmp_path / "jds"
         d.mkdir()
-        (d / "001_no-body.md").write_text("# Title\n\n**Company:** Co\n")
+        (d / "no-body_no-body_title.md").write_text("# Title\n\n**Company:** Co\n")
 
         # When: load JD files
         listings = load_jd_files(d)
@@ -203,43 +204,143 @@ class TestJdFileLoading:
 
     def test_multiple_jd_files_loaded_in_sorted_order(self, tmp_path: Path) -> None:
         """
-        GIVEN a directory with multiple JD files numbered 001, 002, 003
+        GIVEN a directory with multiple JD files using external_id prefixes
         WHEN load_jd_files() reads the directory
         THEN listings are returned in filename-sorted order.
         """
-        # Given: three JD files with numeric prefixes
+        # Given: three JD files with external_id prefixes
         d = tmp_path / "jds"
         d.mkdir()
-        for i, (title, company) in enumerate(
-            [("Role B", "Beta"), ("Role A", "Alpha"), ("Role C", "Gamma")], 1
-        ):
+        for ext_id, (title, company) in [
+            ("ext-b", ("Role B", "Beta")),
+            ("ext-a", ("Role A", "Alpha")),
+            ("ext-c", ("Role C", "Gamma")),
+        ]:
             content = textwrap.dedent(f"""\
                 # {title}
 
                 **Company:** {company}
                 **Board:** test
+                **External ID:** {ext_id}
 
                 ## Job Description
 
                 Description for {title}.
             """)
-            (d / f"{i:03d}_{company.lower()}_{title.lower().replace(' ', '-')}.md").write_text(
+            (d / f"{ext_id}_{company.lower()}_{title.lower().replace(' ', '-')}.md").write_text(
                 content
             )
 
         # When: load all JD files
         listings = load_jd_files(d)
 
-        # Then: sorted by filename (001, 002, 003)
+        # Then: sorted by filename (ext-a, ext-b, ext-c)
         assert len(listings) == 3, f"Expected 3 listings, got {len(listings)}"
-        assert listings[0].title == "Role B", (
-            f"Expected 'Role B' first (001_), got {listings[0].title!r}"
+        assert listings[0].title == "Role A", (
+            f"Expected 'Role A' first (ext-a_), got {listings[0].title!r}"
         )
-        assert listings[1].title == "Role A", (
-            f"Expected 'Role A' second (002_), got {listings[1].title!r}"
+        assert listings[1].title == "Role B", (
+            f"Expected 'Role B' second (ext-b_), got {listings[1].title!r}"
         )
         assert listings[2].title == "Role C", (
-            f"Expected 'Role C' third (003_), got {listings[2].title!r}"
+            f"Expected 'Role C' third (ext-c_), got {listings[2].title!r}"
+        )
+
+    def test_external_id_falls_back_to_url_when_metadata_absent(self, tmp_path: Path) -> None:
+        """
+        Given a JD file without External ID metadata (legacy format)
+        When rescore loader reconstructs JobListing objects
+        Then external_id is derived from URL for backward compatibility
+        """
+        # Given: a JD file without **External ID:** metadata
+        d = tmp_path / "jds"
+        d.mkdir()
+        content = textwrap.dedent("""\
+            # Legacy Role
+
+            **Company:** OldCorp
+            **Board:** ziprecruiter
+            **URL:** https://example.org/job/legacy-42
+
+            ## Job Description
+
+            A legacy JD file without External ID metadata.
+        """)
+        (d / "legacy_oldcorp_legacy-role.md").write_text(content)
+
+        # When: load JD files
+        listings = load_jd_files(d)
+
+        # Then: external_id falls back to URL derivation
+        assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
+        assert listings[0].external_id == "legacy-42", (
+            f"Expected external_id 'legacy-42' from URL fallback, got {listings[0].external_id!r}"
+        )
+
+    def test_external_id_extracted_from_filename_prefix(self, tmp_path: Path) -> None:
+        """
+        Given JD filenames using {external_id}_{company}_{title}.md convention
+        When rescore loader reconstructs listings
+        Then external_id is extracted from the filename prefix
+        """
+        # Given: a JD file with external_id in filename and metadata
+        d = tmp_path / "jds"
+        d.mkdir()
+        content = textwrap.dedent("""\
+            # Platform Engineer
+
+            **Company:** TechCo
+            **Board:** ziprecruiter
+            **URL:** https://example.org/job/fn-ext-99
+            **External ID:** fn-ext-99
+
+            ## Job Description
+
+            Build the platform.
+        """)
+        (d / "fn-ext-99_techco_platform-engineer.md").write_text(content)
+
+        # When: load JD files
+        listings = load_jd_files(d)
+
+        # Then: external_id matches the filename prefix and metadata
+        assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
+        assert listings[0].external_id == "fn-ext-99", (
+            f"Expected external_id 'fn-ext-99', got {listings[0].external_id!r}"
+        )
+
+    def test_legacy_rank_prefixed_files_still_load(self, tmp_path: Path) -> None:
+        """
+        Given JD filenames using legacy NNN_{company}_{title}.md convention
+        When rescore loader reconstructs listings
+        Then files are loaded and external_id falls back to URL/metadata derivation
+        """
+        # Given: a legacy rank-prefixed JD file without External ID metadata
+        d = tmp_path / "jds"
+        d.mkdir()
+        content = textwrap.dedent("""\
+            # Legacy Ranked Role
+
+            **Company:** OldCo
+            **Board:** ziprecruiter
+            **URL:** https://example.org/job/rank-legacy-1
+
+            ## Job Description
+
+            A legacy file with numeric rank prefix.
+        """)
+        (d / "001_oldco_legacy-ranked-role.md").write_text(content)
+
+        # When: load JD files
+        listings = load_jd_files(d)
+
+        # Then: file loads successfully, external_id from URL
+        assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
+        assert listings[0].title == "Legacy Ranked Role", (
+            f"Expected title from header, got {listings[0].title!r}"
+        )
+        assert listings[0].external_id == "rank-legacy-1", (
+            f"Expected external_id from URL fallback, got {listings[0].external_id!r}"
         )
 
 

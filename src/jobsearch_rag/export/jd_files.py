@@ -3,11 +3,12 @@ Individual JD markdown file export.
 
 Writes each ranked listing's full job description as a standalone
 Markdown file under ``output/jds/``.  Each file includes a YAML-style
-metadata header (title, company, board, score, URL) followed by the
-full JD text — ready for review in a Markdown editor, browser, or
-AI assistant (e.g. Edge Copilot).
+metadata header (title, company, board, score, URL, external ID)
+followed by the full JD text — ready for review in a Markdown editor,
+browser, or AI assistant (e.g. Edge Copilot).
 
-Files are named ``NNN_company_title.md`` so they sort by rank.
+Files are named ``{external_id}_{company}_{title}.md`` for stable
+identity across re-rankings.
 """
 
 from __future__ import annotations
@@ -56,28 +57,42 @@ class JDFileExporter:
         qualified = [r for r in listings if not (r.scores.disqualified and r.final_score == 0.0)]
         qualified.sort(key=lambda r: r.final_score, reverse=True)
 
-        paths: list[Path] = []
-        for rank, r in enumerate(qualified, start=1):
+        # Build the set of filenames we will write, then remove stale files
+        new_filenames: set[str] = set()
+        exportable: list[RankedListing] = []
+        for r in qualified:
             if not r.listing.full_text.strip():
                 logger.debug(
                     "Skipping JD export for %s — no full_text",
                     r.listing.title,
                 )
                 continue
-
             company_slug = slugify(r.listing.company)
             title_slug = slugify(r.listing.title)
-            filename = f"{rank:03d}_{company_slug}_{title_slug}.md"
+            filename = f"{r.listing.external_id}_{company_slug}_{title_slug}.md"
+            new_filenames.add(filename)
+            exportable.append(r)
+
+        # Remove stale .md files from prior runs
+        for old_file in out.glob("*.md"):
+            if old_file.name not in new_filenames:
+                old_file.unlink()
+
+        paths: list[Path] = []
+        for r in exportable:
+            company_slug = slugify(r.listing.company)
+            title_slug = slugify(r.listing.title)
+            filename = f"{r.listing.external_id}_{company_slug}_{title_slug}.md"
             filepath = out / filename
 
-            content = self._render(r, rank)
+            content = self._render(r)
             filepath.write_text(content)
             paths.append(filepath)
 
         logger.info("Exported %d JD files to %s", len(paths), out)
         return paths
 
-    def _render(self, r: RankedListing, rank: int) -> str:
+    def _render(self, r: RankedListing) -> str:
         """Render a single JD as a Markdown document."""
         lines: list[str] = []
 
@@ -88,12 +103,12 @@ class JDFileExporter:
         lines.append(f"**Location:** {r.listing.location}  ")
         lines.append(f"**Board:** {r.listing.board}  ")
         lines.append(f"**URL:** {r.listing.url}  ")
+        lines.append(f"**External ID:** {r.listing.external_id}  ")
         lines.append("")
 
         # Score summary
         lines.append("## Score")
         lines.append("")
-        lines.append(f"- **Rank:** #{rank}")
         lines.append(f"- **Final Score:** {r.final_score:.2f}")
         lines.append(f"- **Fit Score:** {r.scores.fit_score:.2f}")
         lines.append(f"- **Archetype Score:** {r.scores.archetype_score:.2f}")

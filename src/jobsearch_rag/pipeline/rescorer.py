@@ -59,9 +59,9 @@ def _parse_jd_header(content: str) -> dict[str, str]:
     if title_match:
         meta["title"] = title_match.group(1).strip()
 
-    # Key-value pairs from bold labels
-    for match in re.finditer(r"\*\*(\w+):\*\*\s*(.+)", content):
-        key = match.group(1).lower()
+    # Key-value pairs from bold labels (supports multi-word keys like "External ID")
+    for match in re.finditer(r"\*\*([\w ]+):\*\*\s*(.+)", content):
+        key = match.group(1).strip().lower()
         value = match.group(2).strip()
         meta[key] = value
 
@@ -108,8 +108,10 @@ def load_jd_files(jd_dir: str | Path) -> list[JobListing]:
         url = meta.get("url", "")
         location = meta.get("location", "")
 
-        # Generate a stable external_id from the URL or filename
-        external_id = url.rstrip("/").rsplit("/", 1)[-1] if url else md_file.stem
+        # Read external_id from metadata, fall back to URL derivation
+        external_id = meta.get("external id") or (
+            url.rstrip("/").rsplit("/", 1)[-1] if url else md_file.stem
+        )
 
         # Parse compensation from body text
         comp_result = parse_compensation(body)

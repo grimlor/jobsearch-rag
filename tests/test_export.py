@@ -443,6 +443,7 @@ class TestCSVExport:
           (6) The system writes one data row for each non-disqualified listing in the CSV output.
           (7) The system includes a `culture_score` column in the CSV header.
           (8) The system includes a `negative_score` column in the CSV header.
+          (9) The system includes the `external_id` column so downstream consumers can round-trip the adapter-assigned ID.
     WHY: A CSV with unescaped commas or missing headers silently corrupts
          on import — the operator may not notice
 
@@ -621,6 +622,28 @@ class TestCSVExport:
             reader = csv.reader(f)
             header = next(reader)
         assert "negative_score" in header, f"Missing negative_score column. Header: {header}"
+
+    def test_csv_includes_external_id_column(self, tmp_path: Path) -> None:
+        """
+        Given a RankedListing with external_id="81cb444f00994fff"
+        When exported to CSV
+        Then the CSV row has an `external_id` column with the adapter-assigned value
+        """
+        # Given: a listing with a specific external_id
+        listings = [_ranked(external_id="81cb444f00994fff")]
+        out = tmp_path / "results.csv"
+
+        # When: export to CSV
+        CSVExporter().export(listings, str(out), summary=_summary())
+
+        # Then: external_id column exists with correct value
+        with open(out) as f:
+            reader = csv.DictReader(f)
+            row = next(reader)
+        assert "external_id" in row, f"Missing external_id column. Columns: {list(row.keys())}"
+        assert row["external_id"] == "81cb444f00994fff", (
+            f"Expected external_id '81cb444f00994fff', got {row['external_id']!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -871,22 +894,29 @@ class TestBrowserTabOpener:
 
 class TestJDFileExport:
     """
-    REQUIREMENT: Individual JD files are exported for standalone review.
+    REQUIREMENT: Individual JD files are exported with stable identity
+    that survives re-ranking across search runs.
 
-    WHO:  Operator reviewing JDs with external tools (e.g. Edge Copilot)
+    WHO:  Operator reviewing JDs with external tools (e.g. Edge Copilot),
+          and downstream consumers (review, rescore) that look up JD files
+          by external_id
     WHAT: (1) The system creates a separate Markdown file for each qualified listing it exports.
-          (2) The system names each exported JD file in `NNN_company_title.md` format for natural sort order.
-          (3) The system includes the listing title plus company, URL, and score information in the exported file header.
+          (2) The system names each exported JD file using external_id: `{external_id}_{company_slug}_{title_slug}.md` for stable identity across re-rankings.
+          (3) The system includes the listing title plus company, URL, external_id, and score information in the exported file header.
           (4) The system places the full job description text after the score section in the exported file.
           (5) The system skips listings with empty full_text and creates no JD file for them.
           (6) The system excludes disqualified listings with a final score of 0 from JD file export.
-          (7) The system assigns file numbers by descending final score instead of insertion order.
+          (7) The system sorts qualified listings by descending final score before export.
           (8) The system creates the output directory automatically when it does not already exist.
           (9) The system shows final, fit, archetype, history, and compensation scores in the score section.
           (10) The system includes an `Also on:` line that lists duplicate boards in the exported JD file.
           (11) The system includes a `Disqualified:` line with the disqualification reason in the exported JD file.
+          (12) The system includes `**External ID:**` metadata in the JD file header for downstream round-trip.
+          (13) The system removes stale JD files from the output directory that are not in the current result set.
     WHY:  Standalone files are easier to feed to AI assistants for red-flag
-          analysis than a single large table
+          analysis than a single large table.  Rank-based naming couples
+          identity to sort position, which changes every run — external_id
+          is the only stable identifier that survives re-ranking.
 
     MOCK BOUNDARY:
         Mock: nothing — pure file I/O via tmp_path
@@ -920,31 +950,38 @@ class TestJDFileExport:
         assert all(p.exists() for p in paths), "All files should exist"
         assert all(p.suffix == ".md" for p in paths), "All files should be Markdown"
 
-    def test_files_are_named_by_rank_company_title(self, tmp_path: Path) -> None:
+    def test_files_are_named_by_external_id_company_title(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing
-        WHEN exported as a JD file
-        THEN the filename follows NNN_company_title.md format for natural sort order.
+        Given a listing with external_id="abc123"
+        When exported as a JD file
+        Then the filename follows {external_id}_{company_slug}_{title_slug}.md format
         """
-        # Given: a single listing
+        # Given: a single listing with known external_id
         listings = [
-            _ranked(title="Staff Architect", company="Acme Corp", final_score=0.80),
+            _ranked(
+                title="Staff Architect",
+                company="Acme Corp",
+                final_score=0.80,
+                external_id="abc123",
+            ),
         ]
 
         # When: export JD files
         paths = JDFileExporter().export(listings, str(tmp_path))
 
-        # Then: filename follows naming convention
+        # Then: filename uses external_id prefix, not rank number
         name = paths[0].name
-        assert name.startswith("001_"), "Filename should start with rank number"
-        assert "acme-corp" in name, "Filename should contain slugified company"
-        assert "staff-architect" in name, "Filename should contain slugified title"
+        assert name.startswith("abc123_"), (
+            f"Filename should start with external_id 'abc123_', got {name!r}"
+        )
+        assert "acme-corp" in name, f"Filename should contain slugified company, got {name!r}"
+        assert "staff-architect" in name, f"Filename should contain slugified title, got {name!r}"
 
     def test_file_contains_metadata_header(self, tmp_path: Path) -> None:
         """
         GIVEN a listing with specific metadata
         WHEN exported as a JD file
-        THEN the file includes company, URL, and score section.
+        THEN the file includes company, URL, external_id, and score section.
         """
         # Given: a listing
         listings = [
@@ -952,19 +989,24 @@ class TestJDFileExport:
                 title="Staff Architect",
                 company="Acme Corp",
                 url="https://example.org/job/1",
+                external_id="ext-001",
             ),
         ]
 
         # When: export JD files
-        JDFileExporter().export(listings, str(tmp_path))
-        content = (tmp_path / "001_acme-corp_staff-architect.md").read_text()
+        paths = JDFileExporter().export(listings, str(tmp_path))
+        content = paths[0].read_text()
 
         # Then: metadata header present
-        assert "# Staff Architect" in content, "Title heading should appear"
-        assert "**Company:** Acme Corp" in content, "Company should appear"
-        assert "**URL:** https://example.org/job/1" in content, "URL should appear"
-        assert "## Score" in content, "Score section should appear"
-        assert "**Rank:** #1" in content, "Rank should appear"
+        assert "# Staff Architect" in content, f"Title heading should appear in:\n{content[:300]}"
+        assert "**Company:** Acme Corp" in content, f"Company should appear in:\n{content[:300]}"
+        assert "**URL:** https://example.org/job/1" in content, (
+            f"URL should appear in:\n{content[:300]}"
+        )
+        assert "## Score" in content, f"Score section should appear in:\n{content[:300]}"
+        assert "**External ID:** ext-001" in content, (
+            f"External ID should appear in:\n{content[:300]}"
+        )
 
     def test_file_contains_full_jd_text(self, tmp_path: Path) -> None:
         """
@@ -1030,7 +1072,7 @@ class TestJDFileExport:
         """
         GIVEN listings with different scores
         WHEN exported as JD files
-        THEN files are numbered by score rank, not insertion order.
+        THEN files are sorted by score, with higher-scored listing exported first.
         """
         # Given: two listings, lower-scored first
         listings = [
@@ -1047,12 +1089,12 @@ class TestJDFileExport:
         # When: export JD files
         paths = JDFileExporter().export(listings, str(tmp_path))
 
-        # Then: higher score gets rank 001
-        assert "001_" in paths[0].name and "higher-score" in paths[0].name, (
-            "Higher score should be ranked first"
+        # Then: higher score is exported first (index 0), named by external_id
+        assert "higher-score" in paths[0].name, (
+            f"Higher score should be exported first, got {paths[0].name!r}"
         )
-        assert "002_" in paths[1].name and "lower-score" in paths[1].name, (
-            "Lower score should be ranked second"
+        assert "lower-score" in paths[1].name, (
+            f"Lower score should be exported second, got {paths[1].name!r}"
         )
 
     def test_creates_output_directory_if_missing(self, tmp_path: Path) -> None:
@@ -1146,4 +1188,61 @@ class TestJDFileExport:
         # Then: disqualification reason shown
         assert "**Disqualified:** lacks cloud experience" in content, (
             "Disqualification reason should appear in JD file"
+        )
+
+    def test_jd_file_includes_external_id_in_metadata(self, tmp_path: Path) -> None:
+        """
+        Given a listing with external_id="81cb444f00994fff"
+        When exported as a JD file
+        Then the file header includes **External ID:** 81cb444f00994fff
+        """
+        # Given: a listing with a specific external_id
+        listings = [
+            _ranked(
+                title="Staff Architect",
+                company="Acme Corp",
+                final_score=0.80,
+                external_id="81cb444f00994fff",
+            ),
+        ]
+
+        # When: export JD files
+        paths = JDFileExporter().export(listings, str(tmp_path))
+        content = paths[0].read_text()
+
+        # Then: External ID metadata is present in header
+        assert "**External ID:** 81cb444f00994fff" in content, (
+            f"Expected '**External ID:** 81cb444f00994fff' in JD file, got:\n{content[:500]}"
+        )
+
+    def test_stale_jd_files_are_removed_on_export(self, tmp_path: Path) -> None:
+        """
+        Given an output directory with JD files from a prior run
+        When a new export writes a different set of listings
+        Then files not in the new result set are removed from the directory
+        """
+        # Given: prior JD files from a previous run
+        stale_file = tmp_path / "old-id_stale-corp_old-role.md"
+        stale_file.write_text("# Old Role\n\n## Job Description\nStale content.")
+        survivor_file = tmp_path / "ext-001_acme-corp_staff-architect.md"
+        survivor_file.write_text("# Staff Architect\n\n## Job Description\nOld content.")
+
+        # When: export new listings (only ext-001 is in the new set)
+        listings = [
+            _ranked(
+                title="Staff Architect",
+                company="Acme Corp",
+                final_score=0.80,
+                external_id="ext-001",
+            ),
+        ]
+        JDFileExporter().export(listings, str(tmp_path))
+
+        # Then: stale file is removed, new file exists
+        remaining = {f.name for f in tmp_path.glob("*.md")}
+        assert "old-id_stale-corp_old-role.md" not in remaining, (
+            f"Stale file should be removed. Remaining: {remaining}"
+        )
+        assert any("ext-001" in name for name in remaining), (
+            f"Current listing file should exist. Remaining: {remaining}"
         )

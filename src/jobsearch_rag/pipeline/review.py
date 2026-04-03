@@ -130,19 +130,15 @@ class ReviewSession:
         """
         Open the listing's JD file or URL in the system browser.
 
-        When *rank* is provided the JD file is located using the
-        ``{rank:03d}_{company_slug}_{title_slug}.md`` convention.
+        Locates the JD file using the
+        ``{external_id}_{company_slug}_{title_slug}.md`` convention.
         Falls back to the listing URL if the file does not exist.
         """
         listing = ranked.listing
-        if rank:
-            company_slug = slugify(listing.company)
-            title_slug = slugify(listing.title)
-            filename = f"{rank:03d}_{company_slug}_{title_slug}.md"
-            jd_path = Path(self._jd_dir) / filename
-        else:
-            # Legacy fallback — external_id-based lookup
-            jd_path = Path(self._jd_dir) / f"{listing.external_id}.md"
+        company_slug = slugify(listing.company)
+        title_slug = slugify(listing.title)
+        filename = f"{listing.external_id}_{company_slug}_{title_slug}.md"
+        jd_path = Path(self._jd_dir) / filename
         if jd_path.exists():
             webbrowser.open(str(jd_path))
         else:
