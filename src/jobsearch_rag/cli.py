@@ -65,6 +65,74 @@ def _read_jd_text(
     return content[idx + len(marker) :].strip()
 
 
+def _load_prior_csv(csv_path: Path) -> list[RankedListing]:
+    """
+    Read a prior results CSV and reconstruct ``RankedListing`` objects.
+
+    Listings round-tripped from CSV have empty ``full_text`` because the
+    CSV deliberately excludes it.  This is fine — the merge path never
+    re-exports JD files for prior-only listings.
+    """
+    if not csv_path.exists():
+        return []
+
+    listings: list[RankedListing] = []
+    with open(csv_path) as f:
+        reader = csv_mod.DictReader(f)
+        for row in reader:
+            external_id = row.get("external_id", "")
+            listing = JobListing(
+                board=row.get("board", "unknown"),
+                external_id=external_id,
+                title=row.get("title", ""),
+                company=row.get("company", ""),
+                location=row.get("location", ""),
+                url=row.get("url", ""),
+                full_text="",
+                comp_min=float(row["comp_min"]) if row.get("comp_min") else None,
+                comp_max=float(row["comp_max"]) if row.get("comp_max") else None,
+            )
+            scores = ScoreResult(
+                fit_score=float(row.get("fit_score", 0)),
+                archetype_score=float(row.get("archetype_score", 0)),
+                history_score=float(row.get("history_score", 0)),
+                disqualified=row.get("disqualified", "").lower() == "true",
+                disqualifier_reason=row.get("disqualifier_reason") or None,
+                comp_score=float(row.get("comp_score", 0)),
+                culture_score=float(row.get("culture_score", 0)),
+                negative_score=float(row.get("negative_score", 0)),
+            )
+            listings.append(
+                RankedListing(
+                    listing=listing,
+                    scores=scores,
+                    final_score=float(row.get("final_score", 0)),
+                )
+            )
+    return listings
+
+
+def _merge_results(
+    new: list[RankedListing],
+    prior: list[RankedListing],
+) -> list[RankedListing]:
+    """
+    Merge new results with prior CSV rows.
+
+    New listings win on ``external_id`` collision (upsert).  Prior-only
+    listings are preserved.  The returned list is sorted by
+    ``final_score`` descending.
+    """
+    merged: dict[str, RankedListing] = {}
+    for r in prior:
+        merged[r.listing.external_id] = r
+    for r in new:
+        merged[r.listing.external_id] = r  # new wins
+    result = list(merged.values())
+    result.sort(key=lambda r: r.final_score, reverse=True)
+    return result
+
+
 # Board login URLs for interactive authentication
 _LOGIN_URLS: dict[str, str] = {
     "ziprecruiter": "https://www.ziprecruiter.com/authn/login",
@@ -229,18 +297,45 @@ def handle_search(args: argparse.Namespace) -> None:
         if result.ranked_listings:
             out_dir = Path(settings.output.output_dir)
             out_dir.mkdir(parents=True, exist_ok=True)
+            csv_path = out_dir / "results.csv"
+
+            # Accumulate mode: merge new results with prior CSV
+            fresh = getattr(args, "fresh", False)
+            if not fresh:
+                prior = _load_prior_csv(csv_path)
+                if prior:
+                    export_list = _merge_results(result.ranked_listings, prior)
+                    # Filter out decided listings
+                    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+                    try:
+                        decision_ids = [f"decision-{r.listing.external_id}" for r in export_list]
+                        dec_results = store.get_documents(
+                            collection_name="decisions", ids=decision_ids
+                        )
+                        decided_set = {m["job_id"] for m in dec_results.get("metadatas", []) if m}
+                    except Exception:  # decisions collection may not exist
+                        decided_set: set[str] = set()
+                    export_list = [
+                        r for r in export_list if r.listing.external_id not in decided_set
+                    ]
+                else:
+                    export_list = result.ranked_listings
+            else:
+                export_list = result.ranked_listings
 
             md_path = str(out_dir / "results.md")
-            MarkdownExporter().export(result.ranked_listings, md_path, summary=result.summary)
+            MarkdownExporter().export(export_list, md_path, summary=result.summary)
             print(f"Exported Markdown → {md_path}")
 
-            csv_path = str(out_dir / "results.csv")
-            CSVExporter().export(result.ranked_listings, csv_path, summary=result.summary)
+            CSVExporter().export(export_list, str(csv_path), summary=result.summary)
             print(f"Exported CSV      → {csv_path}")
 
             jd_dir = str(out_dir / "jds")
             jd_paths = JDFileExporter().export(
-                result.ranked_listings, jd_dir, summary=result.summary
+                result.ranked_listings,
+                jd_dir,
+                summary=result.summary,
+                cleanup_stale=fresh,
             )
             print(f"Exported JDs      → {jd_dir}/ ({len(jd_paths)} files)")
 
@@ -794,6 +889,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--force-rescore",
         action="store_true",
         help="Re-score all listings even if they have prior decisions",
+    )
+    search_p.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Discard prior accumulated results and start fresh",
     )
 
     # -- export --------------------------------------------------------------

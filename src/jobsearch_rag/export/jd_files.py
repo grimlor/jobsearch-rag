@@ -41,6 +41,7 @@ class JDFileExporter:
         output_dir: str,
         *,
         summary: RankSummary | None = None,
+        cleanup_stale: bool = True,
     ) -> list[Path]:
         """
         Write individual JD files for qualified listings.
@@ -74,9 +75,10 @@ class JDFileExporter:
             exportable.append(r)
 
         # Remove stale .md files from prior runs
-        for old_file in out.glob("*.md"):
-            if old_file.name not in new_filenames:
-                old_file.unlink()
+        if cleanup_stale:
+            for old_file in out.glob("*.md"):
+                if old_file.name not in new_filenames:
+                    old_file.unlink()
 
         paths: list[Path] = []
         for r in exportable:
