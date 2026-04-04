@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import statistics
 import time
 from dataclasses import dataclass, field
@@ -220,8 +221,27 @@ class PipelineRunner:
         embeddings: dict[str, list[float]] = {}
         skipped_decisions = 0
 
-        for listing in all_listings:
+        # Read parallelism from OLLAMA_NUM_PARALLEL (same knob Ollama uses)
+        raw_parallel = os.environ.get("OLLAMA_NUM_PARALLEL", "1")
+        try:
+            max_parallel = int(raw_parallel)
+        except (ValueError, TypeError):
+            max_parallel = 1
+        if max_parallel < 1:
+            max_parallel = 1
+
+        log_event(
+            "scoring_parallelism",
+            max_parallel=max_parallel,
+            listing_count=len(all_listings),
+        )
+
+        sem = asyncio.Semaphore(max_parallel)
+
+        async def _score_one(listing: JobListing) -> None:
+            """Score a single listing under the semaphore."""
             # Cross-run dedup: skip listings with existing decisions
+            nonlocal skipped_decisions
             if not force_rescore:
                 decision = self._decision_recorder.get_decision(listing.external_id)
                 if decision is not None:
@@ -232,57 +252,68 @@ class PipelineRunner:
                         decision.get("verdict", "unknown"),
                     )
                     skipped_decisions += 1
-                    continue
+                    return
 
-            try:
-                score_result = await self._scorer.score(listing.full_text)
+            async with sem:
+                try:
+                    score_result = await self._scorer.score(listing.full_text)
 
-                # Parse compensation from JD text and compute comp_score
-                comp = parse_compensation(listing.full_text)
-                if comp is not None:
-                    listing.comp_min = comp.comp_min
-                    listing.comp_max = comp.comp_max
-                    listing.comp_source = comp.comp_source
-                    listing.comp_text = comp.comp_text
-                score_result.comp_score = compute_comp_score(listing.comp_max, self._base_salary)
+                    # Parse compensation from JD text and compute comp_score
+                    comp = parse_compensation(listing.full_text)
+                    if comp is not None:
+                        listing.comp_min = comp.comp_min
+                        listing.comp_max = comp.comp_max
+                        listing.comp_source = comp.comp_source
+                        listing.comp_text = comp.comp_text
+                    score_result.comp_score = compute_comp_score(
+                        listing.comp_max,
+                        self._base_salary,
+                    )
 
-                scored.append((listing, score_result))
+                    scored.append((listing, score_result))
 
-                # Emit structured score_computed event
-                final = self._ranker.compute_final_score(score_result)
-                log_event(
-                    "score_computed",
-                    job_id=listing.external_id,
-                    archetype=score_result.archetype_score,
-                    fit=score_result.fit_score,
-                    culture=score_result.culture_score,
-                    history=score_result.history_score,
-                    negative=score_result.negative_score,
-                    comp=score_result.comp_score,
-                    final=final,
-                )
+                    # Emit structured score_computed event
+                    final = self._ranker.compute_final_score(score_result)
+                    log_event(
+                        "score_computed",
+                        job_id=listing.external_id,
+                        archetype=score_result.archetype_score,
+                        fit=score_result.fit_score,
+                        culture=score_result.culture_score,
+                        history=score_result.history_score,
+                        negative=score_result.negative_score,
+                        comp=score_result.comp_score,
+                        final=final,
+                    )
 
-                # Cache the embedding for deduplication
-                embedding = await self._embedder.embed(listing.full_text)
-                embeddings[listing.url] = embedding
-            except ActionableError as exc:
-                logger.warning(
-                    "Scoring failed for %s (%s): %s",
-                    listing.title,
-                    listing.url,
-                    exc.error,
-                )
-                surfaced_errors.append(exc)
-                failed_count += 1
-            except Exception as exc:
-                logger.error(
-                    "Unexpected scoring error for %s (%s): %s",
-                    listing.title,
-                    listing.url,
-                    exc,
-                )
-                surfaced_errors.append(ActionableError.from_exception(exc, "scorer", listing.url))
-                failed_count += 1
+                    # Cache the embedding for deduplication
+                    embedding = await self._embedder.embed(listing.full_text)
+                    embeddings[listing.url] = embedding
+                except ActionableError as exc:
+                    logger.warning(
+                        "Scoring failed for %s (%s): %s",
+                        listing.title,
+                        listing.url,
+                        exc.error,
+                    )
+                    surfaced_errors.append(exc)
+                    nonlocal failed_count
+                    failed_count += 1
+                except Exception as exc:
+                    logger.error(
+                        "Unexpected scoring error for %s (%s): %s",
+                        listing.title,
+                        listing.url,
+                        exc,
+                    )
+                    surfaced_errors.append(
+                        ActionableError.from_exception(exc, "scorer", listing.url),
+                    )
+                    failed_count += 1
+
+        async with asyncio.TaskGroup() as tg:
+            for listing in all_listings:
+                tg.create_task(_score_one(listing))
 
         # Step 4b: Emit per-collection retrieval quality metrics
         threshold = self._settings.scoring.min_score_threshold
