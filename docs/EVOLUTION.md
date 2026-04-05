@@ -195,6 +195,32 @@ metrics.
 
 ---
 
+## Phase 11 — Parallel Scoring & Live Test Automation
+
+**Problem:** Scoring was serial (one listing at a time) and there were no
+live integration tests to catch real-service regressions.
+
+**Solution:** Two sub-phases:
+
+### Phase 11a — Parallel Scoring
+- Scoring concurrency controlled by `OLLAMA_NUM_PARALLEL` environment variable
+- `asyncio.Semaphore` gates concurrent `_score_one` calls
+- Structured `scoring_parallelism` log event records settings per run
+
+### Phase 11b — Live & Integration Test Automation
+- 12 live/integration tests across 5 behavior classes (B1–B5)
+- `require_ollama` fixture skips gracefully when Ollama is unreachable
+- Rescore validation through real Ollama embedding + scoring
+- Cumulative accumulation: CSV merge, JD file lifecycle, Markdown summary
+- Fresh mode reset: `--fresh` discards prior results end-to-end
+- Decision exclusion across runs with ChromaDB round-trip validation
+- `PipelineRunner` gains `store`, `decision_recorder` properties and
+  `max_listings` parameter for capped validation runs
+- PlaywrightError handling in Cloudflare wait loop
+- `--max-listings` CLI argument and `task live` command
+
+---
+
 ## What's Next
 
 Areas identified but not yet implemented:
