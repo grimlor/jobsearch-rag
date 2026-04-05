@@ -28,6 +28,7 @@ from jobsearch_rag.config import (
 )
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
+from jobsearch_rag.rag.decisions import DecisionRecorder
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
@@ -265,6 +266,8 @@ class TestPipelineOrchestration:
           (9) The system does not search the same board twice when an overnight board overlaps with enabled boards.
           (10) The system auto-indexes only the empty collections when some collections are already populated.
           (11) The system skips auto-indexing for collections that already contain documents.
+          (12) The system caps the scored listings to max_listings when the parameter is set, and logs the cap.
+          (13) The system exposes its decision recorder through a public property.
     WHY: A health check after browser work wastes time; a single board
          failure aborting the entire run discards valid results from other
          boards; an invalid RunResult crashes exporters downstream
@@ -690,6 +693,55 @@ class TestPipelineOrchestration:
             assert store.collection_count("role_archetypes") > 0, (
                 "Expected archetypes to be auto-indexed"
             )
+
+    async def test_max_listings_caps_scored_count_and_logs(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """
+        Given a board returns 5 listings
+        When run(max_listings=2) is called
+        Then only 2 listings are scored and the cap is logged.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: runner + adapter returning 5 listings
+            settings = _make_settings(tmpdir)
+            runner, _ = _make_runner_with_real_stack(settings)
+
+            listings = [_make_listing(external_id=f"cap-{i}", title=f"Job {i}") for i in range(5)]
+            mock_adapter = _make_test_adapter(search_results=listings)
+            mock_pw_fn, _ = _mock_playwright_boundary()
+
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                caplog.at_level(logging.INFO, logger="jobsearch-rag"),
+            ):
+                # When: run with max_listings=2
+                result = await runner.run(max_listings=2)
+
+            # Then: only 2 listings scored
+            assert result.summary.total_scored == 2, (
+                f"Expected 2 scored listings, got {result.summary.total_scored}"
+            )
+
+            # Then: cap was logged
+            assert any("Capping listings from 5 to 2" in msg for msg in caplog.messages), (
+                f"Expected cap log message, got: {caplog.messages}"
+            )
+
+    async def test_decision_recorder_property_returns_recorder(self) -> None:
+        """
+        Given a configured runner,
+        When the decision_recorder property is accessed,
+        Then it returns the DecisionRecorder used by the pipeline.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = _make_settings(tmpdir)
+            runner, _ = _make_runner_with_real_stack(settings)
+            recorder = runner.decision_recorder
+            assert isinstance(recorder, DecisionRecorder)
 
 
 # ---------------------------------------------------------------------------

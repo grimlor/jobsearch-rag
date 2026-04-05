@@ -93,12 +93,23 @@ class PipelineRunner:
         self._base_salary = settings.scoring.base_salary
         self._decision_recorder = DecisionRecorder(store=self._store, embedder=self._embedder)
 
+    @property
+    def store(self) -> VectorStore:
+        """Public access to the pipeline's vector store."""
+        return self._store
+
+    @property
+    def decision_recorder(self) -> DecisionRecorder:
+        """Public access to the pipeline's decision recorder."""
+        return self._decision_recorder
+
     async def run(
         self,
         boards: list[str] | None = None,
         *,
         overnight: bool = False,
         force_rescore: bool = False,
+        max_listings: int = 0,
     ) -> RunResult:
         """
         Execute a full search-score-rank pipeline.
@@ -107,6 +118,8 @@ class PipelineRunner:
             boards: Specific board names to search.  ``None`` = all enabled.
             overnight: If ``True``, enforce extended throttling for stealth boards.
             force_rescore: If ``True``, re-score existing JDs instead of searching.
+            max_listings: If > 0, cap the number of listings scored per run.
+                Useful for quick validation runs.
 
         Returns:
             A :class:`RunResult` with ranked listings and summary statistics.
@@ -122,6 +135,7 @@ class PipelineRunner:
                 overnight=overnight,
                 force_rescore=force_rescore,
                 session_id=session_id,
+                max_listings=max_listings,
             )
         finally:
             session_logger.removeHandler(session_handler)
@@ -134,6 +148,7 @@ class PipelineRunner:
         overnight: bool = False,
         force_rescore: bool = False,
         session_id: str = "",
+        max_listings: int = 0,
     ) -> RunResult:
         """Inner run logic, called after session logging is configured."""
         t0 = time.perf_counter()
@@ -190,6 +205,16 @@ class PipelineRunner:
             all_listings.extend(board_listings)
             failed_count += board_failures
 
+        # Cap listing count when max_listings is set (quick validation runs)
+        if max_listings > 0 and len(all_listings) > max_listings:
+            logger.info(
+                "Capping listings from %d to %d (max_listings=%d)",
+                len(all_listings),
+                max_listings,
+                max_listings,
+            )
+            all_listings = all_listings[:max_listings]
+
         if not all_listings:
             logger.warning("No listings collected from any board")
             m = self._embedder.metrics
@@ -234,6 +259,12 @@ class PipelineRunner:
             "scoring_parallelism",
             max_parallel=max_parallel,
             listing_count=len(all_listings),
+        )
+        logger.info(
+            "Scoring %d listings with parallelism=%d (OLLAMA_NUM_PARALLEL=%s)",
+            len(all_listings),
+            max_parallel,
+            raw_parallel,
         )
 
         sem = asyncio.Semaphore(max_parallel)

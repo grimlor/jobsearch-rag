@@ -37,6 +37,8 @@ import re
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any
 
+from playwright.async_api import Error as PlaywrightError
+
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.adapters.registry import AdapterRegistry
 from jobsearch_rag.errors import ActionableError
@@ -296,7 +298,13 @@ async def _wait_for_cloudflare(page: Page, *, timeout: int = _CF_WAIT_TIMEOUT) -
     challenge clears, or raises :class:`ActionableError` on timeout.
     """
     for _ in range(timeout):
-        title = await page.title()
+        try:
+            title = await page.title()
+        except PlaywrightError:
+            # Navigation in progress (e.g. Cloudflare redirect destroyed the
+            # execution context).  Treat the same as "still challenging".
+            await asyncio.sleep(1)
+            continue
         if "just a moment" not in title.lower():
             return
         await asyncio.sleep(1)

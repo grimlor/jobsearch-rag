@@ -257,6 +257,7 @@ def handle_search(args: argparse.Namespace) -> None:
             boards=boards,
             overnight=args.overnight,
             force_rescore=args.force_rescore,
+            max_listings=getattr(args, "max_listings", 0),
         )
 
         # Print summary
@@ -306,10 +307,9 @@ def handle_search(args: argparse.Namespace) -> None:
                 if prior:
                     export_list = _merge_results(result.ranked_listings, prior)
                     # Filter out decided listings
-                    store = VectorStore(persist_dir=settings.chroma.persist_dir)
                     try:
                         decision_ids = [f"decision-{r.listing.external_id}" for r in export_list]
-                        dec_results = store.get_documents(
+                        dec_results = runner.store.get_documents(
                             collection_name="decisions", ids=decision_ids
                         )
                         decided_set = {m["job_id"] for m in dec_results.get("metadatas", []) if m}
@@ -894,6 +894,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--fresh",
         action="store_true",
         help="Discard prior accumulated results and start fresh",
+    )
+    search_p.add_argument(
+        "--max-listings",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Cap the number of listings to score (0 = no cap)",
     )
 
     # -- export --------------------------------------------------------------

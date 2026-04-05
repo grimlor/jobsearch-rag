@@ -53,6 +53,7 @@ format = "uv run ruff format src/ tests/"
 type   = "uv run pyright src/ tests/"
 test   = "uv run pytest tests/ -v"
 cov    = "uv run pytest tests/ --cov=jobsearch_rag --cov-report=term-missing"
+live   = "uv run pytest tests/ -m \"live or integration\" -v"
 check  = "task format && task lint && task type && task test"
 
 # ---------------------------------------------------------------------------
@@ -138,6 +139,10 @@ python_files = ["*_test.py", "test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --strict-markers -m 'not integration and not live'"
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s %(levelname)-8s %(name)s — %(message)s"
+log_cli_date_format = "%H:%M:%S"
 markers = [
     "integration: marks tests requiring live services (Ollama, browser)",
     "live: marks tests requiring live external sites (ZipRecruiter, etc.)",

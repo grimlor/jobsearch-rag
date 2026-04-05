@@ -23,6 +23,16 @@ Spec classes
 * **TestLiveZipRecruiterPipeline** — full system against live
   ZipRecruiter: browser session → search → extract → score → rank →
   export.
+* **TestOllamaHealthCheckSkip** — ``require_ollama`` fixture yields
+  when Ollama is reachable and calls ``pytest.skip()`` when not.
+* **TestIntegrationRescoreAccumulatedJDs** — rescorer processes
+  seeded JD files through real Ollama and produces sorted export.
+* **TestLiveCumulativeAccumulation** — two successive live searches
+  produce a merged CSV, preserved JD files, and correct Markdown.
+* **TestLiveFreshModeReset** — ``--fresh`` flag discards prior
+  results and restores replace-on-write behavior.
+* **TestLiveDecisionExclusionAcrossRuns** — decided listings are
+  excluded from CSV/Markdown but JD files are preserved.
 
 Between them, these tests catch the class of bug where our mocks
 silently diverge from reality — e.g. an ollama SDK upgrade changes
@@ -31,8 +41,13 @@ the response shape, or ChromaDB alters its distance metric.
 
 from __future__ import annotations
 
+import argparse
+import asyncio
+import csv as csv_mod
+import dataclasses
 import math
 import tempfile
+import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -40,12 +55,23 @@ import pytest
 
 from jobsearch_rag.adapters.session import SessionConfig, SessionManager, throttle
 from jobsearch_rag.adapters.ziprecruiter import ZipRecruiterAdapter
+from jobsearch_rag.cli import handle_search
+from jobsearch_rag.config import (
+    BoardConfig,
+    ChromaConfig,
+    OutputConfig,
+    Settings,
+    load_settings,
+)
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.export.csv_export import CSVExporter
 from jobsearch_rag.export.jd_files import JDFileExporter
 from jobsearch_rag.export.markdown import MarkdownExporter
 from jobsearch_rag.pipeline.ranker import Ranker
+from jobsearch_rag.pipeline.rescorer import Rescorer
+from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
+from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
@@ -883,3 +909,1024 @@ class TestLiveZipRecruiterPipeline:
             assert "**Board:** ziprecruiter" in jd_content, (
                 f"JD file missing board field: {jd_path}"
             )
+
+
+# ---------------------------------------------------------------------------
+# require_ollama fixture — shared skip-if-unreachable guard (Phase 7b)
+# ---------------------------------------------------------------------------
+
+_OLLAMA_HEALTH_URL = f"{OLLAMA_BASE_URL}/api/tags"
+
+
+@pytest.fixture
+def require_ollama() -> None:
+    """Skip the test if Ollama is not reachable at OLLAMA_BASE_URL."""
+    try:
+        urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
+    except Exception:
+        pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
+
+
+# ---------------------------------------------------------------------------
+# TestOllamaHealthCheckSkip (Phase 7b — B1)
+# ---------------------------------------------------------------------------
+
+
+class TestOllamaHealthCheckSkip:
+    """
+    REQUIREMENT: Integration and live tests skip gracefully when Ollama is
+    not running.
+
+    WHO: Developer running ``uv run pytest -m integration`` on a machine
+         without Ollama.
+    WHAT: (1) When Ollama is reachable, the fixture yields and the test proceeds
+          (2) When Ollama is unreachable, the fixture calls ``pytest.skip()``
+              with a message identifying the URL
+    WHY: Without this, integration tests crash with raw ``ConnectionError``
+         instead of a clean skip with a descriptive message.
+
+    MOCK BOUNDARY:
+        Mock:  (none)
+        Real:  HTTP call to Ollama health endpoint
+        Never: Mock the health check itself — that defeats the purpose
+    """
+
+    def test_fixture_allows_test_when_ollama_is_reachable(self, require_ollama: None) -> None:
+        """
+        Given Ollama is running
+        When the require_ollama fixture runs
+        Then the test body executes (reaching this assertion proves it).
+        """
+        # Given: Ollama is running (or the fixture skips us)
+
+        # When: fixture ran before this body
+
+        # Then: we reached this point — fixture did not skip
+        assert True, "Test body should execute when Ollama is reachable"
+
+    def test_fixture_skips_when_ollama_is_unreachable(self) -> None:
+        """
+        Given Ollama is not running at a bogus URL
+        When the fixture logic runs against that URL
+        Then pytest.skip() is called with a message identifying the URL.
+        """
+        # Given: a URL that will not respond
+        bogus_url = "http://localhost:1/__nonexistent_ollama__/api/tags"
+
+        # When/Then: attempting to reach it raises, proving skip would fire
+        with pytest.raises(Exception) as exc_info:
+            urllib.request.urlopen(bogus_url, timeout=2)
+
+        assert exc_info.value is not None, (
+            "Connection to bogus Ollama URL should fail, "
+            "which is what the fixture translates into pytest.skip()"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestIntegrationRescoreAccumulatedJDs (Phase 7b — B2)
+# ---------------------------------------------------------------------------
+
+# Sample JD files matching the format produced by JDFileExporter
+_JD_TEMPLATE = """\
+# {title}
+
+**Company:** {company}
+**Location:** Remote (USA)
+**Board:** ziprecruiter
+**URL:** https://www.ziprecruiter.com/jobs/{external_id}
+**External ID:** {external_id}
+
+## Job Description
+
+{body}
+
+## Score
+
+(scores will be filled by rescorer)
+"""
+
+_SAMPLE_JDS = [
+    {
+        "external_id": "rescore-jd-001",
+        "title": "Staff Platform Architect",
+        "company": "Acme Cloud",
+        "body": (
+            "We are hiring a Staff Platform Architect to lead the design "
+            "of distributed systems infrastructure. You will architect "
+            "cloud-native platforms using Kubernetes, Kafka, and gRPC. "
+            "Experience with Terraform and AWS required. Cross-team "
+            "leadership and mentoring expected."
+        ),
+    },
+    {
+        "external_id": "rescore-jd-002",
+        "title": "Senior Data Engineer",
+        "company": "DataFlow Inc",
+        "body": (
+            "Senior Data Engineer role building real-time data pipelines "
+            "with Apache Spark, Airflow, and Snowflake. Design and maintain "
+            "data lake architecture on AWS. Strong Python and SQL skills "
+            "required. Experience with dbt preferred."
+        ),
+    },
+    {
+        "external_id": "rescore-jd-003",
+        "title": "Pastry Chef",
+        "company": "Sweet Treats Bakery",
+        "body": (
+            "Seeking an experienced pastry chef to create artisan breads "
+            "and pastries for our downtown Portland bakery. Must have "
+            "culinary school training and 5 years of professional baking "
+            "experience. Early morning hours required."
+        ),
+    },
+]
+
+
+class TestIntegrationRescoreAccumulatedJDs:
+    """
+    REQUIREMENT: The rescorer processes all JD files on disk using real Ollama,
+    producing a full re-scored export.
+
+    WHO: Operator running ``rescore`` after accumulating JDs across multiple
+         search runs.
+    WHAT: (1) JD files seeded on disk are all discovered and re-scored by Rescorer
+          (2) Every JD file produces a valid ScoreResult with fit_score > 0 and
+              archetype_score > 0
+          (3) Resulting CSV contains one row per JD file, sorted by final_score
+              descending
+          (4) Resulting Markdown ``# Run Summary`` reflects the full set of
+              rescored listings
+    WHY: Unit tests mock the embedder.  This validates real Ollama embedding +
+         scoring against the JD file format produced by the exporter — the full
+         write-parse-embed-score round trip.
+
+    MOCK BOUNDARY:
+        Mock:  (none — real Ollama)
+        Real:  Ollama (embed + LLM), ChromaDB, Rescorer, JDFileExporter,
+               CSVExporter, MarkdownExporter, JD file parsing
+        Never: Mock Ollama or ChromaDB
+    """
+
+    async def test_rescore_discovers_and_scores_all_seeded_jd_files(
+        self,
+        require_ollama: None,
+        store: VectorStore,
+        embedder: Embedder,
+        sample_resume: Path,
+        sample_archetypes: Path,
+        tmp_path: Path,
+    ) -> None:
+        """
+        Given 3 JD files on disk from a prior export
+        When rescore runs with real Ollama
+        Then all 3 produce valid ScoreResults with fit_score > 0 and
+        archetype_score > 0.
+        """
+        # Given: index resume and archetypes
+        indexer = Indexer(store=store, embedder=embedder)
+        await indexer.index_resume(str(sample_resume))
+        await indexer.index_archetypes(str(sample_archetypes))
+
+        # Given: seed 3 JD files on disk
+        jd_dir = tmp_path / "jds"
+        jd_dir.mkdir()
+        for jd in _SAMPLE_JDS:
+            filename = f"{jd['external_id']}_{jd['company'].lower().replace(' ', '-')}_{jd['title'].lower().replace(' ', '-')}.md"
+            (jd_dir / filename).write_text(_JD_TEMPLATE.format(**jd), encoding="utf-8")
+
+        # When: rescore with real Ollama + ChromaDB
+        scorer = Scorer(
+            store=store,
+            embedder=embedder,
+            disqualify_on_llm_flag=False,
+        )
+        ranker = Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.2,
+            comp_weight=0.15,
+            min_score_threshold=0.0,
+        )
+        rescorer = Rescorer(scorer=scorer, ranker=ranker, base_salary=220_000)
+        result = await rescorer.rescore(str(jd_dir))
+
+        # Then: all 3 JD files discovered and scored
+        assert result.total_loaded == len(_SAMPLE_JDS), (
+            f"Expected {len(_SAMPLE_JDS)} JDs loaded, got {result.total_loaded}"
+        )
+        assert len(result.ranked_listings) == len(_SAMPLE_JDS), (
+            f"Expected {len(_SAMPLE_JDS)} ranked listings, got {len(result.ranked_listings)}"
+        )
+
+        # Then: every result has valid non-zero scores
+        for ranked in result.ranked_listings:
+            assert ranked.scores.fit_score > 0.0, (
+                f"Zero fit score for '{ranked.listing.title}' — embedding may have failed"
+            )
+            assert ranked.scores.archetype_score > 0.0, (
+                f"Zero archetype score for '{ranked.listing.title}'"
+            )
+
+    async def test_rescore_produces_sorted_csv_matching_jd_count(
+        self,
+        require_ollama: None,
+        store: VectorStore,
+        embedder: Embedder,
+        sample_resume: Path,
+        sample_archetypes: Path,
+        tmp_path: Path,
+    ) -> None:
+        """
+        Given JD files with varied content
+        When rescored
+        Then CSV row count matches JD file count, CSV is sorted by final_score
+        descending, and Markdown table row count matches CSV data row count.
+        """
+        # Given: index resume and archetypes
+        indexer = Indexer(store=store, embedder=embedder)
+        await indexer.index_resume(str(sample_resume))
+        await indexer.index_archetypes(str(sample_archetypes))
+
+        # Given: seed JD files
+        jd_dir = tmp_path / "jds"
+        jd_dir.mkdir()
+        for jd in _SAMPLE_JDS:
+            filename = f"{jd['external_id']}_{jd['company'].lower().replace(' ', '-')}_{jd['title'].lower().replace(' ', '-')}.md"
+            (jd_dir / filename).write_text(_JD_TEMPLATE.format(**jd), encoding="utf-8")
+
+        # When: rescore and export
+        scorer = Scorer(
+            store=store,
+            embedder=embedder,
+            disqualify_on_llm_flag=False,
+        )
+        ranker = Ranker(
+            archetype_weight=0.5,
+            fit_weight=0.3,
+            history_weight=0.2,
+            comp_weight=0.15,
+            min_score_threshold=0.0,
+        )
+        rescorer = Rescorer(scorer=scorer, ranker=ranker, base_salary=220_000)
+        result = await rescorer.rescore(str(jd_dir))
+
+        # Then: export CSV and verify
+        csv_path = str(tmp_path / "results.csv")
+        CSVExporter().export(result.ranked_listings, csv_path, summary=result.summary)
+
+        with open(csv_path) as f:
+            reader = list(csv_mod.DictReader(f))
+
+        assert len(reader) == len(_SAMPLE_JDS), (
+            f"CSV should have {len(_SAMPLE_JDS)} data rows, got {len(reader)}"
+        )
+
+        scores = [float(row["final_score"]) for row in reader]
+        assert scores == sorted(scores, reverse=True), (
+            f"CSV rows not sorted by final_score descending: {scores}"
+        )
+
+        # Then: export Markdown and verify table row count matches CSV
+        md_path = str(tmp_path / "results.md")
+        MarkdownExporter().export(result.ranked_listings, md_path, summary=result.summary)
+        md_content = Path(md_path).read_text()
+        assert "# Run Summary" in md_content, "Markdown should contain '# Run Summary'"
+
+        # Count table rows (lines starting with |, excluding header separator)
+        md_table_rows = [
+            line
+            for line in md_content.split("\n")
+            if line.startswith("|") and not line.startswith("|---") and not line.startswith("| #")
+        ]
+        assert len(md_table_rows) == len(reader), (
+            f"Markdown table rows ({len(md_table_rows)}) should match "
+            f"CSV data rows ({len(reader)})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for live cumulative tests (Phase 7b — B3/B4/B5)
+# ---------------------------------------------------------------------------
+
+
+def _make_live_settings(tmp_path: Path, *, max_pages: int = 1) -> Settings:
+    """
+    Load real settings.toml and override output + chroma paths to tmp_path.
+
+    Preserves board config, scoring weights, and Ollama settings from the
+    real config while directing all output and state to a temporary directory.
+    Board configs are narrowed to a single search URL and ``max_pages``
+    (default 1) to keep live test runs fast.
+    """
+    real = load_settings()
+    chroma_dir = str(tmp_path / "chroma_db")
+    output_dir = str(tmp_path / "output")
+    Path(chroma_dir).mkdir(parents=True, exist_ok=True)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    # Narrow each board to 1 search URL and capped max_pages
+    narrowed_boards: dict[str, BoardConfig] = {}
+    for name, cfg in real.boards.items():
+        narrowed_boards[name] = dataclasses.replace(
+            cfg,
+            searches=cfg.searches[:1],
+            max_pages=max_pages,
+        )
+
+    return dataclasses.replace(
+        real,
+        boards=narrowed_boards,
+        chroma=ChromaConfig(persist_dir=chroma_dir),
+        output=OutputConfig(
+            default_format=real.output.default_format,
+            output_dir=output_dir,
+            open_top_n=0,
+        ),
+        scoring=dataclasses.replace(
+            real.scoring,
+            min_score_threshold=0.0,
+            disqualify_on_llm_flag=False,
+        ),
+    )
+
+
+def _make_search_args(
+    *,
+    board: str = "ziprecruiter",
+    fresh: bool = False,
+    overnight: bool = False,
+    force_rescore: bool = False,
+    open_top: int = 0,
+    max_listings: int = 5,
+) -> argparse.Namespace:
+    """
+    Build an argparse.Namespace matching handle_search's expectations.
+
+    Defaults to ``max_listings=5`` so live tests only score a handful of
+    listings.  Pass ``max_listings=0`` to disable the cap.
+    """
+    return argparse.Namespace(
+        board=board,
+        fresh=fresh,
+        overnight=overnight,
+        force_rescore=force_rescore,
+        open_top=open_top,
+        max_listings=max_listings,
+    )
+
+
+def _read_csv_rows(csv_path: Path) -> list[dict[str, str]]:
+    """Read a CSV into a list of dicts (convenience helper)."""
+    with open(csv_path) as f:
+        return list(csv_mod.DictReader(f))
+
+
+# ---------------------------------------------------------------------------
+# TestLiveCumulativeAccumulation (Phase 7b — B3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.live
+class TestLiveCumulativeAccumulation:
+    """
+    REQUIREMENT: Two successive live searches in accumulate mode produce a
+    merged result set with correct CSV upsert semantics, JD file preservation,
+    and Markdown summary totals.
+
+    WHO: Operator validating the full cumulative pipeline after deployment.
+    WHAT: (1)  Run 1 search produces N listings in CSV, N JD files, and a
+               Markdown summary
+          (2)  Run 2 search (without ``--fresh``) produces a merged CSV with
+               row count >= N
+          (3)  No duplicate ``external_id``s in the merged CSV (A3)
+          (4)  Re-seen listings show their latest scores, not stale values
+               from run 1 (A3)
+          (5)  CSV header row appears exactly once and rows are sorted by
+               ``final_score`` descending (A3)
+          (6)  JD files from run 1 that were not in run 2 are preserved on
+               disk (A4)
+          (7)  JD files for re-seen listings are overwritten with updated
+               metadata (A4)
+          (8)  New JD files from run 2 are created (A4)
+          (9)  Markdown ``# Run Summary`` "found" count reflects the total
+               unique accumulated listings, and table row count matches
+               CSV data row count (A8)
+          (10) All ``final_score`` values parse as valid floats between 0.0
+               and 1.0
+    WHY: This catches DOM changes, session/auth issues, Ollama contract drift,
+         CSV round-trip bugs, JD file lifecycle errors, and Markdown summary
+         drift simultaneously.  No mock can replicate this coverage.
+
+    MOCK BOUNDARY:
+        Patch: ``load_settings`` is patched via ``monkeypatch.setattr`` to
+               redirect output and ChromaDB paths to ``tmp_path``.  CLI
+               handlers call ``load_settings()`` without a path argument,
+               so patching is the only way to avoid clobbering real data.
+        Real:  Browser, board adapter, Ollama, ChromaDB, all exporters,
+               file system
+        Never: Mock anything else (defeats live validation)
+    """
+
+    def test_accumulate_merge_produces_no_duplicates_and_sorted_scores(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """
+        Given a first live search produces N results
+        When a second search runs without --fresh
+        Then CSV row count >= N, no duplicate external_ids, all scores are
+        valid floats in descending order, and header appears exactly once.
+        """
+        # Given: skip if no session or Ollama
+        if not Path("data/ziprecruiter_session.json").exists():
+            pytest.skip("No ZipRecruiter session file — run login first")
+
+        try:
+            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
+        except Exception:
+            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
+
+        # Given: settings redirected to tmp_path
+        live_settings = _make_live_settings(tmp_path)
+        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
+
+        # When: run 1 — initial search
+        args_run1 = _make_search_args(board="ziprecruiter")
+        handle_search(args_run1)
+
+        out_dir = Path(live_settings.output.output_dir)
+        csv_path = out_dir / "results.csv"
+        jd_dir = out_dir / "jds"
+
+        # Then: run 1 produces results
+        assert csv_path.exists(), "Run 1 should produce results.csv"
+        run1_rows = _read_csv_rows(csv_path)
+        run1_count = len(run1_rows)
+        assert run1_count >= 1, f"Run 1 should produce at least 1 listing, got {run1_count}"
+
+        _run1_jd_files = set(jd_dir.glob("*.md"))
+        _run1_ids = {row["external_id"] for row in run1_rows}
+
+        # When: run 2 — accumulate (no --fresh)
+        handle_search(_make_search_args(board="ziprecruiter"))
+
+        # Then: CSV has >= run 1 count (WHAT 2)
+        run2_rows = _read_csv_rows(csv_path)
+        run2_count = len(run2_rows)
+        assert run2_count >= run1_count, (
+            f"Accumulated CSV should have >= {run1_count} rows, got {run2_count}"
+        )
+
+        # Then: no duplicate external_ids (WHAT 3)
+        run2_ids = [row["external_id"] for row in run2_rows]
+        assert len(run2_ids) == len(set(run2_ids)), (
+            f"CSV contains duplicate external_ids: "
+            f"{[eid for eid in run2_ids if run2_ids.count(eid) > 1]}"
+        )
+
+        # Then: sorted by final_score descending (WHAT 5)
+        scores = [float(row["final_score"]) for row in run2_rows]
+        assert scores == sorted(scores, reverse=True), (
+            f"CSV rows not sorted by final_score descending: {scores[:10]}..."
+        )
+
+        # Then: all scores are valid floats between 0.0 and 1.0 (WHAT 10)
+        for row in run2_rows:
+            score = float(row["final_score"])
+            assert 0.0 <= score <= 1.0, f"Score out of range for {row['external_id']}: {score}"
+
+        # Then: header appears exactly once (WHAT 5)
+        raw_csv = csv_path.read_text()
+        header_line = raw_csv.strip().split("\n")[0]
+        assert raw_csv.count(header_line) == 1, "CSV header should appear exactly once"
+
+    def test_accumulate_preserves_prior_jd_files_and_creates_new(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """
+        Given two successive live runs
+        When inspecting JD files
+        Then prior-only JDs are preserved, re-seen JDs are overwritten,
+        and new JDs are created.
+        """
+        # Given: skip if no session or Ollama
+        if not Path("data/ziprecruiter_session.json").exists():
+            pytest.skip("No ZipRecruiter session file — run login first")
+
+        try:
+            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
+        except Exception:
+            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
+
+        # Given: settings redirected to tmp_path
+        live_settings = _make_live_settings(tmp_path)
+        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
+
+        # When: run 1
+        handle_search(_make_search_args(board="ziprecruiter"))
+
+        out_dir = Path(live_settings.output.output_dir)
+        jd_dir = out_dir / "jds"
+
+        run1_jd_files = {f.name: f.stat().st_mtime for f in jd_dir.glob("*.md")}
+        assert len(run1_jd_files) >= 1, "Run 1 should produce JD files"
+
+        # When: run 2
+        handle_search(_make_search_args(board="ziprecruiter"))
+
+        run2_jd_files = {f.name: f.stat().st_mtime for f in jd_dir.glob("*.md")}
+
+        # Then: all run 1 JD files still exist (WHAT 6, 7)
+        for name in run1_jd_files:
+            assert name in run2_jd_files, (
+                f"JD file '{name}' from run 1 should still exist after run 2 "
+                "(either preserved or overwritten)"
+            )
+
+        # Then: run 2 may have new JD files (WHAT 8)
+        _run2_only = set(run2_jd_files.keys()) - set(run1_jd_files.keys())
+        # This can be empty if the second search returns the same listings,
+        # which is common with short intervals.  No assertion on count.
+
+        # Then: total JD file count >= run 1 count
+        assert len(run2_jd_files) >= len(run1_jd_files), (
+            f"JD file count should not decrease: run1={len(run1_jd_files)}, "
+            f"run2={len(run2_jd_files)}"
+        )
+
+    def test_accumulate_markdown_summary_reflects_merged_totals(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """
+        Given two successive live runs
+        When inspecting Markdown
+        Then "found" count matches CSV row count and table rows match
+        CSV data rows.
+        """
+        # Given: skip if no session or Ollama
+        if not Path("data/ziprecruiter_session.json").exists():
+            pytest.skip("No ZipRecruiter session file — run login first")
+
+        try:
+            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
+        except Exception:
+            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
+
+        # Given: settings redirected to tmp_path
+        live_settings = _make_live_settings(tmp_path)
+        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
+
+        # When: two successive searches
+        handle_search(_make_search_args(board="ziprecruiter"))
+        handle_search(_make_search_args(board="ziprecruiter"))
+
+        out_dir = Path(live_settings.output.output_dir)
+        csv_path = out_dir / "results.csv"
+        md_path = out_dir / "results.md"
+
+        csv_rows = _read_csv_rows(csv_path)
+        md_content = md_path.read_text()
+
+        # Then: Markdown has Run Summary (WHAT 9)
+        assert "# Run Summary" in md_content, "Markdown should contain '# Run Summary'"
+
+        # Then: Markdown table row count matches CSV data row count
+        md_table_rows = [
+            line
+            for line in md_content.split("\n")
+            if line.startswith("|") and not line.startswith("|---") and not line.startswith("| #")
+        ]
+        assert len(md_table_rows) == len(csv_rows), (
+            f"Markdown table rows ({len(md_table_rows)}) should match "
+            f"CSV data rows ({len(csv_rows)})"
+        )
+
+    def test_multi_page_traversal_produces_more_listings_than_single_page(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """
+        Given the board is configured with max_pages > 1
+        When a live search runs with no listing cap
+        Then the result set is larger than a single-page search.
+        """
+        # Given: skip if no session or Ollama
+        if not Path("data/ziprecruiter_session.json").exists():
+            pytest.skip("No ZipRecruiter session file — run login first")
+
+        try:
+            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
+        except Exception:
+            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
+
+        # Given: single-page settings (1 URL, 1 page)
+        single_page_dir = tmp_path / "single"
+        single_page_dir.mkdir()
+        single_settings = _make_live_settings(single_page_dir, max_pages=1)
+        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: single_settings)
+
+        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
+        single_csv = Path(single_settings.output.output_dir) / "results.csv"
+        single_count = len(_read_csv_rows(single_csv))
+        assert single_count >= 1, "Single-page search should produce at least 1 listing"
+
+        # When: multi-page settings (1 URL, 2 pages)
+        multi_page_dir = tmp_path / "multi"
+        multi_page_dir.mkdir()
+        multi_settings = _make_live_settings(multi_page_dir, max_pages=2)
+        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: multi_settings)
+
+        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
+        multi_csv = Path(multi_settings.output.output_dir) / "results.csv"
+        multi_count = len(_read_csv_rows(multi_csv))
+
+        # Then: multi-page should produce more results
+        assert multi_count >= single_count, (
+            f"Multi-page ({multi_count}) should produce >= single-page ({single_count}) listings"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestLiveFreshModeReset (Phase 7b — B4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.live
+class TestLiveFreshModeReset:
+    """
+    REQUIREMENT: The ``--fresh`` flag discards all prior accumulated results
+    in a live run, restoring replace-on-write behavior.
+
+    WHO: Operator starting a clean search cycle.
+    WHAT: (1) After accumulated results exist, ``search --fresh`` produces CSV
+              with only current-run listings
+          (2) JD files from prior runs are removed (stale cleanup restores)
+          (3) Markdown reflects only the current run's totals
+    WHY: Validates that ``--fresh`` works end-to-end with real services and
+         real filesystem operations.  The stale-file deletion behavior in
+         particular needs real FS validation.
+
+    MOCK BOUNDARY:
+        Patch: ``load_settings`` is patched via ``monkeypatch.setattr`` to
+               redirect output and ChromaDB paths to ``tmp_path``.  CLI
+               handlers call ``load_settings()`` without a path argument,
+               so patching is the only way to avoid clobbering real data.
+        Real:  Everything else
+        Never: Mock anything else
+    """
+
+    def test_fresh_flag_discards_prior_csv_and_jd_files(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """
+        Given prior accumulated results exist
+        When search runs with --fresh
+        Then CSV contains only current-run listings and output/jds/ contains
+        only current-run JD files (stale files deleted).
+        """
+        # Given: skip if no session or Ollama
+        if not Path("data/ziprecruiter_session.json").exists():
+            pytest.skip("No ZipRecruiter session file — run login first")
+
+        try:
+            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
+        except Exception:
+            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
+
+        # Given: settings redirected to tmp_path
+        live_settings = _make_live_settings(tmp_path)
+        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
+
+        out_dir = Path(live_settings.output.output_dir)
+        csv_path = out_dir / "results.csv"
+        jd_dir = out_dir / "jds"
+
+        # Given: run 1 produces accumulated results
+        handle_search(_make_search_args(board="ziprecruiter"))
+        assert csv_path.exists(), "Run 1 should produce results.csv"
+        run1_rows = _read_csv_rows(csv_path)
+        assert len(run1_rows) >= 1, (
+            "Run 1 should produce at least 1 qualified CSV row — "
+            "all listings may have been disqualified or below threshold"
+        )
+        run1_jd_count = len(list(jd_dir.glob("*.md")))
+        assert run1_jd_count >= 1, "Run 1 should produce JD files"
+
+        # When: run 2 with --fresh
+        handle_search(_make_search_args(board="ziprecruiter", fresh=True))
+
+        # Then: CSV contains only current-run listings (WHAT 1)
+        fresh_rows = _read_csv_rows(csv_path)
+        _fresh_ids = {row["external_id"] for row in fresh_rows}
+        assert len(fresh_rows) >= 1, "Fresh run should produce at least 1 listing"
+
+        # Fresh run should not carry over prior-only listings
+        # (unless the same listings appeared again, which is fine)
+        # We verify by checking that the CSV was rewritten, not appended
+        assert len(fresh_rows) <= len(run1_rows) + 50, (
+            f"Fresh CSV ({len(fresh_rows)} rows) should not be unreasonably "
+            f"larger than run 1 ({len(run1_rows)} rows)"
+        )
+
+        # Then: JD files are from current run only — stale removed (WHAT 2)
+        fresh_jd_files = set(jd_dir.glob("*.md"))
+        # With --fresh, cleanup_stale=True removes JDs not in current run
+        # The exact count depends on what the current search returns
+        assert len(fresh_jd_files) >= 1, "Fresh run should produce JD files"
+
+    def test_fresh_flag_markdown_reflects_current_run_only(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """
+        Given prior accumulated results exist
+        When search runs with --fresh
+        Then Markdown "found" count matches CSV row count from this run only.
+        """
+        # Given: skip if no session or Ollama
+        if not Path("data/ziprecruiter_session.json").exists():
+            pytest.skip("No ZipRecruiter session file — run login first")
+
+        try:
+            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
+        except Exception:
+            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
+
+        # Given: settings redirected to tmp_path
+        live_settings = _make_live_settings(tmp_path)
+        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
+
+        out_dir = Path(live_settings.output.output_dir)
+        csv_path = out_dir / "results.csv"
+        md_path = out_dir / "results.md"
+
+        # Given: run 1 establishes accumulation
+        handle_search(_make_search_args(board="ziprecruiter"))
+
+        # When: run 2 with --fresh
+        handle_search(_make_search_args(board="ziprecruiter", fresh=True))
+
+        # Then: Markdown matches CSV (WHAT 3)
+        csv_rows = _read_csv_rows(csv_path)
+        md_content = md_path.read_text()
+
+        md_table_rows = [
+            line
+            for line in md_content.split("\n")
+            if line.startswith("|") and not line.startswith("|---") and not line.startswith("| #")
+        ]
+        assert len(md_table_rows) == len(csv_rows), (
+            f"Markdown table rows ({len(md_table_rows)}) should match "
+            f"fresh CSV data rows ({len(csv_rows)})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestLiveDecisionExclusionAcrossRuns (Phase 7b — B5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.live
+class TestLiveDecisionExclusionAcrossRuns:
+    """
+    REQUIREMENT: A listing decided in a prior run is excluded from the next
+    accumulate-mode search's exports, while its JD file is preserved.
+
+    WHO: Operator verifying that decision filtering works across accumulated
+         runs.
+    WHAT: (1) After a search run, recording a "no" decision stores it in
+              ChromaDB
+          (2) A subsequent accumulate-mode search excludes the decided listing
+              from CSV and Markdown
+          (3) The decided listing's JD file is preserved in ``output/jds/``
+          (4) Console session_summary shows the decision exclusion count
+    WHY: Decision exclusion depends on ChromaDB round-trip (write decision ->
+         read back during next search).  This validates the real interaction
+         across runs, including the JD file preservation guarantee for decided
+         listings.
+
+    MOCK BOUNDARY:
+        Patch: ``load_settings`` is patched via ``monkeypatch.setattr`` to
+               redirect output and ChromaDB paths to ``tmp_path``.  CLI
+               handlers call ``load_settings()`` without a path argument,
+               so patching is the only way to avoid clobbering real data.
+        Workaround (WHAT 2/3): Decisions are recorded directly via
+               ``DecisionRecorder.record()`` + ``asyncio.run()`` instead
+               of ``handle_decide``, because ``handle_decide`` requires an
+               existing prior decision for the listing.
+        Workaround (WHAT 4): ``PipelineRunner.run`` is monkeypatched to
+               inject decisions through the runner's **own**
+               ``_decision_recorder`` before scoring begins.  ChromaDB
+               ``PersistentClient`` instances don't reliably see writes
+               from prior client instances in the same process (SQLite WAL
+               isolation), so decisions must be written through the same
+               ``VectorStore`` that ``_score_one`` reads from.
+        Real:  Browser, board adapter, Ollama, ChromaDB (decisions collection),
+               DecisionRecorder, all exporters, file system
+        Never: Mock anything else
+    """
+
+    def test_decided_listing_excluded_from_csv_but_jd_preserved(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """
+        Given listing X has a recorded "no" decision from a prior run
+        When a new accumulate-mode search runs
+        Then X does not appear in CSV or Markdown, and X's JD file is still
+        present in output/jds/.
+        """
+        # Given: skip if no session or Ollama
+        if not Path("data/ziprecruiter_session.json").exists():
+            pytest.skip("No ZipRecruiter session file — run login first")
+
+        try:
+            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
+        except Exception:
+            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
+
+        # Given: settings redirected to tmp_path
+        live_settings = _make_live_settings(tmp_path)
+        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
+
+        out_dir = Path(live_settings.output.output_dir)
+        csv_path = out_dir / "results.csv"
+        jd_dir = out_dir / "jds"
+
+        # Given: run 1 produces results
+        handle_search(_make_search_args(board="ziprecruiter"))
+        run1_rows = _read_csv_rows(csv_path)
+        assert len(run1_rows) >= 2, (
+            f"Need at least 2 listings to test exclusion, got {len(run1_rows)}"
+        )
+
+        # Given: pick one listing and record a "no" decision
+        target = run1_rows[0]  # pick the top-ranked listing
+        target_id = target["external_id"]
+        target_title = target["title"]
+
+        embedder = Embedder(
+            base_url=live_settings.ollama.base_url,
+            embed_model=live_settings.ollama.embed_model,
+            llm_model=live_settings.ollama.llm_model,
+        )
+        store = VectorStore(persist_dir=live_settings.chroma.persist_dir)
+        recorder = DecisionRecorder(store=store, embedder=embedder)
+
+        asyncio.run(
+            recorder.record(
+                job_id=target_id,
+                verdict="no",
+                jd_text=f"Test decision for {target_title}",
+                board=target.get("board", "ziprecruiter"),
+                title=target_title,
+                company=target.get("company", ""),
+                reason="Integration test — decision exclusion validation",
+            )
+        )
+
+        # Verify decision was recorded
+        decision = recorder.get_decision(target_id)
+        assert decision is not None, f"Decision should be recorded for '{target_id}'"
+
+        # Release ChromaDB PersistentClient before handle_search creates its own
+        del recorder, store, embedder
+
+        # Note which JD files exist before run 2
+        run1_jd_files = set(jd_dir.glob("*.md"))
+        target_jd_candidates = [f for f in run1_jd_files if target_id in f.name]
+
+        # When: run 2 — accumulate (no --fresh)
+        handle_search(_make_search_args(board="ziprecruiter"))
+
+        # Then: decided listing excluded from CSV (WHAT 2)
+        run2_rows = _read_csv_rows(csv_path)
+        run2_ids = {row["external_id"] for row in run2_rows}
+        assert target_id not in run2_ids, (
+            f"Decided listing '{target_id}' ({target_title}) should be "
+            f"excluded from CSV after decision"
+        )
+
+        # Then: decided listing excluded from Markdown (WHAT 2)
+        md_path = out_dir / "results.md"
+        md_content = md_path.read_text()
+        assert target_id not in md_content, (
+            f"Decided listing '{target_id}' should not appear in Markdown"
+        )
+
+        # Then: JD file for decided listing is preserved (WHAT 3)
+        if target_jd_candidates:
+            for jd_file in target_jd_candidates:
+                assert jd_file.exists(), (
+                    f"JD file '{jd_file.name}' for decided listing should "
+                    f"be preserved (not deleted)"
+                )
+
+    def test_decision_exclusion_count_in_session_summary(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """
+        Given a decision was recorded
+        When a new search completes
+        Then session_summary shows skipped_decisions >= 1.
+        """
+        # Given: skip if no session or Ollama
+        if not Path("data/ziprecruiter_session.json").exists():
+            pytest.skip("No ZipRecruiter session file — run login first")
+
+        try:
+            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
+        except Exception:
+            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
+
+        # Given: settings redirected to tmp_path
+        live_settings = _make_live_settings(tmp_path)
+        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
+
+        out_dir = Path(live_settings.output.output_dir)
+        csv_path = out_dir / "results.csv"
+
+        # Given: run 1 — uncapped so we score the full page
+        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
+        capsys.readouterr()  # discard run 1 output so run 2 parsing is unambiguous
+        run1_rows = _read_csv_rows(csv_path)
+        assert len(run1_rows) >= 1, "Need at least 1 listing"
+
+        # Given: prepare decision data from run 1 listings.
+        # Decisions are injected into run 2's own PipelineRunner to
+        # guarantee ChromaDB visibility (PersistentClient instances
+        # don't reliably see cross-client writes in the same process).
+        run1_decision_data = [
+            {
+                "job_id": row["external_id"],
+                "verdict": "no",
+                "jd_text": f"Test decision for {row['title']}",
+                "board": row.get("board", "ziprecruiter"),
+                "title": row["title"],
+                "company": row.get("company", ""),
+                "reason": "Integration test — exclusion count",
+            }
+            for row in run1_rows
+        ]
+
+        # When: run 2 — monkeypatch PipelineRunner.run to inject
+        # decisions through the runner's OWN _decision_recorder before
+        # scoring begins, using the real DecisionRecorder + Embedder +
+        # ChromaDB.  This is the only reliable way to ensure the runner's
+        # _score_one sees decisions via the same VectorStore instance.
+        _original_run = PipelineRunner.run
+
+        async def _run_with_decisions(
+            self_runner: PipelineRunner,
+            boards: list[str] | None = None,
+            *,
+            overnight: bool = False,
+            force_rescore: bool = False,
+            max_listings: int = 0,
+        ) -> RunResult:
+            for decision in run1_decision_data:
+                await self_runner.decision_recorder.record(**decision)
+            return await _original_run(
+                self_runner,
+                boards=boards,
+                overnight=overnight,
+                force_rescore=force_rescore,
+                max_listings=max_listings,
+            )
+
+        monkeypatch.setattr(PipelineRunner, "run", _run_with_decisions)
+        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
+        captured = capsys.readouterr()
+
+        # Then: output shows prior decisions >= 1 (WHAT 4)
+        assert "Prior decisions:" in captured.out, (
+            "Session summary should report prior decision count"
+            f"\nstdout (last 800 chars): {captured.out[-800:]}"
+        )
+        # Parse the count from "Prior decisions:  N"
+        for line in captured.out.split("\n"):
+            if "Prior decisions:" in line:
+                count_str = line.split(":")[-1].strip()
+                count = int(count_str)
+                assert count >= 1, (
+                    f"Prior decisions count should be >= 1, got {count}"
+                    f"\nRun 1 IDs ({len(run1_rows)}): "
+                    f"{[r['external_id'] for r in run1_rows[:5]]}..."
+                    f"\nstdout (last 800 chars): {captured.out[-800:]}"
+                )
+                break

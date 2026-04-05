@@ -23,6 +23,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from playwright.async_api import Error as PlaywrightError
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.adapters.ziprecruiter import (
@@ -800,6 +801,7 @@ class TestAuthenticate:
           (3) The system raises an ActionableError that states the session expired when authentication is redirected to `/login`.
           (4) The system raises an ActionableError that states the session expired when authentication is redirected to `/sign-in`.
           (5) The system raises an ActionableError that mentions Cloudflare and suggests headed mode when the Cloudflare challenge persists until timeout.
+          (6) The system retries transparently when a Cloudflare redirect destroys the execution context mid-title-check, and succeeds once the challenge resolves.
     WHY: Starting a search against an expired or blocked session wastes
          time and produces zero results — fail fast with actionable advice
 
@@ -917,6 +919,37 @@ class TestAuthenticate:
         assert "Cloudflare" in err.error, f"Error should mention Cloudflare: {err.error!r}"
         assert err.suggestion is not None, "Should include suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
+
+    @pytest.mark.asyncio
+    async def test_authenticate_retries_when_cloudflare_redirect_destroys_context(self) -> None:
+        """
+        GIVEN a page where title() raises PlaywrightError on first call
+              then returns a normal title on second call
+        WHEN authenticate runs
+        THEN the system retries transparently and succeeds.
+        """
+        # Given: page.title() raises once (navigation-destroyed context),
+        # then returns a normal page title on retry
+        adapter = ZipRecruiterAdapter()
+        page = _make_mock_page(title="Jobs - ZipRecruiter")
+        page.title = AsyncMock(
+            side_effect=[
+                PlaywrightError("Page.title: Execution context was destroyed"),
+                "Jobs - ZipRecruiter",
+            ]
+        )
+
+        # When: authenticate runs with mocked sleep (so retry is instant)
+        with patch(
+            "jobsearch_rag.adapters.ziprecruiter.asyncio.sleep",
+            new_callable=AsyncMock,
+        ):
+            await adapter.authenticate(page)
+
+        # Then: title was called twice (retry succeeded)
+        assert page.title.call_count == 2, (
+            f"Expected 2 title() calls (1 error + 1 success), got {page.title.call_count}"
+        )
 
 
 # ---------------------------------------------------------------------------
