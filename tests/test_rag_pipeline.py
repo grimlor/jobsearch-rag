@@ -27,6 +27,7 @@ from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
 from jobsearch_rag.rag.store import VectorStore
+from tests.conftest import make_test_ollama_config
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
@@ -81,11 +82,7 @@ class TestOllamaConnectivity:
         THEN a CONNECTION error naming the URL with troubleshooting steps is raised.
         """
         # Given: unreachable URL
-        embedder = Embedder(
-            base_url="http://localhost:59999",
-            embed_model="nomic-embed-text",
-            llm_model="mistral:7b",
-        )
+        embedder = Embedder(make_test_ollama_config(base_url="http://localhost:59999"))
 
         # When/Then: raises CONNECTION error
         with pytest.raises(ActionableError) as exc_info:
@@ -108,11 +105,7 @@ class TestOllamaConnectivity:
         THEN a CONNECTION error with actionable guidance is raised before any browser work.
         """
         # Given: unreachable URL
-        embedder = Embedder(
-            base_url="http://localhost:59999",
-            embed_model="nomic-embed-text",
-            llm_model="mistral:7b",
-        )
+        embedder = Embedder(make_test_ollama_config(base_url="http://localhost:59999"))
 
         # When/Then: raises CONNECTION error
         with pytest.raises(ActionableError) as exc_info:
@@ -142,9 +135,10 @@ class TestOllamaConnectivity:
 
         with patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client):
             embedder = Embedder(
-                base_url="http://localhost:11434",
-                embed_model="nonexistent-model-xyz",
-                llm_model="also-nonexistent",
+                make_test_ollama_config(
+                    embed_model="nonexistent-model-xyz",
+                    llm_model="also-nonexistent",
+                )
             )
 
             # When/Then: raises EMBEDDING error
@@ -183,13 +177,7 @@ class TestOllamaConnectivity:
         mock_client.embed = _mock_embed
 
         with patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client):
-            embedder = Embedder(
-                base_url="http://localhost:11434",
-                embed_model="nomic-embed-text",
-                llm_model="mistral:7b",
-                max_retries=3,
-                base_delay=0.01,
-            )
+            embedder = Embedder(make_test_ollama_config(max_retries=3, base_delay=0.01))
 
             # When: embed with retries
             result = await embedder.embed("test text")
@@ -213,13 +201,7 @@ class TestOllamaConnectivity:
         mock_client.embed = _always_fail
 
         with patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client):
-            embedder = Embedder(
-                base_url="http://localhost:11434",
-                embed_model="nomic-embed-text",
-                llm_model="mistral:7b",
-                max_retries=2,
-                base_delay=0.01,
-            )
+            embedder = Embedder(make_test_ollama_config(max_retries=2, base_delay=0.01))
 
             # When/Then: raises EMBEDDING error
             with pytest.raises(ActionableError) as exc_info:

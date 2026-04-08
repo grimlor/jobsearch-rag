@@ -89,6 +89,7 @@ class Ranker:
         negative_weight: float = 0.4,
         culture_weight: float = 0.0,
         min_score_threshold: float = 0.45,
+        dedup_similarity_threshold: float = 0.95,
     ) -> None:
         """Initialize with scoring weights and threshold."""
         self.archetype_weight = archetype_weight
@@ -98,6 +99,7 @@ class Ranker:
         self.negative_weight = negative_weight
         self.culture_weight = culture_weight
         self.min_score_threshold = min_score_threshold
+        self.dedup_similarity_threshold = dedup_similarity_threshold
 
     def rank(
         self,
@@ -205,8 +207,8 @@ class Ranker:
             result.append(r)
         return result
 
-    @staticmethod
     def _deduplicate_near(
+        self,
         ranked: list[RankedListing],
         embeddings: dict[str, list[float]],
     ) -> list[RankedListing]:
@@ -246,7 +248,7 @@ class Ranker:
                     continue
 
                 sim = _cosine_similarity(cand_embed, other_embed)
-                if sim > 0.95:
+                if sim > self.dedup_similarity_threshold:
                     # Collapse: candidate survives, other is consumed
                     if other.listing.board not in candidate.duplicate_boards:
                         candidate.duplicate_boards.append(other.listing.board)

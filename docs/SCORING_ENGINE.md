@@ -37,7 +37,7 @@ result set produces a score of 0.0.
 When a JD exceeds the embedding model's context window (8,000 chars), it is
 split into overlapping chunks:
 
-- **Chunk size:** 8,000 characters (matches `Embedder.MAX_EMBED_CHARS`)
+- **Chunk size:** 8,000 characters (matches `Embedder.max_embed_chars`)
 - **Overlap:** 2,000 characters between consecutive chunks
 - **Aggregation:** The **maximum** score per component across all chunks is kept
 

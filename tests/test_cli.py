@@ -45,6 +45,7 @@ from jobsearch_rag.pipeline.review import ReviewSession
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.scorer import ScoreResult
 from jobsearch_rag.rag.store import VectorStore
+from tests.conftest import make_test_settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,22 +73,76 @@ def _make_settings(  # pyright: ignore[reportUnusedFunction]  # test utility for
     toml_path.write_text(f"""\
 [boards]
 enabled = ["testboard"]
+session_storage_dir = "data"
 
 [boards.testboard]
 searches = ["https://example.org/search"]
 max_pages = 2
 headless = true
+rate_limit_range = [1.5, 3.5]
 
 [scoring]
+archetype_weight = 0.5
+fit_weight = 0.3
+history_weight = 0.2
+comp_weight = 0.15
+negative_weight = 0.4
+culture_weight = 0.2
+base_salary = 220000
+disqualify_on_llm_flag = true
+min_score_threshold = 0.45
+missing_comp_score = 0.5
+chunk_overlap = 2000
+dedup_similarity_threshold = 0.95
+
+[[scoring.comp_bands]]
+ratio = 1.0
+score = 1.0
+
+[[scoring.comp_bands]]
+ratio = 0.90
+score = 0.7
+
+[[scoring.comp_bands]]
+ratio = 0.77
+score = 0.4
+
+[[scoring.comp_bands]]
+ratio = 0.68
+score = 0.0
 
 [ollama]
+base_url = "http://localhost:11434"
+llm_model = "mistral:7b"
+embed_model = "nomic-embed-text"
+slow_llm_threshold_ms = 30000
+classify_system_prompt = "You are a job listing classifier. Respond concisely with your classification."
+max_retries = 3
+base_delay = 1.0
+max_embed_chars = 8000
+head_ratio = 0.6
+retryable_status_codes = [408, 429, 500, 502, 503, 504]
 
 [output]
+default_format = "markdown"
 output_dir = "{output_dir}"
 open_top_n = {open_top_n}
+jd_dir = "output/jds"
+decisions_dir = "data/decisions"
+log_dir = "data/logs"
+eval_history_path = "data/eval_history.jsonl"
 
 [chroma]
 persist_dir = "{tmpdir}"
+
+[security]
+screen_prompt = "Review the following job description text."
+
+[adapters]
+cdp_timeout = 15.0
+
+[adapters.browser_paths]
+msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
 
 resume_path = "data/resume.md"
 archetypes_path = "config/role_archetypes.toml"
@@ -177,22 +232,76 @@ global_rubric_path = "{config_dir / "global_rubric.toml"}"
 
 [boards]
 enabled = ["testboard"]
+session_storage_dir = "data"
 
 [boards.testboard]
 searches = ["https://example.org/search"]
 max_pages = 2
 headless = true
+rate_limit_range = [1.5, 3.5]
 
 [scoring]
+archetype_weight = 0.5
+fit_weight = 0.3
+history_weight = 0.2
+comp_weight = 0.15
+negative_weight = 0.4
+culture_weight = 0.2
+base_salary = 220000
+disqualify_on_llm_flag = true
+min_score_threshold = 0.45
+missing_comp_score = 0.5
+chunk_overlap = 2000
+dedup_similarity_threshold = 0.95
+
+[[scoring.comp_bands]]
+ratio = 1.0
+score = 1.0
+
+[[scoring.comp_bands]]
+ratio = 0.90
+score = 0.7
+
+[[scoring.comp_bands]]
+ratio = 0.77
+score = 0.4
+
+[[scoring.comp_bands]]
+ratio = 0.68
+score = 0.0
 
 [ollama]
+base_url = "http://localhost:11434"
+llm_model = "mistral:7b"
+embed_model = "nomic-embed-text"
+slow_llm_threshold_ms = 30000
+classify_system_prompt = "You are a job listing classifier. Respond concisely with your classification."
+max_retries = 3
+base_delay = 1.0
+max_embed_chars = 8000
+head_ratio = 0.6
+retryable_status_codes = [408, 429, 500, 502, 503, 504]
 
 [output]
+default_format = "markdown"
 output_dir = "{output_dir}"
 open_top_n = {open_top_n}
+jd_dir = "output/jds"
+decisions_dir = "data/decisions"
+log_dir = "data/logs"
+eval_history_path = "data/eval_history.jsonl"
 
 [chroma]
 persist_dir = "{tmp_path / "chroma"}"
+
+[security]
+screen_prompt = "Review the following job description text."
+
+[adapters]
+cdp_timeout = 15.0
+
+[adapters.browser_paths]
+msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
 """)
 
     (config_dir / "role_archetypes.toml").write_text("""\
@@ -1673,7 +1782,8 @@ class TestLoginCommand:
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="ziprecruiter", browser=None)
-            handle_login(args)
+            settings = make_test_settings(str(tmp_path), enabled_boards=["ziprecruiter"])
+            handle_login(args, settings)
 
         # Then: browser was launched in headed mode (headless=False)
         mock_pw.chromium.launch.assert_awaited_once()
@@ -1714,7 +1824,8 @@ class TestLoginCommand:
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="linkedin", browser=None)
-            handle_login(args)
+            settings = make_test_settings(str(tmp_path), enabled_boards=["linkedin"])
+            handle_login(args, settings)
 
         # Then: navigated to the linkedin login URL
         url_arg = mock_page.goto.call_args[0][0]
@@ -1743,7 +1854,8 @@ class TestLoginCommand:
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="ziprecruiter", browser=None)
-            handle_login(args)
+            settings = make_test_settings(str(tmp_path), enabled_boards=["ziprecruiter"])
+            handle_login(args, settings)
 
         # Then: operator sees instructions
         output = capsys.readouterr().out
@@ -1767,6 +1879,10 @@ class TestLoginCommand:
         monkeypatch.chdir(tmp_path)
         mock_pw, _mock_page = self._mock_playwright_stack()
 
+        # Given: a fake msedge binary that "exists" on disk
+        fake_binary = tmp_path / "msedge"
+        fake_binary.touch()
+
         # When: handle_login runs with browser="msedge"
         with (
             self._patch_async_playwright(mock_pw),
@@ -1776,11 +1892,12 @@ class TestLoginCommand:
                 "jobsearch_rag.adapters.session.tempfile.mkdtemp",
                 return_value=str(tmp_path / "cdp"),
             ),
-            patch("shutil.which", return_value="/usr/bin/fake-edge"),
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="ziprecruiter", browser="msedge")
-            handle_login(args)
+            settings = make_test_settings(str(tmp_path), enabled_boards=["ziprecruiter"])
+            object.__setattr__(settings.adapters, "browser_paths", {"msedge": [str(fake_binary)]})
+            handle_login(args, settings)
 
         # Then: CDP path was taken, not standard Playwright launch
         mock_pw.chromium.connect_over_cdp.assert_awaited_once()
@@ -2872,7 +2989,9 @@ class TestRescoreCommand:
         # Disable LLM disqualification — avoids needing chat mock responses
         settings_path = tmp_path / "config" / "settings.toml"
         content = settings_path.read_text()
-        content = content.replace("[scoring]", "[scoring]\ndisqualify_on_llm_flag = false")
+        content = content.replace(
+            "disqualify_on_llm_flag = true", "disqualify_on_llm_flag = false"
+        )
         settings_path.write_text(content)
 
         with patch(

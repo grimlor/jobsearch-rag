@@ -69,17 +69,13 @@ class PipelineRunner:
     def __init__(self, settings: Settings) -> None:
         """Initialize pipeline components from application settings."""
         self._settings = settings
-        self._embedder = Embedder(
-            base_url=settings.ollama.base_url,
-            embed_model=settings.ollama.embed_model,
-            llm_model=settings.ollama.llm_model,
-            slow_llm_threshold_ms=settings.ollama.slow_llm_threshold_ms,
-        )
+        self._embedder = Embedder(settings.ollama)
         self._store = VectorStore(persist_dir=settings.chroma.persist_dir)
         self._scorer = Scorer(
             store=self._store,
             embedder=self._embedder,
             disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
+            chunk_overlap=settings.scoring.chunk_overlap,
         )
         self._ranker = Ranker(
             archetype_weight=settings.scoring.archetype_weight,
@@ -89,9 +85,14 @@ class PipelineRunner:
             negative_weight=settings.scoring.negative_weight,
             culture_weight=settings.scoring.culture_weight,
             min_score_threshold=settings.scoring.min_score_threshold,
+            dedup_similarity_threshold=settings.scoring.dedup_similarity_threshold,
         )
         self._base_salary = settings.scoring.base_salary
-        self._decision_recorder = DecisionRecorder(store=self._store, embedder=self._embedder)
+        self._decision_recorder = DecisionRecorder(
+            store=self._store,
+            embedder=self._embedder,
+            decisions_dir=settings.output.decisions_dir,
+        )
 
     @property
     def store(self) -> VectorStore:
@@ -126,7 +127,7 @@ class PipelineRunner:
 
         """
         # Step 0: Set up structured session logging
-        log_dir = str(Path(self._settings.chroma.persist_dir).parent / "logs")
+        log_dir = self._settings.output.log_dir
         session_handler, session_id = configure_session_logging(log_dir)
 
         try:
@@ -454,20 +455,32 @@ class PipelineRunner:
 
         Manages the browser session lifecycle for this board.
         """
-        adapter = AdapterRegistry.get(board_name)
         board_cfg = self._settings.boards.get(board_name)
 
         if board_cfg is None:
             logger.warning("No config section for board '%s' — skipping", board_name)
             return [], 0, []
 
+        # Pass per-board throttle configuration at construction time.
+        # Adapters that don't accept these kwargs (all except ziprecruiter)
+        # ignore them via **kwargs tolerance in their __init__.
+        adapter_kwargs: dict[str, int | float | None] = {}
+        if board_cfg.throttle_max_retries is not None:
+            adapter_kwargs["throttle_max_retries"] = board_cfg.throttle_max_retries
+        if board_cfg.throttle_base_delay is not None:
+            adapter_kwargs["throttle_base_delay"] = board_cfg.throttle_base_delay
+        adapter = AdapterRegistry.get(board_name, **adapter_kwargs)
+
         is_overnight = overnight or board_name in self._settings.overnight_boards
         config = SessionConfig(
             board_name=board_name,
             headless=board_cfg.headless,
-            stealth=board_name == "linkedin",
+            stealth=board_cfg.stealth,
             overnight=is_overnight,
             browser_channel=board_cfg.browser_channel,
+            storage_dir=Path(self._settings.session_storage_dir),
+            browser_paths=self._settings.adapters.browser_paths,
+            cdp_timeout=self._settings.adapters.cdp_timeout,
         )
 
         listings: list[JobListing] = []
@@ -483,7 +496,7 @@ class PipelineRunner:
 
             # Search each configured URL
             for search_url in board_cfg.searches:
-                await throttle(adapter)
+                await throttle(adapter, rate_limit_range=board_cfg.rate_limit_range)
                 try:
                     results = await adapter.search(page, search_url, max_pages=board_cfg.max_pages)
                 except ActionableError as exc:
@@ -502,7 +515,7 @@ class PipelineRunner:
                         listings.append(listing)
                         continue
 
-                    await throttle(adapter)
+                    await throttle(adapter, rate_limit_range=board_cfg.rate_limit_range)
                     try:
                         enriched = await adapter.extract_detail(page, listing)
                         if enriched.full_text.strip():

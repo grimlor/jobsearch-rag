@@ -33,7 +33,7 @@ from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
 from jobsearch_rag.rag.store import VectorStore
-from tests.conftest import make_mock_ollama_client
+from tests.conftest import make_mock_ollama_client, make_test_ollama_config
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -113,13 +113,7 @@ def mock_embedder() -> Embedder:
         embed_vector=EMBED_ARCH_JD,
         classify_response='{"disqualified": false, "reason": null}',
     )
-    embedder = Embedder(
-        base_url="http://localhost:11434",
-        embed_model="nomic-embed-text",
-        llm_model="mistral:7b",
-        max_retries=1,
-        base_delay=0.0,
-    )
+    embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
     embedder._client = mock_client  # type: ignore[attr-defined]
     return embedder
 

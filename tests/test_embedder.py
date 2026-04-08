@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from ollama import ResponseError
 
+from jobsearch_rag.config import OllamaConfig
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.embedder import Embedder
 
@@ -58,7 +59,20 @@ def _mock_list_response(model_names: list[str]) -> MagicMock:
 @pytest.fixture
 def embedder() -> Embedder:
     """An Embedder configured for testing."""
-    return Embedder(base_url=BASE_URL, embed_model=EMBED_MODEL, llm_model=LLM_MODEL)
+    return Embedder(
+        OllamaConfig(
+            base_url=BASE_URL,
+            embed_model=EMBED_MODEL,
+            llm_model=LLM_MODEL,
+            slow_llm_threshold_ms=30_000,
+            classify_system_prompt="You are a classifier.",
+            max_retries=3,
+            base_delay=1.0,
+            max_embed_chars=8_000,
+            head_ratio=0.6,
+            retryable_status_codes=[408, 429, 500, 502, 503, 504],
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

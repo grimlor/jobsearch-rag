@@ -19,11 +19,22 @@ from __future__ import annotations
 import contextlib
 import stat
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from jobsearch_rag.config import (
+    AdaptersConfig,
+    BoardConfig,
+    ChromaConfig,
+    CompBand,
+    OllamaConfig,
+    OutputConfig,
+    ScoringConfig,
+    SecurityConfig,
+    Settings,
+)
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.store import VectorStore
@@ -33,6 +44,135 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 _PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
+
+
+# ---------------------------------------------------------------------------
+# Test config factories — explicit values, no code-side defaults
+# ---------------------------------------------------------------------------
+
+_TEST_COMP_BANDS: list[CompBand] = [
+    CompBand(ratio=1.0, score=1.0),
+    CompBand(ratio=0.90, score=0.7),
+    CompBand(ratio=0.77, score=0.4),
+    CompBand(ratio=0.68, score=0.0),
+]
+
+
+def make_test_scoring_config(**overrides: Any) -> ScoringConfig:
+    """Build a ScoringConfig with all required fields specified."""
+    defaults: dict[str, Any] = {
+        "archetype_weight": 0.5,
+        "fit_weight": 0.3,
+        "history_weight": 0.2,
+        "comp_weight": 0.15,
+        "negative_weight": 0.4,
+        "culture_weight": 0.2,
+        "base_salary": 220_000,
+        "disqualify_on_llm_flag": False,
+        "min_score_threshold": 0.45,
+        "comp_bands": list(_TEST_COMP_BANDS),
+        "missing_comp_score": 0.5,
+        "chunk_overlap": 2000,
+        "dedup_similarity_threshold": 0.95,
+    }
+    defaults.update(overrides)
+    return ScoringConfig(**defaults)
+
+
+def make_test_ollama_config(**overrides: Any) -> OllamaConfig:
+    """Build an OllamaConfig with all required fields specified."""
+    defaults: dict[str, Any] = {
+        "base_url": "http://localhost:11434",
+        "llm_model": "mistral:7b",
+        "embed_model": "nomic-embed-text",
+        "slow_llm_threshold_ms": 30_000,
+        "classify_system_prompt": "You are a job listing classifier.",
+        "max_retries": 3,
+        "base_delay": 1.0,
+        "max_embed_chars": 8_000,
+        "head_ratio": 0.6,
+        "retryable_status_codes": [408, 429, 500, 502, 503, 504],
+    }
+    defaults.update(overrides)
+    return OllamaConfig(**defaults)
+
+
+def make_test_output_config(**overrides: Any) -> OutputConfig:
+    """Build an OutputConfig with all required fields specified."""
+    defaults: dict[str, Any] = {
+        "default_format": "markdown",
+        "output_dir": "./output",
+        "open_top_n": 5,
+        "jd_dir": "output/jds",
+        "decisions_dir": "data/decisions",
+        "log_dir": "data/logs",
+        "eval_history_path": "data/eval_history.jsonl",
+    }
+    defaults.update(overrides)
+    return OutputConfig(**defaults)
+
+
+def make_test_security_config(**overrides: Any) -> SecurityConfig:
+    """Build a SecurityConfig with all required fields specified."""
+    defaults: dict[str, Any] = {
+        "screen_prompt": "Review the following job description text.",
+    }
+    defaults.update(overrides)
+    return SecurityConfig(**defaults)
+
+
+def make_test_settings(
+    tmpdir: str,
+    enabled_boards: list[str] | None = None,
+    overnight_boards: list[str] | None = None,
+    *,
+    resume_path: str | None = None,
+    archetypes_path: str | None = None,
+    global_rubric_path: str | None = None,
+    scoring_overrides: dict[str, Any] | None = None,
+    ollama_overrides: dict[str, Any] | None = None,
+) -> Settings:
+    """Build a Settings with all required fields for test use."""
+    boards = enabled_boards or ["testboard"]
+    board_configs: dict[str, BoardConfig] = {}
+    for name in boards:
+        board_configs[name] = BoardConfig(
+            name=name,
+            searches=[f"https://{name}.com/search"],
+            max_pages=1,
+            headless=True,
+            rate_limit_range=(1.5, 3.5),
+        )
+    for name in overnight_boards or []:
+        if name not in board_configs:
+            board_configs[name] = BoardConfig(
+                name=name,
+                searches=[f"https://{name}.com/search"],
+                max_pages=1,
+                headless=False,
+                rate_limit_range=(1.5, 3.5),
+            )
+    tmpdir_path = Path(tmpdir)
+    return Settings(
+        enabled_boards=boards,
+        overnight_boards=overnight_boards or [],
+        boards=board_configs,
+        scoring=make_test_scoring_config(**(scoring_overrides or {})),
+        ollama=make_test_ollama_config(**(ollama_overrides or {})),
+        output=make_test_output_config(
+            output_dir=str(tmpdir_path / "output"),
+            jd_dir=str(tmpdir_path / "output" / "jds"),
+            decisions_dir=str(tmpdir_path / "decisions"),
+            log_dir=str(tmpdir_path / "logs"),
+        ),
+        chroma=ChromaConfig(persist_dir=str(tmpdir_path / "chroma")),
+        security=make_test_security_config(),
+        resume_path=resume_path or "data/resume.md",
+        archetypes_path=archetypes_path or "config/role_archetypes.toml",
+        global_rubric_path=global_rubric_path or "config/global_rubric.toml",
+        session_storage_dir=str(tmpdir_path),
+        adapters=AdaptersConfig(browser_paths={}, cdp_timeout=15.0),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -102,13 +242,7 @@ def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
     All Embedder logic — retry, truncation, metrics, token counting —
     runs for real.  Only the ollama HTTP call is replaced.
     """
-    embedder = Embedder(
-        base_url="http://localhost:11434",
-        embed_model="nomic-embed-text",
-        llm_model="mistral:7b",
-        max_retries=1,
-        base_delay=0.0,
-    )
+    embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
     embedder._client = mock_ollama_client  # type: ignore[attr-defined]
     return embedder
 

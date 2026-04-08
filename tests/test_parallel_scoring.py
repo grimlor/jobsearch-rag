@@ -32,6 +32,7 @@ import asyncio
 import os
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import ollama as ollama_sdk
@@ -39,17 +40,13 @@ import pytest
 
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobListing
-from jobsearch_rag.config import (
-    BoardConfig,
-    ChromaConfig,
-    OllamaConfig,
-    OutputConfig,
-    ScoringConfig,
-    Settings,
-)
 from jobsearch_rag.logging import log_event as _real_log_event
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
+from tests.conftest import make_test_settings
 from tests.constants import EMBED_FAKE
+
+if TYPE_CHECKING:
+    from jobsearch_rag.config import Settings
 
 _RUNNER_LOG_EVENT = "jobsearch_rag.pipeline.runner.log_event"
 
@@ -61,22 +58,7 @@ _RUNNER_LOG_EVENT = "jobsearch_rag.pipeline.runner.log_event"
 
 def _make_settings(tmpdir: str) -> Settings:
     """Create Settings with a testboard and tmp directories."""
-    return Settings(
-        enabled_boards=["testboard"],
-        overnight_boards=[],
-        boards={
-            "testboard": BoardConfig(
-                name="testboard",
-                searches=["https://testboard.com/search"],
-                max_pages=1,
-                headless=True,
-            ),
-        },
-        scoring=ScoringConfig(disqualify_on_llm_flag=False, min_score_threshold=0.0),
-        ollama=OllamaConfig(),
-        output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
-        chroma=ChromaConfig(persist_dir=tmpdir),
-    )
+    return make_test_settings(tmpdir, scoring_overrides={"min_score_threshold": 0.0})
 
 
 def _make_listing(
@@ -220,7 +202,7 @@ async def _run_pipeline(
     with (
         patch.dict(AdapterRegistry._registry, patches),  # pyright: ignore[reportPrivateUsage]
         patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-        patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+        patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
     ):
         if env is not None:
             with patch.dict("os.environ", env):

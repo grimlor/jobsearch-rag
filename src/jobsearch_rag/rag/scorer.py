@@ -44,10 +44,10 @@ logger = logging.getLogger(__name__)
 # -- Chunking constants -----------------------------------------------------
 # Overlap ensures no signal is lost at chunk boundaries (e.g. a comp range
 # straddling two chunks).
-_CHUNK_OVERLAP = 2_000
+_DEFAULT_CHUNK_OVERLAP = 2_000
 
 
-def _chunk_text(text: str, chunk_size: int, overlap: int = _CHUNK_OVERLAP) -> list[str]:
+def _chunk_text(text: str, chunk_size: int, overlap: int = _DEFAULT_CHUNK_OVERLAP) -> list[str]:
     """
     Split *text* into overlapping chunks of at most *chunk_size* chars.
 
@@ -174,11 +174,19 @@ class Scorer:
         store: VectorStore,
         embedder: Embedder,
         disqualify_on_llm_flag: bool = True,
+        disqualifier_prompt: str | None = None,
+        screen_prompt: str | None = None,
+        chunk_overlap: int | None = None,
     ) -> None:
         """Initialize with a vector store, embedder, and disqualification flag."""
         self._store = store
         self._embedder = embedder
         self._disqualify_on_llm_flag = disqualify_on_llm_flag
+        self._disqualifier_prompt = disqualifier_prompt or _DISQUALIFIER_SYSTEM_PROMPT
+        self._screen_prompt = screen_prompt or _SCREEN_PROMPT
+        self._chunk_overlap = (
+            chunk_overlap if chunk_overlap is not None else _DEFAULT_CHUNK_OVERLAP
+        )
         self._cached_rejection_reasons: list[str] | None = None
         self._collection_scores: dict[str, list[float]] = {}
 
@@ -215,7 +223,9 @@ class Scorer:
         Raises ``ActionableError`` (INDEX) if the ``resume`` collection is
         empty or missing — the pipeline *must* index a resume before scoring.
         """
-        chunks = _chunk_text(jd_text, chunk_size=self._embedder.MAX_EMBED_CHARS)
+        chunks = _chunk_text(
+            jd_text, chunk_size=self._embedder.max_embed_chars, overlap=self._chunk_overlap
+        )
         if len(chunks) > 1:
             logger.debug(
                 "JD text (%d chars) split into %d overlapping chunks for scoring",
@@ -321,7 +331,7 @@ class Scorer:
         sanitized_jd = _sanitize_jd_for_prompt(jd_text)
 
         # Build prompt with sanitized JD text
-        prompt = _DISQUALIFIER_SYSTEM_PROMPT
+        prompt = self._disqualifier_prompt
         rejection_reasons = self._get_rejection_reasons()
         if rejection_reasons:
             prompt += (
@@ -357,7 +367,7 @@ class Scorer:
         disqualifier proceeds normally.
         """
         try:
-            screen_prompt = _SCREEN_PROMPT + "\n\n" + jd_text
+            screen_prompt = self._screen_prompt + "\n\n" + jd_text
             raw = await self._embedder.classify(screen_prompt)
             data = json.loads(raw)
             suspicious = bool(data.get("suspicious", False))

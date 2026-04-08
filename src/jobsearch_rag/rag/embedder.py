@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, TypeVar
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from jobsearch_rag.config import OllamaConfig
+
 import ollama as ollama_sdk
 
 from jobsearch_rag.errors import ActionableError
@@ -30,20 +32,6 @@ from jobsearch_rag.logging import log_event, logger
 
 _T = TypeVar("_T")
 
-# Status codes that warrant a retry (server overloaded / temporary failure)
-_RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-
-# nomic-embed-text context window is 8192 tokens.  Real-world JDs contain
-# newlines, bullet points, dollar signs, and Unicode chars that tokenise at
-# ~1 char/token rather than the ~4 average for clean English prose.  Empirical
-# testing shows formatted JD text breaks at ~9 200 chars; 8 000 gives safe
-# headroom.  The scorer chunks long JDs at this size so no content is lost.
-_DEFAULT_MAX_EMBED_CHARS = 8_000
-
-# When truncation is needed, keep head (title, company, overview) and tail
-# (hands-on work, comp range, specific tech) — the middle is typically "about
-# us", values statements, and repeated boilerplate.  60/40 split.
-_HEAD_RATIO = 0.6
 _TRUNCATION_MARKER = "\n[…]\n"
 
 
@@ -65,17 +53,13 @@ class Embedder:
 
     Usage::
 
-        embedder = Embedder(
-            base_url="http://localhost:11434",
-            embed_model="nomic-embed-text",
-            llm_model="mistral:7b",
-        )
+        embedder = Embedder(ollama_config)
         await embedder.health_check()          # fail fast if Ollama is down
         vec = await embedder.embed("some text") # → list[float]
         answer = await embedder.classify("Is this role suitable?")
     """
 
-    MAX_EMBED_CHARS: int = _DEFAULT_MAX_EMBED_CHARS
+    max_embed_chars: int
     """
     Maximum character count accepted by the embedding model.
 
@@ -83,24 +67,19 @@ class Embedder:
     single chunk exceeds the model's context window.
     """
 
-    def __init__(
-        self,
-        base_url: str,
-        embed_model: str,
-        llm_model: str,
-        *,
-        max_retries: int = 3,
-        base_delay: float = 1.0,
-        slow_llm_threshold_ms: int = 30_000,
-    ) -> None:
-        """Initialize with Ollama connection and model settings."""
-        self.base_url = base_url
-        self.embed_model = embed_model
-        self.llm_model = llm_model
-        self.max_retries = max_retries
-        self.base_delay = base_delay
-        self._client = ollama_sdk.AsyncClient(host=base_url)
-        self._slow_llm_threshold_ms = slow_llm_threshold_ms
+    def __init__(self, config: OllamaConfig) -> None:
+        """Initialize from an OllamaConfig with all connection and tuning settings."""
+        self.base_url = config.base_url
+        self.embed_model = config.embed_model
+        self.llm_model = config.llm_model
+        self.max_retries = config.max_retries
+        self.base_delay = config.base_delay
+        self.max_embed_chars = config.max_embed_chars
+        self._head_ratio = config.head_ratio
+        self._retryable_status_codes = set(config.retryable_status_codes)
+        self._client = ollama_sdk.AsyncClient(host=config.base_url)
+        self._slow_llm_threshold_ms = config.slow_llm_threshold_ms
+        self._classify_system_prompt = config.classify_system_prompt
         self._metrics = InferenceMetrics()
 
     # -- Public API ----------------------------------------------------------
@@ -117,7 +96,7 @@ class Embedder:
         Strips whitespace before embedding. Raises VALIDATION for empty
         input; retries transient Ollama errors with exponential backoff.
 
-        Text longer than :attr:`MAX_EMBED_CHARS` is truncated using a
+        Text longer than :attr:`max_embed_chars` is truncated using a
         **head + tail** strategy to avoid exceeding the model's context
         window.  The head captures title, company, and overview.  The
         tail preserves hands-on work details and compensation ranges —
@@ -132,14 +111,14 @@ class Embedder:
                 suggestion="Provide non-empty text to embed",
             )
 
-        if len(cleaned) > self.MAX_EMBED_CHARS:
+        if len(cleaned) > self.max_embed_chars:
             logger.debug(
                 "Truncating embed input from %d to %d chars (head+tail)",
                 len(cleaned),
-                self.MAX_EMBED_CHARS,
+                self.max_embed_chars,
             )
-            budget = self.MAX_EMBED_CHARS - len(_TRUNCATION_MARKER)
-            head_len = int(budget * _HEAD_RATIO)
+            budget = self.max_embed_chars - len(_TRUNCATION_MARKER)
+            head_len = int(budget * self._head_ratio)
             tail_len = budget - head_len
             cleaned = cleaned[:head_len] + _TRUNCATION_MARKER + cleaned[-tail_len:]
 
@@ -182,10 +161,7 @@ class Embedder:
                 messages=[
                     {
                         "role": "system",
-                        "content": (
-                            "You are a job listing classifier. "
-                            "Respond concisely with your classification."
-                        ),
+                        "content": self._classify_system_prompt,
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -276,7 +252,7 @@ class Embedder:
                 return await fn()
             except ollama_sdk.ResponseError as exc:
                 last_error = exc
-                if exc.status_code not in _RETRYABLE_STATUS_CODES:
+                if exc.status_code not in self._retryable_status_codes:
                     # Non-retryable — fail immediately
                     raise ActionableError.embedding(
                         model=self.embed_model if operation == "embed" else self.llm_model,

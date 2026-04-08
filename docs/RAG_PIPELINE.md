@@ -62,10 +62,10 @@ Naive head-only truncation loses these signals.
 └──────────────────────────────────────────────────────┘
 ```
 
-- **Head ratio:** 60% of `MAX_EMBED_CHARS` (4,800 chars)
-- **Tail ratio:** 40% of `MAX_EMBED_CHARS` (3,200 chars)
+- **Head ratio:** 60% of `max_embed_chars` (4,800 chars)
+- **Tail ratio:** 40% of `max_embed_chars` (3,200 chars)
 - **Marker:** `"\n[…]\n"` inserted between sections
-- **Constant:** `MAX_EMBED_CHARS = 8,000`
+- **Constant:** `max_embed_chars = 8,000`
 
 ### Classification (`classify`)
 
@@ -194,7 +194,7 @@ produces no positive document.
 
 When the scorer processes a JD:
 
-1. **Chunk** the JD if `len(jd_text) > MAX_EMBED_CHARS` (overlap: 2,000 chars)
+1. **Chunk** the JD if `len(jd_text) > max_embed_chars` (overlap: 2,000 chars)
 2. For each chunk:
    a. **Embed** via `nomic-embed-text`
    b. **Query** `resume` → distances → `fit_score`

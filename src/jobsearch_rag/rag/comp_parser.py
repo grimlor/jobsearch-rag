@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from jobsearch_rag.config import CompBand
 
 
 @dataclass
@@ -171,38 +175,71 @@ def parse_compensation(text: str, source: str = "employer") -> CompResult | None
 # ---------------------------------------------------------------------------
 
 
-def compute_comp_score(comp_max: float | None, base_salary: float) -> float:
+def compute_comp_score(
+    comp_max: float | None,
+    base_salary: float,
+    *,
+    breakpoints: list[CompBand] | None = None,
+    default_score: float = 0.5,
+) -> float:
     """
     Compute a continuous compensation score in [0.0, 1.0].
 
-    The score is based on where ``comp_max`` falls relative to
-    ``base_salary``:
+    Uses piecewise-linear interpolation between the given breakpoints
+    (or built-in defaults).
 
-    - ≥ 100% of base → 1.0
-    - 90-100% of base -> 0.7-0.9 (linear interpolation)
-    - 77-90% of base -> 0.4-0.7 (linear interpolation)
-    - 68-77% of base -> 0.0-0.4 (linear interpolation)
-    - < 68% of base → 0.0
-    - Missing (None) → 0.5 (neutral)
+    Parameters
+    ----------
+    comp_max:
+        Maximum compensation from the JD, or None if missing.
+    base_salary:
+        The user's target base salary.
+    breakpoints:
+        Optional list of CompBand(ratio, score) pairs in descending
+        ratio order.  Falls back to the hardcoded 4-point curve when
+        None.
+    default_score:
+        Score returned when ``comp_max`` is None (missing data).
 
-    This is a *taste signal*, not a gate.  Missing data gets a neutral
-    score so it neither rewards nor penalizes.
+    Returns
+    -------
+    float
+        Score in [0.0, 1.0].
+
     """
     if comp_max is None:
-        return 0.5
+        return default_score
 
     ratio = comp_max / base_salary
 
+    if breakpoints is not None:
+        return _interpolate(ratio, breakpoints)
+
+    # Legacy hardcoded curve (used when no breakpoints provided)
     if ratio >= 1.0:
         return 1.0
     if ratio >= 0.90:
-        # Linear interpolation: 0.90 → 0.7, 1.00 → 0.9 (then capped at 1.0 above)
-        # score = 0.7 + (ratio - 0.90) / (1.00 - 0.90) * (0.9 - 0.7)
         return 0.7 + (ratio - 0.90) / 0.10 * 0.2
     if ratio >= 0.77:
-        # Linear interpolation: 0.77 → 0.4, 0.90 → 0.7
         return 0.4 + (ratio - 0.77) / 0.13 * 0.3
     if ratio >= 0.68:
-        # Linear interpolation: 0.68 → 0.0, 0.77 → 0.4
         return 0.0 + (ratio - 0.68) / 0.09 * 0.4
     return 0.0
+
+
+def _interpolate(ratio: float, bands: list[CompBand]) -> float:
+    """Piecewise-linear interpolation over CompBand breakpoints."""
+    # Above the highest breakpoint
+    if ratio >= bands[0].ratio:
+        return bands[0].score
+    # Below the lowest breakpoint
+    if ratio <= bands[-1].ratio:
+        return bands[-1].score
+    # Find the segment and interpolate
+    for i in range(len(bands) - 1):
+        upper = bands[i]
+        lower = bands[i + 1]
+        if ratio >= lower.ratio:
+            t = (ratio - lower.ratio) / (upper.ratio - lower.ratio)
+            return lower.score + t * (upper.score - lower.score)
+    return bands[-1].score

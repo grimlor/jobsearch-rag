@@ -168,6 +168,7 @@ class TestThrottleDetection:
           (9) The system detects throttle text that appears after a timeout and retries with backoff.
           (10) The system uses empty fallback text after repeated late throttle responses exhaust all retries (no short_description in DOM flow).
           (11) The system falls back to empty text immediately when a timeout is not followed by throttle text (no short_description in DOM flow).
+          (12) The system respects a non-default max_retries passed at construction by limiting retries to that value.
     WHY: Without throttle detection, error messages would be indexed as
          JD content, corrupting scoring results
 
@@ -498,4 +499,35 @@ class TestThrottleDetection:
         assert not results[0].full_text.strip(), (
             f"Expected empty full_text after immediate fallback (no short_description in DOM flow). "
             f"Got: {results[0].full_text[:100]!r}"
+        )
+
+    # --- Configurable throttle parameters -----------------------------
+
+    @pytest.mark.asyncio
+    async def test_custom_max_retries_limits_retry_count(self) -> None:
+        """
+        Given an adapter constructed with throttle_max_retries=1
+        When a listing always returns throttle responses during search
+        Then the adapter attempts at most 2 clicks (initial + 1 retry)
+        """
+        # Given: adapter with max_retries=1 (not the default 3)
+        adapter = ZipRecruiterAdapter(throttle_max_retries=1)
+        listing = _make_listing()
+
+        panel_mock = AsyncMock()
+        panel_mock.inner_text = AsyncMock(return_value=_THROTTLE_TEXT)
+        panel_mock.wait_for = AsyncMock()
+
+        with (
+            _patch_search_to_click_through([listing], panel_mock) as page,
+            patch(f"{_ZR}.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            # When: search encounters persistent throttling
+            await adapter.search(page, _SEARCH_URL, max_pages=1)
+
+        # Then: panel_mock.inner_text called exactly 2 times (initial + 1 retry),
+        # not the default 4 (initial + 3 retries)
+        assert panel_mock.inner_text.call_count == 2, (
+            f"Expected 2 panel reads (initial + 1 retry) with max_retries=1, "
+            f"got {panel_mock.inner_text.call_count}"
         )

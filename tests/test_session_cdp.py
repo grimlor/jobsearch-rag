@@ -693,7 +693,7 @@ class TestSessionManagerCDP:
 
         with (
             _patch_playwright(mock_pw),
-            patch("jobsearch_rag.adapters.session._STORAGE_DIR", tmp_path),
+            patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", tmp_path),
         ):
             # When: enter session and save storage state
             manager = SessionManager(config)
@@ -717,7 +717,7 @@ class TestSessionManagerCDP:
         """
         # Given: session file exists on disk
         config = SessionConfig(board_name="test", headless=True)
-        with patch("jobsearch_rag.adapters.session._STORAGE_DIR", tmp_path):
+        with patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", tmp_path):
             state_file = config.storage_state_path
             state_file.parent.mkdir(parents=True, exist_ok=True)
             state_file.write_text("{}")

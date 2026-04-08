@@ -20,7 +20,7 @@ from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.store import VectorStore
-from tests.conftest import make_mock_ollama_client
+from tests.conftest import make_mock_ollama_client, make_test_ollama_config
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -39,13 +39,7 @@ def store() -> Iterator[VectorStore]:
 def mock_embedder() -> Embedder:
     """Real Embedder with ollama client stubbed at the I/O boundary."""
     mock_client = make_mock_ollama_client(embed_vector=EMBED_TEST)
-    embedder = Embedder(
-        base_url="http://localhost:11434",
-        embed_model="nomic-embed-text",
-        llm_model="mistral:7b",
-        max_retries=1,
-        base_delay=0.0,
-    )
+    embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
     embedder._client = mock_client  # type: ignore[attr-defined]
     return embedder
 

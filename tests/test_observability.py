@@ -18,18 +18,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobListing
-from jobsearch_rag.config import (
-    BoardConfig,
-    ChromaConfig,
-    OllamaConfig,
-    OutputConfig,
-    ScoringConfig,
-    Settings,
-)
 from jobsearch_rag.pipeline.runner import PipelineRunner
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
+    from jobsearch_rag.config import Settings
     from jobsearch_rag.rag.store import VectorStore
 
 # ---------------------------------------------------------------------------
@@ -73,29 +66,19 @@ def _make_settings(
     min_score_threshold: float | None = None,
 ) -> Settings:
     """Create a Settings with temp ChromaDB dir and configurable boards."""
-    boards = enabled_boards or ["testboard"]
-    board_configs: dict[str, BoardConfig] = {}
-    for name in boards:
-        board_configs[name] = BoardConfig(
-            name=name,
-            searches=[f"https://{name}.com/search"],
-            max_pages=1,
-            headless=True,
-        )
-    ollama_kwargs: dict[str, object] = {}
-    if slow_llm_threshold_ms is not None:
-        ollama_kwargs["slow_llm_threshold_ms"] = slow_llm_threshold_ms
-    scoring_kwargs: dict[str, object] = {"disqualify_on_llm_flag": disqualify_on_llm_flag}
+    from tests.conftest import make_test_settings  # noqa: PLC0415
+
+    scoring_overrides: dict[str, object] = {"disqualify_on_llm_flag": disqualify_on_llm_flag}
     if min_score_threshold is not None:
-        scoring_kwargs["min_score_threshold"] = min_score_threshold
-    return Settings(
-        enabled_boards=boards,
-        overnight_boards=[],
-        boards=board_configs,
-        scoring=ScoringConfig(**scoring_kwargs),  # type: ignore[arg-type]
-        ollama=OllamaConfig(**ollama_kwargs),  # type: ignore[arg-type]
-        output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
-        chroma=ChromaConfig(persist_dir=str(Path(tmpdir) / "chroma_db")),
+        scoring_overrides["min_score_threshold"] = min_score_threshold
+    ollama_overrides: dict[str, object] = {}
+    if slow_llm_threshold_ms is not None:
+        ollama_overrides["slow_llm_threshold_ms"] = slow_llm_threshold_ms
+    return make_test_settings(
+        tmpdir,
+        enabled_boards=enabled_boards,
+        scoring_overrides=scoring_overrides,  # type: ignore[arg-type]
+        ollama_overrides=ollama_overrides,  # type: ignore[arg-type]
     )
 
 

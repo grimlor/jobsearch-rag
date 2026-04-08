@@ -147,22 +147,76 @@ global_rubric_path = "{config_dir / "global_rubric.toml"}"
 
 [boards]
 enabled = ["testboard"]
+session_storage_dir = "data"
 
 [boards.testboard]
 searches = ["https://example.org/search"]
 max_pages = 2
 headless = true
+rate_limit_range = [1.5, 3.5]
 
 [scoring]
+archetype_weight = 0.5
+fit_weight = 0.3
+history_weight = 0.2
+comp_weight = 0.15
+negative_weight = 0.4
+culture_weight = 0.2
+base_salary = 220000
+disqualify_on_llm_flag = true
+min_score_threshold = 0.45
+missing_comp_score = 0.5
+chunk_overlap = 2000
+dedup_similarity_threshold = 0.95
+
+[[scoring.comp_bands]]
+ratio = 1.0
+score = 1.0
+
+[[scoring.comp_bands]]
+ratio = 0.90
+score = 0.7
+
+[[scoring.comp_bands]]
+ratio = 0.77
+score = 0.4
+
+[[scoring.comp_bands]]
+ratio = 0.68
+score = 0.0
 
 [ollama]
+base_url = "http://localhost:11434"
+llm_model = "mistral:7b"
+embed_model = "nomic-embed-text"
+slow_llm_threshold_ms = 30000
+classify_system_prompt = "You are a job listing classifier. Respond concisely with your classification."
+max_retries = 3
+base_delay = 1.0
+max_embed_chars = 8000
+head_ratio = 0.6
+retryable_status_codes = [408, 429, 500, 502, 503, 504]
 
 [output]
+default_format = "markdown"
 output_dir = "{output_dir}"
 open_top_n = {open_top_n}
+jd_dir = "output/jds"
+decisions_dir = "data/decisions"
+log_dir = "data/logs"
+eval_history_path = "data/eval_history.jsonl"
 
 [chroma]
 persist_dir = "{tmp_path / "chroma"}"
+
+[security]
+screen_prompt = "Review the following job description text."
+
+[adapters]
+cdp_timeout = 15.0
+
+[adapters.browser_paths]
+msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
 """)
 
     (config_dir / "role_archetypes.toml").write_text("""\

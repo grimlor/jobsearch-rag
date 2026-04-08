@@ -72,8 +72,8 @@ _THROTTLE_PHRASES = [
 ]
 
 # Throttle backoff parameters
-_THROTTLE_MAX_RETRIES = 3
-_THROTTLE_BASE_DELAY = 2.0  # seconds; doubles each retry
+_DEFAULT_THROTTLE_MAX_RETRIES = 3
+_DEFAULT_THROTTLE_BASE_DELAY = 2.0  # seconds; doubles each retry
 
 
 def is_throttle_response(text: str) -> bool:
@@ -335,6 +335,24 @@ class ZipRecruiterAdapter(JobBoardAdapter):
     panel, avoiding per-URL navigation and Cloudflare challenges.
     """
 
+    def __init__(
+        self,
+        *,
+        throttle_max_retries: int | None = None,
+        throttle_base_delay: float | None = None,
+    ) -> None:
+        """Initialize with optional throttle configuration."""
+        self._throttle_max_retries = (
+            throttle_max_retries
+            if throttle_max_retries is not None
+            else _DEFAULT_THROTTLE_MAX_RETRIES
+        )
+        self._throttle_base_delay = (
+            throttle_base_delay
+            if throttle_base_delay is not None
+            else _DEFAULT_THROTTLE_BASE_DELAY
+        )
+
     @property
     def board_name(self) -> str:
         """Return the board identifier."""
@@ -480,7 +498,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
             card_locator = page.locator(f"article[id='job-card-{listing.external_id}']").first
 
             retry = 0
-            while retry <= _THROTTLE_MAX_RETRIES:
+            while retry <= self._throttle_max_retries:
                 try:
                     await card_locator.click()
 
@@ -495,17 +513,17 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                     # Check for throttle response
                     if is_throttle_response(panel_text):
                         consecutive_throttles += 1
-                        backoff = _THROTTLE_BASE_DELAY * (2 ** (consecutive_throttles - 1))
+                        backoff = self._throttle_base_delay * (2 ** (consecutive_throttles - 1))
                         logger.warning(
                             "Throttle detected for %s (retry %d/%d, backoff %.1fs): %s",
                             listing.external_id,
                             retry + 1,
-                            _THROTTLE_MAX_RETRIES,
+                            self._throttle_max_retries,
                             backoff,
                             listing.url,
                         )
                         retry += 1
-                        if retry <= _THROTTLE_MAX_RETRIES:
+                        if retry <= self._throttle_max_retries:
                             await asyncio.sleep(backoff)
                         continue
 
@@ -536,17 +554,17 @@ class ZipRecruiterAdapter(JobBoardAdapter):
 
                     if is_throttle_response(late_text):
                         consecutive_throttles += 1
-                        backoff = _THROTTLE_BASE_DELAY * (2 ** (consecutive_throttles - 1))
+                        backoff = self._throttle_base_delay * (2 ** (consecutive_throttles - 1))
                         logger.warning(
                             "Throttle detected (late) for %s (retry %d/%d, backoff %.1fs): %s",
                             listing.external_id,
                             retry + 1,
-                            _THROTTLE_MAX_RETRIES,
+                            self._throttle_max_retries,
                             backoff,
                             listing.url,
                         )
                         retry += 1
-                        if retry <= _THROTTLE_MAX_RETRIES:
+                        if retry <= self._throttle_max_retries:
                             await asyncio.sleep(backoff)
                         continue
 

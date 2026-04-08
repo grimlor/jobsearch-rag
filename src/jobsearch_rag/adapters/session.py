@@ -41,7 +41,8 @@ if TYPE_CHECKING:
 # Configuration
 # ---------------------------------------------------------------------------
 
-_STORAGE_DIR = Path("data")
+_DEFAULT_STORAGE_DIR = Path("data")
+
 
 # Known browser binary paths on macOS
 _BROWSER_PATHS: dict[str, list[str]] = {
@@ -69,11 +70,14 @@ class SessionConfig:
     stealth: bool = False
     overnight: bool = False
     browser_channel: str | None = None
+    storage_dir: Path = _DEFAULT_STORAGE_DIR
+    browser_paths: dict[str, list[str]] | None = None
+    cdp_timeout: float | None = None
 
     @property
     def storage_state_path(self) -> Path:
         """Path to the cookie/session JSON for this board."""
-        return _STORAGE_DIR / f"{self.board_name}_session.json"
+        return self.storage_dir / f"{self.board_name}_session.json"
 
 
 # ---------------------------------------------------------------------------
@@ -81,13 +85,23 @@ class SessionConfig:
 # ---------------------------------------------------------------------------
 
 
-def _find_browser_binary(channel: str) -> str | None:
+def _find_browser_binary(
+    channel: str, config_paths: dict[str, list[str]] | None = None
+) -> str | None:
     """
     Resolve a browser channel name to an executable path.
 
-    First checks the known paths in ``_BROWSER_PATHS``, then falls back
-    to ``shutil.which()`` for PATH-based lookup.
+    When *config_paths* is provided, only those paths are checked —
+    neither ``_BROWSER_PATHS`` nor ``shutil.which()`` are consulted.
+    When *config_paths* is ``None``, falls back to the module-level
+    ``_BROWSER_PATHS`` dict and then ``shutil.which()``.
     """
+    if config_paths is not None:
+        for path in config_paths.get(channel, []):
+            if Path(path).exists():
+                return path
+        return None
+
     for path in _BROWSER_PATHS.get(channel, []):
         if Path(path).exists():
             return path
@@ -111,10 +125,12 @@ def _find_free_port() -> int:
 async def _wait_for_cdp(
     cdp_url: str,
     *,
-    timeout: float = 15.0,
+    timeout: float | None = None,
     poll_interval: float = 0.3,
 ) -> None:
     """Poll until the CDP ``/json/version`` endpoint responds."""
+    if timeout is None:
+        timeout = 15.0
     deadline = asyncio.get_event_loop().time() + timeout
     while True:
         try:
@@ -147,13 +163,19 @@ def _terminate_process(proc: subprocess.Popen[bytes]) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def throttle(adapter: JobBoardAdapter) -> float:
+async def throttle(
+    adapter: JobBoardAdapter,
+    rate_limit_range: tuple[float, float] | None = None,
+) -> float:
     """
-    Sleep for a random duration within the adapter's rate limit range.
+    Sleep for a random duration within the given rate limit range.
+
+    If *rate_limit_range* is ``None``, falls back to the adapter's
+    ``rate_limit_seconds`` property for backward compatibility.
 
     Returns the actual duration slept (useful for assertions).
     """
-    lo, hi = adapter.rate_limit_seconds
+    lo, hi = rate_limit_range if rate_limit_range is not None else adapter.rate_limit_seconds
     duration = random.uniform(lo, hi)
     logger.debug("Throttle: sleeping %.2fs for %s", duration, adapter.board_name)
     await asyncio.sleep(duration)
@@ -257,8 +279,8 @@ class SessionManager:
         assert self._playwright is not None
         channel = self.config.browser_channel or "msedge"
 
-        # Find the browser binary
-        binary = _find_browser_binary(channel)
+        # Find the browser binary using config paths if provided
+        binary = _find_browser_binary(channel, self.config.browser_paths)
         if not binary:
             raise ActionableError.config(
                 field_name="browser_channel",
@@ -305,7 +327,7 @@ class SessionManager:
 
         # Wait for the CDP endpoint to become available
         cdp_url = f"http://localhost:{port}"
-        await _wait_for_cdp(cdp_url)
+        await _wait_for_cdp(cdp_url, timeout=self.config.cdp_timeout)
 
         self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
 

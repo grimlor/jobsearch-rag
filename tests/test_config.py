@@ -23,34 +23,82 @@ from jobsearch_rag.errors import ActionableError, ErrorType
 
 # A minimal valid settings TOML for tests
 _VALID_SETTINGS = """\
+resume_path = "data/resume.md"
+archetypes_path = "config/role_archetypes.toml"
+global_rubric_path = "config/global_rubric.toml"
+
 [boards]
 enabled = ["testboard"]
+session_storage_dir = "data"
 
 [boards.testboard]
 searches = ["https://example.org/search"]
 max_pages = 2
 headless = true
+rate_limit_range = [1.5, 3.5]
 
 [scoring]
 archetype_weight = 0.5
 fit_weight = 0.3
 history_weight = 0.2
+comp_weight = 0.15
 negative_weight = 0.4
+culture_weight = 0.2
+base_salary = 220000
 disqualify_on_llm_flag = true
 min_score_threshold = 0.45
+missing_comp_score = 0.5
+chunk_overlap = 2000
+dedup_similarity_threshold = 0.95
+
+[[scoring.comp_bands]]
+ratio = 1.0
+score = 1.0
+
+[[scoring.comp_bands]]
+ratio = 0.90
+score = 0.7
+
+[[scoring.comp_bands]]
+ratio = 0.77
+score = 0.4
+
+[[scoring.comp_bands]]
+ratio = 0.68
+score = 0.0
 
 [ollama]
 base_url = "http://localhost:11434"
 llm_model = "mistral:7b"
 embed_model = "nomic-embed-text"
+slow_llm_threshold_ms = 30000
+classify_system_prompt = "You are a job listing classifier. Respond concisely with your classification."
+max_retries = 3
+base_delay = 1.0
+max_embed_chars = 8000
+head_ratio = 0.6
+retryable_status_codes = [408, 429, 500, 502, 503, 504]
 
 [output]
 default_format = "markdown"
 output_dir = "./output"
 open_top_n = 5
+jd_dir = "output/jds"
+decisions_dir = "data/decisions"
+log_dir = "data/logs"
+eval_history_path = "data/eval_history.jsonl"
 
 [chroma]
 persist_dir = "./data/chroma_db"
+
+[adapters]
+cdp_timeout = 15.0
+
+[adapters.browser_paths]
+msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+
+[security]
+screen_prompt = "Review the following job description text."
 """
 
 
@@ -97,6 +145,13 @@ class TestSettingsValidation:
           (29) The system rejects an out-of-range `culture_weight` value below the limit and states the valid range with guidance.
           (30) The system uses the enabled board's config when an overnight board is also in enabled boards.
           (31) The system skips an overnight board whose section is not a TOML table.
+          (32) The system defaults `disqualifier.system_prompt` to `None` when the `[disqualifier]` section is absent.
+          (33) The system defaults `security.screen_prompt` to the documented default when the `[security]` section is absent.
+          (34) The system defaults `ollama.classify_system_prompt` to the documented default when the field is absent.
+          (35) The system rejects an empty `[disqualifier] system_prompt` and tells the operator to remove the key or provide content.
+          (36) The system rejects an empty `[security] screen_prompt` and tells the operator to remove the key or provide content.
+          (37) The system rejects an empty `[ollama] classify_system_prompt` and tells the operator to remove the key or provide content.
+          (38) The system ignores a `[disqualifier]` value that is not a TOML table and defaults to no disqualifier config.
     WHY: A mid-run config failure after 10 minutes of browser work is
          far more costly than a startup validation failure — and an error
          that says "validation failed" without telling the operator what
@@ -288,56 +343,35 @@ persist_dir = "./data/chroma_db"
                 f"Expected persist_dir='./data/chroma_db', got {settings.chroma.persist_dir}"
             )
 
-    def test_optional_fields_use_documented_defaults_when_absent(self) -> None:
+    def test_minimal_toml_raises_actionable_error_for_missing_required_section(self) -> None:
         """
-        Given a minimal settings file with only required fields
+        Given a minimal settings file with only boards config
         When load_settings is called
-        Then optional fields use their documented defaults
+        Then ActionableError is raised for the first missing required section
         """
         # Given: minimal TOML with only boards config
         minimal_toml = """\
+resume_path = "data/resume.md"
+archetypes_path = "config/role_archetypes.toml"
+global_rubric_path = "config/global_rubric.toml"
+
 [boards]
 enabled = ["testboard"]
+session_storage_dir = "data"
 
 [boards.testboard]
 searches = ["https://example.org/search"]
+rate_limit_range = [1.5, 3.5]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
 
-            # When: settings are loaded
-            settings = load_settings(path)
+            # When / Then: load raises ActionableError for missing required section
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
 
-            # Then: scoring defaults are applied
-            assert settings.scoring.archetype_weight == 0.5, (
-                f"Expected archetype_weight default 0.5, got {settings.scoring.archetype_weight}"
-            )
-            assert settings.scoring.fit_weight == 0.3, (
-                f"Expected fit_weight default 0.3, got {settings.scoring.fit_weight}"
-            )
-            assert settings.scoring.history_weight == 0.2, (
-                f"Expected history_weight default 0.2, got {settings.scoring.history_weight}"
-            )
-            assert settings.scoring.min_score_threshold == 0.45, (
-                f"Expected min_score_threshold default 0.45, got {settings.scoring.min_score_threshold}"
-            )
-            # Then: ollama defaults are applied
-            assert settings.ollama.base_url == "http://localhost:11434", (
-                f"Expected base_url default, got {settings.ollama.base_url}"
-            )
-            assert settings.ollama.llm_model == "mistral:7b", (
-                f"Expected llm_model default, got {settings.ollama.llm_model}"
-            )
-            # Then: output defaults are applied
-            assert settings.output.default_format == "markdown", (
-                f"Expected default_format='markdown', got {settings.output.default_format}"
-            )
-            assert settings.output.open_top_n == 5, (
-                f"Expected open_top_n default 5, got {settings.output.open_top_n}"
-            )
-            # Then: board defaults are applied
-            assert settings.boards["testboard"].browser_channel is None, (
-                f"Expected browser_channel=None, got {settings.boards['testboard'].browser_channel}"
+            assert "scoring" in str(exc_info.value).lower(), (
+                f"Error should name missing section. Got: {exc_info.value}"
             )
 
     def test_browser_channel_is_parsed_from_board_config(self) -> None:
@@ -362,54 +396,42 @@ searches = ["https://example.org/search"]
                 f"Expected browser_channel='msedge', got {settings.boards['testboard'].browser_channel}"
             )
 
-    def test_comp_weight_defaults_to_zero_point_fifteen_when_absent(self) -> None:
+    def test_missing_comp_weight_raises_actionable_error(self) -> None:
         """
         Given comp_weight is not specified in settings.toml
         When load_settings is called
-        Then comp_weight defaults to 0.15
+        Then ActionableError is raised naming the missing field
         """
-        # Given: minimal TOML without comp_weight
-        minimal_toml = """\
-[boards]
-enabled = ["testboard"]
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-"""
+        # Given: TOML without comp_weight
+        bad_toml = _VALID_SETTINGS.replace("comp_weight = 0.15\n", "")
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = _write_settings(tmpdir, minimal_toml)
+            path = _write_settings(tmpdir, bad_toml)
 
-            # When: settings are loaded
-            settings = load_settings(path)
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
 
-            # Then: comp_weight uses the default
-            assert settings.scoring.comp_weight == 0.15, (
-                f"Expected comp_weight default 0.15, got {settings.scoring.comp_weight}"
+            assert "comp_weight" in str(exc_info.value).lower(), (
+                f"Error should name missing field. Got: {exc_info.value}"
             )
 
-    def test_base_salary_defaults_to_220000_when_absent(self) -> None:
+    def test_missing_base_salary_raises_actionable_error(self) -> None:
         """
         Given base_salary is not specified in settings.toml
         When load_settings is called
-        Then base_salary defaults to 220000
+        Then ActionableError is raised naming the missing field
         """
-        # Given: minimal TOML without base_salary
-        minimal_toml = """\
-[boards]
-enabled = ["testboard"]
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-"""
+        # Given: TOML without base_salary
+        bad_toml = _VALID_SETTINGS.replace("base_salary = 220000\n", "")
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = _write_settings(tmpdir, minimal_toml)
+            path = _write_settings(tmpdir, bad_toml)
 
-            # When: settings are loaded
-            settings = load_settings(path)
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
 
-            # Then: base_salary uses the default
-            assert settings.scoring.base_salary == 220_000, (
-                f"Expected base_salary default 220000, got {settings.scoring.base_salary}"
+            assert "base_salary" in str(exc_info.value).lower(), (
+                f"Error should name missing field. Got: {exc_info.value}"
             )
 
     def test_negative_base_salary_names_the_field_and_constraint(self) -> None:
@@ -420,8 +442,8 @@ searches = ["https://example.org/search"]
         """
         # Given: negative base_salary in scoring section
         bad_toml = _VALID_SETTINGS.replace(
-            "min_score_threshold = 0.45",
-            "min_score_threshold = 0.45\nbase_salary = -50000",
+            "base_salary = 220000",
+            "base_salary = -50000",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
@@ -546,19 +568,15 @@ testboard = "not a table"
         Then overnight boards have parsed BoardConfig entries
         """
         # Given: settings with an overnight board config
-        overnight_toml = """\
-[boards]
-enabled = ["testboard"]
-overnight_boards = ["nightboard"]
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-
-[boards.nightboard]
-searches = ["https://night.org/search"]
-max_pages = 5
-headless = false
-"""
+        overnight_toml = _VALID_SETTINGS.replace(
+            '[boards]\nenabled = ["testboard"]',
+            '[boards]\nenabled = ["testboard"]\novernight_boards = ["nightboard"]',
+        ).replace(
+            "rate_limit_range = [1.5, 3.5]",
+            "rate_limit_range = [1.5, 3.5]\n\n[boards.nightboard]\nsearches = "
+            '["https://night.org/search"]\nmax_pages = 5\nheadless = false'
+            "\nrate_limit_range = [2.0, 4.0]",
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, overnight_toml)
 
@@ -583,15 +601,10 @@ headless = false
         Then the enabled board's config is used and no duplicate entry is created.
         """
         # Given: same board in both enabled and overnight lists
-        overlap_toml = """\
-[boards]
-enabled = ["testboard"]
-overnight_boards = ["testboard"]
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-max_pages = 7
-"""
+        overlap_toml = _VALID_SETTINGS.replace(
+            '[boards]\nenabled = ["testboard"]',
+            '[boards]\nenabled = ["testboard"]\novernight_boards = ["testboard"]',
+        ).replace("max_pages = 2", "max_pages = 7")
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, overlap_toml)
 
@@ -614,15 +627,10 @@ max_pages = 7
         Then the non-dict section is skipped and no BoardConfig is created for it.
         """
         # Given: overnight board section is a string scalar
-        bad_section_toml = """\
-[boards]
-enabled = ["testboard"]
-overnight_boards = ["nightboard"]
-nightboard = "not a table"
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-"""
+        bad_section_toml = _VALID_SETTINGS.replace(
+            '[boards]\nenabled = ["testboard"]',
+            '[boards]\nenabled = ["testboard"]\novernight_boards = ["nightboard"]\nnightboard = "not a table"',
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_section_toml)
 
@@ -634,112 +642,121 @@ searches = ["https://example.org/search"]
                 f"Non-dict section should be skipped. Got boards: {list(settings.boards.keys())}"
             )
 
-    def test_scoring_section_non_dict_uses_defaults(self) -> None:
+    def test_scoring_section_non_dict_raises_actionable_error(self) -> None:
         """
         Given scoring is a scalar instead of a table
         When load_settings is called
-        Then scoring uses default values
+        Then ActionableError is raised naming the missing section
         """
         # Given: scoring defined as a string
         bad_toml = """\
+resume_path = "data/resume.md"
+archetypes_path = "config/role_archetypes.toml"
+global_rubric_path = "config/global_rubric.toml"
 scoring = "not a dict"
 
 [boards]
 enabled = ["testboard"]
+session_storage_dir = "data"
 
 [boards.testboard]
 searches = ["https://example.org/search"]
+max_pages = 2
+headless = true
+rate_limit_range = [1.5, 3.5]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
-            # When: settings are loaded
-            settings = load_settings(path)
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
 
-            # Then: scoring falls back to defaults
-            assert settings.scoring.archetype_weight == 0.5, (
-                f"Expected default archetype_weight=0.5, got {settings.scoring.archetype_weight}"
+            assert "scoring" in str(exc_info.value).lower(), (
+                f"Error should name missing section. Got: {exc_info.value}"
             )
 
-    def test_ollama_section_non_dict_uses_defaults(self) -> None:
+    def test_ollama_section_non_dict_raises_actionable_error(self) -> None:
         """
         Given ollama is a scalar instead of a table
         When load_settings is called
-        Then ollama uses default values
+        Then ActionableError is raised naming the missing section
         """
-        # Given: ollama defined as a string
-        bad_toml = """\
-ollama = "not a dict"
-
-[boards]
-enabled = ["testboard"]
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-"""
+        # Given: replace [ollama] section with a scalar
+        # Strip the entire [ollama] block and replace with scalar
+        bad_toml = _VALID_SETTINGS.replace(
+            '[ollama]\nbase_url = "http://localhost:11434"\n'
+            'llm_model = "mistral:7b"\n'
+            'embed_model = "nomic-embed-text"\n'
+            "slow_llm_threshold_ms = 30000\n"
+            'classify_system_prompt = "You are a job listing classifier. '
+            'Respond concisely with your classification."\n'
+            "max_retries = 3\n"
+            "base_delay = 1.0\n"
+            "max_embed_chars = 8000\n"
+            "head_ratio = 0.6\n"
+            "retryable_status_codes = [408, 429, 500, 502, 503, 504]\n",
+            "",
+        )
+        bad_toml = 'ollama = "not a dict"\n' + bad_toml
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
-            # When: settings are loaded
-            settings = load_settings(path)
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
 
-            # Then: ollama falls back to defaults
-            assert settings.ollama.base_url == "http://localhost:11434", (
-                f"Expected default base_url, got {settings.ollama.base_url}"
+            assert "ollama" in str(exc_info.value).lower(), (
+                f"Error should name missing section. Got: {exc_info.value}"
             )
 
-    def test_output_section_non_dict_uses_defaults(self) -> None:
+    def test_output_section_non_dict_raises_actionable_error(self) -> None:
         """
         Given output is a scalar instead of a table
         When load_settings is called
-        Then output uses default values
+        Then ActionableError is raised naming the missing section
         """
-        # Given: output defined as a string
-        bad_toml = """\
-output = "not a dict"
-
-[boards]
-enabled = ["testboard"]
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-"""
+        # Given: replace [output] section with a scalar
+        bad_toml = _VALID_SETTINGS.replace(
+            '[output]\ndefault_format = "markdown"\noutput_dir = "./output"\nopen_top_n = 5\n'
+            'jd_dir = "output/jds"\n'
+            'decisions_dir = "data/decisions"\n'
+            'log_dir = "data/logs"\n',
+            "",
+        )
+        bad_toml = 'output = "not a dict"\n' + bad_toml
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
-            # When: settings are loaded
-            settings = load_settings(path)
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
 
-            # Then: output falls back to defaults
-            assert settings.output.default_format == "markdown", (
-                f"Expected default default_format='markdown', got {settings.output.default_format}"
+            assert "output" in str(exc_info.value).lower(), (
+                f"Error should name missing section. Got: {exc_info.value}"
             )
 
-    def test_chroma_section_non_dict_uses_defaults(self) -> None:
+    def test_chroma_section_non_dict_raises_actionable_error(self) -> None:
         """
         Given chroma is a scalar instead of a table
         When load_settings is called
-        Then chroma uses default values
+        Then ActionableError is raised naming the missing section
         """
-        # Given: chroma defined as a string
-        bad_toml = """\
-chroma = "not a dict"
-
-[boards]
-enabled = ["testboard"]
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-"""
+        # Given: replace [chroma] section with a scalar
+        bad_toml = _VALID_SETTINGS.replace(
+            '[chroma]\npersist_dir = "./data/chroma_db"\n',
+            "",
+        )
+        bad_toml = 'chroma = "not a dict"\n' + bad_toml
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
-            # When: settings are loaded
-            settings = load_settings(path)
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
 
-            # Then: chroma falls back to defaults
-            assert settings.chroma.persist_dir == "./data/chroma_db", (
-                f"Expected default persist_dir, got {settings.chroma.persist_dir}"
+            assert "chroma" in str(exc_info.value).lower(), (
+                f"Error should name missing section. Got: {exc_info.value}"
             )
 
     def test_missing_enabled_field_tells_operator_which_field_to_add(self) -> None:
@@ -772,29 +789,23 @@ searches = ["https://example.org/search"]
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
-    def test_negative_weight_defaults_to_zero_point_four_when_absent(self) -> None:
+    def test_missing_negative_weight_raises_actionable_error(self) -> None:
         """
         Given negative_weight is not specified in settings.toml
         When load_settings is called
-        Then negative_weight defaults to 0.4
+        Then ActionableError is raised naming the missing field
         """
-        # Given: minimal TOML without negative_weight
-        minimal_toml = """\
-[boards]
-enabled = ["testboard"]
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-"""
+        # Given: TOML without negative_weight
+        bad_toml = _VALID_SETTINGS.replace("negative_weight = 0.4\n", "")
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = _write_settings(tmpdir, minimal_toml)
+            path = _write_settings(tmpdir, bad_toml)
 
-            # When: settings are loaded
-            settings = load_settings(path)
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
 
-            # Then: negative_weight uses the default
-            assert settings.scoring.negative_weight == 0.4, (
-                f"Expected negative_weight default 0.4, got {settings.scoring.negative_weight}"
+            assert "negative_weight" in str(exc_info.value).lower(), (
+                f"Error should name missing field. Got: {exc_info.value}"
             )
 
     def test_negative_weight_above_range_names_the_field_and_valid_range(self) -> None:
@@ -849,29 +860,25 @@ searches = ["https://example.org/search"]
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
-    def test_global_rubric_path_defaults_when_absent(self) -> None:
+    def test_missing_global_rubric_path_raises_actionable_error(self) -> None:
         """
         Given global_rubric_path is not specified
         When load_settings is called
-        Then it defaults to 'config/global_rubric.toml'
+        Then ActionableError is raised naming the missing field
         """
-        # Given: minimal TOML without global_rubric_path
-        minimal_toml = """\
-[boards]
-enabled = ["testboard"]
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-"""
+        # Given: TOML without global_rubric_path
+        bad_toml = _VALID_SETTINGS.replace(
+            'global_rubric_path = "config/global_rubric.toml"\n', ""
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = _write_settings(tmpdir, minimal_toml)
+            path = _write_settings(tmpdir, bad_toml)
 
-            # When: settings are loaded
-            settings = load_settings(path)
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
 
-            # Then: default path is used
-            assert settings.global_rubric_path == "config/global_rubric.toml", (
-                f"Expected default global_rubric_path, got {settings.global_rubric_path}"
+            assert "global_rubric_path" in str(exc_info.value).lower(), (
+                f"Error should name missing field. Got: {exc_info.value}"
             )
 
     def test_missing_global_rubric_path_names_field_and_creation_guidance(self) -> None:
@@ -881,7 +888,10 @@ searches = ["https://example.org/search"]
         Then a CONFIG error names the field with recovery guidance
         """
         # Given: global_rubric_path pointing to a nonexistent file
-        bad_toml = 'global_rubric_path = "/nonexistent/global_rubric.toml"\n\n' + _VALID_SETTINGS
+        bad_toml = _VALID_SETTINGS.replace(
+            'global_rubric_path = "config/global_rubric.toml"',
+            'global_rubric_path = "/nonexistent/global_rubric.toml"',
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
@@ -900,29 +910,23 @@ searches = ["https://example.org/search"]
             assert err.suggestion is not None, "Missing suggestion"
             assert err.troubleshooting is not None, "Missing troubleshooting"
 
-    def test_culture_weight_defaults_to_zero_point_two_when_absent(self) -> None:
+    def test_missing_culture_weight_raises_actionable_error(self) -> None:
         """
         Given culture_weight is not specified in settings.toml
         When load_settings is called
-        Then culture_weight defaults to 0.2
+        Then ActionableError is raised naming the missing field
         """
-        # Given: minimal TOML without culture_weight
-        minimal_toml = """\
-[boards]
-enabled = ["testboard"]
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-"""
+        # Given: TOML without culture_weight
+        bad_toml = _VALID_SETTINGS.replace("culture_weight = 0.2\n", "")
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = _write_settings(tmpdir, minimal_toml)
+            path = _write_settings(tmpdir, bad_toml)
 
-            # When: settings are loaded
-            settings = load_settings(path)
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
 
-            # Then: culture_weight uses the default
-            assert settings.scoring.culture_weight == 0.2, (
-                f"Expected culture_weight default 0.2, got {settings.scoring.culture_weight}"
+            assert "culture_weight" in str(exc_info.value).lower(), (
+                f"Error should name missing field. Got: {exc_info.value}"
             )
 
     def test_culture_weight_above_range_names_the_field_and_valid_range(self) -> None:
@@ -933,8 +937,8 @@ searches = ["https://example.org/search"]
         """
         # Given: culture_weight exceeds valid range
         bad_toml = _VALID_SETTINGS.replace(
-            "negative_weight = 0.4",
-            "negative_weight = 0.4\nculture_weight = 1.5",
+            "culture_weight = 0.2",
+            "culture_weight = 1.5",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
@@ -962,8 +966,8 @@ searches = ["https://example.org/search"]
         """
         # Given: culture_weight is below valid range
         bad_toml = _VALID_SETTINGS.replace(
-            "negative_weight = 0.4",
-            "negative_weight = 0.4\nculture_weight = -0.1",
+            "culture_weight = 0.2",
+            "culture_weight = -0.1",
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
@@ -979,4 +983,594 @@ searches = ["https://example.org/search"]
             )
             assert "culture_weight" in err.error, (
                 f"Error should name culture_weight. Got: {err.error}"
+            )
+
+    # --- Phase 8a additions (config externalization) ---
+
+    def test_disqualifier_prompt_defaults_to_none_when_absent(self) -> None:
+        """
+        Given settings.toml has no [disqualifier] section
+        When load_settings() is called
+        Then settings.disqualifier.system_prompt is None
+        """
+        # Given: valid settings with no [disqualifier] section
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, _VALID_SETTINGS)
+
+            # When: settings are loaded
+            settings = load_settings(path)
+
+            # Then: disqualifier.system_prompt is None
+            assert settings.disqualifier is not None
+            assert settings.disqualifier.system_prompt is None, (
+                f"Expected None, got {settings.disqualifier.system_prompt!r}"
+            )
+
+    def test_missing_security_section_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml has no [security] section
+        When load_settings() is called
+        Then ActionableError is raised naming the missing section
+        """
+        # Given: valid settings with no [security] section
+        no_security = _VALID_SETTINGS.replace(
+            '[security]\nscreen_prompt = "Review the following job description text."\n',
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, no_security)
+
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "security" in str(exc_info.value).lower(), (
+                f"Error should name missing section. Got: {exc_info.value}"
+            )
+
+    def test_missing_classify_system_prompt_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml has no classify_system_prompt in [ollama]
+        When load_settings() is called
+        Then ActionableError is raised naming the missing field
+        """
+        # Given: valid settings with no classify_system_prompt
+        no_prompt = _VALID_SETTINGS.replace(
+            'classify_system_prompt = "You are a job listing classifier. Respond concisely with your classification."\n',
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, no_prompt)
+
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "classify_system_prompt" in str(exc_info.value).lower(), (
+                f"Error should name missing field. Got: {exc_info.value}"
+            )
+
+    def test_non_dict_disqualifier_section_defaults_to_none(self) -> None:
+        """
+        Given settings.toml has `disqualifier` set to a non-table value
+        When load_settings() is called
+        Then settings.disqualifier defaults to no custom system_prompt
+        """
+        # Given: disqualifier is a string instead of a table
+        bad_toml = _VALID_SETTINGS + '\ndisqualifier = "not a table"\n'
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+
+            # When: settings are loaded
+            settings = load_settings(path)
+
+            # Then: disqualifier falls back to default (no custom prompt)
+            assert settings.disqualifier is not None
+            assert settings.disqualifier.system_prompt is None, (
+                f"Expected None, got {settings.disqualifier.system_prompt!r}"
+            )
+
+    def test_empty_disqualifier_prompt_override_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml has [disqualifier] system_prompt = ""
+        When load_settings() is called
+        Then ActionableError is raised naming the field and suggesting removal or content
+        """
+        # Given: empty disqualifier prompt override
+        bad_toml = _VALID_SETTINGS + '\n[disqualifier]\nsystem_prompt = ""\n'
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "disqualifier" in str(exc_info.value).lower(), (
+                f"Error should mention disqualifier. Got: {exc_info.value}"
+            )
+
+    def test_empty_screen_prompt_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml has [security] screen_prompt = ""
+        When load_settings() is called
+        Then ActionableError is raised naming the field and suggesting removal
+        """
+        # Given: empty screen prompt
+        bad_toml = _VALID_SETTINGS.replace(
+            'screen_prompt = "Review the following job description text."',
+            'screen_prompt = ""',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "screen_prompt" in str(exc_info.value).lower(), (
+                f"Error should mention screen_prompt. Got: {exc_info.value}"
+            )
+
+    def test_empty_classify_system_prompt_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml has [ollama] classify_system_prompt = ""
+        When load_settings() is called
+        Then ActionableError is raised naming the field and suggesting removal
+        """
+        # Given: empty classify system prompt
+        bad_toml = _VALID_SETTINGS.replace(
+            'classify_system_prompt = "You are a job listing classifier. Respond concisely with your classification."',
+            'classify_system_prompt = ""',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+
+            # When / Then: load raises ActionableError
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "classify_system_prompt" in str(exc_info.value).lower(), (
+                f"Error should mention classify_system_prompt. Got: {exc_info.value}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# TestCommittedConfigCompleteness
+# ---------------------------------------------------------------------------
+
+# Complete valid TOML with ALL required fields (no code-side defaults).
+_COMPLETE_SETTINGS = """\
+resume_path = "data/resume.md"
+archetypes_path = "config/role_archetypes.toml"
+global_rubric_path = "config/global_rubric.toml"
+
+[boards]
+enabled = ["testboard"]
+session_storage_dir = "data"
+
+[boards.testboard]
+searches = ["https://example.org/search"]
+max_pages = 2
+headless = true
+rate_limit_range = [1.5, 3.5]
+
+[scoring]
+archetype_weight = 0.5
+fit_weight = 0.3
+history_weight = 0.2
+comp_weight = 0.15
+negative_weight = 0.4
+culture_weight = 0.2
+base_salary = 220000
+disqualify_on_llm_flag = true
+min_score_threshold = 0.45
+missing_comp_score = 0.5
+chunk_overlap = 2000
+dedup_similarity_threshold = 0.95
+
+[[scoring.comp_bands]]
+ratio = 1.0
+score = 1.0
+
+[[scoring.comp_bands]]
+ratio = 0.90
+score = 0.7
+
+[[scoring.comp_bands]]
+ratio = 0.77
+score = 0.4
+
+[[scoring.comp_bands]]
+ratio = 0.68
+score = 0.0
+
+[ollama]
+base_url = "http://localhost:11434"
+llm_model = "mistral:7b"
+embed_model = "nomic-embed-text"
+slow_llm_threshold_ms = 30000
+classify_system_prompt = "You are a job listing classifier. Respond concisely with your classification."
+max_retries = 3
+base_delay = 1.0
+max_embed_chars = 8000
+head_ratio = 0.6
+retryable_status_codes = [408, 429, 500, 502, 503, 504]
+
+[output]
+default_format = "markdown"
+output_dir = "./output"
+open_top_n = 5
+jd_dir = "output/jds"
+decisions_dir = "data/decisions"
+log_dir = "data/logs"
+eval_history_path = "data/eval_history.jsonl"
+
+[chroma]
+persist_dir = "./data/chroma_db"
+
+[adapters]
+cdp_timeout = 15.0
+
+[adapters.browser_paths]
+msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+
+[security]
+screen_prompt = "Review the following job description text."
+"""
+
+
+class TestCommittedConfigCompleteness:
+    """
+    REQUIREMENT: The committed config/settings.toml is the single source of
+    truth for all tunable values — no field may rely on a code-side default.
+
+    WHO: Any operator or developer who needs to understand or change a
+         configuration value
+    WHAT: (1) The committed settings.toml contains every required scoring field
+          (2) The committed settings.toml contains every required ollama field
+          (3) The committed settings.toml contains every required output field
+          (4) The committed settings.toml contains the required chroma field
+          (5) The committed settings.toml contains the required security screen_prompt
+          (6) The committed settings.toml contains comp_bands with at least 2 breakpoints
+          (7) The committed settings.toml contains top-level path fields
+          (8) load_settings() rejects a TOML missing any required scoring field
+          (9) load_settings() rejects a TOML missing any required ollama field
+          (10) load_settings() rejects a TOML missing a required output field
+          (11) load_settings() rejects a TOML missing the chroma persist_dir
+          (12) load_settings() rejects a TOML missing the security screen_prompt
+          (13) load_settings() rejects a TOML missing comp_bands
+          (14) load_settings() rejects a TOML missing a required top-level path
+          (15) load_settings() rejects a TOML missing slow_llm_threshold_ms
+    WHY: Dual maintenance of defaults in code and config is error-prone;
+         a single authoritative config with test enforcement prevents drift
+
+    MOCK BOUNDARY:
+        Mock:  nothing — uses real filesystem via tempfile and real config/settings.toml
+        Real:  load_settings, TOML parsing, validation, committed config file
+        Never: Patch config internals
+    """
+
+    # -- Committed config assertions (items 1-7) ----------------------------
+
+    def test_committed_config_contains_all_scoring_fields(self) -> None:
+        """
+        Given the committed config/settings.toml
+        When parsed as TOML
+        Then every required scoring field is present
+        """
+        # Given: the real committed settings file
+        import tomllib  # noqa: PLC0415
+
+        settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
+        data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
+
+        # When: the scoring section is examined
+        scoring = data.get("scoring", {})
+
+        # Then: every required field is present
+        required = [
+            "archetype_weight",
+            "fit_weight",
+            "history_weight",
+            "comp_weight",
+            "negative_weight",
+            "culture_weight",
+            "base_salary",
+            "disqualify_on_llm_flag",
+            "min_score_threshold",
+            "missing_comp_score",
+        ]
+        for field in required:
+            assert field in scoring, (
+                f"Committed settings.toml is missing [scoring].{field} — "
+                f"add it to config/settings.toml"
+            )
+
+    def test_committed_config_contains_all_ollama_fields(self) -> None:
+        """
+        Given the committed config/settings.toml
+        When parsed as TOML
+        Then every required ollama field is present
+        """
+        # Given: the real committed settings file
+        import tomllib  # noqa: PLC0415
+
+        settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
+        data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
+
+        # When: the ollama section is examined
+        ollama = data.get("ollama", {})
+
+        # Then: every required field is present
+        required = [
+            "base_url",
+            "llm_model",
+            "embed_model",
+            "slow_llm_threshold_ms",
+            "classify_system_prompt",
+        ]
+        for field in required:
+            assert field in ollama, (
+                f"Committed settings.toml is missing [ollama].{field} — "
+                f"add it to config/settings.toml"
+            )
+
+    def test_committed_config_contains_all_output_fields(self) -> None:
+        """
+        Given the committed config/settings.toml
+        When parsed as TOML
+        Then every required output field is present
+        """
+        # Given: the real committed settings file
+        import tomllib  # noqa: PLC0415
+
+        settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
+        data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
+
+        # When: the output section is examined
+        output = data.get("output", {})
+
+        # Then: every required field is present
+        required = ["default_format", "output_dir", "open_top_n"]
+        for field in required:
+            assert field in output, (
+                f"Committed settings.toml is missing [output].{field} — "
+                f"add it to config/settings.toml"
+            )
+
+    def test_committed_config_contains_chroma_persist_dir(self) -> None:
+        """
+        Given the committed config/settings.toml
+        When parsed as TOML
+        Then [chroma].persist_dir is present
+        """
+        # Given: the real committed settings file
+        import tomllib  # noqa: PLC0415
+
+        settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
+        data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
+
+        # When / Then
+        chroma = data.get("chroma", {})
+        assert "persist_dir" in chroma, "Committed settings.toml is missing [chroma].persist_dir"
+
+    def test_committed_config_contains_security_screen_prompt(self) -> None:
+        """
+        Given the committed config/settings.toml
+        When parsed as TOML
+        Then [security].screen_prompt is present and non-empty
+        """
+        # Given: the real committed settings file
+        import tomllib  # noqa: PLC0415
+
+        settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
+        data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
+
+        # When / Then
+        security = data.get("security", {})
+        assert "screen_prompt" in security, (
+            "Committed settings.toml is missing [security].screen_prompt"
+        )
+        assert security["screen_prompt"], (
+            "Committed settings.toml has an empty [security].screen_prompt"
+        )
+
+    def test_committed_config_contains_comp_bands(self) -> None:
+        """
+        Given the committed config/settings.toml
+        When parsed as TOML
+        Then [scoring].comp_bands has at least 2 breakpoints
+        """
+        # Given: the real committed settings file
+        import tomllib  # noqa: PLC0415
+
+        settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
+        data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
+
+        # When / Then
+        scoring = data.get("scoring", {})
+        bands = scoring.get("comp_bands")
+        assert bands is not None, "Committed settings.toml is missing [[scoring.comp_bands]]"
+        assert len(bands) >= 2, (
+            f"Committed settings.toml needs at least 2 comp_bands, got {len(bands)}"
+        )
+
+    def test_committed_config_contains_top_level_paths(self) -> None:
+        """
+        Given the committed config/settings.toml
+        When parsed as TOML
+        Then resume_path, archetypes_path, and global_rubric_path are present
+        """
+        # Given: the real committed settings file
+        import tomllib  # noqa: PLC0415
+
+        settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
+        data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
+
+        # When / Then
+        for field in ("resume_path", "archetypes_path", "global_rubric_path"):
+            assert field in data, f"Committed settings.toml is missing top-level {field}"
+
+    # -- Missing field rejection (items 8-15) --------------------------------
+
+    def test_missing_scoring_field_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml omits a required scoring field (archetype_weight)
+        When load_settings() is called
+        Then ActionableError is raised naming the missing field
+        """
+        # Given: TOML without archetype_weight
+        incomplete = _COMPLETE_SETTINGS.replace("archetype_weight = 0.5\n", "")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, incomplete)
+
+            # When / Then
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "archetype_weight" in str(exc_info.value).lower(), (
+                f"Error should name the missing field. Got: {exc_info.value}"
+            )
+
+    def test_missing_ollama_field_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml omits a required ollama field (llm_model)
+        When load_settings() is called
+        Then ActionableError is raised naming the missing field
+        """
+        # Given: TOML without llm_model
+        incomplete = _COMPLETE_SETTINGS.replace('llm_model = "mistral:7b"\n', "")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, incomplete)
+
+            # When / Then
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "llm_model" in str(exc_info.value).lower(), (
+                f"Error should name the missing field. Got: {exc_info.value}"
+            )
+
+    def test_missing_output_field_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml omits a required output field (output_dir)
+        When load_settings() is called
+        Then ActionableError is raised naming the missing field
+        """
+        # Given: TOML without output_dir
+        incomplete = _COMPLETE_SETTINGS.replace('output_dir = "./output"\n', "")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, incomplete)
+
+            # When / Then
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "output_dir" in str(exc_info.value).lower(), (
+                f"Error should name the missing field. Got: {exc_info.value}"
+            )
+
+    def test_missing_chroma_persist_dir_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml omits [chroma].persist_dir
+        When load_settings() is called
+        Then ActionableError is raised naming the missing field
+        """
+        # Given: TOML without persist_dir
+        incomplete = _COMPLETE_SETTINGS.replace('persist_dir = "./data/chroma_db"\n', "")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, incomplete)
+
+            # When / Then
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "persist_dir" in str(exc_info.value).lower(), (
+                f"Error should name the missing field. Got: {exc_info.value}"
+            )
+
+    def test_missing_security_screen_prompt_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml has a [security] section but omits screen_prompt
+        When load_settings() is called
+        Then ActionableError is raised naming the missing field
+        """
+        # Given: TOML with [security] but no screen_prompt
+        incomplete = _COMPLETE_SETTINGS.replace(
+            'screen_prompt = "Review the following job description text."',
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, incomplete)
+
+            # When / Then
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "screen_prompt" in str(exc_info.value).lower(), (
+                f"Error should name the missing field. Got: {exc_info.value}"
+            )
+
+    def test_missing_comp_bands_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml omits all [[scoring.comp_bands]] entries
+        When load_settings() is called
+        Then ActionableError is raised naming the missing field
+        """
+        # Given: TOML with no comp_bands
+        # Remove all comp_bands entries from _COMPLETE_SETTINGS
+        import re  # noqa: PLC0415
+
+        incomplete = re.sub(
+            r"\[\[scoring\.comp_bands\]\]\nratio = [\d.]+\nscore = [\d.]+\n*",
+            "",
+            _COMPLETE_SETTINGS,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, incomplete)
+
+            # When / Then
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "comp_bands" in str(exc_info.value).lower(), (
+                f"Error should name the missing field. Got: {exc_info.value}"
+            )
+
+    def test_missing_top_level_path_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml omits resume_path
+        When load_settings() is called
+        Then ActionableError is raised naming the missing field
+        """
+        # Given: TOML without resume_path
+        incomplete = _COMPLETE_SETTINGS.replace('resume_path = "data/resume.md"\n', "")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, incomplete)
+
+            # When / Then
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "resume_path" in str(exc_info.value).lower(), (
+                f"Error should name the missing field. Got: {exc_info.value}"
+            )
+
+    def test_missing_slow_llm_threshold_raises_actionable_error(self) -> None:
+        """
+        Given settings.toml omits [ollama].slow_llm_threshold_ms
+        When load_settings() is called
+        Then ActionableError is raised naming the missing field
+        """
+        # Given: TOML without slow_llm_threshold_ms
+        incomplete = _COMPLETE_SETTINGS.replace("slow_llm_threshold_ms = 30000\n", "")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, incomplete)
+
+            # When / Then
+            with pytest.raises(ActionableError) as exc_info:
+                load_settings(path)
+
+            assert "slow_llm_threshold_ms" in str(exc_info.value).lower(), (
+                f"Error should name the missing field. Got: {exc_info.value}"
             )

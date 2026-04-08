@@ -20,19 +20,12 @@ import asyncio
 import json
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from jobsearch_rag.cli import build_parser
-from jobsearch_rag.config import (
-    BoardConfig,
-    ChromaConfig,
-    OllamaConfig,
-    OutputConfig,
-    ScoringConfig,
-    Settings,
-)
 from jobsearch_rag.pipeline.eval import (
     EvalDecision,
     EvalHistory,
@@ -46,7 +39,11 @@ from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.scorer import Scorer
 from jobsearch_rag.rag.store import VectorStore
+from tests.conftest import make_test_ollama_config, make_test_settings
 from tests.constants import EMBED_FAKE
+
+if TYPE_CHECKING:
+    from jobsearch_rag.config import Settings
 
 # Public API surface (from src/jobsearch_rag/pipeline/eval):
 #   EvalRunner(scorer: Scorer, ranker: Ranker, store: VectorStore)
@@ -93,21 +90,8 @@ _EMBED_DISTANT: list[float] = [0.9, 0.1, 0.9, 0.1, 0.9]
 
 def _make_settings(tmpdir: str, *, min_score_threshold: float = 0.45) -> Settings:
     """Create minimal Settings for eval tests."""
-    return Settings(
-        enabled_boards=["testboard"],
-        overnight_boards=[],
-        boards={
-            "testboard": BoardConfig(
-                name="testboard", searches=["https://example.com"], max_pages=1
-            )
-        },
-        scoring=ScoringConfig(
-            min_score_threshold=min_score_threshold,
-            disqualify_on_llm_flag=False,
-        ),
-        ollama=OllamaConfig(),
-        output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
-        chroma=ChromaConfig(persist_dir=str(Path(tmpdir) / "chroma")),
+    return make_test_settings(
+        tmpdir, scoring_overrides={"min_score_threshold": min_score_threshold}
     )
 
 
@@ -142,11 +126,7 @@ def _make_mock_embedder(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=mock_client,
     ):
-        embedder = Embedder(
-            base_url="http://localhost:11434",
-            embed_model="nomic-embed-text",
-            llm_model="mistral:7b",
-        )
+        embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
     return embedder, mock_client
 

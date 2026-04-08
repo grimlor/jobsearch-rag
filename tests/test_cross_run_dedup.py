@@ -17,18 +17,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobListing
-from jobsearch_rag.config import (
-    BoardConfig,
-    ChromaConfig,
-    OllamaConfig,
-    OutputConfig,
-    ScoringConfig,
-    Settings,
-)
 from jobsearch_rag.pipeline.runner import PipelineRunner
+from tests.conftest import make_test_settings
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
+    from jobsearch_rag.config import Settings
     from jobsearch_rag.rag.store import VectorStore
 
 # ---------------------------------------------------------------------------
@@ -37,22 +31,7 @@ if TYPE_CHECKING:
 
 
 def _make_settings(tmpdir: str) -> Settings:
-    return Settings(
-        enabled_boards=["testboard"],
-        overnight_boards=[],
-        boards={
-            "testboard": BoardConfig(
-                name="testboard",
-                searches=["https://testboard.com/search"],
-                max_pages=1,
-                headless=True,
-            ),
-        },
-        scoring=ScoringConfig(disqualify_on_llm_flag=False),
-        ollama=OllamaConfig(),
-        output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
-        chroma=ChromaConfig(persist_dir=tmpdir),
-    )
+    return make_test_settings(tmpdir)
 
 
 def _make_listing(
@@ -234,7 +213,7 @@ class TestCrossRunDedup:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: the pipeline runs
                 result = await runner.run()
@@ -270,7 +249,7 @@ class TestCrossRunDedup:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: the pipeline runs
                 result = await runner.run()
@@ -306,7 +285,7 @@ class TestCrossRunDedup:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: the pipeline runs
                 result = await runner.run()
@@ -335,7 +314,7 @@ class TestCrossRunDedup:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: the pipeline runs
                 result = await runner.run()
@@ -369,7 +348,7 @@ class TestCrossRunDedup:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: force_rescore overrides exclusion
                 result = await runner.run(force_rescore=True)
@@ -404,7 +383,7 @@ class TestCrossRunDedup:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: the pipeline runs
                 result = await runner.run()

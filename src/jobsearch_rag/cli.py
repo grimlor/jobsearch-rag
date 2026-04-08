@@ -13,6 +13,7 @@ import csv as csv_mod
 import shutil
 import sys
 import webbrowser
+from dataclasses import replace as _dc_replace
 from pathlib import Path
 
 from jobsearch_rag.adapters import AdapterRegistry
@@ -141,7 +142,7 @@ _LOGIN_URLS: dict[str, str] = {
 }
 
 
-def handle_login(args: argparse.Namespace) -> None:
+def handle_login(args: argparse.Namespace, settings: Settings | None = None) -> None:
     """
     Open an interactive browser session for manual login.
 
@@ -154,14 +155,24 @@ def handle_login(args: argparse.Namespace) -> None:
     Use ``--browser msedge`` to launch Microsoft Edge instead of
     Chromium — Edge bypasses Cloudflare where Chromium cannot.
     """
+    if settings is None:
+        settings = load_settings()
     board = args.board
     browser = getattr(args, "browser", None)
-    login_url = _LOGIN_URLS.get(board, f"https://www.{board}.com")
+
+    # Resolve login URL: config first, then known URLs, then generic
+    board_cfg = settings.boards.get(board)
+    if board_cfg and board_cfg.login_url:
+        login_url = board_cfg.login_url
+    else:
+        login_url = _LOGIN_URLS.get(board, f"https://www.{board}.com")
 
     config = SessionConfig(
         board_name=board,
         headless=False,  # Always headed for interactive login
         browser_channel=browser,
+        browser_paths=settings.adapters.browser_paths,
+        cdp_timeout=settings.adapters.cdp_timeout,
     )
 
     async def _run() -> None:
@@ -200,11 +211,7 @@ def handle_boards() -> None:
 def handle_index(args: argparse.Namespace) -> None:
     """Index resume and/or archetypes into ChromaDB."""
     settings = load_settings()
-    embedder = Embedder(
-        base_url=settings.ollama.base_url,
-        embed_model=settings.ollama.embed_model,
-        llm_model=settings.ollama.llm_model,
-    )
+    embedder = Embedder(settings.ollama)
     store = VectorStore(persist_dir=settings.chroma.persist_dir)
     indexer = Indexer(store=store, embedder=embedder)
 
@@ -245,8 +252,8 @@ def handle_search(args: argparse.Namespace) -> None:
     """Run search across enabled boards."""
     settings = load_settings()
 
-    log_dir = Path(settings.chroma.persist_dir).parent / "logs"
-    configure_file_logging(str(log_dir))
+    log_dir = settings.output.log_dir
+    configure_file_logging(log_dir)
 
     runner = PipelineRunner(settings)
 
@@ -330,7 +337,7 @@ def handle_search(args: argparse.Namespace) -> None:
             CSVExporter().export(export_list, str(csv_path), summary=result.summary)
             print(f"Exported CSV      → {csv_path}")
 
-            jd_dir = str(out_dir / "jds")
+            jd_dir = settings.output.jd_dir
             jd_paths = JDFileExporter().export(
                 result.ranked_listings,
                 jd_dir,
@@ -356,13 +363,11 @@ def handle_search(args: argparse.Namespace) -> None:
 def handle_decide(args: argparse.Namespace) -> None:
     """Record a verdict on a job listing."""
     settings = load_settings()
-    embedder = Embedder(
-        base_url=settings.ollama.base_url,
-        embed_model=settings.ollama.embed_model,
-        llm_model=settings.ollama.llm_model,
-    )
+    embedder = Embedder(settings.ollama)
     store = VectorStore(persist_dir=settings.chroma.persist_dir)
-    recorder = DecisionRecorder(store=store, embedder=embedder)
+    recorder = DecisionRecorder(
+        store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
+    )
 
     # Look up the job in the decisions or latest results
     # For now, we need the JD text from somewhere — check if it exists in any collection
@@ -409,13 +414,11 @@ def handle_decide(args: argparse.Namespace) -> None:
 def handle_decisions(args: argparse.Namespace) -> None:
     """Dispatch decisions subcommands: show, remove, audit."""
     settings = load_settings()
-    embedder = Embedder(
-        base_url=settings.ollama.base_url,
-        embed_model=settings.ollama.embed_model,
-        llm_model=settings.ollama.llm_model,
-    )
+    embedder = Embedder(settings.ollama)
     store = VectorStore(persist_dir=settings.chroma.persist_dir)
-    recorder = DecisionRecorder(store=store, embedder=embedder)
+    recorder = DecisionRecorder(
+        store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
+    )
 
     sub = args.decisions_command
     if sub == "show":
@@ -472,13 +475,11 @@ def handle_review(args: argparse.Namespace) -> None:
     verdict, s to skip, o to open the JD, or q to quit.
     """
     settings = load_settings()
-    embedder = Embedder(
-        base_url=settings.ollama.base_url,
-        embed_model=settings.ollama.embed_model,
-        llm_model=settings.ollama.llm_model,
-    )
+    embedder = Embedder(settings.ollama)
     store = VectorStore(persist_dir=settings.chroma.persist_dir)
-    recorder = DecisionRecorder(store=store, embedder=embedder)
+    recorder = DecisionRecorder(
+        store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
+    )
 
     # Load latest results from CSV
     out_dir = Path(settings.output.output_dir)
@@ -488,7 +489,7 @@ def handle_review(args: argparse.Namespace) -> None:
         return
 
     ranked_listings: list[RankedListing] = []
-    jd_dir = out_dir / "jds"
+    jd_dir = settings.output.jd_dir
 
     with open(csv_path) as f:
         reader = csv_mod.DictReader(f)
@@ -587,11 +588,7 @@ def handle_rescore(args: argparse.Namespace) -> None:
     decisions), re-ranks, and re-exports all results.
     """
     settings = load_settings()
-    embedder = Embedder(
-        base_url=settings.ollama.base_url,
-        embed_model=settings.ollama.embed_model,
-        llm_model=settings.ollama.llm_model,
-    )
+    embedder = Embedder(settings.ollama)
     store = VectorStore(persist_dir=settings.chroma.persist_dir)
     scorer = Scorer(
         store=store,
@@ -613,7 +610,7 @@ def handle_rescore(args: argparse.Namespace) -> None:
         base_salary=settings.scoring.base_salary,
     )
 
-    jd_dir = Path(settings.output.output_dir) / "jds"
+    jd_dir = settings.output.jd_dir
 
     async def _run() -> None:
         await embedder.health_check()
@@ -684,16 +681,16 @@ def _build_eval_stack(
     settings: Settings, *, llm_model: str | None = None
 ) -> tuple[Embedder, EvalRunner]:
     """Construct an Embedder + EvalRunner from settings."""
-    embedder = Embedder(
-        base_url=settings.ollama.base_url,
-        embed_model=settings.ollama.embed_model,
-        llm_model=llm_model or settings.ollama.llm_model,
-    )
+    ollama_cfg = settings.ollama
+    if llm_model is not None:
+        ollama_cfg = _dc_replace(ollama_cfg, llm_model=llm_model)
+    embedder = Embedder(ollama_cfg)
     store = VectorStore(persist_dir=settings.chroma.persist_dir)
     scorer = Scorer(
         store=store,
         embedder=embedder,
         disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
+        chunk_overlap=settings.scoring.chunk_overlap,
     )
     ranker = Ranker(
         archetype_weight=settings.scoring.archetype_weight,
@@ -703,6 +700,7 @@ def _build_eval_stack(
         negative_weight=settings.scoring.negative_weight,
         culture_weight=settings.scoring.culture_weight,
         min_score_threshold=settings.scoring.min_score_threshold,
+        dedup_similarity_threshold=settings.scoring.dedup_similarity_threshold,
     )
     runner = EvalRunner(scorer=scorer, ranker=ranker, store=store)
     return embedder, runner

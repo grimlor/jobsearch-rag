@@ -59,6 +59,7 @@ from jobsearch_rag.cli import handle_search
 from jobsearch_rag.config import (
     BoardConfig,
     ChromaConfig,
+    OllamaConfig,
     OutputConfig,
     Settings,
     load_settings,
@@ -99,16 +100,28 @@ LLM_MODEL = "mistral:7b"
 # ---------------------------------------------------------------------------
 
 
+def _make_integration_ollama_config(**overrides: object) -> OllamaConfig:
+    """Build an OllamaConfig for integration tests with live Ollama defaults."""
+    defaults: dict[str, object] = {
+        "base_url": OLLAMA_BASE_URL,
+        "embed_model": EMBED_MODEL,
+        "llm_model": LLM_MODEL,
+        "slow_llm_threshold_ms": 30_000,
+        "classify_system_prompt": "You are a job listing classifier.",
+        "max_retries": 2,
+        "base_delay": 0.5,
+        "max_embed_chars": 8_000,
+        "head_ratio": 0.6,
+        "retryable_status_codes": [408, 429, 500, 502, 503, 504],
+    }
+    defaults.update(overrides)
+    return OllamaConfig(**defaults)  # type: ignore[arg-type]
+
+
 @pytest.fixture
 def embedder() -> Embedder:
     """A real Embedder pointed at localhost Ollama."""
-    return Embedder(
-        base_url=OLLAMA_BASE_URL,
-        embed_model=EMBED_MODEL,
-        llm_model=LLM_MODEL,
-        max_retries=2,
-        base_delay=0.5,
-    )
+    return Embedder(_make_integration_ollama_config())
 
 
 @pytest.fixture
@@ -247,9 +260,7 @@ class TestOllamaContract:
         """
         # Given: embedder with nonexistent model
         embedder = Embedder(
-            base_url=OLLAMA_BASE_URL,
-            embed_model="does-not-exist-model-xyz",
-            llm_model=LLM_MODEL,
+            _make_integration_ollama_config(embed_model="does-not-exist-model-xyz")
         )
 
         # When/Then: raises EMBEDDING error
@@ -274,11 +285,11 @@ class TestOllamaContract:
         """
         # Given: embedder with nonexistent model
         embedder = Embedder(
-            base_url=OLLAMA_BASE_URL,
-            embed_model="nonexistent-model-abc",
-            llm_model=LLM_MODEL,
-            max_retries=1,
-            base_delay=0.0,
+            _make_integration_ollama_config(
+                embed_model="nonexistent-model-abc",
+                max_retries=1,
+                base_delay=0.0,
+            )
         )
 
         # When/Then: raises EMBEDDING error
@@ -718,13 +729,7 @@ class TestLiveZipRecruiterPipeline:
     @pytest.fixture
     def live_embedder(self) -> Embedder:
         """A real Embedder for live pipeline tests."""
-        return Embedder(
-            base_url=OLLAMA_BASE_URL,
-            embed_model=EMBED_MODEL,
-            llm_model=LLM_MODEL,
-            max_retries=2,
-            base_delay=0.5,
-        )
+        return Embedder(_make_integration_ollama_config())
 
     @pytest.fixture
     def live_store(self) -> Iterator[VectorStore]:
@@ -1243,6 +1248,10 @@ def _make_live_settings(tmp_path: Path, *, max_pages: int = 1) -> Settings:
             default_format=real.output.default_format,
             output_dir=output_dir,
             open_top_n=0,
+            jd_dir=real.output.jd_dir,
+            decisions_dir=real.output.decisions_dir,
+            log_dir=real.output.log_dir,
+            eval_history_path=real.output.eval_history_path,
         ),
         scoring=dataclasses.replace(
             real.scoring,
@@ -1777,11 +1786,7 @@ class TestLiveDecisionExclusionAcrossRuns:
         target_id = target["external_id"]
         target_title = target["title"]
 
-        embedder = Embedder(
-            base_url=live_settings.ollama.base_url,
-            embed_model=live_settings.ollama.embed_model,
-            llm_model=live_settings.ollama.llm_model,
-        )
+        embedder = Embedder(live_settings.ollama)
         store = VectorStore(persist_dir=live_settings.chroma.persist_dir)
         recorder = DecisionRecorder(store=store, embedder=embedder)
 

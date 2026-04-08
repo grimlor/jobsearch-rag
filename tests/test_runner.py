@@ -18,14 +18,6 @@ import ollama as ollama_sdk
 
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobListing
-from jobsearch_rag.config import (
-    BoardConfig,
-    ChromaConfig,
-    OllamaConfig,
-    OutputConfig,
-    ScoringConfig,
-    Settings,
-)
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.decisions import DecisionRecorder
@@ -34,6 +26,7 @@ from tests.constants import EMBED_FAKE
 if TYPE_CHECKING:
     import pytest
 
+    from jobsearch_rag.config import Settings
     from jobsearch_rag.rag.store import VectorStore
 
 from jobsearch_rag.pipeline.ranker import RankSummary
@@ -81,40 +74,15 @@ def _make_settings(
     global_rubric_path: str | None = None,
 ) -> Settings:
     """Create a Settings with temp ChromaDB dir and configurable boards."""
-    boards = enabled_boards or ["testboard"]
-    board_configs: dict[str, BoardConfig] = {}
-    for name in boards:
-        board_configs[name] = BoardConfig(
-            name=name,
-            searches=[f"https://{name}.com/search"],
-            max_pages=1,
-            headless=True,
-        )
-    # Also add overnight board configs
-    for name in overnight_boards or []:
-        if name not in board_configs:
-            board_configs[name] = BoardConfig(
-                name=name,
-                searches=[f"https://{name}.com/search"],
-                max_pages=1,
-                headless=False,
-            )
-    kwargs: dict[str, str] = {}
-    if resume_path is not None:
-        kwargs["resume_path"] = resume_path
-    if archetypes_path is not None:
-        kwargs["archetypes_path"] = archetypes_path
-    if global_rubric_path is not None:
-        kwargs["global_rubric_path"] = global_rubric_path
-    return Settings(
-        enabled_boards=boards,
-        overnight_boards=overnight_boards or [],
-        boards=board_configs,
-        scoring=ScoringConfig(disqualify_on_llm_flag=False),
-        ollama=OllamaConfig(),
-        output=OutputConfig(output_dir=str(Path(tmpdir) / "output")),
-        chroma=ChromaConfig(persist_dir=tmpdir),
-        **kwargs,
+    from tests.conftest import make_test_settings  # noqa: PLC0415
+
+    return make_test_settings(
+        tmpdir,
+        enabled_boards=enabled_boards,
+        overnight_boards=overnight_boards,
+        resume_path=resume_path,
+        archetypes_path=archetypes_path,
+        global_rubric_path=global_rubric_path,
     )
 
 
@@ -313,7 +281,7 @@ class TestPipelineOrchestration:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: the pipeline runs
                 await runner.run()
@@ -344,7 +312,7 @@ class TestPipelineOrchestration:
                     {"board_a": lambda: adapter_a, "board_b": lambda: adapter_b},
                 ),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: no boards specified
                 result = await runner.run(boards=None)
@@ -376,7 +344,7 @@ class TestPipelineOrchestration:
                     {"board_a": lambda: adapter_a, "board_b": lambda: adapter_b},
                 ),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: explicit board list
                 result = await runner.run(boards=["board_a"])
@@ -411,7 +379,7 @@ class TestPipelineOrchestration:
                     {"board_a": lambda: adapter_a, "linkedin": lambda: adapter_linkedin},
                 ),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: overnight mode
                 result = await runner.run(overnight=True)
@@ -461,7 +429,7 @@ class TestPipelineOrchestration:
                     },
                 ),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: both boards are searched
                 result = await runner.run()
@@ -500,7 +468,7 @@ class TestPipelineOrchestration:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs and tries to score
                 result = await runner.run()
@@ -527,7 +495,7 @@ class TestPipelineOrchestration:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: no listings found
                 result = await runner.run()
@@ -559,7 +527,7 @@ class TestPipelineOrchestration:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs and scores
                 result = await runner.run()
@@ -596,7 +564,7 @@ class TestPipelineOrchestration:
                     {"board_a": lambda: adapter_a},
                 ),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: overnight mode
                 result = await runner.run(overnight=True)
@@ -639,7 +607,7 @@ class TestPipelineOrchestration:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs (triggers partial auto-indexing)
                 result = await runner.run()
@@ -683,7 +651,7 @@ class TestPipelineOrchestration:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs (triggers partial auto-indexing)
                 result = await runner.run()
@@ -715,7 +683,7 @@ class TestPipelineOrchestration:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
                 caplog.at_level(logging.INFO, logger="jobsearch-rag"),
             ):
                 # When: run with max_listings=2
@@ -792,7 +760,7 @@ class TestBoardSearchDelegation:
             with (
                 patch.dict(AdapterRegistry._registry, {"nonexistent_board": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: non-existent board requested
                 result = await runner.run(boards=["nonexistent_board"])
@@ -851,7 +819,7 @@ class TestBoardSearchDelegation:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs
                 result = await runner.run(boards=["testboard"])
@@ -903,7 +871,7 @@ class TestBoardSearchDelegation:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs
                 result = await runner.run(boards=["testboard"])
@@ -958,7 +926,7 @@ class TestBoardSearchDelegation:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline processes the empty listing
                 result = await runner.run(boards=["testboard"])
@@ -1023,7 +991,7 @@ class TestBoardSearchDelegation:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline processes both listings
                 result = await runner.run(boards=["testboard"])
@@ -1069,7 +1037,7 @@ class TestBoardSearchDelegation:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs
                 result = await runner.run(boards=["testboard"])
@@ -1118,7 +1086,7 @@ class TestBoardSearchDelegation:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline searches both URLs
                 result = await runner.run(boards=["testboard"])
@@ -1182,7 +1150,7 @@ class TestAutoIndex:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs with empty collections
                 await runner.run()
@@ -1219,7 +1187,7 @@ class TestAutoIndex:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs
                 await runner.run()
@@ -1269,7 +1237,7 @@ class TestAutoIndex:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline auto-indexes then scores
                 result = await runner.run()
@@ -1303,7 +1271,7 @@ class TestAutoIndex:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs — _collection_empty returns True for missing collections
                 await runner.run()
@@ -1366,7 +1334,7 @@ class TestCompEnrichment:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs and scores the listing
                 result = await runner.run()
@@ -1443,7 +1411,7 @@ class TestErrorSurfacing:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs and board authentication fails
                 result = await runner.run()
@@ -1497,7 +1465,7 @@ class TestErrorSurfacing:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs and extraction fails
                 result = await runner.run()
@@ -1539,7 +1507,7 @@ class TestErrorSurfacing:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs and scoring fails
                 result = await runner.run()
@@ -1597,7 +1565,7 @@ class TestErrorSurfacing:
                     },
                 ),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 result = await runner.run()
 
@@ -1715,7 +1683,7 @@ class TestErrorSurfacing:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 # When: pipeline runs with no failures
                 result = await runner.run()
@@ -1754,7 +1722,7 @@ class TestErrorSurfacing:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
                 patch.object(runner._scorer, "score", side_effect=runtime_error),  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_scorer)
                 caplog.at_level(logging.ERROR),
             ):
@@ -1817,7 +1785,7 @@ class TestErrorSurfacing:
                     },
                 ),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 result = await runner.run()
 
@@ -1880,7 +1848,7 @@ class TestErrorSurfacing:
             with (
                 patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch("jobsearch_rag.adapters.session._STORAGE_DIR", Path(tmpdir)),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
                 result = await runner.run()
 
@@ -1918,12 +1886,42 @@ def _setup_cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         f'global_rubric_path = "{config_dir / "global_rubric.toml"}"\n'
         "\n[boards]\n"
         'enabled = ["testboard"]\n'
+        'session_storage_dir = "data"\n'
         "\n[boards.testboard]\n"
         'searches = ["https://example.org/search"]\n'
         "max_pages = 1\nheadless = true\n"
-        "\n[scoring]\n\n[ollama]\n"
-        f'\n[output]\noutput_dir = "{output_dir}"\n'
+        "rate_limit_range = [1.5, 3.5]\n"
+        "\n[scoring]\n"
+        "archetype_weight = 0.5\nfit_weight = 0.3\nhistory_weight = 0.2\n"
+        "comp_weight = 0.15\nnegative_weight = 0.4\nculture_weight = 0.2\n"
+        "base_salary = 220000\ndisqualify_on_llm_flag = true\n"
+        "min_score_threshold = 0.45\nmissing_comp_score = 0.5\n"
+        "chunk_overlap = 2000\ndedup_similarity_threshold = 0.95\n"
+        "\n[[scoring.comp_bands]]\nratio = 1.0\nscore = 1.0\n"
+        "\n[[scoring.comp_bands]]\nratio = 0.90\nscore = 0.7\n"
+        "\n[[scoring.comp_bands]]\nratio = 0.77\nscore = 0.4\n"
+        "\n[[scoring.comp_bands]]\nratio = 0.68\nscore = 0.0\n"
+        "\n[ollama]\n"
+        'base_url = "http://localhost:11434"\n'
+        'llm_model = "mistral:7b"\nembed_model = "nomic-embed-text"\n'
+        "slow_llm_threshold_ms = 30000\n"
+        'classify_system_prompt = "You are a job listing classifier. '
+        'Respond concisely with your classification."\n'
+        "max_retries = 3\nbase_delay = 1.0\n"
+        "max_embed_chars = 8000\nhead_ratio = 0.6\n"
+        "retryable_status_codes = [408, 429, 500, 502, 503, 504]\n"
+        f'\n[output]\ndefault_format = "markdown"\noutput_dir = "{output_dir}"\n'
+        "open_top_n = 5\n"
+        'jd_dir = "output/jds"\n'
+        'decisions_dir = "data/decisions"\n'
+        'log_dir = "data/logs"\n'
+        'eval_history_path = "data/eval_history.jsonl"\n'
         f'\n[chroma]\npersist_dir = "{tmp_path / "chroma"}"\n'
+        '\n[security]\nscreen_prompt = "Review the following job description text."\n'
+        "\n[adapters]\n"
+        "cdp_timeout = 15.0\n"
+        "\n[adapters.browser_paths]\n"
+        'msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]\n'
     )
     (config_dir / "role_archetypes.toml").write_text(
         "[[archetypes]]\n"

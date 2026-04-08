@@ -20,6 +20,7 @@ from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.scorer import Scorer
 from jobsearch_rag.rag.store import VectorStore
+from tests.conftest import make_test_ollama_config
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
@@ -145,13 +146,7 @@ def _embedder(  # pyright: ignore[reportUnusedFunction]
     mock.  All Embedder logic — retry, truncation, metrics, token counting —
     runs for real.
     """
-    embedder = Embedder(
-        base_url="http://localhost:11434",
-        embed_model="nomic-embed-text",
-        llm_model="mistral:7b",
-        max_retries=1,
-        base_delay=0.0,
-    )
+    embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
     embedder._client = _mock_ollama_client  # type: ignore[attr-defined]
     return embedder
 
