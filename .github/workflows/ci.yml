@@ -53,10 +53,11 @@ jobs:
           fi
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
@@ -72,11 +73,11 @@ jobs:
         run: uv sync --extra dev
 
       - name: Lint with ruff
-        if: matrix.python-version == '3.13'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: uv run ruff check src/ tests/
 
       - name: Type check with pyright
-        if: matrix.python-version == '3.13'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: uv run pyright src/ tests/
 
       - name: Run tests with coverage
@@ -84,13 +85,13 @@ jobs:
 
       - name: Extract coverage percentage
         id: coverage
-        if: github.ref == 'refs/heads/main' && matrix.python-version == '3.13'
+        if: github.ref == 'refs/heads/main' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: |
           COVERAGE=$(python -c "import json; print(int(json.load(open('coverage.json'))['totals']['percent_covered']))")
           echo "pct=$COVERAGE" >> $GITHUB_OUTPUT
 
       - name: Update coverage badge
-        if: github.ref == 'refs/heads/main' && matrix.python-version == '3.13'
+        if: github.ref == 'refs/heads/main' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
