@@ -1234,6 +1234,9 @@ def _make_live_settings(tmp_path: Path, *, max_pages: int = 1) -> Settings:
     real = load_settings()
     chroma_dir = str(tmp_path / "chroma_db")
     output_dir = str(tmp_path / "output")
+    jd_dir = str(tmp_path / "output" / "jds")
+    decisions_dir = str(tmp_path / "data" / "decisions")
+    log_dir = str(tmp_path / "data" / "logs")
     Path(chroma_dir).mkdir(parents=True, exist_ok=True)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -1254,9 +1257,9 @@ def _make_live_settings(tmp_path: Path, *, max_pages: int = 1) -> Settings:
             default_format=real.output.default_format,
             output_dir=output_dir,
             open_top_n=0,
-            jd_dir=real.output.jd_dir,
-            decisions_dir=real.output.decisions_dir,
-            log_dir=real.output.log_dir,
+            jd_dir=jd_dir,
+            decisions_dir=decisions_dir,
+            log_dir=log_dir,
             eval_history_path=real.output.eval_history_path,
         ),
         scoring=dataclasses.replace(
