@@ -106,8 +106,8 @@ Ranked listings are written to disk in multiple formats.
 **Output files:**
 - `output/results.md` — summary table
 - `output/results.csv` — all score components
-- `output/jds/NNN_company_title.md` — individual JD files with metadata
-  headers
+- `output/jds/{external_id}_company_title.md` — individual JD files with
+  metadata headers
 
 ### 6. Review
 

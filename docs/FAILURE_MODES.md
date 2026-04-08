@@ -66,7 +66,7 @@ Ollama isn't running when scoring begins.
 | Failure | Detection | Error Type | Recovery |
 |---|---|---|---|
 | Board HTML structure changed | Adapter returns no results from known-good query | `PARSE` | Update selectors in adapter |
-| JSON extraction blob missing | ZipRecruiter `js_variables` script not found | `PARSE` | Board may have redesigned; update adapter |
+| DOM cards missing or changed | ZipRecruiter `article[id^="job-card-"]` not found or JSON-LD structure changed | `PARSE` | Board may have redesigned; update adapter |
 | Malformed TOML config | `tomllib.loads()` raises | `PARSE` | Fix TOML syntax (error includes file path) |
 | Malformed global rubric | Missing expected keys | `PARSE` | Fix rubric structure |
 

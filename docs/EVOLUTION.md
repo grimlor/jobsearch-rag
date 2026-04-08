@@ -221,6 +221,89 @@ live integration tests to catch real-service regressions.
 
 ---
 
+## Phase 12 — Security & Data Hygiene
+
+**Problem:** JDs are untrusted input fed into LLM prompts. File exports
+derive paths from web-sourced strings. The decisions collection persists
+for the life of the project.
+
+**Solution:** Defense-in-depth across multiple layers.
+
+**Key decisions:**
+- Four-layer prompt injection defense: LLM screening → regex pre-filter
+  → output validation → human-in-the-loop review
+- `JobListing.__post_init__` validators: `full_text` length cap,
+  `title`/`company` path-traversal sanitization
+- JSONL audit log is append-only — ChromaDB is rebuildable from it
+- `decisions` subcommands (`show`, `remove`, `audit`) for surgical cleanup
+- Privacy verification test (`TestPrivacyGuarantee`) — executable proof
+  that no external network calls occur during scoring
+- `SECURITY.md` threat model with SAFE-MCP TTP mapping
+
+---
+
+## Phase 13 — Cumulative Search & Parallel Scoring
+
+**Problem:** Searches are CPU-bound (browser + inference) and run
+unattended, but review requires sustained attention. Running searches
+daily and reviewing accumulated results weekly is the natural workflow.
+Also, serial scoring was bottlenecked on Ollama inference.
+
+**Solution:** Accumulate-by-default export and parallel scoring.
+
+**Key decisions:**
+- Exports are additive by default — prior CSV is loaded, merged by
+  `external_id` (new wins on collision), and decided listings filtered out
+- `--fresh` flag resets to current-run-only results
+- Parallel scoring via `asyncio.TaskGroup` + `Semaphore(max_parallel)` —
+  each `_score_one()` call is independent with no shared mutable state
+- `max_parallel` coordinated with `OLLAMA_NUM_PARALLEL` env var for
+  optimal GPU utilization
+
+---
+
+## Phase 14 — ZipRecruiter Next.js Rewrite
+
+**Problem:** ZipRecruiter migrated from server-rendered pages with a JSON
+blob (`<script id="js_variables">`) to a Next.js React SPA. The entire
+extraction strategy was broken.
+
+**Solution:** Full adapter rewrite targeting the new DOM structure.
+
+**Key decisions:**
+- Card extraction via `article[id^="job-card-"]` DOM elements with
+  deduplication of responsive mobile/desktop duplicates
+- Canonical URLs from JSON-LD `ItemList` structured data
+- Salary parsed from card DOM text (e.g., `$185K - $240K/yr`)
+- Full JD text from click-through detail panel, not from JSON blob
+- File identity refactored from rank-based (`NNN_company_title.md`) to
+  `external_id`-based — stable across runs, fixes decision exclusion and
+  JD file lookup
+
+---
+
+## Phase 15 — Config Externalization
+
+**Problem:** 30 values were hardcoded in source that should be
+configurable — particularly persona-specific values (disqualifier criteria,
+compensation expectations, classifier prompts) that would break for any
+user who isn't the original author.
+
+**Solution:** Three-tier externalization, all flowing through `settings.toml`.
+
+**Key decisions:**
+- Persona-specific values (disqualifier prompt, screen prompt, classifier
+  system message, comp bands) externalized first — these block reuse
+- Operational parameters (paths, timeouts, retry config, browser binaries)
+  externalized second — these block deployment on different environments
+- Tuning parameters (chunk overlap, embed chars, per-board rate limits)
+  externalized third — power-user knobs with sensible defaults
+- All code-side magic numbers removed — `settings.toml` is the single
+  source of truth
+- CI multiplatform matrix added (3 OS × 3 Python = 9 combos)
+
+---
+
 ## What's Next
 
 Areas identified but not yet implemented:

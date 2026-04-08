@@ -26,9 +26,9 @@
    job boards. Everything downstream (scoring, ranking, export) works against
    the `JobListing` data contract.
 3. **Tests are the spec** — There is no separate requirements document. The
-   test suite (200+ tests) is the living specification. Each test class
-   documents WHO needs it, WHAT it proves, and WHY. If there isn't **100% test
-   coverage**, then the implementation is underspecified.
+   test suite (868+ tests across 35 test files) is the living specification.
+   Each test class documents WHO needs it, WHAT it proves, and WHY. If there
+   isn't **100% test coverage**, then the implementation is underspecified.
 4. **Actionable errors** — Every error carries enough context for the operator
    (or an AI assistant) to resolve it without searching logs or source code.
 
@@ -50,7 +50,7 @@ CLI (12 subcommands)
  │               │                  ├── global_positive_signals → culture_score
  │               │                  └── comp_parser             → comp_score
  │               │
- │               ├── ZipRecruiter (JSON extraction)
+ │               ├── ZipRecruiter (Next.js DOM extraction)
  │               ├── Indeed
  │               ├── WeWorkRemotely
  │               └── LinkedIn (overnight / CDP mode)
@@ -144,15 +144,17 @@ or export code.
 
 | Adapter | Strategy | Rate Limit |
 |---|---|---|
-| **ZipRecruiter** | JSON extraction from `<script id="js_variables">` (React SPA) | 1.5–3.5s |
-| **WeWorkRemotely** | HTML scraping | 1.5–3.5s |
-| **LinkedIn** | CDP mode (system browser), overnight-only, bot-detection checks | 8–20s |
-| **Indeed** | Stub (not yet implemented) | default |
+| **ZipRecruiter** | Next.js DOM extraction (`article[id^="job-card-"]`) + JSON-LD URLs | configurable (default 1.5–3.5s) |
+| **WeWorkRemotely** | HTML scraping | configurable (default 1.5–3.5s) |
+| **LinkedIn** | CDP mode (system browser), overnight-only, bot-detection checks | configurable (default 8–20s) |
+| **Indeed** | Stub (not yet implemented) | configurable |
 
-The ZipRecruiter adapter deserves special mention: the rendered DOM contains
-empty shell divs, so all data is extracted from a JSON blob embedded in a
-`<script>` tag. This approach is resilient to UI redesigns since the data
-contract is separate from the rendering layer.
+The ZipRecruiter adapter extracts job cards from `article[id^="job-card-"]`
+DOM elements in the Next.js SERP, deduplicates responsive mobile/desktop
+duplicates, and resolves canonical URLs from JSON-LD `ItemList` structured
+data. Salary text (e.g., `$185K - $240K/yr`) is parsed directly from card
+DOM. Full JD text comes from clicking each card to populate the detail panel.
+Per-board rate limits and throttle parameters are configurable in `settings.toml`.
 
 ---
 
@@ -359,7 +361,7 @@ Three TOML files under `config/`:
 |---|---|
 | `settings.toml` | Board configs, scoring weights, Ollama connection, output settings, ChromaDB path |
 | `role_archetypes.toml` | Target role descriptions with positive and negative signals |
-| `global_rubric.toml` | Universal evaluation dimensions (9 dimensions, each with positive/negative signals) |
+| `global_rubric.toml` | Universal evaluation dimensions (10 dimensions, each with positive/negative signals) |
 
 Key scoring settings:
 
@@ -388,7 +390,7 @@ Four output formats, all driven from ranked results:
 |---|---|---|
 | **Markdown** | `output/results.md` | Summary table with score breakdowns |
 | **CSV** | `output/results.csv` | All score components; excludes disqualified listings |
-| **JD files** | `output/jds/NNN_company_title.md` | One file per listing with metadata header and full JD text |
+| **JD files** | `output/jds/{external_id}_company_title.md` | One file per listing with metadata header and full JD text |
 | **Browser tabs** | *(opens in default browser)* | Top-N URLs from `open_top_n` setting |
 
 ---
@@ -430,7 +432,7 @@ jobsearch-rag/
 │   │   ├── base.py                 # JobListing dataclass + JobBoardAdapter ABC
 │   │   ├── registry.py             # AdapterRegistry (decorator-based IoC)
 │   │   ├── session.py              # SessionManager (Playwright / CDP lifecycle)
-│   │   ├── ziprecruiter.py         # ZipRecruiter JSON extraction
+│   │   ├── ziprecruiter.py         # ZipRecruiter Next.js DOM extraction
 │   │   ├── indeed.py               # Indeed adapter (stub)
 │   │   ├── weworkremotely.py       # WeWorkRemotely HTML scraping
 │   │   └── linkedin.py             # LinkedIn overnight adapter (CDP + stealth)
@@ -456,7 +458,7 @@ jobsearch-rag/
 │   ├── conftest.py                 # Shared fixtures
 │   ├── constants.py                # Test constants
 │   ├── fixtures/                   # HTML fixtures, sample JD JSON
-│   └── test_*.py                   # 200+ BDD-style tests
+    └── test_*.py                   # 868+ BDD-style tests across 35 files
 └── docs/
     ├── ARCHITECTURE.md             # ← you are here
     ├── CONFIG.md                   # Configuration schema + validation
@@ -524,7 +526,7 @@ populated. The rest of the pipeline will pick it up automatically.
 
 | Layer | Choice | Why |
 |---|---|---|
-| Language | Python ≥3.11 | First-class support for local AI stack |
+| Language | Python 3.11–3.13 | First-class support for local AI stack; CI tested on 3 OS × 3 versions |
 | Browser | Playwright | Async-native, clean cookie persistence, CDP support |
 | LLM | Ollama + mistral:7b | Zero-cost, privacy-respecting, no data egress |
 | Embeddings | nomic-embed-text via Ollama | Fast local embeddings, consistent with local-first philosophy |

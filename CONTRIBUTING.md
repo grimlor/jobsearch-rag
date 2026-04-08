@@ -42,8 +42,8 @@ task test           # pytest -v
 
 ## Code Style
 
-- **Python 3.13** — use modern syntax (`X | Y` unions, `match` statements
-  where appropriate).
+- **Python 3.11–3.13** — use modern syntax (`X | Y` unions, `match` statements
+  where appropriate). CI tests all three versions on Ubuntu, macOS, and Windows.
 - **`from __future__ import annotations`** at the top of every module.
 - **ruff** handles formatting and import sorting. Don't fight it.
 - **pyright** — all functions need type annotations. No `Any` unless

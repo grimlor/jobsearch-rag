@@ -25,6 +25,7 @@
 |---|---|---|---|
 | `enabled` | `list[str]` | *(required)* | Board names to search on every run |
 | `overnight_boards` | `list[str]` | `[]` | Boards requiring extended throttling (e.g., LinkedIn) |
+| `session_storage_dir` | `str` | `"data"` | Directory for Playwright session cookie files |
 
 Each enabled board must have a corresponding `[boards.<name>]` section.
 
@@ -36,6 +37,11 @@ Each enabled board must have a corresponding `[boards.<name>]` section.
 | `max_pages` | `int` | `3` | Maximum search result pages to paginate |
 | `headless` | `bool` | `true` | Run browser without visible window |
 | `browser_channel` | `str \| null` | `null` | System browser for CDP mode: `"msedge"`, `"chrome"`, `"chromium"` |
+| `rate_limit_range` | `[float, float]` | *(required)* | `[min, max]` seconds of random jitter between page loads |
+| `login_url` | `str \| null` | `null` | Override login URL for `login --board` command |
+| `stealth` | `bool` | `false` | Enable playwright-stealth patches (fingerprint masking) |
+| `throttle_max_retries` | `int` | `3` | Max retries on throttle detection (board-specific) |
+| `throttle_base_delay` | `float` | `2.0` | Base delay in seconds for throttle backoff (board-specific) |
 
 When `browser_channel` is set, the session manager launches the real system
 browser and connects via Chrome DevTools Protocol instead of Playwright's
@@ -54,6 +60,10 @@ bundled Chromium. This bypasses Cloudflare bot detection.
 | `base_salary` | `float` | `220000` | > 0 | Reference salary for compensation scoring |
 | `disqualify_on_llm_flag` | `bool` | `true` | — | Enable LLM-based disqualification |
 | `min_score_threshold` | `float` | `0.45` | 0.0–1.0 | Exclude listings scoring below this |
+| `missing_comp_score` | `float` | `0.5` | 0.0–1.0 | Score when no salary data found (neutral) |
+| `chunk_overlap` | `int` | `2000` | > 0 | Character overlap between JD chunks |
+| `dedup_similarity_threshold` | `float` | `0.95` | 0.0–1.0 | Cosine threshold for near-deduplication |
+| `max_parallel` | `int` | `2` | 1–8 | Concurrent scoring tasks (coordinate with `OLLAMA_NUM_PARALLEL`) |
 
 Weights are **not** required to sum to 1.0. They are applied as raw
 multipliers in the fusion formula (see [SCORING_ENGINE.md](SCORING_ENGINE.md)).
@@ -66,6 +76,12 @@ multipliers in the fusion formula (see [SCORING_ENGINE.md](SCORING_ENGINE.md)).
 | `llm_model` | `str` | `"mistral:7b"` | Model for disqualification and classification |
 | `embed_model` | `str` | `"nomic-embed-text"` | Model for embedding generation |
 | `slow_llm_threshold_ms` | `int` | `30000` | Log warning when LLM calls exceed this |
+| `classify_system_prompt` | `str` | *(required)* | System message for the LLM classifier |
+| `max_retries` | `int` | `3` | Maximum retry attempts for transient Ollama failures |
+| `base_delay` | `float` | `1.0` | Base delay in seconds for exponential backoff |
+| `max_embed_chars` | `int` | `8000` | Maximum characters sent to the embedding model |
+| `head_ratio` | `float` | `0.6` | Fraction of `max_embed_chars` allocated to head (vs. tail) during truncation |
+| `retryable_status_codes` | `list[int]` | `[408, 429, 500, 502, 503, 504]` | HTTP status codes that trigger retry |
 
 ### `[output]`
 
@@ -74,12 +90,54 @@ multipliers in the fusion formula (see [SCORING_ENGINE.md](SCORING_ENGINE.md)).
 | `default_format` | `str` | `"markdown"` | Export format: `"markdown"`, `"csv"`, `"json"` |
 | `output_dir` | `str` | `"./output"` | Directory for results and JD files |
 | `open_top_n` | `int` | `5` | Number of top results to open in browser tabs |
+| `jd_dir` | `str` | `"output/jds"` | Directory for individual JD markdown files |
+| `decisions_dir` | `str` | `"data/decisions"` | Directory for JSONL decision audit logs |
+| `log_dir` | `str` | `"data/logs"` | Directory for structured JSONL session logs |
+| `eval_history_path` | `str` | `"data/eval_history.jsonl"` | Append-only file for eval run metrics |
 
 ### `[chroma]`
 
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `persist_dir` | `str` | `"./data/chroma_db"` | ChromaDB storage directory |
+
+### `[security]`
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `screen_prompt` | `str` | *(required)* | Prompt for LLM injection screening pass (reviews JD text for AI-directed instructions) |
+
+### `[adapters]`
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `cdp_timeout` | `float` | `15.0` | Seconds to wait for CDP browser to start accepting connections |
+
+### `[adapters.browser_paths]`
+
+Optional per-channel browser binary paths. When provided for a channel,
+these paths are used exclusively (no fallback to platform defaults).
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `msedge` | `list[str]` | *(platform defaults)* | Paths to Microsoft Edge binary |
+| `chrome` | `list[str]` | *(platform defaults)* | Paths to Google Chrome binary |
+| `chromium` | `list[str]` | *(platform defaults)* | Paths to Chromium binary |
+
+### `[[scoring.comp_bands]]`
+
+Compensation scoring curve defined as `{ ratio, score }` pairs. Ratios are
+relative to `base_salary` (e.g., `ratio = 0.90` means 90% of base). The
+scorer linearly interpolates between adjacent bands.
+
+| Key | Type | Valid Range | Description |
+|---|---|---|---|
+| `ratio` | `float` | 0.0–1.0+ | `comp_max / base_salary` threshold |
+| `score` | `float` | 0.0–1.0 | Score assigned at this ratio |
+
+**Constraints:** Must have ≥2 entries. Ratios must be strictly descending
+(highest first). Above the top band → top score. Below the bottom band →
+bottom score.
 
 ### Path Settings (top-level)
 
