@@ -1056,8 +1056,9 @@ searches = ["https://example.org/search"]
         When load_settings() is called
         Then settings.disqualifier defaults to no custom system_prompt
         """
-        # Given: disqualifier is a string instead of a table
-        bad_toml = _VALID_SETTINGS + '\ndisqualifier = "not a table"\n'
+        # Given: disqualifier is a string instead of a table (prepend
+        # so it stays at root level — appending would nest inside [security])
+        bad_toml = 'disqualifier = "not a table"\n' + _VALID_SETTINGS
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 

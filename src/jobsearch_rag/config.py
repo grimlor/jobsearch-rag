@@ -582,9 +582,8 @@ def _require_comp_bands(scoring_data: _TOMLDict) -> list[CompBand]:
         )
     bands: list[CompBand] = []
     for b in raw_bands:  # type: ignore[reportUnknownVariableType]
-        if isinstance(b, dict):
-            entry = cast("_TOMLDict", b)
-            bands.append(CompBand(ratio=float(entry["ratio"]), score=float(entry["score"])))
+        entry = cast("_TOMLDict", b)
+        bands.append(CompBand(ratio=float(entry["ratio"]), score=float(entry["score"])))
     return bands
 
 

@@ -236,6 +236,7 @@ class TestPipelineOrchestration:
           (11) The system skips auto-indexing for collections that already contain documents.
           (12) The system caps the scored listings to max_listings when the parameter is set, and logs the cap.
           (13) The system exposes its decision recorder through a public property.
+          (14) The system forwards per-board throttle configuration to the adapter constructor when throttle overrides are present.
     WHY: A health check after browser work wastes time; a single board
          failure aborting the entire run discards valid results from other
          boards; an invalid RunResult crashes exporters downstream
@@ -710,6 +711,43 @@ class TestPipelineOrchestration:
             runner, _ = _make_runner_with_real_stack(settings)
             recorder = runner.decision_recorder
             assert isinstance(recorder, DecisionRecorder)
+
+    async def test_forwards_throttle_config_to_adapter_constructor(self) -> None:
+        """
+        Given a board config with throttle_max_retries and throttle_base_delay set
+        When the pipeline runs
+        Then the adapter is constructed with those throttle keyword arguments
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: a board config with throttle overrides
+            settings = _make_settings(tmpdir)
+            settings.boards["testboard"].throttle_max_retries = 5
+            settings.boards["testboard"].throttle_base_delay = 2.0
+            runner, _mock_client = _make_runner_with_real_stack(settings)
+
+            received_kwargs: dict[str, object] = {}
+            mock_adapter = _make_test_adapter()
+
+            def _factory(**kwargs: object) -> MagicMock:
+                received_kwargs.update(kwargs)
+                return mock_adapter
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(AdapterRegistry._registry, {"testboard": _factory}),  # type: ignore[dict-item]
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: the pipeline runs
+                await runner.run()
+
+            # Then: throttle config was forwarded to the adapter constructor
+            assert received_kwargs.get("throttle_max_retries") == 5, (
+                f"Expected throttle_max_retries=5, got: {received_kwargs}"
+            )
+            assert received_kwargs.get("throttle_base_delay") == 2.0, (
+                f"Expected throttle_base_delay=2.0, got: {received_kwargs}"
+            )
 
 
 # ---------------------------------------------------------------------------

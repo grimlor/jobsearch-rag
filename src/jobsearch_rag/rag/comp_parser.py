@@ -228,18 +228,24 @@ def compute_comp_score(
 
 
 def _interpolate(ratio: float, bands: list[CompBand]) -> float:
-    """Piecewise-linear interpolation over CompBand breakpoints."""
-    # Above the highest breakpoint
+    """
+    Piecewise-linear interpolation over CompBand breakpoints.
+
+    Requires *bands* sorted by ratio descending (highest first) with at
+    least two entries.  Config-time validation guarantees this.
+    """
+    # Clamp to the outer breakpoints
     if ratio >= bands[0].ratio:
         return bands[0].score
-    # Below the lowest breakpoint
     if ratio <= bands[-1].ratio:
         return bands[-1].score
-    # Find the segment and interpolate
+    # Walk adjacent pairs to find the enclosing segment.
+    result = bands[-1].score  # default — overwritten by the loop
     for i in range(len(bands) - 1):
         upper = bands[i]
         lower = bands[i + 1]
         if ratio >= lower.ratio:
             t = (ratio - lower.ratio) / (upper.ratio - lower.ratio)
-            return lower.score + t * (upper.score - lower.score)
-    return bands[-1].score
+            result = lower.score + t * (upper.score - lower.score)
+            break
+    return result
