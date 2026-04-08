@@ -102,8 +102,10 @@ def _chat_user_prompt(embedder: Embedder, call_index: int = -1) -> str:
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield VectorStore(persist_dir=tmpdir)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        s = VectorStore(persist_dir=tmpdir)
+        yield s
+        s.close()
 
 
 @pytest.fixture

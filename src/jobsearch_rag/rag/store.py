@@ -45,6 +45,15 @@ class VectorStore:
         self._client = chromadb.PersistentClient(path=persist_dir)
         logger.debug("ChromaDB client initialized at %s", persist_dir)
 
+    def close(self) -> None:
+        """
+        Release ChromaDB file handles (SQLite, HNSW segments).
+
+        Must be called before deleting the *persist_dir* on Windows,
+        where POSIX unlink-while-open semantics are unavailable.
+        """
+        self._client.clear_system_cache()
+
     # -- Collection lifecycle ------------------------------------------------
 
     def get_or_create_collection(self, name: str) -> chromadb.Collection:

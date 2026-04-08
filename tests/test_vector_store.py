@@ -57,8 +57,10 @@ SAMPLE_EMBEDDINGS = [EMBED_1, EMBED_2, EMBED_3]
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """Create a VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield VectorStore(persist_dir=tmpdir)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        s = VectorStore(persist_dir=tmpdir)
+        yield s
+        s.close()
 
 
 @pytest.fixture

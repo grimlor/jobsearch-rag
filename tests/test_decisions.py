@@ -31,8 +31,10 @@ EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """Yield a temporary VectorStore for test isolation."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield VectorStore(persist_dir=tmpdir)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        s = VectorStore(persist_dir=tmpdir)
+        yield s
+        s.close()
 
 
 @pytest.fixture

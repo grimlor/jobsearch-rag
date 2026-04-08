@@ -12,12 +12,19 @@ This conftest provides:
    ``decision_recorder`` (real recorder wired to the above).  Individual
    test files may shadow these with local fixtures that use different
    return values.
+
+3. **Windows ChromaDB cleanup guard** — ``TemporaryDirectory`` is patched
+   to use ``ignore_cleanup_errors=True`` on Windows, preventing
+   ``PermissionError`` when ChromaDB file handles are still open during
+   temp directory cleanup.
 """
 
 from __future__ import annotations
 
 import contextlib
 import stat
+import sys
+import tempfile as _tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
@@ -44,6 +51,29 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 _PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
+
+
+# ---------------------------------------------------------------------------
+# Windows: ChromaDB file-handle cleanup guard
+# ---------------------------------------------------------------------------
+# ChromaDB's PersistentClient holds open file handles on SQLite and HNSW
+# segment files.  On Windows, TemporaryDirectory.__exit__ cannot delete
+# these files while they're still open, raising PermissionError.  The file
+# handles are released when the PersistentClient is garbage-collected (after
+# the test method returns), so the error is benign — the OS reclaims the
+# temp files.  Patching TemporaryDirectory globally is simpler and safer
+# than modifying 100+ inline call sites across the test suite.
+if sys.platform == "win32":
+    _OriginalTemporaryDirectory = _tempfile.TemporaryDirectory
+
+    class _WinSafeTemporaryDirectory(_OriginalTemporaryDirectory):  # type: ignore[type-arg]
+        """TemporaryDirectory that tolerates cleanup errors on Windows."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            kwargs.setdefault("ignore_cleanup_errors", True)
+            super().__init__(*args, **kwargs)
+
+    _tempfile.TemporaryDirectory = _WinSafeTemporaryDirectory  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -248,9 +278,11 @@ def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
 
 
 @pytest.fixture
-def vector_store(tmp_path: Path) -> VectorStore:
+def vector_store(tmp_path: Path) -> Iterator[VectorStore]:
     """Real ChromaDB VectorStore backed by a per-test temp directory."""
-    return VectorStore(persist_dir=str(tmp_path / "chroma"))
+    store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+    yield store
+    store.close()
 
 
 @pytest.fixture

@@ -127,8 +127,10 @@ def embedder() -> Embedder:
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield VectorStore(persist_dir=tmpdir)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        s = VectorStore(persist_dir=tmpdir)
+        yield s
+        s.close()
 
 
 @pytest.fixture
@@ -477,6 +479,7 @@ class TestChromaDBContract:
                 embeddings=[embedding],
             )
             count_before = store1.collection_count("test_persist")
+            store1.close()
 
             # When: create new client against same directory
             store2 = VectorStore(persist_dir=tmpdir)
@@ -491,6 +494,7 @@ class TestChromaDBContract:
             assert docs["documents"][0] == "persistence test", (
                 "Retrieved document should match original"
             )
+            store2.close()
 
 
 # ---------------------------------------------------------------------------
@@ -734,8 +738,10 @@ class TestLiveZipRecruiterPipeline:
     @pytest.fixture
     def live_store(self) -> Iterator[VectorStore]:
         """A VectorStore in a temp directory for live pipeline tests."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            yield VectorStore(persist_dir=tmpdir)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            s = VectorStore(persist_dir=tmpdir)
+            yield s
+            s.close()
 
     async def test_live_search_score_rank_export(
         self,
