@@ -37,6 +37,7 @@ dev = [
     "pytest>=8,<9",
     "pytest-asyncio>=0.24,<1",
     "pytest-cov>=6,<7",
+    "pytest-xdist>=3,<4",
     "ruff>=0.8,<1",
     "taskipy>=1.14,<2",
 ]
@@ -51,8 +52,8 @@ jobsearch-rag = "jobsearch_rag.__main__:main"
 lint   = "uv run ruff check --fix src/ tests/"
 format = "uv run ruff format src/ tests/"
 type   = "uv run pyright src/ tests/"
-test   = "uv run pytest tests/ -v"
-cov    = "uv run pytest tests/ --cov=jobsearch_rag --cov-report=term-missing"
+test   = "uv run pytest tests/ -v -n auto"
+cov    = "uv run pytest tests/ -n auto --cov=jobsearch_rag --cov-report=term-missing"
 live   = "uv run pytest tests/ -m \"live or integration\" -v"
 check  = "task format && task lint && task type && task test"
 

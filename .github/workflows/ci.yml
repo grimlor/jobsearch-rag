@@ -81,7 +81,12 @@ jobs:
         run: uv run pyright src/ tests/
 
       - name: Run tests with coverage
-        run: uv run pytest --cov=jobsearch_rag --cov-report=term-missing --cov-report=json
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        run: uv run pytest -n auto --cov=jobsearch_rag --cov-report=term-missing --cov-report=json
+
+      - name: Run tests
+        if: "!(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')"
+        run: uv run pytest -n auto
 
       - name: Extract coverage percentage
         id: coverage
