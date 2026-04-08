@@ -750,6 +750,8 @@ class TestCompScoreCurveConfig:
                ratio exceeds the highest breakpoint.
           (13) compute_comp_score() returns the lowest band score when the
                ratio falls below the lowest breakpoint.
+          (14) compute_comp_score() interpolates within a non-first segment
+               when the ratio skips past the highest band pair.
     WHY: A user targeting "Senior ML Engineer" at $150K has completely
          different compensation expectations than a "Principal Platform
          Architect" at $220K. The curve shape must adapt
@@ -1043,6 +1045,30 @@ score = 1.0
         # Then: score equals the bottom breakpoint score
         assert score == pytest.approx(0.0), (
             f"Score below lowest breakpoint should be 0.0, got {score}"
+        )
+
+    def test_compute_interpolates_within_non_first_segment(self) -> None:
+        """
+        Given custom breakpoints with three bands
+        When compute_comp_score is called with a ratio in the second segment
+        Then score is linearly interpolated between the second and third bands
+        """
+        # Given: three breakpoints -- ratio 0.70 falls in the 0.80-0.60 segment
+        comp_band_cls = _import_comp_band()
+        breakpoints = [
+            comp_band_cls(ratio=1.0, score=1.0),
+            comp_band_cls(ratio=0.80, score=0.5),
+            comp_band_cls(ratio=0.60, score=0.0),
+        ]
+        base_salary = 200_000
+        comp_max = 140_000  # ratio = 0.70, midpoint of 0.60-0.80 segment
+
+        # When: compute_comp_score is called
+        score = compute_comp_score(comp_max, base_salary, breakpoints=breakpoints)
+
+        # Then: interpolated score is 0.25 (halfway between 0.0 and 0.5)
+        assert score == pytest.approx(0.25), (
+            f"Mid-segment interpolation should be 0.25, got {score}"
         )
 
 

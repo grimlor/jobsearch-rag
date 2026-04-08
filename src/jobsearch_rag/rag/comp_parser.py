@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -239,13 +240,7 @@ def _interpolate(ratio: float, bands: list[CompBand]) -> float:
         return bands[0].score
     if ratio <= bands[-1].ratio:
         return bands[-1].score
-    # Walk adjacent pairs to find the enclosing segment.
-    result = bands[-1].score  # default — overwritten by the loop
-    for i in range(len(bands) - 1):
-        upper = bands[i]
-        lower = bands[i + 1]
-        if ratio >= lower.ratio:
-            t = (ratio - lower.ratio) / (upper.ratio - lower.ratio)
-            result = lower.score + t * (upper.score - lower.score)
-            break
-    return result
+    # Find the first enclosing segment and interpolate.
+    upper, lower = next((upper, lower) for upper, lower in pairwise(bands) if ratio >= lower.ratio)
+    t = (ratio - lower.ratio) / (upper.ratio - lower.ratio)
+    return lower.score + t * (upper.score - lower.score)
