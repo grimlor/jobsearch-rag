@@ -45,7 +45,6 @@ from jobsearch_rag.pipeline.review import ReviewSession
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.scorer import ScoreResult
 from jobsearch_rag.rag.store import VectorStore
-from tests.conftest import make_test_settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -202,7 +201,13 @@ def _make_ranked(
     return ranked
 
 
-def _setup_index_env(tmp_path: Path, *, open_top_n: int = 5) -> AsyncMock:
+def _setup_index_env(
+    tmp_path: Path,
+    *,
+    open_top_n: int = 5,
+    enabled_boards: list[str] | None = None,
+    browser_paths: dict[str, list[str]] | None = None,
+) -> AsyncMock:
     """
     Create config/data files in *tmp_path* and return a mock Ollama client.
 
@@ -218,12 +223,34 @@ def _setup_index_env(tmp_path: Path, *, open_top_n: int = 5) -> AsyncMock:
     - 1 global positive signal dimension
     - 1 resume chunk
     """
+    boards = enabled_boards or ["testboard"]
+
     config_dir = tmp_path / "config"
-    config_dir.mkdir()
+    config_dir.mkdir(exist_ok=True)
     data_dir = tmp_path / "data"
-    data_dir.mkdir()
+    data_dir.mkdir(exist_ok=True)
     output_dir = tmp_path / "output"
-    output_dir.mkdir()
+    output_dir.mkdir(exist_ok=True)
+
+    # Build per-board TOML sections
+    board_sections = ""
+    for name in boards:
+        board_sections += f"""
+[boards.{name}]
+searches = ["https://{name}.com/search"]
+max_pages = 2
+headless = true
+rate_limit_range = [1.5, 3.5]
+"""
+
+    # Build browser_paths TOML section
+    bp_lines = ""
+    paths = browser_paths or {
+        "msedge": ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+    }
+    for channel, channel_paths in paths.items():
+        escaped = ", ".join(f'"{p}"' for p in channel_paths)
+        bp_lines += f"{channel} = [{escaped}]\n"
 
     (config_dir / "settings.toml").write_text(f"""\
 resume_path = "{data_dir / "resume.md"}"
@@ -231,15 +258,9 @@ archetypes_path = "{config_dir / "role_archetypes.toml"}"
 global_rubric_path = "{config_dir / "global_rubric.toml"}"
 
 [boards]
-enabled = ["testboard"]
+enabled = {boards!r}
 session_storage_dir = "data"
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-max_pages = 2
-headless = true
-rate_limit_range = [1.5, 3.5]
-
+{board_sections}
 [scoring]
 archetype_weight = 0.5
 fit_weight = 0.3
@@ -301,8 +322,7 @@ screen_prompt = "Review the following job description text."
 cdp_timeout = 15.0
 
 [adapters.browser_paths]
-msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
-""")
+{bp_lines}""")
 
     (config_dir / "role_archetypes.toml").write_text("""\
 [[archetypes]]
@@ -1724,8 +1744,8 @@ class TestLoginCommand:
                subprocess.Popen + urllib.request.urlopen (CDP mode I/O),
                shutil.which (filesystem lookup I/O — portability fallback),
                tempfile.mkdtemp (temp directory creation I/O)
-        Real:  SessionManager, SessionConfig, handle_login wiring
-        Never: Patch SessionManager — let it construct and manage for real
+        Real:  SessionManager, SessionConfig, load_settings, handle_login wiring
+        Never: Patch SessionManager or load_settings — let them run for real
     """
 
     @staticmethod
@@ -1774,6 +1794,7 @@ class TestLoginCommand:
         """
         # Given: real SessionManager with Playwright mocked at the I/O boundary
         monkeypatch.chdir(tmp_path)
+        _setup_index_env(tmp_path, enabled_boards=["ziprecruiter"])
         mock_pw, mock_page = self._mock_playwright_stack()
 
         # When: handle_login runs the full real call chain
@@ -1782,8 +1803,7 @@ class TestLoginCommand:
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="ziprecruiter", browser=None)
-            settings = make_test_settings(str(tmp_path), enabled_boards=["ziprecruiter"])
-            handle_login(args, settings)
+            handle_login(args)
 
         # Then: browser was launched in headed mode (headless=False)
         mock_pw.chromium.launch.assert_awaited_once()
@@ -1816,6 +1836,7 @@ class TestLoginCommand:
         """
         # Given: real SessionManager for linkedin board
         monkeypatch.chdir(tmp_path)
+        _setup_index_env(tmp_path, enabled_boards=["linkedin"])
         mock_pw, mock_page = self._mock_playwright_stack()
 
         # When: handle_login runs
@@ -1824,8 +1845,7 @@ class TestLoginCommand:
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="linkedin", browser=None)
-            settings = make_test_settings(str(tmp_path), enabled_boards=["linkedin"])
-            handle_login(args, settings)
+            handle_login(args)
 
         # Then: navigated to the linkedin login URL
         url_arg = mock_page.goto.call_args[0][0]
@@ -1846,6 +1866,7 @@ class TestLoginCommand:
         """
         # Given: real SessionManager for ziprecruiter
         monkeypatch.chdir(tmp_path)
+        _setup_index_env(tmp_path, enabled_boards=["ziprecruiter"])
         mock_pw, _mock_page = self._mock_playwright_stack()
 
         # When: handle_login runs
@@ -1854,8 +1875,7 @@ class TestLoginCommand:
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="ziprecruiter", browser=None)
-            settings = make_test_settings(str(tmp_path), enabled_boards=["ziprecruiter"])
-            handle_login(args, settings)
+            handle_login(args)
 
         # Then: operator sees instructions
         output = capsys.readouterr().out
@@ -1877,11 +1897,17 @@ class TestLoginCommand:
         """
         # Given: real SessionManager with CDP I/O boundaries mocked
         monkeypatch.chdir(tmp_path)
-        mock_pw, _mock_page = self._mock_playwright_stack()
 
         # Given: a fake msedge binary that "exists" on disk
         fake_binary = tmp_path / "msedge"
         fake_binary.touch()
+
+        _setup_index_env(
+            tmp_path,
+            enabled_boards=["ziprecruiter"],
+            browser_paths={"msedge": [str(fake_binary)]},
+        )
+        mock_pw, _mock_page = self._mock_playwright_stack()
 
         # When: handle_login runs with browser="msedge"
         with (
@@ -1895,9 +1921,7 @@ class TestLoginCommand:
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="ziprecruiter", browser="msedge")
-            settings = make_test_settings(str(tmp_path), enabled_boards=["ziprecruiter"])
-            object.__setattr__(settings.adapters, "browser_paths", {"msedge": [str(fake_binary)]})
-            handle_login(args, settings)
+            handle_login(args)
 
         # Then: CDP path was taken, not standard Playwright launch
         mock_pw.chromium.connect_over_cdp.assert_awaited_once()

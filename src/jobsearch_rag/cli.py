@@ -142,7 +142,7 @@ _LOGIN_URLS: dict[str, str] = {
 }
 
 
-def handle_login(args: argparse.Namespace, settings: Settings | None = None) -> None:
+def handle_login(args: argparse.Namespace) -> None:
     """
     Open an interactive browser session for manual login.
 
@@ -155,8 +155,7 @@ def handle_login(args: argparse.Namespace, settings: Settings | None = None) -> 
     Use ``--browser msedge`` to launch Microsoft Edge instead of
     Chromium — Edge bypasses Cloudflare where Chromium cannot.
     """
-    if settings is None:
-        settings = load_settings()
+    settings = load_settings()
     board = args.board
     browser = getattr(args, "browser", None)
 

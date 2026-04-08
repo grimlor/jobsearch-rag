@@ -231,6 +231,9 @@ def _write_config(
     """
     Write settings.toml and role_archetypes.toml, return settings path.
 
+    All generated files are written inside *tmpdir* so that parallel test
+    workers (e.g. pytest-xdist) never race on shared filesystem paths.
+
     Use ``settings_extra`` for new sections that do not duplicate headers in
     ``_BASE_SETTINGS`` (e.g. ``[disqualifier]``, ``[security]``).
 
@@ -238,15 +241,19 @@ def _write_config(
     modifying existing sections (e.g. ``[scoring]``, ``[ollama]``) to avoid
     duplicate TOML section headers.
     """
-    settings_path = tmpdir / "settings.toml"
     content = settings_toml if settings_toml is not None else _BASE_SETTINGS + settings_extra
-    settings_path.write_text(content, encoding="utf-8")
 
-    # Write global_rubric.toml so load_settings() doesn't fail on missing file
-    rubric_path = Path("config/global_rubric.toml")
-    if not rubric_path.exists():
-        rubric_path.parent.mkdir(parents=True, exist_ok=True)
-        rubric_path.write_text("", encoding="utf-8")
+    # Rewrite the global_rubric_path to an absolute path inside tmpdir so
+    # load_settings() resolves it without depending on CWD.
+    rubric_path = tmpdir / "global_rubric.toml"
+    rubric_path.write_text("", encoding="utf-8")
+    content = content.replace(
+        'global_rubric_path = "config/global_rubric.toml"',
+        f'global_rubric_path = "{rubric_path}"',
+    )
+
+    settings_path = tmpdir / "settings.toml"
+    settings_path.write_text(content, encoding="utf-8")
 
     # Write archetypes file
     arch_path = tmpdir / "role_archetypes.toml"
@@ -739,6 +746,10 @@ class TestCompScoreCurveConfig:
                produce correct piecewise-linear interpolation.
           (11) compute_comp_score() returns missing_comp_score when comp_max
                is None.
+          (12) compute_comp_score() returns the highest band score when the
+               ratio exceeds the highest breakpoint.
+          (13) compute_comp_score() returns the lowest band score when the
+               ratio falls below the lowest breakpoint.
     WHY: A user targeting "Senior ML Engineer" at $150K has completely
          different compensation expectations than a "Principal Platform
          Architect" at $220K. The curve shape must adapt
@@ -984,6 +995,54 @@ score = 1.0
         # Then: score is 0.3
         assert score == pytest.approx(0.3), (
             f"Missing comp data with custom default should return 0.3, got {score}"
+        )
+
+    def test_compute_returns_top_score_when_ratio_exceeds_highest_breakpoint(self) -> None:
+        """
+        Given custom breakpoints with highest ratio = 1.0
+        When compute_comp_score is called with comp_max above base_salary
+        Then score equals the highest breakpoint's score (1.0)
+        """
+        # Given: custom breakpoints
+        comp_band_cls = _import_comp_band()
+        breakpoints = [
+            comp_band_cls(ratio=1.0, score=1.0),
+            comp_band_cls(ratio=0.80, score=0.5),
+            comp_band_cls(ratio=0.60, score=0.0),
+        ]
+        base_salary = 200_000
+        comp_max = 250_000  # 125% of base — above highest breakpoint
+
+        # When: compute_comp_score is called
+        score = compute_comp_score(comp_max, base_salary, breakpoints=breakpoints)
+
+        # Then: score equals the top breakpoint score
+        assert score == pytest.approx(1.0), (
+            f"Score above highest breakpoint should be 1.0, got {score}"
+        )
+
+    def test_compute_returns_bottom_score_when_ratio_below_lowest_breakpoint(self) -> None:
+        """
+        Given custom breakpoints with lowest ratio = 0.60
+        When compute_comp_score is called with comp_max well below the lowest breakpoint
+        Then score equals the lowest breakpoint's score (0.0)
+        """
+        # Given: custom breakpoints
+        comp_band_cls = _import_comp_band()
+        breakpoints = [
+            comp_band_cls(ratio=1.0, score=1.0),
+            comp_band_cls(ratio=0.80, score=0.5),
+            comp_band_cls(ratio=0.60, score=0.0),
+        ]
+        base_salary = 200_000
+        comp_max = 80_000  # 40% of base — below lowest breakpoint
+
+        # When: compute_comp_score is called
+        score = compute_comp_score(comp_max, base_salary, breakpoints=breakpoints)
+
+        # Then: score equals the bottom breakpoint score
+        assert score == pytest.approx(0.0), (
+            f"Score below lowest breakpoint should be 0.0, got {score}"
         )
 
 
@@ -2032,18 +2091,24 @@ class TestLoginUrlConfig:
     def test_handle_login_uses_configured_url(
         self,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
-        Given a Settings with board login_url = "https://custom.example.com/login"
-        When handle_login(args, settings) is called for that board
+        Given settings.toml has [boards.testboard] login_url = "https://custom.example.com/login"
+        When handle_login(args) is called for that board
         Then page.goto receives "https://custom.example.com/login"
         """
-        # Given: a Settings object with custom login_url on testboard
-        settings = make_test_settings(str(tmp_path))
-        board_cfg = settings.boards["testboard"]
-        object.__setattr__(
-            board_cfg, "login_url", "https://custom.example.com/login"
-        )  # Phase 3 field
+        # Given: settings.toml with custom login_url on testboard
+        monkeypatch.chdir(tmp_path)
+        toml = _BASE_SETTINGS.replace(
+            'login_url = "https://www.testboard.com/login"',
+            'login_url = "https://custom.example.com/login"',
+        )
+        (tmp_path / "config").mkdir(exist_ok=True)
+        _write_config(tmp_path / "config", settings_toml=toml)
+        # Write resume so load_settings() doesn't fail on missing file
+        (tmp_path / "data").mkdir(exist_ok=True)
+        (tmp_path / "data" / "resume.md").write_text("# Resume\n")
 
         # Given: mock Playwright at the I/O boundary
         mock_page = MagicMock()
@@ -2061,7 +2126,7 @@ class TestLoginUrlConfig:
         mock_pw_cm = MagicMock()
         mock_pw_cm.start = AsyncMock(return_value=mock_pw)
 
-        # When: handle_login runs with settings passed directly
+        # When: handle_login runs with real load_settings()
         with (
             patch(
                 "jobsearch_rag.adapters.session.async_playwright",
@@ -2070,7 +2135,7 @@ class TestLoginUrlConfig:
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="testboard", browser=None)
-            handle_login(args, settings)  # pyright: ignore[reportCallIssue]  # Phase 3 parameter
+            handle_login(args)
 
         # Then: page.goto received the config login URL
         url_arg = mock_page.goto.call_args[0][0]
@@ -2081,16 +2146,33 @@ class TestLoginUrlConfig:
     def test_handle_login_falls_back_to_generic_url(
         self,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
-        Given a Settings with board login_url = None and board not in _LOGIN_URLS
-        When handle_login(args, settings) is called for that board
+        Given settings.toml has a board with no login_url and board not in _LOGIN_URLS
+        When handle_login(args) is called for that board
         Then page.goto receives "https://www.<board>.com"
         """
-        # Given: settings with "unknownboard" — not in _LOGIN_URLS, no login_url
-        settings = make_test_settings(str(tmp_path), enabled_boards=["unknownboard"])
-        board_cfg = settings.boards["unknownboard"]
-        object.__setattr__(board_cfg, "login_url", None)  # Phase 3 field — absent
+        # Given: settings.toml with "unknownboard" — no login_url, not in _LOGIN_URLS
+        monkeypatch.chdir(tmp_path)
+        toml = (
+            _BASE_SETTINGS.replace(
+                'enabled = ["testboard"]',
+                'enabled = ["unknownboard"]',
+            )
+            .replace(
+                "[boards.testboard]\n",
+                "[boards.unknownboard]\n",
+            )
+            .replace(
+                'login_url = "https://www.testboard.com/login"\n',
+                "",
+            )
+        )
+        (tmp_path / "config").mkdir(exist_ok=True)
+        _write_config(tmp_path / "config", settings_toml=toml)
+        (tmp_path / "data").mkdir(exist_ok=True)
+        (tmp_path / "data" / "resume.md").write_text("# Resume\n")
 
         # Given: mock Playwright at the I/O boundary
         mock_page = MagicMock()
@@ -2108,7 +2190,7 @@ class TestLoginUrlConfig:
         mock_pw_cm = MagicMock()
         mock_pw_cm.start = AsyncMock(return_value=mock_pw)
 
-        # When: handle_login runs with settings passed directly
+        # When: handle_login runs with real load_settings()
         with (
             patch(
                 "jobsearch_rag.adapters.session.async_playwright",
@@ -2117,7 +2199,7 @@ class TestLoginUrlConfig:
             patch("builtins.input", return_value=""),
         ):
             args = argparse.Namespace(board="unknownboard", browser=None)
-            handle_login(args, settings)  # pyright: ignore[reportCallIssue]  # Phase 3 parameter
+            handle_login(args)
 
         # Then: page.goto received the generic URL pattern
         url_arg = mock_page.goto.call_args[0][0]
@@ -2285,12 +2367,16 @@ class TestAdaptersConfig:
           (4) Missing browser_paths in [adapters] raises ActionableError.
           (5) Missing cdp_timeout in [adapters] raises ActionableError.
           (6) cdp_timeout <= 0.0 raises ActionableError (must be positive).
-          (7) SessionManager launches the browser from a config-provided path
+          (7) browser_paths channel value that is not a list raises
+              ActionableError naming the channel.
+          (8) SessionManager launches the browser from a config-provided path
               when that path exists.
-          (8) SessionManager raises ActionableError when the requested
+          (9) SessionManager raises ActionableError when the requested
               channel has no entry in browser_paths.
-          (9) SessionManager waits the configured cdp_timeout duration
+          (10) SessionManager waits the configured cdp_timeout duration
               before raising TimeoutError on a slow CDP endpoint.
+          (11) The system skips a non-existent config-provided browser path
+              and uses the next valid path in the list.
     WHY: _BROWSER_PATHS contains only macOS paths — Windows and Linux users
          cannot launch CDP browsers without editing source. Making all paths
          config-driven with no OS-specific defaults ensures every platform
@@ -2437,7 +2523,29 @@ class TestAdaptersConfig:
             f"Error should state value must be positive. Got: {exc_info.value}"
         )
 
-    # -- SessionManager wiring (WHAT 7-9) -----------------------------------
+    def test_browser_paths_channel_not_a_list_raises_actionable_error(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given settings.toml [adapters.browser_paths] has a channel set to a string instead of a list
+        When load_settings() is called
+        Then ActionableError is raised naming the channel
+        """
+        # Given: browser_paths.msedge is a bare string, not a list
+        toml = _BASE_SETTINGS.replace(
+            'msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]',
+            'msedge = "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"',
+        )
+        settings_path = _write_config(tmp_path, settings_toml=toml)
+
+        # When / Then: load_settings raises ActionableError
+        with pytest.raises(ActionableError) as exc_info:
+            load_settings(settings_path)
+
+        error_msg = str(exc_info.value).lower()
+        assert "msedge" in error_msg, f"Error should name the channel. Got: {exc_info.value}"
+
+    # -- SessionManager wiring (WHAT 8-10) ----------------------------------
 
     async def test_session_launches_browser_from_config_path(self, tmp_path: Path) -> None:
         """
@@ -2615,3 +2723,81 @@ class TestAdaptersConfig:
             assert "0.5" in str(exc_info.value) or "cdp" in str(exc_info.value).lower(), (
                 f"Error should reference the timeout duration. Got: {exc_info.value}"
             )
+
+    async def test_session_skips_nonexistent_config_path_and_uses_next(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Given config browser_paths has two entries: one non-existent, one valid
+        When SessionManager opens a CDP session with browser_channel="msedge"
+        Then the non-existent path is skipped and the valid path is used
+        """
+        # Given: first path does not exist, second path does
+        missing_binary = str(tmp_path / "nonexistent" / "msedge")
+        valid_binary = str(tmp_path / "real" / "msedge")
+        (tmp_path / "real").mkdir()
+        (tmp_path / "real" / "msedge").touch()
+
+        config = SessionConfig(  # pyright: ignore[reportCallIssue]  # Phase 3 fields
+            board_name="testboard",
+            headless=True,
+            browser_channel="msedge",
+            storage_dir=tmp_path,
+            browser_paths={"msedge": [missing_binary, valid_binary]},  # pyright: ignore[reportCallIssue]  # Phase 3 field
+            cdp_timeout=15.0,  # pyright: ignore[reportCallIssue]  # Phase 3 field
+        )
+
+        # Given: mock Playwright and subprocess at I/O boundaries
+        mock_browser = MagicMock()
+        mock_browser.contexts = []
+        mock_browser.new_context = AsyncMock(
+            return_value=MagicMock(
+                new_page=AsyncMock(return_value=MagicMock()),
+                storage_state=AsyncMock(return_value={"cookies": [], "origins": []}),
+                close=AsyncMock(),
+            )
+        )
+        mock_browser.close = AsyncMock()
+
+        mock_pw = MagicMock()
+        mock_pw.chromium.connect_over_cdp = AsyncMock(return_value=mock_browser)
+        mock_pw.stop = AsyncMock()
+        mock_pw_cm = MagicMock()
+        mock_pw_cm.start = AsyncMock(return_value=mock_pw)
+
+        captured_popen_args: list[Any] = []
+
+        def _capturing_popen(cmd: Any, **kwargs: Any) -> MagicMock:
+            captured_popen_args.append(cmd)
+            proc = MagicMock()
+            proc.poll.return_value = None
+            proc.wait.return_value = 0
+            return proc
+
+        with (
+            patch(
+                "jobsearch_rag.adapters.session.async_playwright",
+                return_value=mock_pw_cm,
+            ),
+            patch(
+                "jobsearch_rag.adapters.session.subprocess.Popen",
+                side_effect=_capturing_popen,
+            ),
+            patch("jobsearch_rag.adapters.session.urllib.request.urlopen"),
+            patch(
+                "jobsearch_rag.adapters.session.tempfile.mkdtemp",
+                return_value=str(tmp_path / "cdp-profile"),
+            ),
+        ):
+            # When: SessionManager opens a CDP session
+            async with SessionManager(config) as _session:
+                pass
+
+        # Then: the valid binary was used, not the missing one
+        assert len(captured_popen_args) == 1, (
+            f"Expected 1 Popen call, got {len(captured_popen_args)}"
+        )
+        binary_used = captured_popen_args[0][0]
+        assert binary_used == valid_binary, (
+            f"Expected Popen to use '{valid_binary}' (skip missing), got {binary_used!r}"
+        )
