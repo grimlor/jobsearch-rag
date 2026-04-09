@@ -136,12 +136,33 @@ LinkedIn has aggressive bot detection. The system handles this with:
 5. **Halt on detection** — No retries after detection. The run stops
    immediately for that board. Partial results are preserved.
 
+### ZipRecruiter Throttling
+
+After approximately 1.5 pages of results, ZipRecruiter starts returning
+"We encountered an error while loading this job" in the detail panel during
+card click-through — this is server-side rate limiting, not an adapter bug.
+The adapter detects this via `is_throttle_response()` and retries with
+exponential backoff (`throttle_base_delay × 2^(n−1)`, e.g., 4 → 8 → 16 s
+with base 4.0) up to `throttle_max_retries` (both
+configurable per board in `settings.toml`). The backoff counter resets
+after each successful panel load, so only consecutive throttle responses
+escalate the delay.
+
+**Estimated vs. employer-stated salary:** ZipRecruiter shows its own salary
+estimate on cards, which can differ from the employer-stated range in the JD
+body. The comp parser tracks `comp_source` to distinguish these;
+employer-stated is preferred when both are present.
+
 ### General Throttling
 
 All boards are throttled via `SessionManager.throttle(adapter)`:
 
-- Random sleep in the adapter's `rate_limit_seconds` range
-- Applied between every page navigation and every detail request
+- Random sleep within the board's `rate_limit_range` from `settings.toml`
+- Applied between search-URL navigations and between individual JD
+  detail-page requests
+- Boards that enrich `full_text` during search (e.g., ZR card
+  click-through) use their own internal pacing; the runner's per-detail
+  throttle is skipped for already-enriched listings
 - LinkedIn's range (8–20s) is much wider than other boards (1.5–3.5s)
 
 ---

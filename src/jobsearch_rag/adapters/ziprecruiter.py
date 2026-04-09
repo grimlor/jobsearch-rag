@@ -528,6 +528,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                         continue
 
                     # Real content — accept it
+                    consecutive_throttles = 0
                     if panel_text and len(panel_text.strip()) > 100:
                         listing.full_text = panel_text.strip()
                         logger.debug(

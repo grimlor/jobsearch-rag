@@ -246,13 +246,14 @@ class TestThrottleDetection:
             )
 
     @pytest.mark.asyncio
-    async def test_backoff_delay_increases_exponentially_on_consecutive_throttles(
+    async def test_backoff_delay_resets_after_successful_panel_load(
         self,
     ) -> None:
         """
         Given two listings that each throttle once before succeeding
-        When consecutive throttle responses occur across listings
-        Then the second backoff wait is longer than the first
+        When the first listing succeeds after a throttle
+        Then the consecutive-throttle counter resets and the second listing
+             starts backoff from the base delay again
         """
         # Given: two listings, each throttled once before succeeding
         adapter = ZipRecruiterAdapter()
@@ -277,13 +278,14 @@ class TestThrottleDetection:
             # When: search processes both listings
             await adapter.search(page, _SEARCH_URL, max_pages=1)
 
-        # Then: backoff delays increase exponentially
+        # Then: both backoff waits equal the base delay (counter reset between listings)
         backoff_waits = [d for d in backoff_delays if d >= 2.0]
         assert len(backoff_waits) >= 2, (
             f"Expected at least 2 backoff waits, got {len(backoff_waits)}: {backoff_delays}"
         )
-        assert backoff_waits[1] > backoff_waits[0], (
-            f"Second backoff ({backoff_waits[1]}) should be longer than first ({backoff_waits[0]})"
+        assert backoff_waits[0] == backoff_waits[1], (
+            f"After reset, both listings should backoff at the base delay — "
+            f"got {backoff_waits[0]} and {backoff_waits[1]}"
         )
 
     # --- Retry exhaustion and skip ------------------------------------

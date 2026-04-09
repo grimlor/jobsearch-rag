@@ -37,11 +37,11 @@ Each enabled board must have a corresponding `[boards.<name>]` section.
 | `max_pages` | `int` | `3` | Maximum search result pages to paginate |
 | `headless` | `bool` | `true` | Run browser without visible window |
 | `browser_channel` | `str \| null` | `null` | System browser for CDP mode: `"msedge"`, `"chrome"`, `"chromium"` |
-| `rate_limit_range` | `[float, float]` | *(required)* | `[min, max]` seconds of random jitter between page loads |
+| `rate_limit_range` | `[float, float]` | *(required)* | `[min, max]` seconds of random jitter between search-URL navigations and between JD detail-page requests |
 | `login_url` | `str \| null` | `null` | Override login URL for `login --board` command |
 | `stealth` | `bool` | `false` | Enable playwright-stealth patches (fingerprint masking) |
 | `throttle_max_retries` | `int` | `3` | Max retries on throttle detection (board-specific) |
-| `throttle_base_delay` | `float` | `2.0` | Base delay in seconds for throttle backoff (board-specific) |
+| `throttle_base_delay` | `float` | `2.0` | Base delay in seconds for exponential throttle backoff; doubles each consecutive throttle (e.g., 4 → 8 → 16 s with base 4.0). Resets on success. |
 
 When `browser_channel` is set, the session manager launches the real system
 browser and connects via Chrome DevTools Protocol instead of Playwright's
@@ -67,6 +67,19 @@ bundled Chromium. This bypasses Cloudflare bot detection.
 
 Weights are **not** required to sum to 1.0. They are applied as raw
 multipliers in the fusion formula (see [SCORING_ENGINE.md](SCORING_ENGINE.md)).
+
+#### Weight Tuning Guidance
+
+- **`history_weight`** — Start at 0.2. After ~50 decisions, consider raising
+  to 0.3. After ~200, the history collection may be your strongest signal.
+- **`culture_weight`** — Start at 0.2. Global positive signals encode
+  environment preferences that JDs express inconsistently — "async-first" and
+  "remote-first" appear explicitly in some JDs and implicitly (or not at all)
+  in others. The history signal eventually complements this as culture-based
+  yes/no decisions accumulate.
+- **`negative_weight`** — Start at 0.4. A strong negative match (adtech,
+  surveillance, chaos culture) should meaningfully suppress ranking even when
+  positive signals are present.
 
 ### `[ollama]`
 
@@ -201,6 +214,10 @@ signals_negative = [
 into a single embedding text. This creates richer vectors that capture both
 the narrative role description and concrete skill keywords.
 
+**Archetype ordering reflects priority:** Archetypes are listed in priority
+order — the first entry is treated as the primary career target. Order them
+from most desired to least desired role type.
+
 ---
 
 ## `global_rubric.toml`
@@ -246,6 +263,18 @@ signals_negative = [
 9. **Neurodivergence Compatibility** — clear communication, low context-switching
 10. **Ethical Alignment** — mission-driven, privacy-respecting
 
+#### Signal Authoring Guidance
+
+- **Use full sentences.** Signals like "Cross-team architectural influence
+  and organizational scope" embed with significantly better cosine
+  discrimination than short keyword phrases like "architecture ownership."
+  `nomic-embed-text` is a sentence-transformer — it produces richer vectors
+  from complete thoughts.
+- **Neurodivergence Compatibility is the weakest signal.** JDs rarely use
+  language like "low-meeting culture" directly. This dimension will
+  strengthen as the `decisions` history collection builds up examples of
+  culture-based yes/no verdicts.
+
 ---
 
 ## `data/resume.md`
@@ -255,3 +284,12 @@ ChromaDB document per section. `###` sub-headings are kept within their
 parent section.
 
 The `#` title heading (if present) is skipped — only `##` sections are indexed.
+
+---
+
+## Session & Authentication
+
+Playwright's `storage_state` saves cookies per board to separate JSON files
+under `session_storage_dir` (default `data/`). Re-authentication is only
+needed when sessions expire. Each board gets its own file
+(`<board_name>_session.json`).

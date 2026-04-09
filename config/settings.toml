@@ -21,9 +21,9 @@ searches = [
 max_pages = 3
 headless = false  # Cloudflare blocks headless; must be headed
 browser_channel = "msedge"  # Chromium detected by Cloudflare; Edge passes
-rate_limit_range = [1.5, 3.5]
+rate_limit_range = [1.5, 3.0]
 throttle_max_retries = 3
-throttle_base_delay = 2.0
+throttle_base_delay = 4.0
 
 [boards.indeed]
 searches = [
