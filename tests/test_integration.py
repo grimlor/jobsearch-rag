@@ -42,7 +42,6 @@ the response shape, or ChromaDB alters its distance metric.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import csv as csv_mod
 import dataclasses
 import math
@@ -72,7 +71,6 @@ from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.pipeline.rescorer import Rescorer
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
-from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
@@ -1347,7 +1345,7 @@ class TestLiveCumulativeAccumulation:
         Never: Mock anything else (defeats live validation)
     """
 
-    def test_accumulate_merge_produces_no_duplicates_and_sorted_scores(
+    def test_accumulate_merge_csv_jd_files_and_markdown(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -1355,8 +1353,9 @@ class TestLiveCumulativeAccumulation:
         """
         Given a first live search produces N results
         When a second search runs without --fresh
-        Then CSV row count >= N, no duplicate external_ids, all scores are
-        valid floats in descending order, and header appears exactly once.
+        Then the merged CSV has >= N rows with no duplicate external_ids,
+        scores are valid and descending, JD files from run 1 are preserved,
+        and Markdown table rows match CSV data rows.
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
@@ -1371,24 +1370,24 @@ class TestLiveCumulativeAccumulation:
         live_settings = _make_live_settings(tmp_path)
         monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
 
-        # When: run 1 — initial search
-        args_run1 = _make_search_args(board="ziprecruiter")
-        handle_search(args_run1)
-
         out_dir = Path(live_settings.output.output_dir)
         csv_path = out_dir / "results.csv"
         jd_dir = out_dir / "jds"
+        md_path = out_dir / "results.md"
 
-        # Then: run 1 produces results
+        # When: run 1 -- initial search
+        handle_search(_make_search_args(board="ziprecruiter"))
+
+        # Then: run 1 produces results (WHAT 1)
         assert csv_path.exists(), "Run 1 should produce results.csv"
         run1_rows = _read_csv_rows(csv_path)
         run1_count = len(run1_rows)
         assert run1_count >= 1, f"Run 1 should produce at least 1 listing, got {run1_count}"
 
-        _run1_jd_files = set(jd_dir.glob("*.md"))
-        _run1_ids = {row["external_id"] for row in run1_rows}
+        run1_jd_files = {f.name: f.stat().st_mtime for f in jd_dir.glob("*.md")}
+        assert len(run1_jd_files) >= 1, "Run 1 should produce JD files"
 
-        # When: run 2 — accumulate (no --fresh)
+        # When: run 2 -- accumulate (no --fresh)
         handle_search(_make_search_args(board="ziprecruiter"))
 
         # Then: CSV has >= run 1 count (WHAT 2)
@@ -1421,98 +1420,22 @@ class TestLiveCumulativeAccumulation:
         header_line = raw_csv.strip().split("\n")[0]
         assert raw_csv.count(header_line) == 1, "CSV header should appear exactly once"
 
-    def test_accumulate_preserves_prior_jd_files_and_creates_new(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        """
-        Given two successive live runs
-        When inspecting JD files
-        Then prior-only JDs are preserved, re-seen JDs are overwritten,
-        and new JDs are created.
-        """
-        # Given: skip if no session or Ollama
-        if not Path("data/ziprecruiter_session.json").exists():
-            pytest.skip("No ZipRecruiter session file — run login first")
-
-        try:
-            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
-        except Exception:
-            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
-
-        # Given: settings redirected to tmp_path
-        live_settings = _make_live_settings(tmp_path)
-        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
-
-        # When: run 1
-        handle_search(_make_search_args(board="ziprecruiter"))
-
-        out_dir = Path(live_settings.output.output_dir)
-        jd_dir = out_dir / "jds"
-
-        run1_jd_files = {f.name: f.stat().st_mtime for f in jd_dir.glob("*.md")}
-        assert len(run1_jd_files) >= 1, "Run 1 should produce JD files"
-
-        # When: run 2
-        handle_search(_make_search_args(board="ziprecruiter"))
-
-        run2_jd_files = {f.name: f.stat().st_mtime for f in jd_dir.glob("*.md")}
-
         # Then: all run 1 JD files still exist (WHAT 6, 7)
+        run2_jd_files = {f.name: f.stat().st_mtime for f in jd_dir.glob("*.md")}
         for name in run1_jd_files:
             assert name in run2_jd_files, (
                 f"JD file '{name}' from run 1 should still exist after run 2 "
                 "(either preserved or overwritten)"
             )
 
-        # Then: run 2 may have new JD files (WHAT 8)
-        _run2_only = set(run2_jd_files.keys()) - set(run1_jd_files.keys())
-        # This can be empty if the second search returns the same listings,
-        # which is common with short intervals.  No assertion on count.
-
-        # Then: total JD file count >= run 1 count
+        # Then: total JD file count >= run 1 count (WHAT 8)
         assert len(run2_jd_files) >= len(run1_jd_files), (
             f"JD file count should not decrease: run1={len(run1_jd_files)}, "
             f"run2={len(run2_jd_files)}"
         )
 
-    def test_accumulate_markdown_summary_reflects_merged_totals(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        """
-        Given two successive live runs
-        When inspecting Markdown
-        Then "found" count matches CSV row count and table rows match
-        CSV data rows.
-        """
-        # Given: skip if no session or Ollama
-        if not Path("data/ziprecruiter_session.json").exists():
-            pytest.skip("No ZipRecruiter session file — run login first")
-
-        try:
-            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
-        except Exception:
-            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
-
-        # Given: settings redirected to tmp_path
-        live_settings = _make_live_settings(tmp_path)
-        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
-
-        # When: two successive searches
-        handle_search(_make_search_args(board="ziprecruiter"))
-        handle_search(_make_search_args(board="ziprecruiter"))
-
-        out_dir = Path(live_settings.output.output_dir)
-        csv_path = out_dir / "results.csv"
-        md_path = out_dir / "results.md"
-
-        csv_rows = _read_csv_rows(csv_path)
-        md_content = md_path.read_text()
-
         # Then: Markdown has Run Summary (WHAT 9)
+        md_content = md_path.read_text()
         assert "# Run Summary" in md_content, "Markdown should contain '# Run Summary'"
 
         # Then: Markdown table row count matches CSV data row count
@@ -1521,9 +1444,9 @@ class TestLiveCumulativeAccumulation:
             for line in md_content.split("\n")
             if line.startswith("|") and not line.startswith("|---") and not line.startswith("| #")
         ]
-        assert len(md_table_rows) == len(csv_rows), (
+        assert len(md_table_rows) == len(run2_rows), (
             f"Markdown table rows ({len(md_table_rows)}) should match "
-            f"CSV data rows ({len(csv_rows)})"
+            f"CSV data rows ({len(run2_rows)})"
         )
 
     def test_multi_page_traversal_produces_more_listings_than_single_page(
@@ -1601,7 +1524,7 @@ class TestLiveFreshModeReset:
         Never: Mock anything else
     """
 
-    def test_fresh_flag_discards_prior_csv_and_jd_files(
+    def test_fresh_flag_discards_prior_results_and_restores_clean_state(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -1609,8 +1532,8 @@ class TestLiveFreshModeReset:
         """
         Given prior accumulated results exist
         When search runs with --fresh
-        Then CSV contains only current-run listings and output/jds/ contains
-        only current-run JD files (stale files deleted).
+        Then CSV contains only current-run listings, stale JD files are
+        removed, and Markdown table rows match the fresh CSV.
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
@@ -1628,13 +1551,14 @@ class TestLiveFreshModeReset:
         out_dir = Path(live_settings.output.output_dir)
         csv_path = out_dir / "results.csv"
         jd_dir = out_dir / "jds"
+        md_path = out_dir / "results.md"
 
         # Given: run 1 produces accumulated results
         handle_search(_make_search_args(board="ziprecruiter"))
         assert csv_path.exists(), "Run 1 should produce results.csv"
         run1_rows = _read_csv_rows(csv_path)
         assert len(run1_rows) >= 1, (
-            "Run 1 should produce at least 1 qualified CSV row — "
+            "Run 1 should produce at least 1 qualified CSV row -- "
             "all listings may have been disqualified or below threshold"
         )
         run1_jd_count = len(list(jd_dir.glob("*.md")))
@@ -1645,7 +1569,6 @@ class TestLiveFreshModeReset:
 
         # Then: CSV contains only current-run listings (WHAT 1)
         fresh_rows = _read_csv_rows(csv_path)
-        _fresh_ids = {row["external_id"] for row in fresh_rows}
         assert len(fresh_rows) >= 1, "Fresh run should produce at least 1 listing"
 
         # Fresh run should not carry over prior-only listings
@@ -1656,57 +1579,22 @@ class TestLiveFreshModeReset:
             f"larger than run 1 ({len(run1_rows)} rows)"
         )
 
-        # Then: JD files are from current run only — stale removed (WHAT 2)
+        # Then: JD files are from current run only -- stale removed (WHAT 2)
         fresh_jd_files = set(jd_dir.glob("*.md"))
         # With --fresh, cleanup_stale=True removes JDs not in current run
         # The exact count depends on what the current search returns
         assert len(fresh_jd_files) >= 1, "Fresh run should produce JD files"
 
-    def test_fresh_flag_markdown_reflects_current_run_only(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        """
-        Given prior accumulated results exist
-        When search runs with --fresh
-        Then Markdown "found" count matches CSV row count from this run only.
-        """
-        # Given: skip if no session or Ollama
-        if not Path("data/ziprecruiter_session.json").exists():
-            pytest.skip("No ZipRecruiter session file — run login first")
-
-        try:
-            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
-        except Exception:
-            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
-
-        # Given: settings redirected to tmp_path
-        live_settings = _make_live_settings(tmp_path)
-        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
-
-        out_dir = Path(live_settings.output.output_dir)
-        csv_path = out_dir / "results.csv"
-        md_path = out_dir / "results.md"
-
-        # Given: run 1 establishes accumulation
-        handle_search(_make_search_args(board="ziprecruiter"))
-
-        # When: run 2 with --fresh
-        handle_search(_make_search_args(board="ziprecruiter", fresh=True))
-
-        # Then: Markdown matches CSV (WHAT 3)
-        csv_rows = _read_csv_rows(csv_path)
+        # Then: Markdown table rows match fresh CSV (WHAT 3)
         md_content = md_path.read_text()
-
         md_table_rows = [
             line
             for line in md_content.split("\n")
             if line.startswith("|") and not line.startswith("|---") and not line.startswith("| #")
         ]
-        assert len(md_table_rows) == len(csv_rows), (
+        assert len(md_table_rows) == len(fresh_rows), (
             f"Markdown table rows ({len(md_table_rows)}) should match "
-            f"fresh CSV data rows ({len(csv_rows)})"
+            f"fresh CSV data rows ({len(fresh_rows)})"
         )
 
 
@@ -1739,12 +1627,8 @@ class TestLiveDecisionExclusionAcrossRuns:
                redirect output and ChromaDB paths to ``tmp_path``.  CLI
                handlers call ``load_settings()`` without a path argument,
                so patching is the only way to avoid clobbering real data.
-        Workaround (WHAT 2/3): Decisions are recorded directly via
-               ``DecisionRecorder.record()`` + ``asyncio.run()`` instead
-               of ``handle_decide``, because ``handle_decide`` requires an
-               existing prior decision for the listing.
-        Workaround (WHAT 4): ``PipelineRunner.run`` is monkeypatched to
-               inject decisions through the runner's **own**
+        Workaround: ``PipelineRunner.run`` is monkeypatched to inject
+               decisions through the runner's **own**
                ``_decision_recorder`` before scoring begins.  ChromaDB
                ``PersistentClient`` instances don't reliably see writes
                from prior client instances in the same process (SQLite WAL
@@ -1755,16 +1639,17 @@ class TestLiveDecisionExclusionAcrossRuns:
         Never: Mock anything else
     """
 
-    def test_decided_listing_excluded_from_csv_but_jd_preserved(
+    def test_decided_listing_excluded_from_exports_and_counted_in_summary(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """
         Given listing X has a recorded "no" decision from a prior run
         When a new accumulate-mode search runs
-        Then X does not appear in CSV or Markdown, and X's JD file is still
-        present in output/jds/.
+        Then X does not appear in CSV or Markdown, X's JD file is preserved,
+        and session_summary shows the decision exclusion count.
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
@@ -1783,47 +1668,65 @@ class TestLiveDecisionExclusionAcrossRuns:
         csv_path = out_dir / "results.csv"
         jd_dir = out_dir / "jds"
 
-        # Given: run 1 produces results
-        handle_search(_make_search_args(board="ziprecruiter"))
+        # Given: run 1 -- uncapped so we score the full page
+        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
+        capsys.readouterr()  # discard run 1 output so run 2 parsing is unambiguous
         run1_rows = _read_csv_rows(csv_path)
         assert len(run1_rows) >= 2, (
             f"Need at least 2 listings to test exclusion, got {len(run1_rows)}"
         )
 
-        # Given: pick one listing and record a "no" decision
+        # Given: pick one listing to decide against
         target = run1_rows[0]  # pick the top-ranked listing
         target_id = target["external_id"]
         target_title = target["title"]
-
-        embedder = Embedder(live_settings.ollama)
-        store = VectorStore(persist_dir=live_settings.chroma.persist_dir)
-        recorder = DecisionRecorder(store=store, embedder=embedder)
-
-        asyncio.run(
-            recorder.record(
-                job_id=target_id,
-                verdict="no",
-                jd_text=f"Test decision for {target_title}",
-                board=target.get("board", "ziprecruiter"),
-                title=target_title,
-                company=target.get("company", ""),
-                reason="Integration test — decision exclusion validation",
-            )
-        )
-
-        # Verify decision was recorded
-        decision = recorder.get_decision(target_id)
-        assert decision is not None, f"Decision should be recorded for '{target_id}'"
-
-        # Release ChromaDB PersistentClient before handle_search creates its own
-        del recorder, store, embedder
 
         # Note which JD files exist before run 2
         run1_jd_files = set(jd_dir.glob("*.md"))
         target_jd_candidates = [f for f in run1_jd_files if target_id in f.name]
 
-        # When: run 2 — accumulate (no --fresh)
-        handle_search(_make_search_args(board="ziprecruiter"))
+        # Given: prepare decision data for the target listing.
+        # Decisions are injected into run 2's own PipelineRunner to
+        # guarantee ChromaDB visibility (PersistentClient instances
+        # don't reliably see cross-client writes in the same process).
+        decision_data = [
+            {
+                "job_id": target_id,
+                "verdict": "no",
+                "jd_text": f"Test decision for {target_title}",
+                "board": target.get("board", "ziprecruiter"),
+                "title": target_title,
+                "company": target.get("company", ""),
+                "reason": "Integration test -- decision exclusion validation",
+            },
+        ]
+
+        # When: run 2 -- monkeypatch PipelineRunner.run to inject
+        # the decision through the runner's OWN _decision_recorder before
+        # scoring begins.
+        _original_run = PipelineRunner.run
+
+        async def _run_with_decisions(
+            self_runner: PipelineRunner,
+            boards: list[str] | None = None,
+            *,
+            overnight: bool = False,
+            force_rescore: bool = False,
+            max_listings: int = 0,
+        ) -> RunResult:
+            for decision in decision_data:
+                await self_runner.decision_recorder.record(**decision)
+            return await _original_run(
+                self_runner,
+                boards=boards,
+                overnight=overnight,
+                force_rescore=force_rescore,
+                max_listings=max_listings,
+            )
+
+        monkeypatch.setattr(PipelineRunner, "run", _run_with_decisions)
+        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
+        captured = capsys.readouterr()
 
         # Then: decided listing excluded from CSV (WHAT 2)
         run2_rows = _read_csv_rows(csv_path)
@@ -1848,99 +1751,18 @@ class TestLiveDecisionExclusionAcrossRuns:
                     f"be preserved (not deleted)"
                 )
 
-    def test_decision_exclusion_count_in_session_summary(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """
-        Given a decision was recorded
-        When a new search completes
-        Then session_summary shows skipped_decisions >= 1.
-        """
-        # Given: skip if no session or Ollama
-        if not Path("data/ziprecruiter_session.json").exists():
-            pytest.skip("No ZipRecruiter session file — run login first")
-
-        try:
-            urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
-        except Exception:
-            pytest.skip(f"Ollama not reachable at {OLLAMA_BASE_URL}")
-
-        # Given: settings redirected to tmp_path
-        live_settings = _make_live_settings(tmp_path)
-        monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
-
-        out_dir = Path(live_settings.output.output_dir)
-        csv_path = out_dir / "results.csv"
-
-        # Given: run 1 — uncapped so we score the full page
-        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
-        capsys.readouterr()  # discard run 1 output so run 2 parsing is unambiguous
-        run1_rows = _read_csv_rows(csv_path)
-        assert len(run1_rows) >= 1, "Need at least 1 listing"
-
-        # Given: prepare decision data from run 1 listings.
-        # Decisions are injected into run 2's own PipelineRunner to
-        # guarantee ChromaDB visibility (PersistentClient instances
-        # don't reliably see cross-client writes in the same process).
-        run1_decision_data = [
-            {
-                "job_id": row["external_id"],
-                "verdict": "no",
-                "jd_text": f"Test decision for {row['title']}",
-                "board": row.get("board", "ziprecruiter"),
-                "title": row["title"],
-                "company": row.get("company", ""),
-                "reason": "Integration test — exclusion count",
-            }
-            for row in run1_rows
-        ]
-
-        # When: run 2 — monkeypatch PipelineRunner.run to inject
-        # decisions through the runner's OWN _decision_recorder before
-        # scoring begins, using the real DecisionRecorder + Embedder +
-        # ChromaDB.  This is the only reliable way to ensure the runner's
-        # _score_one sees decisions via the same VectorStore instance.
-        _original_run = PipelineRunner.run
-
-        async def _run_with_decisions(
-            self_runner: PipelineRunner,
-            boards: list[str] | None = None,
-            *,
-            overnight: bool = False,
-            force_rescore: bool = False,
-            max_listings: int = 0,
-        ) -> RunResult:
-            for decision in run1_decision_data:
-                await self_runner.decision_recorder.record(**decision)
-            return await _original_run(
-                self_runner,
-                boards=boards,
-                overnight=overnight,
-                force_rescore=force_rescore,
-                max_listings=max_listings,
-            )
-
-        monkeypatch.setattr(PipelineRunner, "run", _run_with_decisions)
-        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
-        captured = capsys.readouterr()
-
         # Then: output shows prior decisions >= 1 (WHAT 4)
         assert "Prior decisions:" in captured.out, (
             "Session summary should report prior decision count"
             f"\nstdout (last 800 chars): {captured.out[-800:]}"
         )
-        # Parse the count from "Prior decisions:  N"
         for line in captured.out.split("\n"):
             if "Prior decisions:" in line:
                 count_str = line.split(":")[-1].strip()
                 count = int(count_str)
                 assert count >= 1, (
                     f"Prior decisions count should be >= 1, got {count}"
-                    f"\nRun 1 IDs ({len(run1_rows)}): "
-                    f"{[r['external_id'] for r in run1_rows[:5]]}..."
+                    f"\nTarget: {target_id} ({target_title})"
                     f"\nstdout (last 800 chars): {captured.out[-800:]}"
                 )
                 break

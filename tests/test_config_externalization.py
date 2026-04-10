@@ -2333,13 +2333,13 @@ class TestStealthConfig:
 
             captured_configs: list[Any] = []
 
-            class _CapturingSessionManager:
-                """Capture SessionConfig passed to SessionManager."""
+            class _CapturingBoardSession:
+                """Capture SessionConfig passed to BoardSession."""
 
-                def __init__(self, config: Any) -> None:
+                def __init__(self, browser: Any, config: Any) -> None:
                     captured_configs.append(config)
 
-                async def __aenter__(self) -> _CapturingSessionManager:
+                async def __aenter__(self) -> _CapturingBoardSession:
                     return self
 
                 async def __aexit__(self, *args: object) -> None:
@@ -2351,14 +2351,25 @@ class TestStealthConfig:
                 async def save_storage_state(self) -> Path:
                     return Path(tmpdir) / "session.json"
 
+            # Mock BrowserManager to avoid real browser launch
+            mock_browser = MagicMock()
+            mock_browser_mgr = MagicMock()
+            mock_browser_mgr.browser = mock_browser
+            mock_browser_mgr.__aenter__ = AsyncMock(return_value=mock_browser_mgr)
+            mock_browser_mgr.__aexit__ = AsyncMock(return_value=None)
+
             with (
                 patch.dict(
                     AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage]
                     {"testboard": lambda: mock_adapter},
                 ),  # type: ignore[dict-item]
                 patch(
-                    "jobsearch_rag.pipeline.runner.SessionManager",
-                    _CapturingSessionManager,
+                    "jobsearch_rag.pipeline.runner.BoardSession",
+                    _CapturingBoardSession,
+                ),
+                patch(
+                    "jobsearch_rag.pipeline.runner.BrowserManager",
+                    return_value=mock_browser_mgr,
                 ),
             ):
                 # When: the pipeline runs
@@ -2366,7 +2377,7 @@ class TestStealthConfig:
 
             # Then: SessionConfig.stealth was True (from board config, not board name)
             assert len(captured_configs) == 1, (
-                f"Expected 1 SessionManager creation, got {len(captured_configs)}"
+                f"Expected 1 BoardSession creation, got {len(captured_configs)}"
             )
             session_config = captured_configs[0]
             assert session_config.stealth is True, (

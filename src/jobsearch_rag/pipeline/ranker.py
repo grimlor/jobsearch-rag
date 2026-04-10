@@ -47,8 +47,11 @@ class RankedListing:
         Uses ``·`` (middle dot) as separator instead of ``|`` to avoid
         breaking Markdown table column boundaries.
         """
+        arch_part = f"Archetype: {self.scores.archetype_score:.2f}"
+        if self.scores.best_archetype is not None:
+            arch_part += f" ({self.scores.best_archetype})"
         parts = [
-            f"Archetype: {self.scores.archetype_score:.2f}",
+            arch_part,
             f"Fit: {self.scores.fit_score:.2f}",
             f"History: {self.scores.history_score:.2f}",
             f"Comp: {self.scores.comp_score:.2f}",

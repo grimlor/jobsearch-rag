@@ -140,8 +140,8 @@ class TestSessionManagerCDP:
           (9) The session manager skips sending termination signals when the CDP subprocess has already exited before cleanup.
           (10) The session manager raises a `TimeoutError` when the CDP endpoint never responds before the enter deadline expires.
           (11) The session manager raises a `TimeoutError` that includes the CDP URL when repeated CDP readiness checks exhaust the deadline.
-          (12) The session manager raises a `RuntimeError` when `new_page` is called before the session context is entered.
-          (13) The session manager raises a `RuntimeError` when `save_storage_state` is called before the session context is entered.
+          (12) The session manager raises an `ActionableError` when `new_page` is called before the session context is entered.
+          (13) The session manager raises an `ActionableError` when `save_storage_state` is called before the session context is entered.
           (14) The session manager writes the active session cookies to the configured storage state file as JSON.
           (15) The session manager returns `True` from `has_storage_state` when the persisted session file exists.
           (16) The session manager returns `False` from `has_storage_state` when no persisted session file exists.
@@ -655,28 +655,28 @@ class TestSessionManagerCDP:
         """
         GIVEN a SessionManager that has not been entered as a context manager
         WHEN new_page is called
-        THEN a RuntimeError is raised.
+        THEN an ActionableError is raised.
         """
         # Given: uninitialised manager
         config = SessionConfig(board_name="test", headless=True)
         manager = SessionManager(config)
 
-        # When/Then: new_page raises RuntimeError
-        with pytest.raises(RuntimeError, match="not entered"):
+        # When/Then: new_page raises ActionableError
+        with pytest.raises(ActionableError, match="before entering the context manager"):
             await manager.new_page()
 
     async def test_save_storage_state_without_context_raises_runtime_error(self) -> None:
         """
         GIVEN a SessionManager that has not been entered as a context manager
         WHEN save_storage_state is called
-        THEN a RuntimeError is raised.
+        THEN an ActionableError is raised.
         """
         # Given: uninitialised manager
         config = SessionConfig(board_name="test", headless=True)
         manager = SessionManager(config)
 
-        # When/Then: save_storage_state raises RuntimeError
-        with pytest.raises(RuntimeError, match="not entered"):
+        # When/Then: save_storage_state raises ActionableError
+        with pytest.raises(ActionableError, match="before entering the context manager"):
             await manager.save_storage_state()
 
     async def test_save_storage_state_persists_cookies_to_disk(self, tmp_path: Path) -> None:

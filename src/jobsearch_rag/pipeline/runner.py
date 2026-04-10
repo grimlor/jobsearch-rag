@@ -27,7 +27,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from jobsearch_rag.adapters import AdapterRegistry
-from jobsearch_rag.adapters.session import SessionConfig, SessionManager, throttle
+from jobsearch_rag.adapters.session import (
+    BoardSession,
+    BrowserManager,
+    SessionConfig,
+    throttle,
+)
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import configure_session_logging, log_event, session_logger
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker, RankSummary
@@ -39,6 +44,10 @@ from jobsearch_rag.rag.scorer import Scorer
 from jobsearch_rag.rag.store import VectorStore
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from playwright.async_api import Browser
+
     from jobsearch_rag.adapters.base import JobListing
     from jobsearch_rag.config import Settings
     from jobsearch_rag.rag.scorer import ScoreResult
@@ -171,40 +180,86 @@ class PipelineRunner:
 
         logger.info("Searching boards: %s", ", ".join(board_names))
 
-        # Step 3: Collect listings from all boards (concurrently)
+        # Step 3: Group boards by browser_channel and search concurrently
+        #
+        # Boards sharing the same browser_channel reuse a single
+        # BrowserManager (one browser process per channel).  Groups
+        # run concurrently; boards within a group run sequentially
+        # (they share a single browser, one page at a time).
+        channel_groups = self._group_boards_by_channel(board_names)
+        logger.info(
+            "Channel groups: %s",
+            {ch: list(names) for ch, names in channel_groups.items()},
+        )
+
         all_listings: list[JobListing] = []
         failed_count = 0
         surfaced_errors: list[ActionableError] = []
 
-        async def _search_one(board_name: str) -> tuple[str, list[JobListing], int]:
-            """
-            Search a single board, returning (name, listings, failures).
+        async def _search_group(
+            channel: str | None,
+            group_boards: Sequence[str],
+        ) -> list[tuple[str, list[JobListing], int]]:
+            """Search all boards in a channel group under one BrowserManager."""
+            # Build a representative config for the BrowserManager.
+            # The first board with a valid config determines browser-level
+            # settings (headless, channel, paths).  Per-board settings
+            # (stealth, storage state) are applied by BoardSession.
+            first_board_cfg = None
+            for b in group_boards:
+                first_board_cfg = self._settings.boards.get(b)
+                if first_board_cfg is not None:
+                    break
 
-            Board-level errors are caught here so one failure
-            doesn't cancel the other concurrent searches.
-            """
-            try:
-                board_listings, board_failures, board_errors = await self._search_board(
-                    board_name, overnight=overnight
-                )
-                surfaced_errors.extend(board_errors)
-                logger.info(
-                    "Board '%s': %d listings collected, %d failures",
-                    board_name,
-                    len(board_listings),
-                    board_failures,
-                )
-                return board_name, board_listings, board_failures
-            except ActionableError as exc:
-                logger.error("Board '%s' failed entirely: %s", board_name, exc.error)
-                surfaced_errors.append(exc)
-                return board_name, [], 0
+            if first_board_cfg is None:
+                # No valid board configs in this group — _search_board
+                # will skip each one individually.
+                return [(name, [], 0) for name in group_boards]
 
-        results = await asyncio.gather(*[_search_one(b) for b in board_names])
+            mgr_config = SessionConfig(
+                board_name=f"group-{channel or 'default'}",
+                headless=first_board_cfg.headless,
+                browser_channel=channel,
+                storage_dir=Path(self._settings.session_storage_dir),
+                browser_paths=self._settings.adapters.browser_paths,
+                cdp_timeout=self._settings.adapters.cdp_timeout,
+            )
 
-        for _name, board_listings, board_failures in results:
-            all_listings.extend(board_listings)
-            failed_count += board_failures
+            group_results: list[tuple[str, list[JobListing], int]] = []
+            async with BrowserManager(mgr_config) as mgr:
+                for board_name in group_boards:
+                    try:
+                        board_listings, board_failures, board_errors = await self._search_board(
+                            board_name,
+                            overnight=overnight,
+                            browser=mgr.browser,
+                        )
+                        surfaced_errors.extend(board_errors)
+                        logger.info(
+                            "Board '%s': %d listings collected, %d failures",
+                            board_name,
+                            len(board_listings),
+                            board_failures,
+                        )
+                        group_results.append((board_name, board_listings, board_failures))
+                    except ActionableError as exc:
+                        logger.error(
+                            "Board '%s' failed entirely: %s",
+                            board_name,
+                            exc.error,
+                        )
+                        surfaced_errors.append(exc)
+                        group_results.append((board_name, [], 0))
+            return group_results
+
+        group_results = await asyncio.gather(
+            *[_search_group(ch, boards_in_group) for ch, boards_in_group in channel_groups.items()]
+        )
+
+        for group in group_results:
+            for _name, board_listings, board_failures in group:
+                all_listings.extend(board_listings)
+                failed_count += board_failures
 
         # Cap listing count when max_listings is set (quick validation runs)
         if max_listings > 0 and len(all_listings) > max_listings:
@@ -444,16 +499,30 @@ class PipelineRunner:
         except ActionableError:
             return True
 
+    def _group_boards_by_channel(
+        self,
+        board_names: list[str],
+    ) -> dict[str | None, list[str]]:
+        """Group board names by their ``browser_channel`` config value."""
+        groups: dict[str | None, list[str]] = {}
+        for name in board_names:
+            cfg = self._settings.boards.get(name)
+            channel = cfg.browser_channel if cfg else None
+            groups.setdefault(channel, []).append(name)
+        return groups
+
     async def _search_board(
         self,
         board_name: str,
         *,
         overnight: bool = False,
+        browser: Browser,
     ) -> tuple[list[JobListing], int, list[ActionableError]]:
         """
         Search a single board and return (listings, failure_count, errors).
 
-        Manages the browser session lifecycle for this board.
+        Creates a ``BoardSession`` over the shared *browser* provided
+        by the calling ``_search_group``.
         """
         board_cfg = self._settings.boards.get(board_name)
 
@@ -487,7 +556,7 @@ class PipelineRunner:
         failed = 0
         caught_errors: list[ActionableError] = []
 
-        async with SessionManager(config) as session:
+        async with BoardSession(browser, config) as session:
             page = await session.new_page()
 
             # Authenticate

@@ -1,10 +1,19 @@
 """
 Playwright session manager with storage_state persistence and throttling.
 
-Owns browser lifecycle, cookie persistence, and human-like rate limiting.
-Adapters receive a ``Page`` — they never launch browsers themselves.
+Two-layer architecture:
 
-When ``browser_channel`` is set (e.g. ``msedge``), the session manager
+**BrowserManager** — owns the Playwright instance and browser process.
+One per ``browser_channel`` per run.  Shared across multiple boards.
+
+**BoardSession** — owns a ``BrowserContext`` over a shared ``Browser``.
+One per board.  Provides cookie isolation, stealth patches, and page
+management without launching another browser process.
+
+**SessionManager** — backward-compatible convenience wrapper that
+composes ``BrowserManager`` + ``BoardSession`` for single-board callers.
+
+When ``browser_channel`` is set (e.g. ``msedge``), the browser manager
 launches the real system browser as a subprocess and connects to it via
 the Chrome DevTools Protocol (CDP).  This avoids Playwright's automation
 flags (``--enable-automation``, ``navigator.webdriver``) that Cloudflare
@@ -183,82 +192,56 @@ async def throttle(
 
 
 # ---------------------------------------------------------------------------
-# Session manager
+# Browser manager — owns Playwright instance and browser process
 # ---------------------------------------------------------------------------
 
 
-class SessionManager:
+class BrowserManager:
     """
-    Manages Playwright browser sessions with storage_state persistence.
+    Owns the Playwright instance and browser process lifecycle.
+
+    Shared across multiple ``BoardSession`` instances that use the same
+    ``browser_channel``.
 
     Two launch modes:
 
-    **Playwright-managed** (default):
+    **Playwright-managed** (when ``browser_channel`` is ``None``):
       ``playwright.chromium.launch()`` — Playwright starts its bundled
-      Chromium.  Simple and fast, but Cloudflare detects the injected
-      automation flags.
+      Chromium.
 
-    **CDP mode** (when ``browser_channel`` is set):
-      The real system browser (e.g. Edge) is launched as a subprocess
-      with ``--remote-debugging-port``.  Playwright then connects via
-      ``connect_over_cdp()``.  Because the browser was *not* launched
-      by Playwright, it has no automation flags—Cloudflare sees it as
-      a normal browser.
-
-    Usage::
-
-        async with SessionManager(config) as session:
-            page = await session.new_page()
-            await adapter.authenticate(page)
-            await session.save_storage_state()
-            results = await adapter.search(page, query)
+    **CDP mode** (when ``browser_channel`` is set, e.g. ``"msedge"``):
+      The real system browser is launched as a subprocess with
+      ``--remote-debugging-port``.  Playwright then connects via
+      ``connect_over_cdp()``.
     """
 
     def __init__(self, config: SessionConfig) -> None:
         """Initialize with browser session configuration."""
-        self.config = config
+        self._config = config
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
-        self._context: BrowserContext | None = None
         self._cdp_process: subprocess.Popen[bytes] | None = None
         self._cdp_tmpdir: str | None = None
 
-    async def __aenter__(self) -> SessionManager:
-        """Start Playwright, launch the browser, and apply stealth patches."""
+    @property
+    def browser(self) -> Browser:
+        """The Playwright Browser object (available after ``__aenter__``)."""
+        if self._browser is None:
+            raise ActionableError.config(
+                field_name="BrowserManager",
+                reason="Browser accessed before entering the context manager",
+                suggestion="Use 'async with BrowserManager(config) as mgr' before accessing .browser",
+            )
+        return self._browser
+
+    async def __aenter__(self) -> BrowserManager:
+        """Start Playwright and launch (or connect to) the browser."""
         self._playwright = await async_playwright().start()
 
-        if self.config.browser_channel:
+        if self._config.browser_channel:
             await self._launch_cdp()
         else:
             await self._launch_playwright()
-
-        # Load existing session cookies if available
-        storage_path = self.config.storage_state_path
-        storage_state: str | None = None
-        if storage_path.exists():
-            logger.info("Loading session state from %s", storage_path)
-            storage_state = str(storage_path)
-        else:
-            logger.info(
-                "No existing session state for %s — fresh session",
-                self.config.board_name,
-            )
-
-        self._context = await self._browser.new_context(  # type: ignore[union-attr]
-            viewport={"width": self.config.viewport_width, "height": self.config.viewport_height},
-            user_agent=self.config.user_agent if self.config.user_agent else None,
-            storage_state=storage_state,
-        )
-
-        # Apply stealth patches if requested (LinkedIn)
-        if self.config.stealth:
-            try:
-                from playwright_stealth import Stealth  # pyright: ignore[reportMissingTypeStubs] # optional dependency, no stubs available  # noqa: I001, PLC0415
-
-                await Stealth().apply_stealth_async(self._context)
-                logger.info("Stealth patches applied for %s", self.config.board_name)
-            except ImportError:
-                logger.warning("playwright-stealth not installed — stealth mode unavailable")
 
         return self
 
@@ -266,21 +249,15 @@ class SessionManager:
         """Launch browser via Playwright (standard mode)."""
         assert self._playwright is not None
         self._browser = await self._playwright.chromium.launch(
-            headless=self.config.headless,
+            headless=self._config.headless,
         )
 
     async def _launch_cdp(self) -> None:
-        """
-        Launch system browser as subprocess and connect via CDP.
-
-        This avoids Playwright's automation detection flags, allowing
-        the browser to pass Cloudflare bot protection.
-        """
+        """Launch system browser as subprocess and connect via CDP."""
         assert self._playwright is not None
-        channel = self.config.browser_channel or "msedge"
+        channel = self._config.browser_channel or "msedge"
 
-        # Find the browser binary using config paths if provided
-        binary = _find_browser_binary(channel, self.config.browser_paths)
+        binary = _find_browser_binary(channel, self._config.browser_paths)
         if not binary:
             raise ActionableError.config(
                 field_name="browser_channel",
@@ -291,11 +268,8 @@ class SessionManager:
                 ),
             )
 
-        # Find a free port for CDP
         port = _find_free_port()
 
-        # Use a temp dir for the browser profile to avoid conflicts
-        # with the user's running browser
         self._cdp_tmpdir = tempfile.mkdtemp(prefix=f"jobsearch-{channel}-")
 
         cmd = [
@@ -306,18 +280,16 @@ class SessionManager:
             "--no-default-browser-check",
         ]
 
-        if self.config.headless:
+        if self._config.headless:
             cmd.append("--headless=new")
 
-        # Open to about:blank so the initial window is invisible noise,
-        # not a distracting new-tab page.
         cmd.append("about:blank")
 
         logger.info(
             "Launching %s via CDP on port %d for %s",
             channel,
             port,
-            self.config.board_name,
+            self._config.board_name,
         )
         self._cdp_process = subprocess.Popen(
             cmd,
@@ -325,14 +297,11 @@ class SessionManager:
             stderr=subprocess.DEVNULL,
         )
 
-        # Wait for the CDP endpoint to become available
         cdp_url = f"http://localhost:{port}"
-        await _wait_for_cdp(cdp_url, timeout=self.config.cdp_timeout)
+        await _wait_for_cdp(cdp_url, timeout=self._config.cdp_timeout)
 
         self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
 
-        # Close the initial blank page that Edge opens at startup so the
-        # user sees only the Playwright-controlled window.
         for context in self._browser.contexts:
             for page in context.pages:
                 await page.close()
@@ -344,14 +313,11 @@ class SessionManager:
         exc_tb: object,
     ) -> None:
         """Close browser, Playwright, and clean up CDP resources."""
-        if self._context:
-            await self._context.close()
         if self._browser:
             await self._browser.close()
         if self._playwright:
             await self._playwright.stop()
 
-        # Clean up CDP subprocess and temp dir
         if self._cdp_process:
             _terminate_process(self._cdp_process)
             self._cdp_process = None
@@ -359,20 +325,96 @@ class SessionManager:
             shutil.rmtree(self._cdp_tmpdir, ignore_errors=True)
             self._cdp_tmpdir = None
 
+
+# ---------------------------------------------------------------------------
+# Board session — per-board context over a shared browser
+# ---------------------------------------------------------------------------
+
+
+class BoardSession:
+    """
+    Per-board browser context over a shared ``Browser``.
+
+    Provides cookie isolation, stealth patches, and page management.
+
+    Usage::
+
+        async with BrowserManager(config) as mgr:
+            async with BoardSession(mgr.browser, board_config) as session:
+                page = await session.new_page()
+                ...
+                await session.save_storage_state()
+    """
+
+    def __init__(self, browser: Browser, config: SessionConfig) -> None:
+        """Initialize with a shared browser and per-board configuration."""
+        self._browser = browser
+        self._config = config
+        self._context: BrowserContext | None = None
+
+    async def __aenter__(self) -> BoardSession:
+        """Create a browser context with optional cookie loading and stealth."""
+        storage_path = self._config.storage_state_path
+        storage_state: str | None = None
+        if storage_path.exists():
+            logger.info("Loading session state from %s", storage_path)
+            storage_state = str(storage_path)
+        else:
+            logger.info(
+                "No existing session state for %s — fresh session",
+                self._config.board_name,
+            )
+
+        self._context = await self._browser.new_context(
+            viewport={
+                "width": self._config.viewport_width,
+                "height": self._config.viewport_height,
+            },
+            user_agent=self._config.user_agent if self._config.user_agent else None,
+            storage_state=storage_state,
+        )
+
+        if self._config.stealth:
+            try:
+                from playwright_stealth import Stealth  # pyright: ignore[reportMissingTypeStubs] # optional dependency, no stubs available  # noqa: I001, PLC0415
+
+                await Stealth().apply_stealth_async(self._context)
+                logger.info("Stealth patches applied for %s", self._config.board_name)
+            except ImportError:
+                logger.warning("playwright-stealth not installed — stealth mode unavailable")
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        """Close the browser context (the browser itself remains open)."""
+        if self._context:
+            await self._context.close()
+
     async def new_page(self) -> Page:
-        """Create a new page in the managed browser context."""
+        """Create a new page in this board's browser context."""
         if self._context is None:
-            msg = "SessionManager not entered — use 'async with'"
-            raise RuntimeError(msg)
+            raise ActionableError.config(
+                field_name="BoardSession",
+                reason="new_page() called before entering the context manager",
+                suggestion="Use 'async with BoardSession(browser, config) as session' before calling .new_page()",
+            )
         return await self._context.new_page()
 
     async def save_storage_state(self) -> Path:
         """Persist cookies/session to disk for reuse on next run."""
         if self._context is None:
-            msg = "SessionManager not entered — use 'async with'"
-            raise RuntimeError(msg)
+            raise ActionableError.config(
+                field_name="BoardSession",
+                reason="save_storage_state() called before entering the context manager",
+                suggestion="Use 'async with BoardSession(browser, config) as session' before calling .save_storage_state()",
+            )
 
-        path = self.config.storage_state_path
+        path = self._config.storage_state_path
         path.parent.mkdir(parents=True, exist_ok=True)
         state = await self._context.storage_state()
         path.write_text(json.dumps(state, indent=2))
@@ -381,4 +423,80 @@ class SessionManager:
 
     def has_storage_state(self) -> bool:
         """Check whether a persisted session exists for this board."""
-        return self.config.storage_state_path.exists()
+        return self._config.storage_state_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Session manager — backward-compatible wrapper
+# ---------------------------------------------------------------------------
+
+
+class SessionManager:
+    """
+    Backward-compatible wrapper composing BrowserManager + BoardSession.
+
+    For single-board callers (e.g. ``handle_login``) that want the
+    original one-liner interface::
+
+        async with SessionManager(config) as session:
+            page = await session.new_page()
+            await session.save_storage_state()
+
+    For multi-board callers, use ``BrowserManager`` + ``BoardSession``
+    directly to share the browser across boards.
+    """
+
+    def __init__(self, config: SessionConfig) -> None:
+        """Initialize with browser session configuration."""
+        self.config = config
+        self._browser_manager: BrowserManager | None = None
+        self._board_session: BoardSession | None = None
+
+    async def __aenter__(self) -> SessionManager:
+        """Start browser (via BrowserManager) and board context (via BoardSession)."""
+        self._browser_manager = BrowserManager(self.config)
+        await self._browser_manager.__aenter__()
+
+        self._board_session = BoardSession(self._browser_manager.browser, self.config)
+        await self._board_session.__aenter__()
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        """Close board context, then browser."""
+        if self._board_session:
+            await self._board_session.__aexit__(exc_type, exc_val, exc_tb)
+        if self._browser_manager:
+            await self._browser_manager.__aexit__(exc_type, exc_val, exc_tb)
+
+    async def new_page(self) -> Page:
+        """Create a new page in the managed browser context."""
+        if self._board_session is None:
+            raise ActionableError.config(
+                field_name="SessionManager",
+                reason="new_page() called before entering the context manager",
+                suggestion="Use 'async with SessionManager(config) as session' before calling .new_page()",
+            )
+        return await self._board_session.new_page()
+
+    async def save_storage_state(self) -> Path:
+        """Persist cookies/session to disk for reuse on next run."""
+        if self._board_session is None:
+            raise ActionableError.config(
+                field_name="SessionManager",
+                reason="save_storage_state() called before entering the context manager",
+                suggestion="Use 'async with SessionManager(config) as session' before calling .save_storage_state()",
+            )
+        return await self._board_session.save_storage_state()
+
+    def has_storage_state(self) -> bool:
+        """Check whether a persisted session exists for this board."""
+        if self._board_session is None:
+            # Allow checking before entering — use config directly
+            return self.config.storage_state_path.exists()
+        return self._board_session.has_storage_state()

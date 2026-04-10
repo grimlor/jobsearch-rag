@@ -114,6 +114,8 @@ class JDFileExporter:
         lines.append(f"- **Final Score:** {r.final_score:.2f}")
         lines.append(f"- **Fit Score:** {r.scores.fit_score:.2f}")
         lines.append(f"- **Archetype Score:** {r.scores.archetype_score:.2f}")
+        if r.scores.best_archetype is not None:
+            lines.append(f"- **Best Archetype:** {r.scores.best_archetype}")
         lines.append(f"- **History Score:** {r.scores.history_score:.2f}")
         lines.append(f"- **Comp Score:** {r.scores.comp_score:.2f}")
         lines.append(f"- **Culture Score:** {r.scores.culture_score:.2f}")

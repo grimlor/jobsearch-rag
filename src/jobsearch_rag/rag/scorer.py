@@ -117,6 +117,7 @@ class ScoreResult:
     comp_score: float = 0.5
     negative_score: float = 0.0
     culture_score: float = 0.0
+    best_archetype: str | None = None
 
     @property
     def is_valid(self) -> bool:
@@ -239,14 +240,15 @@ class Scorer:
         history_score = 0.0
         negative_score = 0.0
         culture_score = 0.0
+        best_archetype: str | None = None
 
         for chunk in chunks:
             embedding = await self._embedder.embed(chunk)
             fit_score = max(fit_score, self._query_collection("resume", embedding))
-            archetype_score = max(
-                archetype_score,
-                self._query_collection("role_archetypes", embedding),
-            )
+            chunk_arch_score, chunk_arch_name = self._query_archetypes(embedding)
+            if chunk_arch_score > archetype_score:
+                archetype_score = chunk_arch_score
+                best_archetype = chunk_arch_name
             history_score = max(
                 history_score,
                 self._query_collection_optional("decisions", embedding),
@@ -291,6 +293,7 @@ class Scorer:
             disqualifier_reason=reason,
             negative_score=negative_score,
             culture_score=culture_score,
+            best_archetype=best_archetype,
         )
 
     async def disqualify(self, jd_text: str) -> tuple[bool, str | None]:
@@ -402,6 +405,40 @@ class Scorer:
         )
         distances: list[float] = results.get("distances", [[]])[0]
         return _distance_to_score(distances)
+
+    def _query_archetypes(self, embedding: list[float]) -> tuple[float, str | None]:
+        """
+        Query the role_archetypes collection and return (score, best_archetype_name).
+
+        The best archetype is the document with the smallest cosine distance.
+        Falls back to ``None`` if metadata lacks a ``name`` key.
+        """
+        count = self._store.collection_count("role_archetypes")
+        if count == 0:
+            msg = "Collection 'role_archetypes' is empty. Run the indexer before scoring."
+            raise ActionableError.index(msg)
+
+        n_results = min(count, 3)
+        results = self._store.query(
+            collection_name="role_archetypes",
+            query_embedding=embedding,
+            n_results=n_results,
+        )
+        distances: list[float] = results.get("distances", [[]])[0]
+        score = _distance_to_score(distances)
+
+        # Extract best archetype name from the closest match's metadata.
+        # The count > 0 guard above ensures the query returns non-empty,
+        # consistently-shaped results. ChromaDB returns None for entries added
+        # without metadata, so guard against non-dict items.
+        metadatas_raw: list[dict[str, str] | None] = results.get("metadatas", [[]])[0]
+        best_name: str | None = None
+        best_idx = distances.index(min(distances))
+        meta = metadatas_raw[best_idx]
+        if meta is not None:
+            best_name = meta.get("name")
+
+        return score, best_name
 
     def _query_collection_optional(self, collection_name: str, embedding: list[float]) -> float:
         """Query a collection, returning 0.0 if it's empty or missing."""

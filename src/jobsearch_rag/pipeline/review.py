@@ -79,7 +79,8 @@ class ReviewSession:
             f"  {listing.url}",
             f"  Score: {ranked.final_score:.2f}",
             f"    Fit: {scores.fit_score:.2f}  "
-            f"Archetype: {scores.archetype_score:.2f}  "
+            f"Archetype: {scores.archetype_score:.2f}"
+            f"{f' ({scores.best_archetype})' if scores.best_archetype else ''}  "
             f"History: {scores.history_score:.2f}  "
             f"Comp: {scores.comp_score:.2f}",
         ]

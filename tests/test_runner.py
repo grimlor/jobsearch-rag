@@ -767,6 +767,7 @@ class TestBoardSearchDelegation:
           (5) The system counts a listing as failed when extract_detail raises an ActionableError and still scores the other listing.
           (6) The system counts an unexpected exception during extract_detail as a failure without aborting the run.
           (7) The system continues to the next search URL after a search ActionableError and collects that URL's results successfully.
+          (8) The system skips a board whose config is missing even when it shares a channel group with a configured board.
     WHY: A missing config crashing the run is a config error reported too late;
          a single extraction failure aborting the board discards all other
          results from that board's search
@@ -809,6 +810,54 @@ class TestBoardSearchDelegation:
             )
             assert result.failed_listings == 0, (
                 f"Expected 0 failed_listings, got: {result.failed_listings}"
+            )
+
+    async def test_mixed_group_skips_unconfigured_board_via_search_board(self) -> None:
+        """
+        Given a channel group containing one configured board and one unconfigured board,
+        When run() processes the group under a shared BrowserManager,
+        Then the unconfigured board is skipped by _search_board and the configured board's
+        listings are returned normally.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Given: runner with 'testboard' configured; 'ghost' has no config
+            settings = _make_settings(tmpdir, enabled_boards=["testboard", "ghost"])
+            # Remove ghost's auto-generated config so _search_board hits the
+            # board_cfg-is-None guard (make_test_settings creates configs for
+            # all enabled_boards; we need ghost to be absent).
+            del settings.boards["ghost"]
+            runner, _ = _make_runner_with_real_stack(settings)
+
+            listing = _make_listing(
+                board="testboard", external_id="mix-1", title="Mixed Group Role"
+            )
+            test_adapter = _make_test_adapter(board_name="testboard", search_results=[listing])
+            ghost_adapter = _make_test_adapter(board_name="ghost")
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                patch.dict(
+                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage]
+                    {
+                        "testboard": lambda: test_adapter,  # type: ignore[dict-item]
+                        "ghost": lambda: ghost_adapter,  # type: ignore[dict-item]
+                    },
+                ),
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
+            ):
+                # When: run with both boards (same channel → same group)
+                result = await runner.run(boards=["testboard", "ghost"])
+
+            # Then: ghost is skipped; testboard listing is scored and ranked
+            assert result.failed_listings == 0, (
+                f"Expected 0 failed_listings from mixed group, got: {result.failed_listings}"
+            )
+            assert ghost_adapter.authenticate.call_count == 0, (
+                "Ghost adapter should never authenticate — board has no config section"
+            )
+            assert test_adapter.authenticate.call_count == 1, (
+                "Testboard adapter should authenticate once"
             )
 
     async def test_adapter_lifecycle_runs_in_order(self) -> None:
