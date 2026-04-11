@@ -33,10 +33,15 @@ import contextlib
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from jobsearch_rag.adapters.base import JobBoardAdapter
 
 from jobsearch_rag.adapters.registry import AdapterRegistry
 from jobsearch_rag.adapters.session import (
@@ -52,6 +57,15 @@ from tests.conftest import make_test_settings
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _adapt(adapter: object) -> Callable[..., JobBoardAdapter]:
+    """Wrap an adapter/mock as a registry-compatible factory accepting any kwargs."""
+
+    def _factory(**_kwargs: object) -> JobBoardAdapter:
+        return cast("JobBoardAdapter", adapter)
+
+    return _factory
 
 
 def _mock_playwright(
@@ -1319,12 +1333,11 @@ class TestSharedBrowserOrchestration:
         mock_pw_fn, _ = _mock_playwright_boundary()
 
         with (
-            patch.dict(
-                AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+            AdapterRegistry.override(
                 {
-                    "edge_a": lambda: adapter_a,
-                    "edge_b": lambda: adapter_b,
-                    "chromium_c": lambda: adapter_c,
+                    "edge_a": _adapt(adapter_a),
+                    "edge_b": _adapt(adapter_b),
+                    "chromium_c": _adapt(adapter_c),
                 },
             ),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
@@ -1378,11 +1391,10 @@ class TestSharedBrowserOrchestration:
         mock_pw_fn, _mock_page = _mock_playwright_boundary()
 
         with (
-            patch.dict(
-                AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+            AdapterRegistry.override(
                 {
-                    "board_a": lambda: adapter_a,
-                    "board_b": lambda: adapter_b,
+                    "board_a": _adapt(adapter_a),
+                    "board_b": _adapt(adapter_b),
                 },
             ),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
@@ -1424,11 +1436,10 @@ class TestSharedBrowserOrchestration:
         mock_pw_fn, _ = _mock_playwright_boundary()
 
         with (
-            patch.dict(
-                AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+            AdapterRegistry.override(
                 {
-                    "board_x": lambda: adapter_x,
-                    "board_y": lambda: adapter_y,
+                    "board_x": _adapt(adapter_x),
+                    "board_y": _adapt(adapter_y),
                 },
             ),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
@@ -1469,11 +1480,10 @@ class TestSharedBrowserOrchestration:
         mock_pw_fn, _ = _mock_playwright_boundary()
 
         with (
-            patch.dict(
-                AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+            AdapterRegistry.override(
                 {
-                    "edge_board": lambda: adapter_edge,
-                    "chromium_board": lambda: adapter_chrom,
+                    "edge_board": _adapt(adapter_edge),
+                    "chromium_board": _adapt(adapter_chrom),
                 },
             ),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
@@ -1525,11 +1535,10 @@ class TestSharedBrowserOrchestration:
         mock_pw_fn, _ = _mock_playwright_boundary()
 
         with (
-            patch.dict(
-                AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+            AdapterRegistry.override(
                 {
-                    "failing_board": lambda: failing_adapter,
-                    "good_board": lambda: good_adapter,
+                    "failing_board": _adapt(failing_adapter),
+                    "good_board": _adapt(good_adapter),
                 },
             ),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),

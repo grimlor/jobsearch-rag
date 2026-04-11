@@ -171,7 +171,15 @@ class Embedder:
             prompt_tokens = raw_prompt if isinstance(raw_prompt, int) else 0
             eval_tokens = raw_eval if isinstance(raw_eval, int) else 0
             llm_tokens = (prompt_tokens + eval_tokens) or len(prompt) // 4
-            return response.message.content  # type: ignore[return-value]
+            content = response.message.content
+            if content is None:
+                msg = f"Ollama returned empty content for model {self.llm_model}"
+                raise ActionableError.embedding(
+                    model=self.llm_model,
+                    raw_error=msg,
+                    suggestion="Verify the model is loaded and responding correctly",
+                )
+            return content
 
         t0 = time.monotonic()
         result = await self._with_retry(_call, operation="classify")

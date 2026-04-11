@@ -77,7 +77,14 @@ def _extract_jd_body(content: str) -> str:
     return content[idx + len(marker) :].strip()
 
 
-def load_jd_files(jd_dir: str | Path) -> list[JobListing]:
+def load_jd_files(
+    jd_dir: str | Path,
+    *,
+    max_full_text_chars: int = 250_000,
+    salary_floor: float = 10.0,
+    salary_ceiling: float = 1_000_000.0,
+    hours_per_year: int = 2080,
+) -> list[JobListing]:
     """
     Load JobListing objects from exported JD markdown files.
 
@@ -114,7 +121,12 @@ def load_jd_files(jd_dir: str | Path) -> list[JobListing]:
         )
 
         # Parse compensation from body text
-        comp_result = parse_compensation(body)
+        comp_result = parse_compensation(
+            body,
+            salary_floor=salary_floor,
+            salary_ceiling=salary_ceiling,
+            hours_per_year=hours_per_year,
+        )
         comp_min = comp_result.comp_min if comp_result else None
         comp_max = comp_result.comp_max if comp_result else None
 
@@ -126,6 +138,7 @@ def load_jd_files(jd_dir: str | Path) -> list[JobListing]:
             location=location,
             url=url,
             full_text=body,
+            max_full_text_chars=max_full_text_chars,
             comp_min=comp_min,
             comp_max=comp_max,
         )
@@ -150,11 +163,19 @@ class Rescorer:
         scorer: Scorer,
         ranker: Ranker,
         base_salary: float = 220_000,
+        max_full_text_chars: int = 250_000,
+        salary_floor: float = 10.0,
+        salary_ceiling: float = 1_000_000.0,
+        hours_per_year: int = 2080,
     ) -> None:
         """Initialize with a scorer, ranker, and base salary for compensation scoring."""
         self._scorer = scorer
         self._ranker = ranker
         self._base_salary = base_salary
+        self._max_full_text_chars = max_full_text_chars
+        self._salary_floor = salary_floor
+        self._salary_ceiling = salary_ceiling
+        self._hours_per_year = hours_per_year
 
     async def rescore(self, jd_dir: str | Path) -> RescoreResult:
         """
@@ -167,7 +188,13 @@ class Rescorer:
             A :class:`RescoreResult` with the newly ranked listings.
 
         """
-        listings = load_jd_files(jd_dir)
+        listings = load_jd_files(
+            jd_dir,
+            max_full_text_chars=self._max_full_text_chars,
+            salary_floor=self._salary_floor,
+            salary_ceiling=self._salary_ceiling,
+            hours_per_year=self._hours_per_year,
+        )
         if not listings:
             logger.warning("No JD files found in %s", jd_dir)
             return RescoreResult()

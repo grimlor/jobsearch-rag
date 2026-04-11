@@ -62,6 +62,7 @@ _REQUIRED = {
     "location": "Remote (USA)",
     "url": "https://example.org/job/sec-001",
     "full_text": "A normal job description.",
+    "max_full_text_chars": 250_000,
 }
 
 
@@ -103,9 +104,9 @@ class TestJobListingValidation:
 
     def test_full_text_exceeding_250k_chars_raises_value_error(self) -> None:
         """
-        GIVEN a JobListing constructed with full_text of 250,001 characters
-        WHEN the constructor executes
-        THEN a ValueError is raised.
+        Given a JobListing constructed with full_text of 250,001 characters
+        When the constructor executes
+        Then a ValueError is raised.
         """
         # Given: oversized full_text
         oversized = "x" * 250_001
@@ -116,9 +117,9 @@ class TestJobListingValidation:
 
     def test_full_text_at_250k_chars_constructs_without_error(self) -> None:
         """
-        GIVEN a JobListing constructed with full_text of exactly 250,000 characters
-        WHEN the constructor executes
-        THEN no error is raised.
+        Given a JobListing constructed with full_text of exactly 250,000 characters
+        When the constructor executes
+        Then no error is raised.
         """
         # Given: exactly at the boundary
         at_limit = "x" * 250_000
@@ -133,9 +134,9 @@ class TestJobListingValidation:
 
     def test_path_traversal_in_title_is_removed(self) -> None:
         r"""
-        GIVEN a JobListing constructed with title containing '../'
-        WHEN the listing is inspected
-        THEN the title field contains no '/' or '\' characters.
+        Given a JobListing constructed with title containing '../'
+        When the listing is inspected
+        Then the title field contains no '/' or '\' characters.
         """
         # Given: path traversal in title
         listing = _make(title="../../etc/passwd Engineer")
@@ -146,9 +147,9 @@ class TestJobListingValidation:
 
     def test_path_traversal_in_company_name_is_removed(self) -> None:
         """
-        GIVEN a JobListing constructed with company containing '../../etc'
-        WHEN the listing is inspected
-        THEN the company field contains no path separator characters.
+        Given a JobListing constructed with company containing '../../etc'
+        When the listing is inspected
+        Then the company field contains no path separator characters.
         """
         # Given: path traversal in company
         listing = _make(company="../../etc/shadow Corp")
@@ -159,9 +160,9 @@ class TestJobListingValidation:
 
     def test_filesystem_unsafe_characters_are_stripped_from_title(self) -> None:
         """
-        GIVEN a title containing characters from the set < > : " | ? *
-        WHEN the listing is constructed
-        THEN the title field contains none of those characters.
+        Given a title containing characters from the set < > : " | ? *
+        When the listing is constructed
+        Then the title field contains none of those characters.
         """
         # Given: filesystem-unsafe characters in title
         listing = _make(title='Staff <Eng> "Platform" | Arch? *Senior*')
@@ -173,9 +174,9 @@ class TestJobListingValidation:
 
     def test_well_formed_listing_constructs_without_error(self) -> None:
         """
-        GIVEN all required fields with normal content
-        WHEN a JobListing is constructed
-        THEN no error is raised and all fields are accessible.
+        Given all required fields with normal content
+        When a JobListing is constructed
+        Then no error is raised and all fields are accessible.
         """
         # When: normal construction
         listing = _make()
@@ -203,9 +204,9 @@ class TestJobListingValidation:
 
     def test_sanitisation_does_not_affect_optional_fields(self) -> None:
         """
-        GIVEN a listing with None for optional fields
-        WHEN the listing is constructed
-        THEN optional fields remain None without error.
+        Given a listing with None for optional fields
+        When the listing is constructed
+        Then optional fields remain None without error.
         """
         # When: listing with defaults for optional fields
         listing = _make()
@@ -328,9 +329,9 @@ class TestDecisionAudit:
         self, _recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN two recorded decisions, one with a reason and one without
-        WHEN audit_decisions() is called
-        THEN only the decision with a reason appears in the result.
+        Given two recorded decisions, one with a reason and one without
+        When audit_decisions() is called
+        Then only the decision with a reason appears in the result.
         """
         # Given: two decisions — one with reason, one without
         await _record_decision(
@@ -351,9 +352,9 @@ class TestDecisionAudit:
         self, _recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN a recorded decision with a reason
-        WHEN audit_decisions() is called
-        THEN the result entry contains job_id, verdict, and reason.
+        Given a recorded decision with a reason
+        When audit_decisions() is called
+        Then the result entry contains job_id, verdict, and reason.
         """
         # Given: a decision with a reason
         await _record_decision(_recorder, job_id="zr_100", verdict="yes", reason="Strong match")
@@ -372,9 +373,9 @@ class TestDecisionAudit:
         self, _recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN decisions exist but none have reasons
-        WHEN audit_decisions() is called
-        THEN the result is an empty list.
+        Given decisions exist but none have reasons
+        When audit_decisions() is called
+        Then the result is an empty list.
         """
         # Given: decisions with no reasons
         await _record_decision(_recorder, job_id="zr_200", verdict="yes", reason="")
@@ -391,9 +392,9 @@ class TestDecisionAudit:
         self, _recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN a recorded decision for job_id 'zr_12345'
-        WHEN get_decision('zr_12345') is called
-        THEN the result includes the verdict and recorded_at timestamp.
+        Given a recorded decision for job_id 'zr_12345'
+        When get_decision('zr_12345') is called
+        Then the result includes the verdict and recorded_at timestamp.
         """
         # Given: a recorded decision
         await _record_decision(_recorder, job_id="zr_12345", verdict="yes", reason="Good fit")
@@ -411,9 +412,9 @@ class TestDecisionAudit:
         self, _recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN a recorded decision for job_id 'zr_12345'
-        WHEN remove_decision('zr_12345') is called
-        THEN get_decision('zr_12345') returns None.
+        Given a recorded decision for job_id 'zr_12345'
+        When remove_decision('zr_12345') is called
+        Then get_decision('zr_12345') returns None.
         """
         # Given: a recorded decision
         await _record_decision(_recorder, job_id="zr_12345", verdict="yes", reason="Good fit")
@@ -430,10 +431,10 @@ class TestDecisionAudit:
         self, _recorder: DecisionRecorder, _decisions_dir: object
     ) -> None:
         """
-        GIVEN a recorded decision that was also written to the JSONL audit log
-        WHEN remove_decision is called for that job_id
-        THEN the JSONL audit log still contains the original entry
-        AND a new entry with verdict "removed" is appended.
+        Given a recorded decision that was also written to the JSONL audit log
+        When remove_decision is called for that job_id
+        Then the JSONL audit log still contains the original entry
+        And a new entry with verdict "removed" is appended.
         """
         # Given: a recorded decision (which writes to JSONL)
         await _record_decision(_recorder, job_id="zr_12345", verdict="yes", reason="Good fit")
@@ -469,10 +470,10 @@ class TestDecisionAudit:
         self, _recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN a recorded decision with a reason
-        WHEN remove_decision is called for that job_id
+        Given a recorded decision with a reason
+        When remove_decision is called for that job_id
         AND audit_decisions() is called afterwards
-        THEN the removed entry does not appear in audit output.
+        Then the removed entry does not appear in audit output.
         """
         # Given: a decision with a reason
         await _record_decision(_recorder, job_id="zr_777", verdict="yes", reason="Culture match")
@@ -490,9 +491,9 @@ class TestDecisionAudit:
         self, _recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN no decision recorded for job_id 'zr_99999'
-        WHEN remove_decision('zr_99999') is called
-        THEN it returns False without raising an exception.
+        Given no decision recorded for job_id 'zr_99999'
+        When remove_decision('zr_99999') is called
+        Then it returns False without raising an exception.
         """
         # When: remove a nonexistent decision
         removed = _recorder.remove_decision("zr_99999")
@@ -505,9 +506,9 @@ class TestDecisionAudit:
         self, _recorder: DecisionRecorder, _decisions_dir: object
     ) -> None:
         """
-        GIVEN a recorded decision for job_id 'zr_12345'
-        WHEN remove_decision('zr_12345') is called
-        THEN the appended JSONL entry contains job_id 'zr_12345',
+        Given a recorded decision for job_id 'zr_12345'
+        When remove_decision('zr_12345') is called
+        Then the appended JSONL entry contains job_id 'zr_12345',
         verdict 'removed', and a recorded_at timestamp.
         """
         # Given: a recorded decision

@@ -53,6 +53,7 @@ def _make_ranked(
         location="Remote",
         url=url,
         full_text="Full JD text for testing." * 10,
+        max_full_text_chars=250_000,
         comp_min=comp_min,
         comp_max=comp_max,
     )

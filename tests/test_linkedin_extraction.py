@@ -50,6 +50,7 @@ def _make_listing(
         location="Remote",
         url="https://www.linkedin.com/jobs/view/li-001",
         full_text=full_text,
+        max_full_text_chars=250_000,
     )
 
 

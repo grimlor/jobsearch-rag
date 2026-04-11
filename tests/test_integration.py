@@ -1250,7 +1250,7 @@ def _make_live_settings(tmp_path: Path, *, max_pages: int = 1) -> Settings:
     return dataclasses.replace(
         real,
         boards=narrowed_boards,
-        chroma=ChromaConfig(persist_dir=chroma_dir),
+        chroma=ChromaConfig(persist_dir=chroma_dir, distance_metric="cosine"),
         output=OutputConfig(
             default_format=real.output.default_format,
             output_dir=output_dir,
@@ -1259,6 +1259,7 @@ def _make_live_settings(tmp_path: Path, *, max_pages: int = 1) -> Settings:
             decisions_dir=decisions_dir,
             log_dir=log_dir,
             eval_history_path=real.output.eval_history_path,
+            max_slug_length=real.output.max_slug_length,
         ),
         scoring=dataclasses.replace(
             real.scoring,

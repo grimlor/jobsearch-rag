@@ -93,6 +93,10 @@ min_score_threshold = 0.45
 missing_comp_score = 0.5
 chunk_overlap = 2000
 dedup_similarity_threshold = 0.95
+top_k_retrieval = 3
+salary_floor = 10.0
+salary_ceiling = 1000000.0
+hours_per_year = 2080
 
 [[scoring.comp_bands]]
 ratio = 1.0
@@ -130,15 +134,20 @@ jd_dir = "output/jds"
 decisions_dir = "data/decisions"
 log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
+max_slug_length = 80
 
 [chroma]
 persist_dir = "{tmpdir}"
+distance_metric = "cosine"
 
 [security]
 screen_prompt = "Review the following job description text."
 
 [adapters]
 cdp_timeout = 15.0
+max_full_text_chars = 250000
+viewport_width = 1440
+viewport_height = 900
 
 [adapters.browser_paths]
 msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
@@ -172,6 +181,7 @@ def _make_listing(
         location="Remote",
         url=f"https://example.org/{external_id}",
         full_text="A test job description.",
+        max_full_text_chars=250_000,
     )
 
 
@@ -274,6 +284,10 @@ min_score_threshold = 0.45
 missing_comp_score = 0.5
 chunk_overlap = 2000
 dedup_similarity_threshold = 0.95
+top_k_retrieval = 3
+salary_floor = 10.0
+salary_ceiling = 1000000.0
+hours_per_year = 2080
 
 [[scoring.comp_bands]]
 ratio = 1.0
@@ -311,15 +325,20 @@ jd_dir = "output/jds"
 decisions_dir = "data/decisions"
 log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
+max_slug_length = 80
 
 [chroma]
 persist_dir = "{tmp_path / "chroma"}"
+distance_metric = "cosine"
 
 [security]
 screen_prompt = "Review the following job description text."
 
 [adapters]
 cdp_timeout = 15.0
+max_full_text_chars = 250000
+viewport_width = 1440
+viewport_height = 900
 
 [adapters.browser_paths]
 {bp_lines}""")
@@ -675,12 +694,13 @@ class TestBoardsCommand:
          leading to search failures on typos
 
     MOCK BOUNDARY:
-        Mock:  AdapterRegistry._registry (monkeypatch to empty dict in one test)
+        Mock:  AdapterRegistry.override(clear=True) to empty the registry in one test
         Real:  AdapterRegistry with its registered adapters, handle_boards()
         Never: Patch AdapterRegistry or list_registered — use real registry state
         Exception: test_handle_boards_empty_registry_prints_no_adapters uses
-            monkeypatch to clear _registry because there is no public unregister
-            API. This is the only way to reach the defensive empty-registry branch.
+            AdapterRegistry.override({}, clear=True) because there is no public
+            unregister API. This is the only way to reach the defensive
+            empty-registry branch.
     """
 
     def test_handle_boards_prints_sorted_board_names(
@@ -710,7 +730,7 @@ class TestBoardsCommand:
             )
 
     def test_handle_boards_empty_registry_prints_no_adapters(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """
         Given no adapters are registered
@@ -719,19 +739,15 @@ class TestBoardsCommand:
         """
         # Given: temporarily clear the registry to simulate a transitional
         # state (e.g. all adapters removed before new ones are added).
-        # This is the one accepted exception to the "never mock our own code"
-        # rule — there is no public unregister API, so monkeypatch on the
-        # class-level dict is the only way to reach this defensive branch.
-        monkeypatch.setattr(AdapterRegistry, "_registry", {})
+        with AdapterRegistry.override({}, clear=True):
+            # When: handle_boards is called
+            handle_boards()
 
-        # When: handle_boards is called
-        handle_boards()
-
-        # Then: the output says no adapters are registered
-        output = capsys.readouterr().out
-        assert "No adapters registered." in output, (
-            f"Expected 'No adapters registered.' message, got: {output!r}"
-        )
+            # Then: the output says no adapters are registered
+            output = capsys.readouterr().out
+            assert "No adapters registered." in output, (
+                f"Expected 'No adapters registered.' message, got: {output!r}"
+            )
 
     def test_handle_boards_uses_bullet_format(self, capsys: pytest.CaptureFixture[str]) -> None:
         """

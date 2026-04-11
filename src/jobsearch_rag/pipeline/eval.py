@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from jobsearch_rag.logging import logger
 
@@ -294,9 +294,9 @@ class EvalRunner:
 
         result = collection.get(include=["documents", "metadatas"])
 
-        ids = result["ids"]
-        documents = result["documents"] or []
-        metadatas = result["metadatas"] or []
+        ids: list[str] = result["ids"]
+        documents: list[Any] = result.get("documents") or []
+        metadatas: list[Any] = result.get("metadatas") or []
 
         decisions: list[tuple[str, str, str]] = []
         for i, doc_id in enumerate(ids):

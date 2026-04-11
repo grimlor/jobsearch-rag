@@ -178,6 +178,7 @@ class Scorer:
         disqualifier_prompt: str | None = None,
         screen_prompt: str | None = None,
         chunk_overlap: int | None = None,
+        top_k_retrieval: int | None = None,
     ) -> None:
         """Initialize with a vector store, embedder, and disqualification flag."""
         self._store = store
@@ -188,6 +189,7 @@ class Scorer:
         self._chunk_overlap = (
             chunk_overlap if chunk_overlap is not None else _DEFAULT_CHUNK_OVERLAP
         )
+        self._top_k_retrieval = top_k_retrieval if top_k_retrieval is not None else 3
         self._cached_rejection_reasons: list[str] | None = None
         self._collection_scores: dict[str, list[float]] = {}
 
@@ -397,7 +399,7 @@ class Scorer:
             msg = f"Collection '{collection_name}' is empty. Run the indexer before scoring."
             raise ActionableError.index(msg)
 
-        n_results = min(count, 3)
+        n_results = min(count, self._top_k_retrieval)
         results = self._store.query(
             collection_name=collection_name,
             query_embedding=embedding,
@@ -418,7 +420,7 @@ class Scorer:
             msg = "Collection 'role_archetypes' is empty. Run the indexer before scoring."
             raise ActionableError.index(msg)
 
-        n_results = min(count, 3)
+        n_results = min(count, self._top_k_retrieval)
         results = self._store.query(
             collection_name="role_archetypes",
             query_embedding=embedding,
@@ -448,7 +450,7 @@ class Scorer:
             return 0.0
         if count == 0:
             return 0.0
-        n_results = min(count, 3)
+        n_results = min(count, self._top_k_retrieval)
         results = self._store.query(
             collection_name=collection_name,
             query_embedding=embedding,

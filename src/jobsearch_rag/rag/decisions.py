@@ -224,7 +224,7 @@ class DecisionRecorder:
         try:
             results = self._store.get_by_metadata(
                 "decisions",
-                where={"reason": {"$ne": ""}},  # type: ignore[dict-item]
+                where={"reason": {"$ne": ""}},
                 include=["metadatas"],
             )
         except ActionableError:

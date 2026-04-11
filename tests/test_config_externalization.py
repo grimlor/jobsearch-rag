@@ -80,7 +80,7 @@ import pytest
 from ollama import ResponseError
 
 from jobsearch_rag.adapters import AdapterRegistry
-from jobsearch_rag.adapters.base import JobListing
+from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.adapters.session import SessionConfig, SessionManager
 from jobsearch_rag.cli import handle_login
 from jobsearch_rag.config import (
@@ -117,6 +117,16 @@ def _import_comp_band() -> type[CompBand]:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
+def _adapt(adapter: object) -> Callable[..., JobBoardAdapter]:
+    """Wrap an adapter/mock as a registry-compatible factory accepting any kwargs."""
+
+    def _factory(**_kwargs: object) -> JobBoardAdapter:
+        return cast("JobBoardAdapter", adapter)
+
+    return _factory
+
+
 # Minimal valid TOML that satisfies all required fields.
 _BASE_SETTINGS = """\
 resume_path = "data/resume.md"
@@ -148,6 +158,10 @@ min_score_threshold = 0.45
 missing_comp_score = 0.5
 chunk_overlap = 2000
 dedup_similarity_threshold = 0.95
+top_k_retrieval = 3
+salary_floor = 10.0
+salary_ceiling = 1000000.0
+hours_per_year = 2080
 
 [[scoring.comp_bands]]
 ratio = 1.0
@@ -185,15 +199,20 @@ jd_dir = "output/jds"
 decisions_dir = "data/decisions"
 log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
+max_slug_length = 80
 
 [chroma]
 persist_dir = "./data/chroma_db"
+distance_metric = "cosine"
 
 [security]
 screen_prompt = "Review the following job description text."
 
 [adapters]
 cdp_timeout = 15.0
+max_full_text_chars = 250000
+viewport_width = 1440
+viewport_height = 900
 
 [adapters.browser_paths]
 msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
@@ -1733,6 +1752,7 @@ class TestScoringTunablesConfig:
             location="Remote",
             url="u1",
             full_text="Full text for listing A",
+            max_full_text_chars=250_000,
         )
         listing_b = JobListing(
             board="b",
@@ -1742,6 +1762,7 @@ class TestScoringTunablesConfig:
             location="Remote",
             url="u2",
             full_text="Full text for listing B",
+            max_full_text_chars=250_000,
         )
         scores_a = ScoreResult(
             fit_score=0.8,
@@ -2359,10 +2380,9 @@ class TestStealthConfig:
             mock_browser_mgr.__aexit__ = AsyncMock(return_value=None)
 
             with (
-                patch.dict(
-                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage]
-                    {"testboard": lambda: mock_adapter},
-                ),  # type: ignore[dict-item]
+                AdapterRegistry.override(
+                    {"testboard": _adapt(mock_adapter)},
+                ),
                 patch(
                     "jobsearch_rag.pipeline.runner.BoardSession",
                     _CapturingBoardSession,

@@ -78,17 +78,15 @@ def _make_listing(
         location="Remote (USA)",
         url="https://example.org/job/test-001",
         full_text=full_text,
+        max_full_text_chars=250_000,
     )
 
 
 @pytest.fixture(autouse=True)
 def _clean_registry() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
     """Reset the registry before each test, restoring original state after."""
-    saved = dict(AdapterRegistry._registry)  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
-    AdapterRegistry._registry.clear()  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
-    yield
-    AdapterRegistry._registry.clear()  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
-    AdapterRegistry._registry.update(saved)  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+    with AdapterRegistry.override({}, clear=True):
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -117,9 +115,9 @@ class TestAdapterRegistration:
 
     def test_registered_adapter_is_retrievable_by_board_name(self) -> None:
         """
-        GIVEN a registered adapter class
-        WHEN looked up by its board name string
-        THEN a ready-to-use adapter instance is returned.
+        Given a registered adapter class
+        When looked up by its board name string
+        Then a ready-to-use adapter instance is returned.
         """
         # Given: register an adapter
         adapter_cls = _make_adapter_class("ziprecruiter")
@@ -134,9 +132,9 @@ class TestAdapterRegistration:
 
     def test_retrieving_unregistered_board_name_raises_value_error_with_name(self) -> None:
         """
-        GIVEN no adapter registered for a board name
-        WHEN get() is called for that name
-        THEN ValueError is raised identifying the missing name.
+        Given no adapter registered for a board name
+        When get() is called for that name
+        Then ValueError is raised identifying the missing name.
         """
         # When/Then: unregistered name raises ValueError
         with pytest.raises(ValueError, match="no-such-board"):
@@ -144,9 +142,9 @@ class TestAdapterRegistration:
 
     def test_registry_lists_all_registered_board_names(self) -> None:
         """
-        GIVEN multiple registered adapters
-        WHEN list_registered() is called
-        THEN all board names are returned.
+        Given multiple registered adapters
+        When list_registered() is called
+        Then all board names are returned.
         """
         # Given: register four adapters
         for name in ("ziprecruiter", "indeed", "weworkremotely", "linkedin"):
@@ -165,9 +163,9 @@ class TestAdapterRegistration:
 
     def test_duplicate_registration_overwrites_previous(self) -> None:
         """
-        GIVEN an adapter already registered for a board name
-        WHEN a second class is registered for the same name
-        THEN the new class replaces the old one.
+        Given an adapter already registered for a board name
+        When a second class is registered for the same name
+        Then the new class replaces the old one.
         """
         # Given: two distinct classes for the same board
         cls_v1 = _make_adapter_class("ziprecruiter")
@@ -185,9 +183,9 @@ class TestAdapterRegistration:
 
     def test_adapter_decorator_does_not_alter_class_interface(self) -> None:
         """
-        GIVEN an adapter class
-        WHEN passed through register()
-        THEN the original class is returned unchanged.
+        Given an adapter class
+        When passed through register()
+        Then the original class is returned unchanged.
         """
         # Given: a concrete adapter class
         cls = _make_adapter_class("ziprecruiter")
@@ -226,9 +224,9 @@ class TestAdapterContract:
 
     def test_board_name_returns_non_empty_string(self) -> None:
         """
-        GIVEN a concrete adapter instance
-        WHEN board_name is accessed
-        THEN a non-empty string is returned.
+        Given a concrete adapter instance
+        When board_name is accessed
+        Then a non-empty string is returned.
         """
         # Given: an adapter instance
         cls = _make_adapter_class("ziprecruiter")
@@ -240,9 +238,9 @@ class TestAdapterContract:
 
     def test_rate_limit_seconds_returns_tuple_of_two_floats(self) -> None:
         """
-        GIVEN a concrete adapter instance
-        WHEN rate_limit_seconds is accessed
-        THEN a (min, max) tuple of two floats is returned.
+        Given a concrete adapter instance
+        When rate_limit_seconds is accessed
+        Then a (min, max) tuple of two floats is returned.
         """
         # Given: an adapter instance
         cls = _make_adapter_class("test-board")
@@ -258,9 +256,9 @@ class TestAdapterContract:
 
     def test_rate_limit_min_is_less_than_max(self) -> None:
         """
-        GIVEN a concrete adapter instance
-        WHEN rate_limit_seconds is accessed
-        THEN the lower bound is strictly less than the upper bound.
+        Given a concrete adapter instance
+        When rate_limit_seconds is accessed
+        Then the lower bound is strictly less than the upper bound.
         """
         # Given: an adapter instance
         cls = _make_adapter_class("test-board")
@@ -274,9 +272,9 @@ class TestAdapterContract:
 
     def test_search_returns_list_of_job_listings(self) -> None:
         """
-        GIVEN a concrete adapter and a mock Playwright page
-        WHEN search() is called
-        THEN a list is returned (possibly empty).
+        Given a concrete adapter and a mock Playwright page
+        When search() is called
+        Then a list is returned (possibly empty).
         """
         # Given: adapter + mock page
         cls = _make_adapter_class("test-board")
@@ -291,9 +289,9 @@ class TestAdapterContract:
 
     def test_extract_detail_populates_full_text_on_listing(self) -> None:
         """
-        GIVEN an adapter and a listing with empty full_text
-        WHEN extract_detail() is called
-        THEN full_text is populated with content.
+        Given an adapter and a listing with empty full_text
+        When extract_detail() is called
+        Then full_text is populated with content.
         """
         # Given: adapter + listing without full_text
         cls = _make_adapter_class("test-board")
@@ -309,9 +307,9 @@ class TestAdapterContract:
 
     def test_extract_detail_returns_same_listing_object_enriched(self) -> None:
         """
-        GIVEN an adapter and a listing object
-        WHEN extract_detail() is called
-        THEN the same object is returned (mutated in place).
+        Given an adapter and a listing object
+        When extract_detail() is called
+        Then the same object is returned (mutated in place).
         """
         # Given: adapter + listing
         cls = _make_adapter_class("test-board")
@@ -353,9 +351,9 @@ class TestJobListingDataContract:
 
     def test_required_fields_are_present_after_extraction(self) -> None:
         """
-        GIVEN a listing constructed with all required fields
-        WHEN fields are accessed
-        THEN all are non-empty strings.
+        Given a listing constructed with all required fields
+        When fields are accessed
+        Then all are non-empty strings.
         """
         # Given: a fully-populated listing
         listing = _make_listing(board="ziprecruiter", full_text="Some JD text")
@@ -371,9 +369,9 @@ class TestJobListingDataContract:
 
     def test_full_text_is_non_empty_string_after_detail_extraction(self) -> None:
         """
-        GIVEN an adapter and a listing
-        WHEN extract_detail() completes
-        THEN full_text is a non-empty string ready for embedding.
+        Given an adapter and a listing
+        When extract_detail() completes
+        Then full_text is a non-empty string ready for embedding.
         """
         # Given: adapter + listing
         cls = _make_adapter_class("ziprecruiter")
@@ -390,9 +388,9 @@ class TestJobListingDataContract:
 
     def test_board_field_matches_adapter_board_name(self) -> None:
         """
-        GIVEN a listing created with an adapter's board name
-        WHEN the board field is accessed
-        THEN it matches the adapter's board_name property.
+        Given a listing created with an adapter's board name
+        When the board field is accessed
+        Then it matches the adapter's board_name property.
         """
         # Given: adapter + listing using its board name
         cls = _make_adapter_class("ziprecruiter")
@@ -404,9 +402,9 @@ class TestJobListingDataContract:
 
     def test_external_id_is_unique_within_a_board(self) -> None:
         """
-        GIVEN two listings on the same board with different external IDs
-        WHEN external_id is compared
-        THEN they are distinct.
+        Given two listings on the same board with different external IDs
+        When external_id is compared
+        Then they are distinct.
         """
         # Given: two listings with different IDs
         listing_a = _make_listing(board="ziprecruiter", external_id="zr-001")
@@ -417,9 +415,9 @@ class TestJobListingDataContract:
 
     def test_missing_posted_at_does_not_raise(self) -> None:
         """
-        GIVEN a listing constructed without posted_at
-        WHEN posted_at is accessed
-        THEN it defaults to None without raising.
+        Given a listing constructed without posted_at
+        When posted_at is accessed
+        Then it defaults to None without raising.
         """
         # Given: listing without posted_at
         listing = _make_listing()
@@ -429,9 +427,9 @@ class TestJobListingDataContract:
 
     def test_metadata_defaults_to_empty_dict_not_none(self) -> None:
         """
-        GIVEN a listing constructed without metadata
-        WHEN metadata is accessed
-        THEN it defaults to an empty dict, not None.
+        Given a listing constructed without metadata
+        When metadata is accessed
+        Then it defaults to an empty dict, not None.
         """
         # Given: listing without metadata
         listing = _make_listing()

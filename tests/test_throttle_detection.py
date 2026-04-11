@@ -66,6 +66,7 @@ def _make_listing(**overrides: Any) -> JobListing:
         "location": "Remote",
         "url": "https://www.ziprecruiter.com/jobs/test-1",
         "full_text": "",
+        "max_full_text_chars": 250_000,
     }
     defaults.update(overrides)
     return JobListing(**defaults)

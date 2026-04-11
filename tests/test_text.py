@@ -6,7 +6,10 @@ Covers :class:`TestSlugify`.
 
 from __future__ import annotations
 
-from jobsearch_rag.text import MAX_SLUG_LEN, slugify
+from jobsearch_rag.text import slugify
+
+# Default max_len parameter value used by slugify() when no override is passed.
+_DEFAULT_MAX_SLUG_LEN = 80
 
 
 class TestSlugify:
@@ -31,7 +34,7 @@ class TestSlugify:
 
     MOCK BOUNDARY:
         Mock:  nothing — this class tests pure computation
-        Real:  slugify function, MAX_SLUG_LEN constant
+        Real:  slugify function
         Never: Patch slugify internals — call the function directly
     """
 
@@ -111,18 +114,20 @@ class TestSlugify:
 
     def test_truncation_at_default_max_length(self) -> None:
         """
-        Given text that exceeds MAX_SLUG_LEN after slugification
+        Given text that exceeds the default max_len after slugification
         When the text is slugified
-        Then the result is truncated to MAX_SLUG_LEN
+        Then the result is truncated to the default max_len
         """
-        # Given: text that exceeds MAX_SLUG_LEN after slugification
-        long_text = "a " * (MAX_SLUG_LEN + 10)
+        # Given: text that exceeds the default max_len after slugification
+        long_text = "a " * (_DEFAULT_MAX_SLUG_LEN + 10)
 
         # When: the text is slugified
         result = slugify(long_text)
 
-        # Then: the result is truncated to MAX_SLUG_LEN
-        assert len(result) <= MAX_SLUG_LEN, f"Expected len ≤ {MAX_SLUG_LEN}, got {len(result)}"
+        # Then: the result is truncated to the default max_len
+        assert len(result) <= _DEFAULT_MAX_SLUG_LEN, (
+            f"Expected len ≤ {_DEFAULT_MAX_SLUG_LEN}, got {len(result)}"
+        )
 
     def test_custom_max_len_overrides_default(self) -> None:
         """

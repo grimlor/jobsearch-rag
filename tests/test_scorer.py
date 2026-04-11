@@ -1516,6 +1516,7 @@ class TestScoreFusion:
             location="Remote",
             url=f"https://example.org/{external_id}",
             full_text="A test job description.",
+            max_full_text_chars=250_000,
         )
 
     def test_final_score_matches_weighted_sum_formula(self) -> None:
@@ -1935,6 +1936,7 @@ class TestCrossBoardDeduplication:
             location="Remote",
             url=f"https://{board}.com/{external_id}",
             full_text=f"Job description for {title} on {board}.",
+            max_full_text_chars=250_000,
         )
 
     def _make_ranker(self, threshold: float = 0.0) -> Ranker:

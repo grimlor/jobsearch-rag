@@ -79,9 +79,9 @@ class TestOllamaConnectivity:
 
     async def test_unreachable_ollama_provides_url_and_connectivity_steps(self) -> None:
         """
-        GIVEN an Embedder configured with an unreachable Ollama URL
-        WHEN health_check() is called
-        THEN a CONNECTION error naming the URL with troubleshooting steps is raised.
+        Given an Embedder configured with an unreachable Ollama URL
+        When health_check() is called
+        Then a CONNECTION error naming the URL with troubleshooting steps is raised.
         """
         # Given: unreachable URL
         embedder = Embedder(make_test_ollama_config(base_url="http://localhost:59999"))
@@ -102,9 +102,9 @@ class TestOllamaConnectivity:
 
     async def test_startup_check_runs_before_browser_session_opens(self) -> None:
         """
-        GIVEN an Embedder with an unreachable Ollama URL
-        WHEN health_check() is called at startup
-        THEN a CONNECTION error with actionable guidance is raised before any browser work.
+        Given an Embedder with an unreachable Ollama URL
+        When health_check() is called at startup
+        Then a CONNECTION error with actionable guidance is raised before any browser work.
         """
         # Given: unreachable URL
         embedder = Embedder(make_test_ollama_config(base_url="http://localhost:59999"))
@@ -125,9 +125,9 @@ class TestOllamaConnectivity:
         self,
     ) -> None:
         """
-        GIVEN an Embedder with a model name not in Ollama's model list
-        WHEN health_check() is called
-        THEN an EMBEDDING error suggesting 'ollama pull' is raised.
+        Given an Embedder with a model name not in Ollama's model list
+        When health_check() is called
+        Then an EMBEDDING error suggesting 'ollama pull' is raised.
         """
         # Given: mock client returning empty model list
         mock_client = MagicMock()
@@ -158,9 +158,9 @@ class TestOllamaConnectivity:
 
     async def test_ollama_timeout_on_embedding_retries_with_backoff(self) -> None:
         """
-        GIVEN an Ollama that fails twice then succeeds
-        WHEN embed() is called with max_retries=3
-        THEN the result is returned after 3 calls (2 retries + 1 success).
+        Given an Ollama that fails twice then succeeds
+        When embed() is called with max_retries=3
+        Then the result is returned after 3 calls (2 retries + 1 success).
         """
         # Given: mock that fails twice then succeeds
         call_count = 0
@@ -190,9 +190,9 @@ class TestOllamaConnectivity:
 
     async def test_ollama_timeout_after_retries_advises_checking_system_resources(self) -> None:
         """
-        GIVEN an Ollama that always times out
-        WHEN embed() exhausts all retries
-        THEN an EMBEDDING error advising about system resources is raised.
+        Given an Ollama that always times out
+        When embed() exhausts all retries
+        Then an EMBEDDING error advising about system resources is raised.
         """
 
         # Given: always-failing mock
@@ -248,9 +248,9 @@ class TestResumeIndexing:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN an empty resume collection in ChromaDB
-        WHEN scorer.score() is called
-        THEN an INDEX error telling the operator to run the index command is raised.
+        Given an empty resume collection in ChromaDB
+        When scorer.score() is called
+        Then an INDEX error telling the operator to run the index command is raised.
         """
         # Given: empty store (no resume indexed)
         scorer = Scorer(store=store, embedder=mock_embedder)
@@ -270,9 +270,9 @@ class TestResumeIndexing:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN no resume collection in ChromaDB
-        WHEN scorer.score() is called
-        THEN the INDEX error names 'resume' and provides step-by-step setup guidance.
+        Given no resume collection in ChromaDB
+        When scorer.score() is called
+        Then the INDEX error names 'resume' and provides step-by-step setup guidance.
         """
         # Given: empty store
         scorer = Scorer(store=store, embedder=mock_embedder)
@@ -292,9 +292,9 @@ class TestResumeIndexing:
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN a resume with three ## sections
-        WHEN index_resume is called
-        THEN three chunks are created, one per section with correct content.
+        Given a resume with three ## sections
+        When index_resume is called
+        Then three chunks are created, one per section with correct content.
         """
         # Given: resume with 3 sections
         content = """\
@@ -333,9 +333,9 @@ Python, distributed systems, cloud platforms.
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN a resume with multi-sentence sections
-        WHEN index_resume chunks the content
-        THEN each chunk contains at least one complete sentence (no mid-sentence splits).
+        Given a resume with multi-sentence sections
+        When index_resume chunks the content
+        Then each chunk contains at least one complete sentence (no mid-sentence splits).
         """
         # Given: resume with complete sentences
         content = """\
@@ -365,9 +365,9 @@ Led teams. Built platforms.
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN a resume already indexed
-        WHEN index_resume is called again
-        THEN previous content is replaced, not appended.
+        Given a resume already indexed
+        When index_resume is called again
+        Then previous content is replaced, not appended.
         """
         # Given: resume content
         resume_content = """\
@@ -395,9 +395,9 @@ Original summary.
 
     async def test_index_confirms_chunk_count_in_output(self, indexer: Indexer) -> None:
         """
-        GIVEN a resume with two ## sections
-        WHEN index_resume is called
-        THEN the return value is 2, confirming chunk count for operator feedback.
+        Given a resume with two ## sections
+        When index_resume is called
+        Then the return value is 2, confirming chunk count for operator feedback.
         """
         # Given: resume with 2 sections
         content = """\
@@ -448,9 +448,9 @@ class TestArchetypeIndexing:
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN a TOML file with two archetypes
-        WHEN index_archetypes is called
-        THEN each archetype produces one ChromaDB document.
+        Given a TOML file with two archetypes
+        When index_archetypes is called
+        Then each archetype produces one ChromaDB document.
         """
         # Given: TOML with 2 archetypes
         toml_content = """\
@@ -479,9 +479,9 @@ description = "Developer relations."
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN an indexed archetype
-        WHEN the document metadata is retrieved
-        THEN the archetype name is stored for debugging.
+        Given an indexed archetype
+        When the document metadata is retrieved
+        Then the archetype name is stored for debugging.
         """
         # Given: TOML with one archetype
         toml_content = """\
@@ -509,9 +509,9 @@ description = "Defines tech strategy."
         self, indexer: Indexer
     ) -> None:
         """
-        GIVEN a TOML file with invalid syntax
-        WHEN index_archetypes is called
-        THEN a PARSE error with actionable guidance is raised.
+        Given a TOML file with invalid syntax
+        When index_archetypes is called
+        Then a PARSE error with actionable guidance is raised.
         """
         # Given: malformed TOML
         bad_toml = "this is [not valid {{ toml"
@@ -1163,6 +1163,7 @@ class TestCultureScoring:
                 location="Remote",
                 url="https://example.org",
                 full_text="JD text",
+                max_full_text_chars=250_000,
             ),
             scores=scores,
             final_score=0.75,
@@ -1301,6 +1302,7 @@ class TestCultureScoring:
                 location="Remote",
                 url="https://example.org",
                 full_text="JD text",
+                max_full_text_chars=250_000,
             ),
             scores=scores,
             final_score=0.75,

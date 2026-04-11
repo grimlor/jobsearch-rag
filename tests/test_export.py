@@ -58,6 +58,7 @@ def _listing(
         location="Remote",
         url=url,
         full_text=full_text,
+        max_full_text_chars=250_000,
     )
 
 

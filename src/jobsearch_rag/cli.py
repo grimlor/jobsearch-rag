@@ -66,7 +66,7 @@ def _read_jd_text(
     return content[idx + len(marker) :].strip()
 
 
-def _load_prior_csv(csv_path: Path) -> list[RankedListing]:
+def _load_prior_csv(csv_path: Path, *, max_full_text_chars: int) -> list[RankedListing]:
     """
     Read a prior results CSV and reconstruct ``RankedListing`` objects.
 
@@ -90,6 +90,7 @@ def _load_prior_csv(csv_path: Path) -> list[RankedListing]:
                 location=row.get("location", ""),
                 url=row.get("url", ""),
                 full_text="",
+                max_full_text_chars=max_full_text_chars,
                 comp_min=float(row["comp_min"]) if row.get("comp_min") else None,
                 comp_max=float(row["comp_max"]) if row.get("comp_max") else None,
             )
@@ -309,7 +310,10 @@ def handle_search(args: argparse.Namespace) -> None:
             # Accumulate mode: merge new results with prior CSV
             fresh = getattr(args, "fresh", False)
             if not fresh:
-                prior = _load_prior_csv(csv_path)
+                prior = _load_prior_csv(
+                    csv_path,
+                    max_full_text_chars=settings.adapters.max_full_text_chars,
+                )
                 if prior:
                     export_list = _merge_results(result.ranked_listings, prior)
                     # Filter out decided listings
@@ -507,6 +511,7 @@ def handle_review(args: argparse.Namespace) -> None:
                 location=row.get("location", ""),
                 url=row.get("url", ""),
                 full_text=full_text,
+                max_full_text_chars=settings.adapters.max_full_text_chars,
                 comp_min=float(row["comp_min"]) if row.get("comp_min") else None,
                 comp_max=float(row["comp_max"]) if row.get("comp_max") else None,
             )
@@ -588,11 +593,15 @@ def handle_rescore(args: argparse.Namespace) -> None:
     """
     settings = load_settings()
     embedder = Embedder(settings.ollama)
-    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    store = VectorStore(
+        persist_dir=settings.chroma.persist_dir,
+        distance_metric=settings.chroma.distance_metric,
+    )
     scorer = Scorer(
         store=store,
         embedder=embedder,
         disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
+        top_k_retrieval=settings.scoring.top_k_retrieval,
     )
     ranker = Ranker(
         archetype_weight=settings.scoring.archetype_weight,
@@ -607,6 +616,10 @@ def handle_rescore(args: argparse.Namespace) -> None:
         scorer=scorer,
         ranker=ranker,
         base_salary=settings.scoring.base_salary,
+        max_full_text_chars=settings.adapters.max_full_text_chars,
+        salary_floor=settings.scoring.salary_floor,
+        salary_ceiling=settings.scoring.salary_ceiling,
+        hours_per_year=settings.scoring.hours_per_year,
     )
 
     jd_dir = settings.output.jd_dir
@@ -684,12 +697,16 @@ def _build_eval_stack(
     if llm_model is not None:
         ollama_cfg = _dc_replace(ollama_cfg, llm_model=llm_model)
     embedder = Embedder(ollama_cfg)
-    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    store = VectorStore(
+        persist_dir=settings.chroma.persist_dir,
+        distance_metric=settings.chroma.distance_metric,
+    )
     scorer = Scorer(
         store=store,
         embedder=embedder,
         disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
         chunk_overlap=settings.scoring.chunk_overlap,
+        top_k_retrieval=settings.scoring.top_k_retrieval,
     )
     ranker = Ranker(
         archetype_weight=settings.scoring.archetype_weight,

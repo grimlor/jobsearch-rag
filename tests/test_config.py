@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from jobsearch_rag.config import load_settings
+from jobsearch_rag.config import load_settings, synthesize_disqualifier_prompt
 from jobsearch_rag.errors import ActionableError, ErrorType
 
 # A minimal valid settings TOML for tests
@@ -50,6 +50,10 @@ min_score_threshold = 0.45
 missing_comp_score = 0.5
 chunk_overlap = 2000
 dedup_similarity_threshold = 0.95
+top_k_retrieval = 3
+salary_floor = 10.0
+salary_ceiling = 1000000.0
+hours_per_year = 2080
 
 [[scoring.comp_bands]]
 ratio = 1.0
@@ -87,12 +91,17 @@ jd_dir = "output/jds"
 decisions_dir = "data/decisions"
 log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
+max_slug_length = 80
 
 [chroma]
 persist_dir = "./data/chroma_db"
+distance_metric = "cosine"
 
 [adapters]
 cdp_timeout = 15.0
+max_full_text_chars = 250000
+viewport_width = 1440
+viewport_height = 900
 
 [adapters.browser_paths]
 msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
@@ -152,6 +161,8 @@ class TestSettingsValidation:
           (36) The system rejects an empty `[security] screen_prompt` and tells the operator to remove the key or provide content.
           (37) The system rejects an empty `[ollama] classify_system_prompt` and tells the operator to remove the key or provide content.
           (38) The system ignores a `[disqualifier]` value that is not a TOML table and defaults to no disqualifier config.
+          (39) The system treats a non-list `overnight_boards` value as empty.
+          (40) The system treats a non-list `archetypes` value as empty in the disqualifier prompt synthesizer.
     WHY: A mid-run config failure after 10 minutes of browser work is
          far more costly than a startup validation failure — and an error
          that says "validation failed" without telling the operator what
@@ -721,7 +732,9 @@ rate_limit_range = [1.5, 3.5]
             '[output]\ndefault_format = "markdown"\noutput_dir = "./output"\nopen_top_n = 5\n'
             'jd_dir = "output/jds"\n'
             'decisions_dir = "data/decisions"\n'
-            'log_dir = "data/logs"\n',
+            'log_dir = "data/logs"\n'
+            'eval_history_path = "data/eval_history.jsonl"\n'
+            "max_slug_length = 80\n",
             "",
         )
         bad_toml = 'output = "not a dict"\n' + bad_toml
@@ -744,7 +757,7 @@ rate_limit_range = [1.5, 3.5]
         """
         # Given: replace [chroma] section with a scalar
         bad_toml = _VALID_SETTINGS.replace(
-            '[chroma]\npersist_dir = "./data/chroma_db"\n',
+            '[chroma]\npersist_dir = "./data/chroma_db"\ndistance_metric = "cosine"\n',
             "",
         )
         bad_toml = 'chroma = "not a dict"\n' + bad_toml
@@ -1134,6 +1147,52 @@ searches = ["https://example.org/search"]
                 f"Error should mention classify_system_prompt. Got: {exc_info.value}"
             )
 
+    def test_non_list_overnight_boards_value_treated_as_empty(self) -> None:
+        """
+        Given a settings file where overnight_boards is a string instead of a list
+        When load_settings is called
+        Then the value is treated as empty — no overnight boards are configured.
+        """
+        # Given: overnight_boards is a scalar instead of a list
+        bad_toml = _VALID_SETTINGS.replace(
+            '[boards]\nenabled = ["testboard"]',
+            '[boards]\nenabled = ["testboard"]\novernight_boards = "not-a-list"',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = _write_settings(tmpdir, bad_toml)
+
+            # When: settings are loaded
+            settings = load_settings(path)
+
+            # Then: overnight_boards is empty
+            assert settings.overnight_boards == [], (
+                f"Expected empty overnight_boards for scalar value, got {settings.overnight_boards}"
+            )
+
+    def test_non_list_archetypes_value_treated_as_empty_in_disqualifier_prompt(self) -> None:
+        """
+        Given an archetypes TOML file where archetypes is a string instead of a list
+        When synthesize_disqualifier_prompt is called
+        Then ActionableError is raised because no archetypes were found.
+        """
+        # Given: TOML where archetypes is a scalar
+        bad_toml = 'archetypes = "not a list"\n'
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "bad_archetypes.toml"
+            path.write_text(bad_toml)
+
+            # When / Then: raises ActionableError because archetypes is empty
+            with pytest.raises(ActionableError) as exc_info:
+                synthesize_disqualifier_prompt(str(path))
+
+            err = exc_info.value
+            assert err.error_type == ErrorType.CONFIG, (
+                f"Expected CONFIG error, got {err.error_type}"
+            )
+            assert "archetypes" in err.error.lower(), (
+                f"Error should name 'archetypes'. Got: {err.error}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # TestCommittedConfigCompleteness
@@ -1168,6 +1227,10 @@ min_score_threshold = 0.45
 missing_comp_score = 0.5
 chunk_overlap = 2000
 dedup_similarity_threshold = 0.95
+top_k_retrieval = 3
+salary_floor = 10.0
+salary_ceiling = 1000000.0
+hours_per_year = 2080
 
 [[scoring.comp_bands]]
 ratio = 1.0
@@ -1205,12 +1268,17 @@ jd_dir = "output/jds"
 decisions_dir = "data/decisions"
 log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
+max_slug_length = 80
 
 [chroma]
 persist_dir = "./data/chroma_db"
+distance_metric = "cosine"
 
 [adapters]
 cdp_timeout = 15.0
+max_full_text_chars = 250000
+viewport_width = 1440
+viewport_height = 900
 
 [adapters.browser_paths]
 msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]

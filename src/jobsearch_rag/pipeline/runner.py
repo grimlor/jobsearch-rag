@@ -79,12 +79,16 @@ class PipelineRunner:
         """Initialize pipeline components from application settings."""
         self._settings = settings
         self._embedder = Embedder(settings.ollama)
-        self._store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        self._store = VectorStore(
+            persist_dir=settings.chroma.persist_dir,
+            distance_metric=settings.chroma.distance_metric,
+        )
         self._scorer = Scorer(
             store=self._store,
             embedder=self._embedder,
             disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
             chunk_overlap=settings.scoring.chunk_overlap,
+            top_k_retrieval=settings.scoring.top_k_retrieval,
         )
         self._ranker = Ranker(
             archetype_weight=settings.scoring.archetype_weight,
@@ -107,6 +111,11 @@ class PipelineRunner:
     def store(self) -> VectorStore:
         """Public access to the pipeline's vector store."""
         return self._store
+
+    @property
+    def scorer(self) -> Scorer:
+        """Public access to the pipeline's scorer."""
+        return self._scorer
 
     @property
     def decision_recorder(self) -> DecisionRecorder:
@@ -346,7 +355,12 @@ class PipelineRunner:
                     score_result = await self._scorer.score(listing.full_text)
 
                     # Parse compensation from JD text and compute comp_score
-                    comp = parse_compensation(listing.full_text)
+                    comp = parse_compensation(
+                        listing.full_text,
+                        salary_floor=self._settings.scoring.salary_floor,
+                        salary_ceiling=self._settings.scoring.salary_ceiling,
+                        hours_per_year=self._settings.scoring.hours_per_year,
+                    )
                     if comp is not None:
                         listing.comp_min = comp.comp_min
                         listing.comp_max = comp.comp_max
@@ -533,7 +547,9 @@ class PipelineRunner:
         # Pass per-board throttle configuration at construction time.
         # Adapters that don't accept these kwargs (all except ziprecruiter)
         # ignore them via **kwargs tolerance in their __init__.
-        adapter_kwargs: dict[str, int | float | None] = {}
+        adapter_kwargs: dict[str, int | float | None] = {
+            "max_full_text_chars": self._settings.adapters.max_full_text_chars,
+        }
         if board_cfg.throttle_max_retries is not None:
             adapter_kwargs["throttle_max_retries"] = board_cfg.throttle_max_retries
         if board_cfg.throttle_base_delay is not None:

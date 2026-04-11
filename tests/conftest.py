@@ -104,6 +104,10 @@ def make_test_scoring_config(**overrides: Any) -> ScoringConfig:
         "missing_comp_score": 0.5,
         "chunk_overlap": 2000,
         "dedup_similarity_threshold": 0.95,
+        "top_k_retrieval": 3,
+        "salary_floor": 10.0,
+        "salary_ceiling": 1_000_000.0,
+        "hours_per_year": 2080,
     }
     defaults.update(overrides)
     return ScoringConfig(**defaults)
@@ -137,6 +141,7 @@ def make_test_output_config(**overrides: Any) -> OutputConfig:
         "decisions_dir": "data/decisions",
         "log_dir": "data/logs",
         "eval_history_path": "data/eval_history.jsonl",
+        "max_slug_length": 80,
     }
     defaults.update(overrides)
     return OutputConfig(**defaults)
@@ -195,13 +200,22 @@ def make_test_settings(
             decisions_dir=str(tmpdir_path / "decisions"),
             log_dir=str(tmpdir_path / "logs"),
         ),
-        chroma=ChromaConfig(persist_dir=str(tmpdir_path / "chroma")),
+        chroma=ChromaConfig(
+            persist_dir=str(tmpdir_path / "chroma"),
+            distance_metric="cosine",
+        ),
         security=make_test_security_config(),
         resume_path=resume_path or "data/resume.md",
         archetypes_path=archetypes_path or "config/role_archetypes.toml",
         global_rubric_path=global_rubric_path or "config/global_rubric.toml",
         session_storage_dir=str(tmpdir_path),
-        adapters=AdaptersConfig(browser_paths={}, cdp_timeout=15.0),
+        adapters=AdaptersConfig(
+            browser_paths={},
+            cdp_timeout=15.0,
+            max_full_text_chars=250_000,
+            viewport_width=1440,
+            viewport_height=900,
+        ),
     )
 
 

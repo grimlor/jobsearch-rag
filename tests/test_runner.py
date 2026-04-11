@@ -11,19 +11,21 @@ import argparse
 import logging
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import ollama as ollama_sdk
 
 from jobsearch_rag.adapters import AdapterRegistry
-from jobsearch_rag.adapters.base import JobListing
+from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import pytest
 
     from jobsearch_rag.config import Settings
@@ -34,6 +36,15 @@ from jobsearch_rag.pipeline.ranker import RankSummary
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _adapt(adapter: object) -> Callable[..., JobBoardAdapter]:
+    """Wrap an adapter/mock as a registry-compatible factory accepting any kwargs."""
+
+    def _factory(**_kwargs: object) -> JobBoardAdapter:
+        return cast("JobBoardAdapter", adapter)
+
+    return _factory
 
 
 def _create_index_files(tmpdir: str) -> tuple[str, str, str]:
@@ -99,6 +110,7 @@ def _make_listing(
         location="Remote",
         url=f"https://{board}.com/{external_id}",
         full_text="A detailed job description for a staff architect role.",
+        max_full_text_chars=250_000,
     )
 
 
@@ -144,7 +156,7 @@ def _make_runner_with_real_stack(
         runner = PipelineRunner(settings)
 
     if populate_store:
-        _populate_store(runner._store)  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+        _populate_store(runner.store)
 
     return runner, mock_client
 
@@ -201,7 +213,7 @@ def _make_test_adapter(
     """
     Create a test adapter implementing ``JobBoardAdapter``.
 
-    Register it via ``patch.dict(AdapterRegistry._registry, ...)``
+    Register it via ``AdapterRegistry.override(...)``
     so the real ``AdapterRegistry.get()`` returns it.
     """
     adapter = MagicMock()
@@ -280,7 +292,7 @@ class TestPipelineOrchestration:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -308,10 +320,9 @@ class TestPipelineOrchestration:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(
-                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
-                    {"board_a": lambda: adapter_a, "board_b": lambda: adapter_b},
-                ),  # type: ignore[dict-item]
+                AdapterRegistry.override(
+                    {"board_a": _adapt(adapter_a), "board_b": _adapt(adapter_b)},
+                ),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -340,10 +351,9 @@ class TestPipelineOrchestration:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(
-                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
-                    {"board_a": lambda: adapter_a, "board_b": lambda: adapter_b},
-                ),  # type: ignore[dict-item]
+                AdapterRegistry.override(
+                    {"board_a": _adapt(adapter_a), "board_b": _adapt(adapter_b)},
+                ),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -375,10 +385,9 @@ class TestPipelineOrchestration:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(
-                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
-                    {"board_a": lambda: adapter_a, "linkedin": lambda: adapter_linkedin},
-                ),  # type: ignore[dict-item]
+                AdapterRegistry.override(
+                    {"board_a": _adapt(adapter_a), "linkedin": _adapt(adapter_linkedin)},
+                ),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -422,13 +431,12 @@ class TestPipelineOrchestration:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(
-                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+                AdapterRegistry.override(
                     {
-                        "failing_board": lambda: failing_adapter,
-                        "good_board": lambda: good_adapter,
+                        "failing_board": _adapt(failing_adapter),
+                        "good_board": _adapt(good_adapter),
                     },
-                ),  # type: ignore[dict-item]
+                ),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -467,7 +475,7 @@ class TestPipelineOrchestration:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -494,7 +502,7 @@ class TestPipelineOrchestration:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -526,7 +534,7 @@ class TestPipelineOrchestration:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -560,10 +568,9 @@ class TestPipelineOrchestration:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(
-                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
-                    {"board_a": lambda: adapter_a},
-                ),  # type: ignore[dict-item]
+                AdapterRegistry.override(
+                    {"board_a": _adapt(adapter_a)},
+                ),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -592,7 +599,7 @@ class TestPipelineOrchestration:
                 global_rubric_path=rubric_path,
             )
             runner, _ = _make_runner_with_real_stack(settings, populate_store=False)
-            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            store = runner.store
 
             # Seed resume and archetypes (leave positive_signals empty)
             for name in ("resume", "role_archetypes"):
@@ -606,7 +613,7 @@ class TestPipelineOrchestration:
             mock_adapter = _make_test_adapter()
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -636,7 +643,7 @@ class TestPipelineOrchestration:
                 global_rubric_path=rubric_path,
             )
             runner, _ = _make_runner_with_real_stack(settings, populate_store=False)
-            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            store = runner.store
 
             # Seed resume and positive_signals (leave archetypes empty)
             for name in ("resume", "global_positive_signals"):
@@ -650,7 +657,7 @@ class TestPipelineOrchestration:
             mock_adapter = _make_test_adapter()
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -682,7 +689,7 @@ class TestPipelineOrchestration:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
                 caplog.at_level(logging.INFO, logger="jobsearch-rag"),
@@ -734,7 +741,7 @@ class TestPipelineOrchestration:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": _factory}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _factory}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -797,7 +804,9 @@ class TestBoardSearchDelegation:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"nonexistent_board": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override(
+                    {"nonexistent_board": _adapt(mock_adapter)},
+                ),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -836,11 +845,10 @@ class TestBoardSearchDelegation:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(
-                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage]
+                AdapterRegistry.override(
                     {
-                        "testboard": lambda: test_adapter,  # type: ignore[dict-item]
-                        "ghost": lambda: ghost_adapter,  # type: ignore[dict-item]
+                        "testboard": _adapt(test_adapter),
+                        "ghost": _adapt(ghost_adapter),
                     },
                 ),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
@@ -880,6 +888,7 @@ class TestBoardSearchDelegation:
                 location="Remote",
                 url="https://testboard.com/1",
                 full_text="",
+                max_full_text_chars=250_000,
             )
 
             mock_adapter = MagicMock()
@@ -904,7 +913,7 @@ class TestBoardSearchDelegation:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -956,7 +965,7 @@ class TestBoardSearchDelegation:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -991,6 +1000,7 @@ class TestBoardSearchDelegation:
                 location="Remote",
                 url="https://testboard.com/1",
                 full_text="",
+                max_full_text_chars=250_000,
             )
             empty_listing = JobListing(
                 board="testboard",
@@ -1000,6 +1010,7 @@ class TestBoardSearchDelegation:
                 location="Remote",
                 url="https://example.org/1",
                 full_text="   ",
+                max_full_text_chars=250_000,
             )
 
             mock_adapter = MagicMock()
@@ -1011,7 +1022,7 @@ class TestBoardSearchDelegation:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1045,6 +1056,7 @@ class TestBoardSearchDelegation:
                 location="Remote",
                 url="https://testboard.com/good",
                 full_text="",
+                max_full_text_chars=250_000,
             )
             listing_bad = JobListing(
                 board="testboard",
@@ -1054,6 +1066,7 @@ class TestBoardSearchDelegation:
                 location="Remote",
                 url="https://testboard.com/bad",
                 full_text="",
+                max_full_text_chars=250_000,
             )
 
             mock_adapter = MagicMock()
@@ -1076,7 +1089,7 @@ class TestBoardSearchDelegation:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1111,6 +1124,7 @@ class TestBoardSearchDelegation:
                 location="Remote",
                 url="https://testboard.com/1",
                 full_text="",
+                max_full_text_chars=250_000,
             )
 
             mock_adapter = MagicMock()
@@ -1122,7 +1136,7 @@ class TestBoardSearchDelegation:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1171,7 +1185,7 @@ class TestBoardSearchDelegation:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1235,7 +1249,7 @@ class TestAutoIndex:
             mock_adapter = _make_test_adapter()
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1243,7 +1257,7 @@ class TestAutoIndex:
                 await runner.run()
 
             # Then: collections were populated by real Indexer
-            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            store = runner.store
             assert store.collection_count("resume") > 0, (
                 "resume collection should be populated after auto-index"
             )
@@ -1265,14 +1279,14 @@ class TestAutoIndex:
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
 
-            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            store = runner.store
             resume_count_before = store.collection_count("resume")
             archetypes_count_before = store.collection_count("role_archetypes")
 
             mock_adapter = _make_test_adapter()
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1322,7 +1336,7 @@ class TestAutoIndex:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1330,7 +1344,7 @@ class TestAutoIndex:
                 result = await runner.run()
 
             # Then: auto-index ran (populated collections) and scoring ran too
-            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            store = runner.store
             assert store.collection_count("resume") > 0, "resume should be populated by auto-index"
             assert result.summary.total_scored >= 1, (
                 f"Expected at least 1 scored listing, got: {result.summary.total_scored}"
@@ -1356,7 +1370,7 @@ class TestAutoIndex:
             mock_adapter = _make_test_adapter()
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1364,7 +1378,7 @@ class TestAutoIndex:
                 await runner.run()
 
             # Then: all three collections were auto-indexed
-            store = runner._store  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            store = runner.store
             assert store.collection_count("resume") > 0, (
                 "resume should be auto-indexed when collection was missing"
             )
@@ -1413,13 +1427,14 @@ class TestCompEnrichment:
                 location="Remote",
                 url="https://testboard.com/comp-1",
                 full_text="Principal Architect role. Salary: $180,000 - $220,000 per year.",
+                max_full_text_chars=250_000,
             )
 
             mock_adapter = _make_test_adapter(search_results=[listing])
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1496,7 +1511,7 @@ class TestErrorSurfacing:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1537,6 +1552,7 @@ class TestErrorSurfacing:
                 location="Remote",
                 url="https://testboard.com/ext-1",
                 full_text="",  # empty → triggers extract_detail
+                max_full_text_chars=250_000,
             )
 
             extraction_error = ActionableError(
@@ -1550,7 +1566,7 @@ class TestErrorSurfacing:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1592,7 +1608,7 @@ class TestErrorSurfacing:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1638,19 +1654,19 @@ class TestErrorSurfacing:
                 location="Remote",
                 url="https://board_b.com/b-1",
                 full_text="",
+                max_full_text_chars=250_000,
             )
             adapter_b = _make_test_adapter(board_name="board_b", search_results=[listing_b])
             adapter_b.extract_detail = AsyncMock(side_effect=parse_error)
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(
-                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+                AdapterRegistry.override(
                     {
-                        "board_a": lambda: adapter_a,
-                        "board_b": lambda: adapter_b,
+                        "board_a": _adapt(adapter_a),
+                        "board_b": _adapt(adapter_b),
                     },
-                ),  # type: ignore[dict-item]
+                ),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1768,7 +1784,7 @@ class TestErrorSurfacing:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1807,10 +1823,10 @@ class TestErrorSurfacing:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
-                patch.object(runner._scorer, "score", side_effect=runtime_error),  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_scorer)
+                patch.object(runner.scorer, "score", side_effect=runtime_error),
                 caplog.at_level(logging.ERROR),
             ):
                 # When: pipeline runs — RuntimeError should NOT propagate
@@ -1864,13 +1880,12 @@ class TestErrorSurfacing:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(
-                    AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_registry)
+                AdapterRegistry.override(
                     {
-                        "board_x": lambda: adapter_x,
-                        "board_y": lambda: adapter_y,
+                        "board_x": _adapt(adapter_x),
+                        "board_y": _adapt(adapter_y),
                     },
-                ),  # type: ignore[dict-item]
+                ),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1920,6 +1935,7 @@ class TestErrorSurfacing:
                 location="Remote",
                 url="https://testboard.com/fail-1",
                 full_text="",  # triggers extract_detail
+                max_full_text_chars=250_000,
             )
 
             extraction_error = ActionableError(
@@ -1933,7 +1949,7 @@ class TestErrorSurfacing:
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: mock_adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -1984,6 +2000,8 @@ def _setup_cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "base_salary = 220000\ndisqualify_on_llm_flag = true\n"
         "min_score_threshold = 0.45\nmissing_comp_score = 0.5\n"
         "chunk_overlap = 2000\ndedup_similarity_threshold = 0.95\n"
+        "top_k_retrieval = 3\nsalary_floor = 10.0\n"
+        "salary_ceiling = 1000000.0\nhours_per_year = 2080\n"
         "\n[[scoring.comp_bands]]\nratio = 1.0\nscore = 1.0\n"
         "\n[[scoring.comp_bands]]\nratio = 0.90\nscore = 0.7\n"
         "\n[[scoring.comp_bands]]\nratio = 0.77\nscore = 0.4\n"
@@ -2003,10 +2021,15 @@ def _setup_cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         'decisions_dir = "data/decisions"\n'
         'log_dir = "data/logs"\n'
         'eval_history_path = "data/eval_history.jsonl"\n'
+        "max_slug_length = 80\n"
         f'\n[chroma]\npersist_dir = "{tmp_path / "chroma"}"\n'
+        'distance_metric = "cosine"\n'
         '\n[security]\nscreen_prompt = "Review the following job description text."\n'
         "\n[adapters]\n"
         "cdp_timeout = 15.0\n"
+        "max_full_text_chars = 250000\n"
+        "viewport_width = 1440\n"
+        "viewport_height = 900\n"
         "\n[adapters.browser_paths]\n"
         'msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]\n'
     )

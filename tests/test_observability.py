@@ -95,6 +95,7 @@ def _make_listing(
         location="Remote",
         url=f"https://{board}.com/{external_id}",
         full_text="A detailed job description for a staff architect role.",
+        max_full_text_chars=250_000,
     )
 
 
@@ -126,7 +127,7 @@ def _make_runner_with_real_stack(
     ):
         runner = PipelineRunner(settings)
 
-    _populate_store(runner._store)  # pyright: ignore[reportPrivateUsage]
+    _populate_store(runner.store)
 
     return runner, mock_client
 
@@ -201,7 +202,7 @@ def _make_runner_with_distant_store(
     ):
         runner = PipelineRunner(settings)
 
-    _populate_store_with_distant_embeddings(runner._store)  # pyright: ignore[reportPrivateUsage]
+    _populate_store_with_distant_embeddings(runner.store)
 
     return runner, mock_client
 
@@ -287,8 +288,7 @@ def _run_pipeline_and_read_logs(
 
     with (
         patch("jobsearch_rag.adapters.session.async_playwright", mock_async_pw),
-        patch.dict(
-            AdapterRegistry._registry,  # pyright: ignore[reportPrivateUsage]
+        AdapterRegistry.override(
             {"testboard": type(adapter)},
         ),
         patch(
@@ -1338,7 +1338,7 @@ class TestRetrievalMetrics:
 
             # Override: inject an empty-list entry into the scorer's accumulator.
             # This exercises the defensive guard (if not scores: continue).
-            runner._scorer._collection_scores["phantom_empty"] = []  # pyright: ignore[reportPrivateUsage]
+            runner.scorer.collection_scores["phantom_empty"] = []
 
             # When: pipeline runs
             entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)

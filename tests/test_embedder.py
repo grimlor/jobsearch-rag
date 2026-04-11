@@ -277,6 +277,7 @@ class TestClassification:
     WHAT: (1) The system returns the raw LLM response content.
           (2) The system passes the configured `llm_model` to Ollama.
           (3) The system sends the classification prompt as a single user message in the chat conversation.
+          (4) The system raises an EMBEDDING error when Ollama returns None content.
     WHY: The disqualifier must receive unmodified LLM output to make
          accept/reject decisions — any transformation could flip the result
 
@@ -341,6 +342,33 @@ class TestClassification:
             assert len(user_msgs) == 1, "Should send exactly one user message"
             assert user_msgs[0]["content"] == "evaluate this listing", (
                 "User message should match prompt"
+            )
+
+    async def test_classify_raises_embedding_error_when_ollama_returns_none_content(
+        self, embedder: Embedder
+    ) -> None:
+        """
+        Given an Ollama chat response whose message content is None
+        When classify() is called
+        Then an EMBEDDING error is raised indicating empty content.
+        """
+        # Given: mock response with None content
+        none_resp = _mock_chat_response("placeholder")
+        none_resp.message.content = None
+
+        with patch.object(embedder, "_client") as mock_client:
+            mock_client.chat = AsyncMock(return_value=none_resp)
+
+            # When / Then: raises EMBEDDING error
+            with pytest.raises(ActionableError) as exc_info:
+                await embedder.classify("evaluate this listing")
+
+            err = exc_info.value
+            assert err.error_type == ErrorType.EMBEDDING, (
+                f"Expected EMBEDDING error, got {err.error_type}"
+            )
+            assert "empty content" in err.error.lower(), (
+                f"Error should mention empty content. Got: {err.error}"
             )
 
 

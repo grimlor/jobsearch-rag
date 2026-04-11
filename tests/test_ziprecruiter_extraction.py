@@ -713,6 +713,7 @@ def _make_listing(
         location="Remote",
         url=f"https://www.ziprecruiter.com/c/{external_id}",
         full_text=full_text,
+        max_full_text_chars=250_000,
         metadata=metadata,
     )
 
@@ -1207,11 +1208,11 @@ class TestSearch:
 
         call_count = {"calls": 0}
 
-        def _failing_card_to_listing(card: dict[str, Any]) -> JobListing:
+        def _failing_card_to_listing(card: dict[str, Any], **kwargs: Any) -> JobListing:
             call_count["calls"] += 1
             if call_count["calls"] == 2:
                 raise ValueError("Unparseable card")
-            return original_card_to_listing(card)
+            return original_card_to_listing(card, **kwargs)
 
         # When: search with failing card_to_listing
         with (
@@ -1365,8 +1366,8 @@ class TestSearch:
         original_ctl = card_to_listing
         call_count = {"n": 0}
 
-        def _ctl_with_prepopulated(card: dict[str, Any]) -> JobListing:
-            listing = original_ctl(card)
+        def _ctl_with_prepopulated(card: dict[str, Any], **kwargs: Any) -> JobListing:
+            listing = original_ctl(card, **kwargs)
             call_count["n"] += 1
             if call_count["n"] == 1:
                 listing.full_text = prepopulated_text

@@ -32,20 +32,22 @@ import asyncio
 import os
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import ollama as ollama_sdk
 import pytest
 
 from jobsearch_rag.adapters import AdapterRegistry
-from jobsearch_rag.adapters.base import JobListing
+from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.logging import log_event as _real_log_event
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from tests.conftest import make_test_settings
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from jobsearch_rag.config import Settings
 
 _RUNNER_LOG_EVENT = "jobsearch_rag.pipeline.runner.log_event"
@@ -54,6 +56,15 @@ _RUNNER_LOG_EVENT = "jobsearch_rag.pipeline.runner.log_event"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _adapt(adapter: object) -> Callable[..., JobBoardAdapter]:
+    """Wrap an adapter/mock as a registry-compatible factory accepting any kwargs."""
+
+    def _factory(**_kwargs: object) -> JobBoardAdapter:
+        return cast("JobBoardAdapter", adapter)
+
+    return _factory
 
 
 def _make_settings(tmpdir: str) -> Settings:
@@ -80,6 +91,7 @@ def _make_listing(
         location="Remote",
         url=f"https://testboard.com/{external_id}",
         full_text=full_text,
+        max_full_text_chars=250_000,
     )
 
 
@@ -130,7 +142,7 @@ def _make_runner_with_real_stack(
         runner = PipelineRunner(settings)
 
     # Populate required collections so auto-indexing is skipped
-    store = runner._store  # pyright: ignore[reportPrivateUsage]
+    store = runner.store
     for name in ("resume", "role_archetypes", "global_positive_signals"):
         store.add_documents(
             name,
@@ -196,11 +208,11 @@ async def _run_pipeline(
     mock_pw_fn, _ = _mock_playwright_boundary()
 
     patches = {
-        "testboard": lambda: adapter,  # type: ignore[dict-item]
+        "testboard": _adapt(adapter),
     }
 
     with (
-        patch.dict(AdapterRegistry._registry, patches),  # pyright: ignore[reportPrivateUsage]
+        AdapterRegistry.override(patches),
         patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
         patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
     ):
@@ -652,7 +664,7 @@ class TestCollectionScoreAggregation:
             )
 
             # Then: collection_scores has 3 entries per collection
-            scorer = runner._scorer  # pyright: ignore[reportPrivateUsage]
+            scorer = runner.scorer
             resume_scores = scorer.collection_scores.get("resume", [])
             assert len(resume_scores) == 3, (
                 f"Expected 3 resume scores, got {len(resume_scores)}. "

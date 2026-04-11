@@ -39,9 +39,10 @@ class VectorStore:
         results = store.query("resume", query_embedding=[...], n_results=5)
     """
 
-    def __init__(self, persist_dir: str) -> None:
+    def __init__(self, persist_dir: str, distance_metric: str = "cosine") -> None:
         """Initialize ChromaDB client at *persist_dir*."""
         self.persist_dir = persist_dir
+        self._distance_metric = distance_metric
         self._client = chromadb.PersistentClient(path=persist_dir)
         logger.debug("ChromaDB client initialized at %s", persist_dir)
 
@@ -65,7 +66,7 @@ class VectorStore:
         """
         collection = self._client.get_or_create_collection(
             name=name,
-            metadata={"hnsw:space": "cosine"},
+            metadata={"hnsw:space": self._distance_metric},
         )
         logger.debug("Collection '%s' ready (%d documents)", name, collection.count())
         return collection
@@ -90,7 +91,7 @@ class VectorStore:
         try:
             self._client.delete_collection(name)
             logger.info("Collection '%s' deleted", name)
-        except chromadb.errors.NotFoundError:  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+        except chromadb.errors.NotFoundError:
             logger.debug("Collection '%s' does not exist — nothing to reset", name)
         # Recreate empty so callers can immediately use the collection
         self.get_or_create_collection(name)
@@ -137,8 +138,8 @@ class VectorStore:
         collection.upsert(
             ids=ids,
             documents=documents,
-            embeddings=embeddings,  # type: ignore[arg-type]
-            metadatas=metadatas,  # type: ignore[arg-type]
+            embeddings=embeddings,
+            metadatas=metadatas,
         )
         logger.info(
             "Upserted %d documents into '%s' (total: %d)",
@@ -185,7 +186,7 @@ class VectorStore:
         """
         collection = self._get_existing_collection(collection_name)
         include = include or ["metadatas"]
-        result = collection.get(where=where, include=include)  # type: ignore[arg-type]
+        result = collection.get(where=where, include=include)
         return dict(result)
 
     # -- Similarity query ----------------------------------------------------
@@ -241,7 +242,7 @@ class VectorStore:
 
         effective_n = min(n_results, count)
         result = collection.query(
-            query_embeddings=[query_embedding],  # type: ignore[arg-type]
+            query_embeddings=[query_embedding],
             n_results=effective_n,
             include=["documents", "metadatas", "distances"],
         )
@@ -258,5 +259,5 @@ class VectorStore:
         """
         try:
             return self._client.get_collection(name)
-        except chromadb.errors.NotFoundError:  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+        except chromadb.errors.NotFoundError:
             raise ActionableError.index(name) from None

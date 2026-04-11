@@ -72,6 +72,7 @@ def _make_listing(
         location="Remote",
         url=f"https://example.org/{external_id}",
         full_text=full_text,
+        max_full_text_chars=250_000,
         comp_min=comp_min,
         comp_max=comp_max,
     )
@@ -168,6 +169,10 @@ min_score_threshold = 0.45
 missing_comp_score = 0.5
 chunk_overlap = 2000
 dedup_similarity_threshold = 0.95
+top_k_retrieval = 3
+salary_floor = 10.0
+salary_ceiling = 1000000.0
+hours_per_year = 2080
 
 [[scoring.comp_bands]]
 ratio = 1.0
@@ -205,15 +210,20 @@ jd_dir = "output/jds"
 decisions_dir = "data/decisions"
 log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
+max_slug_length = 80
 
 [chroma]
 persist_dir = "{tmp_path / "chroma"}"
+distance_metric = "cosine"
 
 [security]
 screen_prompt = "Review the following job description text."
 
 [adapters]
 cdp_timeout = 15.0
+max_full_text_chars = 250000
+viewport_width = 1440
+viewport_height = 900
 
 [adapters.browser_paths]
 msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]

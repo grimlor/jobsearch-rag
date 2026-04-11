@@ -50,6 +50,7 @@ def _make_listing(
         location="New York, NY",
         url="https://www.indeed.com/viewjob?jk=indeed-001",
         full_text=full_text,
+        max_full_text_chars=250_000,
     )
 
 

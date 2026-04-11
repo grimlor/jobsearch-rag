@@ -68,8 +68,6 @@ _FALSE_POSITIVE_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 
-_HOURS_PER_YEAR = 2080
-
 
 # ---------------------------------------------------------------------------
 # Parsing
@@ -89,14 +87,13 @@ def _is_hourly(match_text: str) -> bool:
     return bool(_HOURLY_RE.search(match_text))
 
 
-def _is_salary_range(value: float) -> bool:
+def _is_salary_range(value: float, floor: float, ceiling: float) -> bool:
     """
     Heuristic: a salary number should be in a reasonable range.
 
-    Annual salaries: $20,000 - $1,000,000
-    Hourly rates: $10 - $500 (before annualization)
+    The floor and ceiling are configurable via settings.toml.
     """
-    return 10.0 <= value <= 1_000_000.0
+    return floor <= value <= ceiling
 
 
 def _has_false_positive_context(text: str, match_start: int, match_end: int) -> bool:
@@ -108,7 +105,14 @@ def _has_false_positive_context(text: str, match_start: int, match_end: int) -> 
     return bool(_FALSE_POSITIVE_CONTEXT.search(window))
 
 
-def parse_compensation(text: str, source: str = "employer") -> CompResult | None:
+def parse_compensation(
+    text: str,
+    source: str = "employer",
+    *,
+    salary_floor: float = 10.0,
+    salary_ceiling: float = 1_000_000.0,
+    hours_per_year: int = 2080,
+) -> CompResult | None:
     """
     Extract compensation data from job description text.
 
@@ -122,6 +126,12 @@ def parse_compensation(text: str, source: str = "employer") -> CompResult | None
     source:
         Origin of the salary data — ``"employer"`` (JD body) or
         ``"estimated"`` (board-generated estimate).
+    salary_floor:
+        Minimum plausible salary/hourly rate.
+    salary_ceiling:
+        Maximum plausible salary.
+    hours_per_year:
+        Annualization factor for hourly rates.
 
     """
     # Try range patterns first (more specific)
@@ -135,9 +145,11 @@ def parse_compensation(text: str, source: str = "employer") -> CompResult | None
         hourly = _is_hourly(m.group(0))
 
         if hourly:
-            low *= _HOURS_PER_YEAR
-            high *= _HOURS_PER_YEAR
-        elif not _is_salary_range(low) or not _is_salary_range(high):
+            low *= hours_per_year
+            high *= hours_per_year
+        elif not _is_salary_range(low, salary_floor, salary_ceiling) or not _is_salary_range(
+            high, salary_floor, salary_ceiling
+        ):
             continue
 
         return CompResult(
@@ -157,8 +169,8 @@ def parse_compensation(text: str, source: str = "employer") -> CompResult | None
         hourly = _is_hourly(m.group(0))
 
         if hourly:
-            value *= _HOURS_PER_YEAR
-        elif not _is_salary_range(value):
+            value *= hours_per_year
+        elif not _is_salary_range(value, salary_floor, salary_ceiling):
             continue
 
         return CompResult(

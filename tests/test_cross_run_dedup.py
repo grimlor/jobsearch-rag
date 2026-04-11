@@ -12,22 +12,33 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters import AdapterRegistry
-from jobsearch_rag.adapters.base import JobListing
+from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.pipeline.runner import PipelineRunner
 from tests.conftest import make_test_settings
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from jobsearch_rag.config import Settings
     from jobsearch_rag.rag.store import VectorStore
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _adapt(adapter: object) -> Callable[..., JobBoardAdapter]:
+    """Wrap an adapter/mock as a registry-compatible factory accepting any kwargs."""
+
+    def _factory(**_kwargs: object) -> JobBoardAdapter:
+        return cast("JobBoardAdapter", adapter)
+
+    return _factory
 
 
 def _make_settings(tmpdir: str) -> Settings:
@@ -47,6 +58,7 @@ def _make_listing(
         location="Remote",
         url=f"https://testboard.com/jobs/{external_id}",
         full_text=full_text,
+        max_full_text_chars=250_000,
     )
 
 
@@ -86,7 +98,7 @@ def _make_runner_with_real_stack(
         runner = PipelineRunner(settings)
 
     if populate_store:
-        _populate_store(runner._store)  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+        _populate_store(runner.store)
     return runner, mock_client
 
 
@@ -202,7 +214,7 @@ class TestCrossRunDedup:
             # Given: runner with a pre-seeded decision for "already-decided"
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
-            _seed_decision(runner._store, "already-decided")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            _seed_decision(runner.store, "already-decided")
 
             decided_listing = _make_listing(external_id="already-decided", title="Old Role")
             new_listing = _make_listing(external_id="brand-new", title="New Role")
@@ -211,7 +223,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -238,7 +250,7 @@ class TestCrossRunDedup:
             # Given: runner with a pre-seeded decision for "decided-1"
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
-            _seed_decision(runner._store, "decided-1")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            _seed_decision(runner.store, "decided-1")
 
             decided = _make_listing(external_id="decided-1", title="Old Role")
             new = _make_listing(external_id="new-1", title="New Role")
@@ -247,7 +259,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -274,7 +286,7 @@ class TestCrossRunDedup:
             # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
-            _seed_decision(runner._store, "decided-1")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            _seed_decision(runner.store, "decided-1")
 
             decided = _make_listing(external_id="decided-1")
             new = _make_listing(external_id="new-1")
@@ -283,7 +295,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -312,7 +324,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -338,7 +350,7 @@ class TestCrossRunDedup:
             # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
-            _seed_decision(runner._store, "decided-1")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            _seed_decision(runner.store, "decided-1")
 
             decided = _make_listing(external_id="decided-1")
 
@@ -346,7 +358,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -372,7 +384,7 @@ class TestCrossRunDedup:
             # Given: runner with decision keyed by job_id
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
-            _seed_decision(runner._store, "canonical-id-123")  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_store)
+            _seed_decision(runner.store, "canonical-id-123")
 
             # Listing uses external_id matching the decision, but different URL
             listing = _make_listing(external_id="canonical-id-123")
@@ -381,7 +393,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                patch.dict(AdapterRegistry._registry, {"testboard": lambda: adapter}),  # type: ignore[dict-item]
+                AdapterRegistry.override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):

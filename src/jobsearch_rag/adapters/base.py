@@ -5,14 +5,12 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from playwright.async_api import Page
-
-_MAX_FULL_TEXT = 250_000
 
 _FILENAME_UNSAFE_RE = re.compile(r'[<>:"|?*\x00-\x1f]')
 _PATH_SEP_RE = re.compile(r"[/\\]")
@@ -42,6 +40,7 @@ class JobListing:
     location: str
     url: str
     full_text: str
+    max_full_text_chars: int
     posted_at: datetime | None = None
     raw_html: str | None = None
     comp_min: float | None = None
@@ -52,7 +51,7 @@ class JobListing:
 
     def __post_init__(self) -> None:
         """Validate field bounds and sanitize filename-unsafe content."""
-        if self.full_text and len(self.full_text) > _MAX_FULL_TEXT:
+        if self.full_text and len(self.full_text) > self.max_full_text_chars:
             msg = f"full_text exceeds maximum length: {len(self.full_text)} chars"
             raise ValueError(msg)
         self.title = _sanitize_filename_field(self.title)
@@ -66,6 +65,10 @@ class JobBoardAdapter(ABC):
     Each adapter owns: authentication, search result pagination,
     and full JD extraction. Nothing else.
     """
+
+    def __init__(self, **_kwargs: Any) -> None:
+        """Accept and ignore unknown kwargs so stubs tolerate registry kwargs."""
+        super().__init__()
 
     @property
     @abstractmethod

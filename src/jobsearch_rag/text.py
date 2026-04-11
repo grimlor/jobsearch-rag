@@ -9,10 +9,8 @@ from __future__ import annotations
 
 import re
 
-MAX_SLUG_LEN = 80
 
-
-def slugify(text: str, *, max_len: int = MAX_SLUG_LEN) -> str:
+def slugify(text: str, *, max_len: int = 80) -> str:
     """
     Convert *text* to a filesystem-safe slug.
 

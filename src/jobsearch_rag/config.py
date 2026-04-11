@@ -83,6 +83,10 @@ class ScoringConfig:
     missing_comp_score: float
     chunk_overlap: int
     dedup_similarity_threshold: float
+    top_k_retrieval: int
+    salary_floor: float
+    salary_ceiling: float
+    hours_per_year: int
 
 
 @dataclass
@@ -112,6 +116,7 @@ class OutputConfig:
     decisions_dir: str
     log_dir: str
     eval_history_path: str
+    max_slug_length: int
 
 
 @dataclass
@@ -120,6 +125,9 @@ class AdaptersConfig:
 
     browser_paths: dict[str, list[str]]
     cdp_timeout: float
+    max_full_text_chars: int
+    viewport_width: int
+    viewport_height: int
 
 
 @dataclass
@@ -127,6 +135,7 @@ class ChromaConfig:
     """ChromaDB settings from ``[chroma]``."""
 
     persist_dir: str
+    distance_metric: str
 
 
 @dataclass
@@ -205,7 +214,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     boards_section = _require_section(data, "boards", filepath)
     enabled_boards: list[str] = _require_list(boards_section, "enabled", "boards", filepath)
 
-    overnight_boards: list[str] = boards_section.get("overnight_boards", [])  # type: ignore[assignment]
+    overnight_boards: list[str] = _optional_str_list(boards_section, "overnight_boards")
 
     # Validate each enabled board has a config section
     board_configs: dict[str, BoardConfig] = {}
@@ -217,7 +226,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
                 suggestion=f"Add a [boards.{board_name}] section with 'searches' and 'max_pages'",
             )
         board_data = _require_table(boards_section, str(board_name), "boards", filepath)
-        searches: list[str] = board_data.get("searches", [])  # type: ignore[assignment]
+        searches: list[str] = _optional_str_list(board_data, "searches")
         rl_raw = _require_field(board_data, "rate_limit_range", f"boards.{board_name}")
         rl_list: list[float] = [float(v) for v in rl_raw]
         board_configs[board_name] = BoardConfig(
@@ -247,7 +256,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
             board_data_raw = boards_section[board_name]
             if isinstance(board_data_raw, dict):
                 bd = cast("_TOMLDict", board_data_raw)
-                searches_ov: list[str] = bd.get("searches", [])  # type: ignore[assignment]
+                searches_ov: list[str] = _optional_str_list(bd, "searches")
                 rl_raw_ov = _require_field(bd, "rate_limit_range", f"boards.{board_name}")
                 rl_list_ov: list[float] = [float(v) for v in rl_raw_ov]
                 board_configs[board_name] = BoardConfig(
@@ -288,6 +297,10 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
         dedup_similarity_threshold=float(
             _require_field(scoring_data, "dedup_similarity_threshold", "scoring")
         ),
+        top_k_retrieval=int(_require_field(scoring_data, "top_k_retrieval", "scoring")),
+        salary_floor=float(_require_field(scoring_data, "salary_floor", "scoring")),
+        salary_ceiling=float(_require_field(scoring_data, "salary_ceiling", "scoring")),
+        hours_per_year=int(_require_field(scoring_data, "hours_per_year", "scoring")),
     )
 
     # Validate weight ranges
@@ -349,6 +362,41 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
                 suggestion="Order [[scoring.comp_bands]] entries with ratios in decreasing order",
             )
 
+    # Validate top_k_retrieval
+    if scoring.top_k_retrieval < 1:
+        raise ActionableError.validation(
+            field_name="scoring.top_k_retrieval",
+            reason=f"is {scoring.top_k_retrieval} — must be >= 1",
+            suggestion="Set [scoring].top_k_retrieval to a positive integer (e.g. 3)",
+        )
+
+    # Validate salary_floor
+    if scoring.salary_floor < 0:
+        raise ActionableError.validation(
+            field_name="scoring.salary_floor",
+            reason=f"is {scoring.salary_floor} — must be >= 0",
+            suggestion="Set [scoring].salary_floor to a non-negative number (e.g. 10.0)",
+        )
+
+    # Validate salary_ceiling > salary_floor
+    if scoring.salary_ceiling <= scoring.salary_floor:
+        raise ActionableError.validation(
+            field_name="scoring.salary_ceiling",
+            reason=(
+                f"is {scoring.salary_ceiling} — must be greater than "
+                f"salary_floor ({scoring.salary_floor})"
+            ),
+            suggestion="Set [scoring].salary_ceiling to a value greater than salary_floor",
+        )
+
+    # Validate hours_per_year
+    if scoring.hours_per_year <= 0:
+        raise ActionableError.validation(
+            field_name="scoring.hours_per_year",
+            reason=f"is {scoring.hours_per_year} — must be > 0",
+            suggestion="Set [scoring].hours_per_year to a positive integer (e.g. 2080)",
+        )
+
     # -- ollama section ------------------------------------------------------
     ollama_data = _require_section(data, "ollama", filepath)
 
@@ -396,14 +444,36 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
         decisions_dir=str(_require_field(output_data, "decisions_dir", "output")),
         log_dir=str(_require_field(output_data, "log_dir", "output")),
         eval_history_path=str(_require_field(output_data, "eval_history_path", "output")),
+        max_slug_length=int(_require_field(output_data, "max_slug_length", "output")),
     )
+
+    # Validate max_slug_length
+    if output.max_slug_length <= 0:
+        raise ActionableError.validation(
+            field_name="output.max_slug_length",
+            reason=f"is {output.max_slug_length} — must be > 0",
+            suggestion="Set [output].max_slug_length to a positive integer (e.g. 80)",
+        )
 
     # -- chroma section ------------------------------------------------------
     chroma_data = _require_section(data, "chroma", filepath)
 
     chroma = ChromaConfig(
         persist_dir=str(_require_field(chroma_data, "persist_dir", "chroma")),
+        distance_metric=str(_require_field(chroma_data, "distance_metric", "chroma")),
     )
+
+    # Validate distance_metric
+    valid_metrics = {"cosine", "l2", "ip"}
+    if chroma.distance_metric not in valid_metrics:
+        raise ActionableError.validation(
+            field_name="chroma.distance_metric",
+            reason=(
+                f"is '{chroma.distance_metric}' — must be one of: "
+                f"{', '.join(sorted(valid_metrics))}"
+            ),
+            suggestion="Set [chroma].distance_metric to 'cosine', 'l2', or 'ip'",
+        )
 
     # -- shared file paths --------------------------------------------------
     resume_path = str(_require_field(data, "resume_path", "top-level"))
@@ -485,7 +555,32 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     adapters = AdaptersConfig(
         browser_paths=browser_paths,
         cdp_timeout=cdp_timeout,
+        max_full_text_chars=int(_require_field(adapters_data, "max_full_text_chars", "adapters")),
+        viewport_width=int(_require_field(adapters_data, "viewport_width", "adapters")),
+        viewport_height=int(_require_field(adapters_data, "viewport_height", "adapters")),
     )
+
+    # Validate max_full_text_chars
+    if adapters.max_full_text_chars <= 0:
+        raise ActionableError.validation(
+            field_name="adapters.max_full_text_chars",
+            reason=f"is {adapters.max_full_text_chars} — must be > 0",
+            suggestion="Set [adapters].max_full_text_chars to a positive integer (e.g. 250000)",
+        )
+
+    # Validate viewport dimensions
+    if adapters.viewport_width <= 0:
+        raise ActionableError.validation(
+            field_name="adapters.viewport_width",
+            reason=f"is {adapters.viewport_width} — must be > 0",
+            suggestion="Set [adapters].viewport_width to a positive integer (e.g. 1440)",
+        )
+    if adapters.viewport_height <= 0:
+        raise ActionableError.validation(
+            field_name="adapters.viewport_height",
+            reason=f"is {adapters.viewport_height} — must be > 0",
+            suggestion="Set [adapters].viewport_height to a positive integer (e.g. 900)",
+        )
 
     # -- session_storage_dir (from [boards]) ----------------------------------
     session_storage_dir = str(_require_field(boards_section, "session_storage_dir", "boards"))
@@ -539,6 +634,22 @@ def _require_list(
     return cast("list[str]", value)
 
 
+def _optional_str_list(section: _TOMLDict, key: str) -> list[str]:
+    """Return an optional ``list[str]`` field, defaulting to ``[]``."""
+    value = section.get(key, [])
+    if not isinstance(value, list):
+        return []
+    return cast("list[str]", value)
+
+
+def _optional_table_list(section: _TOMLDict, key: str) -> list[_TOMLDict]:
+    """Return an optional list of TOML tables, defaulting to ``[]``."""
+    value = section.get(key, [])
+    if not isinstance(value, list):
+        return []
+    return cast("list[_TOMLDict]", value)
+
+
 def _require_table(section: _TOMLDict, key: str, section_name: str, filepath: Path) -> _TOMLDict:
     """Return a required sub-table, or raise CONFIG error."""
     value = section.get(key)
@@ -581,8 +692,8 @@ def _require_comp_bands(scoring_data: _TOMLDict) -> list[CompBand]:
             suggestion="Add [[scoring.comp_bands]] entries with ratio and score to settings.toml",
         )
     bands: list[CompBand] = []
-    for b in raw_bands:  # type: ignore[reportUnknownVariableType]
-        entry = cast("_TOMLDict", b)
+    validated_bands = cast("list[_TOMLDict]", raw_bands)
+    for entry in validated_bands:
         bands.append(CompBand(ratio=float(entry["ratio"]), score=float(entry["score"])))
     return bands
 
@@ -606,7 +717,7 @@ def synthesize_disqualifier_prompt(archetypes_path: str | Path) -> str:
     filepath = Path(archetypes_path)
     raw_text = filepath.read_text(encoding="utf-8")
     data = tomllib.loads(raw_text)
-    archetypes: list[_TOMLDict] = data.get("archetypes", [])  # type: ignore[assignment]
+    archetypes: list[_TOMLDict] = _optional_table_list(data, "archetypes")
 
     if not archetypes:
         raise ActionableError.config(

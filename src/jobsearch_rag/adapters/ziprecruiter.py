@@ -241,7 +241,7 @@ def extract_job_cards(html: str) -> list[dict[str, Any]]:
     return cards
 
 
-def card_to_listing(card: dict[str, Any]) -> JobListing:
+def card_to_listing(card: dict[str, Any], *, max_full_text_chars: int = 250_000) -> JobListing:
     """
     Convert an extracted card dict to a ``JobListing``.
 
@@ -273,6 +273,7 @@ def card_to_listing(card: dict[str, Any]) -> JobListing:
         location=location,
         url=url,
         full_text="",  # Populated by click-through
+        max_full_text_chars=max_full_text_chars,
         comp_min=comp_min,
         comp_max=comp_max,
         comp_source="serp" if comp_min is not None else None,
@@ -340,6 +341,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         *,
         throttle_max_retries: int | None = None,
         throttle_base_delay: float | None = None,
+        max_full_text_chars: int = 250_000,
     ) -> None:
         """Initialize with optional throttle configuration."""
         self._throttle_max_retries = (
@@ -352,6 +354,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
             if throttle_base_delay is not None
             else _DEFAULT_THROTTLE_BASE_DELAY
         )
+        self._max_full_text_chars = max_full_text_chars
 
     @property
     def board_name(self) -> str:
@@ -451,7 +454,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
             for i, card in enumerate(cards):
                 try:
                     card["url"] = urls[i] if i < len(urls) else ""
-                    listing = card_to_listing(card)
+                    listing = card_to_listing(card, max_full_text_chars=self._max_full_text_chars)
                     page_listings.append(listing)
                 except Exception as exc:
                     logger.warning("Failed to parse a job card: %s", exc)

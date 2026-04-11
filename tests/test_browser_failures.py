@@ -43,6 +43,7 @@ def _make_listing(board: str = "ziprecruiter") -> JobListing:
         location="Remote (USA)",
         url="https://example.org/job/test-001",
         full_text="",
+        max_full_text_chars=250_000,
     )
 
 

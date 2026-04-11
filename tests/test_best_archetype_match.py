@@ -105,6 +105,7 @@ def _make_listing(
         location="Remote",
         url=url,
         full_text=full_text,
+        max_full_text_chars=250_000,
         comp_min=comp_min,
         comp_max=comp_max,
     )

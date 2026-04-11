@@ -94,9 +94,9 @@ class TestJdFileLoading:
 
     def test_loads_listing_from_valid_jd_file(self, jd_dir: Path) -> None:
         """
-        GIVEN a directory with a well-formed JD markdown file
-        WHEN load_jd_files() reads the directory
-        THEN a JobListing is returned with all metadata fields populated.
+        Given a directory with a well-formed JD markdown file
+        When load_jd_files() reads the directory
+        Then a JobListing is returned with all metadata fields populated.
         """
         # When: load JD files
         listings = load_jd_files(jd_dir)
@@ -116,9 +116,9 @@ class TestJdFileLoading:
 
     def test_listing_full_text_contains_jd_body(self, jd_dir: Path) -> None:
         """
-        GIVEN a JD file with a Job Description section
-        WHEN load_jd_files() parses it
-        THEN the listing's full_text contains the JD body text.
+        Given a JD file with a Job Description section
+        When load_jd_files() parses it
+        Then the listing's full_text contains the JD body text.
         """
         # When: load the listing
         listings = load_jd_files(jd_dir)
@@ -147,9 +147,9 @@ class TestJdFileLoading:
 
     def test_nonexistent_directory_returns_empty_list(self, tmp_path: Path) -> None:
         """
-        GIVEN a path that does not exist
-        WHEN load_jd_files() is called
-        THEN an empty list is returned.
+        Given a path that does not exist
+        When load_jd_files() is called
+        Then an empty list is returned.
         """
         # When: load from non-existent path
         listings = load_jd_files(tmp_path / "does-not-exist")
@@ -159,9 +159,9 @@ class TestJdFileLoading:
 
     def test_file_without_jd_body_is_skipped(self, tmp_path: Path) -> None:
         """
-        GIVEN a JD file missing the '## Job Description' section
-        WHEN load_jd_files() reads it
-        THEN the file is silently skipped.
+        Given a JD file missing the '## Job Description' section
+        When load_jd_files() reads it
+        Then the file is silently skipped.
         """
         # Given: a JD file with no body section
         d = tmp_path / "jds"
@@ -176,9 +176,9 @@ class TestJdFileLoading:
 
     def test_missing_metadata_uses_defaults(self, tmp_path: Path) -> None:
         """
-        GIVEN a JD file with only a body and no metadata headers
-        WHEN load_jd_files() parses it
-        THEN default values are used for missing fields.
+        Given a JD file with only a body and no metadata headers
+        When load_jd_files() parses it
+        Then default values are used for missing fields.
         """
         # Given: minimal JD with no metadata
         d = tmp_path / "jds"
@@ -204,9 +204,9 @@ class TestJdFileLoading:
 
     def test_multiple_jd_files_loaded_in_sorted_order(self, tmp_path: Path) -> None:
         """
-        GIVEN a directory with multiple JD files using external_id prefixes
-        WHEN load_jd_files() reads the directory
-        THEN listings are returned in filename-sorted order.
+        Given a directory with multiple JD files using external_id prefixes
+        When load_jd_files() reads the directory
+        Then listings are returned in filename-sorted order.
         """
         # Given: three JD files with external_id prefixes
         d = tmp_path / "jds"
@@ -412,9 +412,9 @@ class TestRescoreWorkflow:
         self, jd_dir: Path, vector_store: VectorStore, mock_embedder: object
     ) -> None:
         """
-        GIVEN a directory with valid JD files and a populated scoring stack
-        WHEN the Rescorer processes the directory
-        THEN it returns ranked listings with no failures.
+        Given a directory with valid JD files and a populated scoring stack
+        When the Rescorer processes the directory
+        Then it returns ranked listings with no failures.
         """
         # Given: store populated with resume + archetypes
         self._populate_store(vector_store)
@@ -436,9 +436,9 @@ class TestRescoreWorkflow:
         self, tmp_path: Path, vector_store: VectorStore, mock_embedder: object
     ) -> None:
         """
-        GIVEN a non-existent JD directory
-        WHEN the Rescorer processes it
-        THEN an empty RescoreResult is returned.
+        Given a non-existent JD directory
+        When the Rescorer processes it
+        Then an empty RescoreResult is returned.
         """
         # Given: scorer with populated store (irrelevant — no JDs to score)
         self._populate_store(vector_store)
@@ -459,9 +459,9 @@ class TestRescoreWorkflow:
         self, jd_dir: Path, vector_store: VectorStore, mock_embedder: object
     ) -> None:
         """
-        GIVEN a Scorer whose store lacks the required resume collection
-        WHEN the Rescorer attempts to score JD files
-        THEN failures are counted and the run completes without crashing.
+        Given a Scorer whose store lacks the required resume collection
+        When the Rescorer attempts to score JD files
+        Then failures are counted and the run completes without crashing.
         """
         # Given: empty store (no resume collection) → Scorer.score raises ActionableError
         scorer = self._make_scorer(vector_store, mock_embedder)
@@ -480,9 +480,9 @@ class TestRescoreWorkflow:
 
     async def test_rescore_result_has_default_fields(self) -> None:
         """
-        GIVEN no arguments
-        WHEN a fresh RescoreResult is created
-        THEN all fields have sensible zero/empty defaults.
+        Given no arguments
+        When a fresh RescoreResult is created
+        Then all fields have sensible zero/empty defaults.
         """
         # When: create a default RescoreResult
         result = RescoreResult()
