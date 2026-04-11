@@ -24,6 +24,8 @@ from jobsearch_rag.adapters.base import JobListing
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+from unittest.mock import patch
+
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.store import VectorStore
@@ -243,9 +245,11 @@ def _store() -> Iterator[VectorStore]:  # pyright: ignore[reportUnusedFunction]
 def _mock_embedder() -> object:  # pyright: ignore[reportUnusedFunction]
     """Real Embedder with ollama client stubbed at the I/O boundary."""
     mock_client = make_mock_ollama_client(embed_vector=EMBED_TEST)
-    embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
-    embedder._client = mock_client  # type: ignore[attr-defined]
-    return embedder
+    with patch(
+        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+        return_value=mock_client,
+    ):
+        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
 
 @pytest.fixture

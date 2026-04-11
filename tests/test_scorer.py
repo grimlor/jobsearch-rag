@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import tempfile
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -115,9 +115,11 @@ def mock_embedder() -> Embedder:
         embed_vector=EMBED_ARCH_JD,
         classify_response='{"disqualified": false, "reason": null}',
     )
-    embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
-    embedder._client = mock_client  # type: ignore[attr-defined]
-    return embedder
+    with patch(
+        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+        return_value=mock_client,
+    ):
+        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
 
 @pytest.fixture

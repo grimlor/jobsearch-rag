@@ -27,7 +27,7 @@ import sys
 import tempfile as _tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -286,9 +286,11 @@ def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
     All Embedder logic — retry, truncation, metrics, token counting —
     runs for real.  Only the ollama HTTP call is replaced.
     """
-    embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
-    embedder._client = mock_ollama_client  # type: ignore[attr-defined]
-    return embedder
+    with patch(
+        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+        return_value=mock_ollama_client,
+    ):
+        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
 
 @pytest.fixture
