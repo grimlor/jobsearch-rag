@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from jobsearch_rag.cli import build_parser
+from jobsearch_rag.config import load_settings
 from jobsearch_rag.pipeline.eval import (
     EvalDecision,
     EvalHistory,
@@ -86,6 +87,112 @@ if TYPE_CHECKING:
 # when JD text is embedded with EMBED_FAKE.  This creates scores < 1.0 so
 # eval tests can distinguish above/below threshold behavior.
 _EMBED_DISTANT: list[float] = [0.9, 0.1, 0.9, 0.1, 0.9]
+
+_SETTINGS_TOML_TEMPLATE = """\
+resume_path = "data/resume.md"
+archetypes_path = "config/role_archetypes.toml"
+global_rubric_path = "config/global_rubric.toml"
+
+[boards]
+enabled = ["testboard"]
+session_storage_dir = "."
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+max_pages = 1
+headless = true
+rate_limit_range = [1.5, 3.5]
+
+[scoring]
+archetype_weight = 0.5
+fit_weight = 0.3
+history_weight = 0.2
+comp_weight = 0.15
+negative_weight = 0.4
+culture_weight = 0.2
+base_salary = 220000
+disqualify_on_llm_flag = true
+min_score_threshold = {min_score_threshold}
+missing_comp_score = 0.5
+chunk_overlap = 2000
+dedup_similarity_threshold = 0.95
+top_k_retrieval = 3
+salary_floor = 10.0
+salary_ceiling = 1000000.0
+hours_per_year = 2080
+
+[[scoring.comp_bands]]
+ratio = 1.0
+score = 1.0
+
+[[scoring.comp_bands]]
+ratio = 0.90
+score = 0.7
+
+[[scoring.comp_bands]]
+ratio = 0.77
+score = 0.4
+
+[[scoring.comp_bands]]
+ratio = 0.68
+score = 0.0
+
+[ollama]
+base_url = "http://localhost:11434"
+llm_model = "mistral:7b"
+embed_model = "nomic-embed-text"
+slow_llm_threshold_ms = 30000
+classify_system_prompt = "You are a classifier."
+max_retries = 1
+base_delay = 0.0
+max_embed_chars = 8000
+head_ratio = 0.6
+retryable_status_codes = [408, 429, 500, 502, 503, 504]
+
+[output]
+default_format = "markdown"
+output_dir = "./output"
+open_top_n = 5
+jd_dir = "output/jds"
+decisions_dir = "decisions"
+log_dir = "logs"
+eval_history_path = "data/eval_history.jsonl"
+max_slug_length = 80
+
+[chroma]
+persist_dir = "./chroma"
+distance_metric = "cosine"
+
+[security]
+screen_prompt = "Review the following job description text."
+
+[adapters]
+cdp_timeout = 15.0
+max_full_text_chars = 250000
+viewport_width = 1440
+viewport_height = 900
+
+[adapters.browser_paths]
+"""
+
+
+def _write_test_settings_toml(base_dir: Path, *, min_score_threshold: float = 0.45) -> None:
+    """Write a valid config/settings.toml and config/global_rubric.toml under *base_dir*."""
+    config_dir = base_dir / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    # Use absolute paths so each tmp_path gets its own ChromaDB instance
+    # (ChromaDB's PersistentClient caches by the raw path string).
+    toml_text = _SETTINGS_TOML_TEMPLATE.format(min_score_threshold=min_score_threshold)
+    toml_text = toml_text.replace(
+        'persist_dir = "./chroma"',
+        f'persist_dir = "{base_dir / "chroma"}"',
+    )
+    toml_text = toml_text.replace(
+        'output_dir = "./output"',
+        f'output_dir = "{base_dir / "output"}"',
+    )
+    (config_dir / "settings.toml").write_text(toml_text, encoding="utf-8")
+    (config_dir / "global_rubric.toml").write_text("# empty rubric for tests\n", encoding="utf-8")
 
 
 def _make_settings(tmpdir: str, *, min_score_threshold: float = 0.45) -> Settings:
@@ -1053,7 +1160,8 @@ class TestEvalIntegration:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (embedding + LLM calls)
-        Real:  EvalRunner, Scorer, Ranker, VectorStore, EvalReport, EvalHistory
+        Real:  EvalRunner, Scorer, Ranker, VectorStore, EvalReport, EvalHistory,
+               load_settings (reads a real TOML file from tmp_path)
         Never: mock the report generation or history append
     """
 
@@ -1066,8 +1174,11 @@ class TestEvalIntegration:
         Then an eval report file exists in output_dir and
              eval_history.jsonl has a new line
         """
-        # Given: pre-seed the store that handle_eval will open
-        settings = _make_settings(str(tmp_path))
+        # Given: chdir first so load_settings reads the test TOML
+        monkeypatch.chdir(tmp_path)
+        _write_test_settings_toml(tmp_path)
+        settings = load_settings()
+
         store = VectorStore(persist_dir=settings.chroma.persist_dir)
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="eval-1", verdict="yes")
@@ -1075,16 +1186,10 @@ class TestEvalIntegration:
 
         _, mock_client = _make_mock_embedder()
 
-        # chdir so relative "data/eval_history.jsonl" lands in tmp_path
-        monkeypatch.chdir(tmp_path)
-
-        # When: handle_eval is invoked with patched settings and ollama client
-        with (
-            patch("jobsearch_rag.cli.load_settings", return_value=settings),
-            patch(
-                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-                return_value=mock_client,
-            ),
+        # When: handle_eval is invoked (reads real settings.toml)
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
         ):
             from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
 
@@ -1304,9 +1409,10 @@ class TestCompareModelsFlag:
          and tedious.
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (embedding + LLM calls), load_settings
+        Mock:  ollama_sdk.AsyncClient (embedding + LLM calls)
         Real:  argparse parsing, handle_eval control flow, Embedder/Scorer/
-               Ranker/EvalRunner construction, ModelComparisonResult
+               Ranker/EvalRunner construction, ModelComparisonResult,
+               load_settings (reads a real TOML file from tmp_path)
         Never: mock the comparison logic or delta computation
     """
 
@@ -1337,21 +1443,20 @@ class TestCompareModelsFlag:
         And report and history are written
         """
         # Given: a store with decisions and no --compare-models flag
-        settings = _make_settings(str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        _write_test_settings_toml(tmp_path)
+        settings = load_settings()
+
         store = VectorStore(persist_dir=settings.chroma.persist_dir)
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
         _, mock_client = _make_mock_embedder()
-        monkeypatch.chdir(tmp_path)
 
         # When: handle_eval runs
-        with (
-            patch("jobsearch_rag.cli.load_settings", return_value=settings),
-            patch(
-                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-                return_value=mock_client,
-            ),
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
         ):
             from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
 
@@ -1377,7 +1482,10 @@ class TestCompareModelsFlag:
         And stdout contains both model names and delta values
         """
         # Given: a store with decisions and --compare-models mistral:7b llama3:8b
-        settings = _make_settings(str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        _write_test_settings_toml(tmp_path)
+        settings = load_settings()
+
         store = VectorStore(persist_dir=settings.chroma.persist_dir)
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
@@ -1388,15 +1496,11 @@ class TestCompareModelsFlag:
         model_b = MagicMock()
         model_b.model = "llama3:8b"
         mock_client.list.return_value.models.append(model_b)
-        monkeypatch.chdir(tmp_path)
 
         # When: handle_eval runs
-        with (
-            patch("jobsearch_rag.cli.load_settings", return_value=settings),
-            patch(
-                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-                return_value=mock_client,
-            ),
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
         ):
             from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
 
@@ -1422,7 +1526,10 @@ class TestCompareModelsFlag:
         And EvalHistory.append is NOT called
         """
         # Given: --compare-models mistral:7b llama3:8b
-        settings = _make_settings(str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        _write_test_settings_toml(tmp_path)
+        settings = load_settings()
+
         store = VectorStore(persist_dir=settings.chroma.persist_dir)
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
@@ -1432,15 +1539,11 @@ class TestCompareModelsFlag:
         model_b = MagicMock()
         model_b.model = "llama3:8b"
         mock_client.list.return_value.models.append(model_b)
-        monkeypatch.chdir(tmp_path)
 
         # When: handle_eval runs
-        with (
-            patch("jobsearch_rag.cli.load_settings", return_value=settings),
-            patch(
-                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-                return_value=mock_client,
-            ),
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
         ):
             from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
 
@@ -1574,8 +1677,9 @@ class TestEvalSinglePath:
          report and an empty history entry that pollutes trend analysis.
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (embedding + LLM calls), load_settings
-        Real:  handle_eval, _handle_eval_single, EvalRunner, VectorStore
+        Mock:  ollama_sdk.AsyncClient (embedding + LLM calls)
+        Real:  handle_eval, _handle_eval_single, EvalRunner, VectorStore,
+               load_settings (reads a real TOML file from tmp_path)
         Never: mock the early-return guard itself
     """
 
@@ -1593,20 +1697,19 @@ class TestEvalSinglePath:
         And no history file is written
         """
         # Given: pre-seed required collections but NO decisions
-        settings = _make_settings(str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        _write_test_settings_toml(tmp_path)
+        settings = load_settings()
+
         store = VectorStore(persist_dir=settings.chroma.persist_dir)
         _seed_required_collections(store, EMBED_FAKE)
 
         _, mock_client = _make_mock_embedder()
-        monkeypatch.chdir(tmp_path)
 
         # When: handle_eval runs in single-model mode
-        with (
-            patch("jobsearch_rag.cli.load_settings", return_value=settings),
-            patch(
-                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-                return_value=mock_client,
-            ),
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
         ):
             from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
 
