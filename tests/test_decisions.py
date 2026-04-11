@@ -13,6 +13,7 @@ import json as json_mod
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -41,9 +42,11 @@ def store() -> Iterator[VectorStore]:
 def mock_embedder() -> Embedder:
     """Real Embedder with ollama client stubbed at the I/O boundary."""
     mock_client = make_mock_ollama_client(embed_vector=EMBED_TEST)
-    embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
-    embedder._client = mock_client  # type: ignore[attr-defined]
-    return embedder
+    with patch(
+        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+        return_value=mock_client,
+    ):
+        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
 
 @pytest.fixture

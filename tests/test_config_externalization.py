@@ -697,21 +697,24 @@ class TestClassifierSystemPromptConfig:
         # Given: an Embedder with a custom classify_system_prompt
         custom_system = "You are an expert recruiter. Respond concisely."
         mock_client = make_mock_ollama_client()
-        embedder = Embedder(
-            OllamaConfig(
-                base_url="http://localhost:11434",
-                embed_model="nomic-embed-text",
-                llm_model="mistral:7b",
-                slow_llm_threshold_ms=30_000,
-                classify_system_prompt=custom_system,
-                max_retries=1,
-                base_delay=0.0,
-                max_embed_chars=8_000,
-                head_ratio=0.6,
-                retryable_status_codes=[503],
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            embedder = Embedder(
+                OllamaConfig(
+                    base_url="http://localhost:11434",
+                    embed_model="nomic-embed-text",
+                    llm_model="mistral:7b",
+                    slow_llm_threshold_ms=30_000,
+                    classify_system_prompt=custom_system,
+                    max_retries=1,
+                    base_delay=0.0,
+                    max_embed_chars=8_000,
+                    head_ratio=0.6,
+                    retryable_status_codes=[503],
+                )
             )
-        )
-        embedder._client = mock_client  # type: ignore[attr-defined]
 
         # When: classify is called
         await embedder.classify("Is this role suitable?")
@@ -1279,9 +1282,12 @@ class TestEmbedderConfigExternalization:
             head_ratio=0.6,
             retryable_status_codes=[503],
         )
-        embedder = Embedder(config)
         mock_client = make_mock_ollama_client()
-        embedder._client = mock_client  # type: ignore[attr-defined]
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            embedder = Embedder(config)
 
         # When: embed long text
         await embedder.embed("x" * 500)
@@ -1312,9 +1318,12 @@ class TestEmbedderConfigExternalization:
             head_ratio=0.8,
             retryable_status_codes=[503],
         )
-        embedder = Embedder(config)
         mock_client = make_mock_ollama_client()
-        embedder._client = mock_client  # type: ignore[attr-defined]
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            embedder = Embedder(config)
 
         # When: embed text with distinct head ("H") and tail ("T") chars
         await embedder.embed("H" * 300 + "T" * 300)
@@ -1347,10 +1356,13 @@ class TestEmbedderConfigExternalization:
             head_ratio=0.6,
             retryable_status_codes=[418],
         )
-        embedder = Embedder(config)
         mock_client = make_mock_ollama_client()
         mock_client.embed = AsyncMock(side_effect=ResponseError("server busy", status_code=503))
-        embedder._client = mock_client  # type: ignore[attr-defined]
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            embedder = Embedder(config)
 
         # When / Then: 503 fails immediately (not retried)
         with pytest.raises(ActionableError):
@@ -1380,10 +1392,13 @@ class TestEmbedderConfigExternalization:
             head_ratio=0.6,
             retryable_status_codes=[503],
         )
-        embedder = Embedder(config)
         mock_client = make_mock_ollama_client()
         mock_client.embed = AsyncMock(side_effect=ResponseError("server busy", status_code=503))
-        embedder._client = mock_client  # type: ignore[attr-defined]
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ):
+            embedder = Embedder(config)
 
         # When / Then: all retries exhausted
         with pytest.raises(ActionableError):

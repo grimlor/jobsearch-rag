@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import chromadb
 import pytest
 
 if TYPE_CHECKING:
@@ -1198,10 +1199,11 @@ class TestDecideCommand:
         Real:  load_settings, Embedder, VectorStore, DecisionRecorder,
                ChromaDB storage, JSONL audit log
         Never: Patch load_settings, Embedder, VectorStore, or DecisionRecorder
-        Exception: test_missing_jd_text_exits_with_error uses monkeypatch on
-            VectorStore.get_documents to return a None document — this defensive
-            branch cannot occur with a healthy ChromaDB instance because
-            add_documents always stores the document text.
+        Exception: test_missing_jd_text_exits_with_error patches
+            chromadb.Collection.get at the ChromaDB I/O boundary to return a
+            None document — this defensive branch cannot occur with a healthy
+            ChromaDB instance because add_documents always stores the
+            document text.
     """
 
     def test_unknown_job_id_exits_with_error_message(
@@ -1312,35 +1314,34 @@ class TestDecideCommand:
         monkeypatch.chdir(tmp_path)
         _seed_decision(tmp_path, job_id="zr-123")
 
-        # Simulate a corrupted ChromaDB state where the document is None.
-        # This cannot happen with a healthy ChromaDB instance (add_documents
-        # always stores the text), so monkeypatch is the only way to reach
-        # this defensive branch.
-        # The first call (from get_decision) must return real data so
-        # handle_decide reaches the JD retrieval path; only the second
-        # call (direct store.get_documents) returns corrupted data.
-        _original_get = VectorStore.get_documents
+        # Simulate corrupted ChromaDB state where the document is None.
+        # This cannot happen with a healthy ChromaDB (add_documents always
+        # stores text), so we patch at the ChromaDB I/O boundary.
+        # The first Collection.get call (from get_decision via
+        # DecisionRecorder) must return real data so handle_decide reaches
+        # the JD retrieval path; only the second call returns corrupted data.
+        _original_get = chromadb.Collection.get
         _call_count = 0
 
         def _corrupted_get_on_second_call(
-            self_store: Any,
-            collection_name: str,
-            *,
-            ids: list[str],
+            self_collection: Any,
+            ids: list[str] | None = None,
+            where: dict[str, Any] | None = None,
+            include: list[str] | None = None,
         ) -> dict[str, Any]:
             nonlocal _call_count
             _call_count += 1
             if _call_count >= 2:
                 return {
                     "documents": [None],
-                    "ids": ids,
+                    "ids": ids or [],
                     "metadatas": [{}],
                 }
-            return _original_get(self_store, collection_name, ids=ids)
+            return _original_get(self_collection, ids=ids, where=where, include=include)
 
         monkeypatch.setattr(
-            VectorStore,
-            "get_documents",
+            chromadb.Collection,
+            "get",
             _corrupted_get_on_second_call,
         )
 
