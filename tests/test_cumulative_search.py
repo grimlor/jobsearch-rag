@@ -9,22 +9,24 @@ from __future__ import annotations
 
 import argparse
 import csv
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from jobsearch_rag.adapters.base import JobListing
+from jobsearch_rag.adapters import AdapterRegistry
+from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.cli import handle_search
 from jobsearch_rag.export.csv_export import CSVExporter
 from jobsearch_rag.export.jd_files import JDFileExporter
-from jobsearch_rag.pipeline.ranker import RankedListing, RankSummary
+from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.rescorer import load_jd_files
-from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.scorer import ScoreResult
 from jobsearch_rag.rag.store import VectorStore
+from tests.conftest import make_mock_ollama_client
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 # Public API surface (from src/jobsearch_rag/cli):
@@ -125,6 +127,99 @@ def _write_prior_jd(jd_dir: Path, ranked: RankedListing) -> Path:
     paths = JDFileExporter().export([ranked], str(jd_dir))
     assert len(paths) == 1, f"Expected 1 JD file, got {len(paths)}"
     return paths[0]
+
+
+def _adapt(adapter: object) -> Callable[..., JobBoardAdapter]:
+    """Wrap an adapter/mock as a registry-compatible factory accepting any kwargs."""
+
+    def _factory(**_kwargs: object) -> JobBoardAdapter:
+        return cast("JobBoardAdapter", adapter)
+
+    return _factory
+
+
+def _make_test_adapter(
+    *,
+    search_results: list[JobListing] | None = None,
+) -> MagicMock:
+    """Create a test adapter that returns specified listings from search."""
+    adapter = MagicMock()
+    adapter.board_name = "testboard"
+    adapter.rate_limit_seconds = (0.0, 0.0)
+    adapter.authenticate = AsyncMock()
+    adapter.search = AsyncMock(return_value=search_results if search_results is not None else [])
+    adapter.extract_detail = AsyncMock()
+    return adapter
+
+
+def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
+    """
+    Create a mock Playwright I/O boundary.
+
+    Mocks ``async_playwright`` — the edge where our system ends and the
+    Playwright library begins.
+
+    Returns ``(mock_async_playwright, mock_page)``.
+    """
+    mock_page = MagicMock()
+
+    mock_context = MagicMock()
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+    mock_context.storage_state = AsyncMock(return_value={"cookies": [], "origins": []})
+    mock_context.close = AsyncMock()
+
+    mock_browser = MagicMock()
+    mock_browser.new_context = AsyncMock(return_value=mock_context)
+    mock_browser.close = AsyncMock()
+
+    mock_pw = MagicMock()
+    mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+    mock_pw.stop = AsyncMock()
+
+    mock_pw_cm = MagicMock()
+    mock_pw_cm.start = AsyncMock(return_value=mock_pw)
+
+    mock_async_pw = MagicMock(return_value=mock_pw_cm)
+
+    return mock_async_pw, mock_page
+
+
+def _run_handle_search(
+    tmp_path: Path,
+    mock_client: AsyncMock,
+    listings: list[JobListing],
+    *,
+    fresh: bool = False,
+) -> None:
+    """
+    Run ``handle_search`` through the real pipeline using boundary mocks only.
+
+    The only mocks are at the I/O boundary:
+    - ``ollama_sdk.AsyncClient`` (Ollama network I/O)
+    - ``async_playwright`` (Playwright browser I/O)
+    - ``webbrowser.open`` (host browser launch)
+
+    Everything else runs for real: ``PipelineRunner``, ``Scorer``, ``Ranker``,
+    ``CSVExporter``, ``JDFileExporter``, merge logic.
+    """
+    adapter = _make_test_adapter(search_results=listings)
+    mock_pw_fn, _ = _mock_playwright_boundary()
+
+    with (
+        patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
+        AdapterRegistry.override({"testboard": _adapt(adapter)}),
+        patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+        patch("webbrowser.open"),
+    ):
+        handle_search(
+            argparse.Namespace(
+                board=None,
+                overnight=False,
+                open_top=0,
+                force_rescore=False,
+                fresh=fresh,
+            )
+        )
 
 
 def _setup_search_env(tmp_path: Path, *, open_top_n: int = 0) -> AsyncMock:
@@ -250,13 +345,7 @@ signals_negative = ["bad indicator"]
 Test resume content for indexing.
 """)
 
-    mock_client = AsyncMock()
-    model_embed = MagicMock()
-    model_embed.model = "nomic-embed-text"
-    model_llm = MagicMock()
-    model_llm.model = "mistral:7b"
-    mock_client.list.return_value = MagicMock(models=[model_embed, model_llm])
-    mock_client.embed.return_value = MagicMock(embeddings=[[0.1, 0.2, 0.3, 0.4, 0.5]])
+    mock_client = make_mock_ollama_client()
 
     return mock_client
 
@@ -312,8 +401,9 @@ class TestAccumulateMode:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O),
-               PipelineRunner.run (browser/scraping I/O)
-        Real:  load_settings, CSV merge logic, file exports via tmp_path
+               async_playwright (Playwright browser I/O)
+        Real:  PipelineRunner, Scorer, Ranker, load_settings,
+               CSV merge logic, file exports via tmp_path
         Never: Patch exporters or ranker
     """
 
@@ -333,28 +423,10 @@ class TestAccumulateMode:
         prior = _make_ranked(final_score=0.80, external_id="prior-1", title="Prior Job")
         _write_prior_csv(output_dir / "results.csv", [prior])
 
-        new = _make_ranked(final_score=0.90, external_id="new-1", title="New Job")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="new-1", title="New Job")
 
         # When: handle_search in accumulate mode (default)
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: exported CSV contains both listings
         csv_path = output_dir / "results.csv"
@@ -370,8 +442,8 @@ class TestAccumulateMode:
     ) -> None:
         """
         Given a prior CSV with external_id 'X' scoring 0.60
-        When handle_search returns external_id 'X' scoring 0.85
-        Then the exported CSV contains 'X' once with the updated score
+        When handle_search returns external_id 'X' with an updated score
+        Then the exported CSV contains 'X' once with the pipeline-computed score
         """
         # Given: prior CSV with listing scoring 0.60
         mock_client = _setup_search_env(tmp_path)
@@ -381,38 +453,20 @@ class TestAccumulateMode:
         prior = _make_ranked(final_score=0.60, external_id="shared-1", title="Shared Job")
         _write_prior_csv(output_dir / "results.csv", [prior])
 
-        # And: new run with same external_id but higher score
-        new = _make_ranked(final_score=0.85, external_id="shared-1", title="Shared Job Updated")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        # And: new run with same external_id
+        new = _make_listing(external_id="shared-1", title="Shared Job Updated")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
-        # Then: CSV has one copy with the new score
+        # Then: CSV has one copy with the pipeline-computed score (not the prior 0.60)
         csv_path = output_dir / "results.csv"
         with open(csv_path) as f:
             rows = list(csv.DictReader(f))
         shared_rows = [r for r in rows if r["external_id"] == "shared-1"]
         assert len(shared_rows) == 1, f"Expected 1 row for shared-1, got {len(shared_rows)}"
-        assert float(shared_rows[0]["final_score"]) == pytest.approx(0.85, abs=1e-4), (
-            f"Expected score ~0.85, got {shared_rows[0]['final_score']}"
+        assert float(shared_rows[0]["final_score"]) != pytest.approx(0.60, abs=1e-4), (
+            f"Expected score to differ from prior 0.60, got {shared_rows[0]['final_score']}"
         )
 
     def test_prior_only_listings_are_preserved(
@@ -432,28 +486,10 @@ class TestAccumulateMode:
         prior_b = _make_ranked(final_score=0.65, external_id="prior-b", title="Job B")
         _write_prior_csv(output_dir / "results.csv", [prior_a, prior_b])
 
-        new_c = _make_ranked(final_score=0.90, external_id="new-c", title="Job C")
-        result = RunResult(
-            ranked_listings=[new_c],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new_c = _make_listing(external_id="new-c", title="Job C")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new_c])
 
         # Then: all three listings in the exported CSV
         csv_path = output_dir / "results.csv"
@@ -480,28 +516,10 @@ class TestAccumulateMode:
         prior = _make_ranked(final_score=0.50, external_id="low-1", title="Low Score")
         _write_prior_csv(output_dir / "results.csv", [prior])
 
-        new = _make_ranked(final_score=0.95, external_id="high-1", title="High Score")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="high-1", title="High Score")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: CSV is sorted descending by final_score
         csv_path = output_dir / "results.csv"
@@ -527,28 +545,10 @@ class TestAccumulateMode:
         prior = _make_ranked(final_score=0.70, external_id="md-prior", title="Prior MD Job")
         _write_prior_csv(output_dir / "results.csv", [prior])
 
-        new = _make_ranked(final_score=0.90, external_id="md-new", title="New MD Job")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="md-new", title="New MD Job")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: markdown file contains both listings in its table
         md_path = output_dir / "results.md"
@@ -575,8 +575,9 @@ class TestFreshMode:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O),
-               PipelineRunner.run (browser/scraping I/O)
-        Real:  load_settings, file exports via tmp_path, JD file cleanup
+               async_playwright (Playwright browser I/O)
+        Real:  PipelineRunner, Scorer, Ranker, load_settings,
+               file exports via tmp_path, JD file cleanup
         Never: Patch exporters or merge logic
     """
 
@@ -598,28 +599,10 @@ class TestFreshMode:
         prior = _make_ranked(final_score=0.70, external_id="prior-1", title="Prior Job")
         _write_prior_csv(output_dir / "results.csv", [prior])
 
-        new = _make_ranked(final_score=0.90, external_id="new-1", title="New Job")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="new-1", title="New Job")
 
         # When: handle_search runs with --fresh
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=True,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new], fresh=True)
 
         # Then: CSV contains only the new listing
         csv_path = output_dir / "results.csv"
@@ -650,28 +633,10 @@ class TestFreshMode:
         prior_jd_path = _write_prior_jd(jd_dir, prior)
         assert prior_jd_path.exists(), "Prior JD file should exist before search"
 
-        new = _make_ranked(final_score=0.90, external_id="new-1", title="New Job")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="new-1", title="New Job")
 
         # When: handle_search runs with --fresh
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=True,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new], fresh=True)
 
         # Then: prior JD file is gone, new JD file exists
         assert not prior_jd_path.exists(), "Prior JD file should be removed in fresh mode"
@@ -699,28 +664,10 @@ class TestFreshMode:
         prior = _make_ranked(final_score=0.70, external_id="prior-1", title="Prior Fresh")
         _write_prior_csv(output_dir / "results.csv", [prior])
 
-        new = _make_ranked(final_score=0.90, external_id="new-1", title="New Fresh")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="new-1", title="New Fresh")
 
         # When: handle_search runs with --fresh
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=True,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new], fresh=True)
 
         # Then: markdown contains only the new listing
         md_path = output_dir / "results.md"
@@ -751,8 +698,9 @@ class TestCSVRoundTrip:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O),
-               PipelineRunner.run (browser/scraping I/O)
-        Real:  load_settings, CSV merge logic, CSVExporter, CSV I/O via tmp_path
+               async_playwright (Playwright browser I/O)
+        Real:  PipelineRunner, Scorer, Ranker, load_settings,
+               CSV merge logic, CSVExporter, CSV I/O via tmp_path
         Never: Patch CSV writer or reader
     """
 
@@ -780,28 +728,10 @@ class TestCSVRoundTrip:
         _write_prior_csv(output_dir / "results.csv", [original])
 
         # And: a new listing to trigger export
-        new = _make_ranked(final_score=0.50, external_id="other-1", title="Other Job")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="other-1", title="Other Job")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: prior listing's columns are preserved
         csv_path = output_dir / "results.csv"
@@ -846,28 +776,10 @@ class TestCSVRoundTrip:
         _write_prior_csv(output_dir / "results.csv", [prior])
 
         # And: new listing with same external_id, different title
-        new = _make_ranked(final_score=0.80, external_id="merge-key-1", title="Updated Title")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="merge-key-1", title="Updated Title")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: one entry with the new title
         csv_path = output_dir / "results.csv"
@@ -895,28 +807,10 @@ class TestCSVRoundTrip:
         prior = _make_ranked(final_score=0.60, external_id="dup-1", title="Dup Job")
         _write_prior_csv(output_dir / "results.csv", [prior])
 
-        new = _make_ranked(final_score=0.80, external_id="dup-1", title="Dup Job New")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="dup-1", title="Dup Job New")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: exactly one dup-1 row
         csv_path = output_dir / "results.csv"
@@ -941,28 +835,10 @@ class TestCSVRoundTrip:
         original = _make_ranked(final_score=0.7531, external_id="prec-1")
         _write_prior_csv(output_dir / "results.csv", [original])
 
-        new = _make_ranked(final_score=0.50, external_id="other-prec", title="Other Prec")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="other-prec", title="Other Prec")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: precision preserved
         csv_path = output_dir / "results.csv"
@@ -990,28 +866,10 @@ class TestCSVRoundTrip:
         prior = _make_ranked(final_score=0.70, external_id="hdr-1")
         _write_prior_csv(output_dir / "results.csv", [prior])
 
-        new = _make_ranked(final_score=0.90, external_id="hdr-new", title="Header Test")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="hdr-new", title="Header Test")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: exactly one header row
         csv_path = output_dir / "results.csv"
@@ -1038,8 +896,9 @@ class TestJDFilePreservation:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O),
-               PipelineRunner.run (browser/scraping I/O)
-        Real:  load_settings, file exports via tmp_path, JD file I/O
+               async_playwright (Playwright browser I/O)
+        Real:  PipelineRunner, Scorer, Ranker, load_settings,
+               file exports via tmp_path, JD file I/O
         Never: Patch JDFileExporter
     """
 
@@ -1059,28 +918,10 @@ class TestJDFilePreservation:
         output_dir = tmp_path / "output"
         jd_dir = output_dir / "jds"
 
-        new = _make_ranked(final_score=0.85, external_id="jd-1", title="JD Job")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="jd-1", title="JD Job")
 
         # When: handle_search in default accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: JD file exists for the listing
         jd_files = list(jd_dir.glob("*.md"))
@@ -1109,28 +950,10 @@ class TestJDFilePreservation:
         prior_jd_path = _write_prior_jd(jd_dir, prior)
         assert prior_jd_path.exists(), "Prior JD file should exist"
 
-        new = _make_ranked(final_score=0.90, external_id="new-jd", title="New JD")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="new-jd", title="New JD")
 
         # When: handle_search in accumulate mode (default)
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: prior JD file is preserved, new JD file exists
         assert prior_jd_path.exists(), "Prior JD file should be preserved in accumulate mode"
@@ -1208,8 +1031,9 @@ class TestDecisionExclusionAccumulated:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O),
-               PipelineRunner.run (browser/scraping I/O)
-        Real:  load_settings, CSV merge logic, DecisionRecorder via ChromaDB,
+               async_playwright (Playwright browser I/O)
+        Real:  PipelineRunner, Scorer, Ranker, load_settings,
+               CSV merge logic, DecisionRecorder via ChromaDB,
                CSV/JD I/O via tmp_path
         Never: Patch the decision lookup
     """
@@ -1234,28 +1058,10 @@ class TestDecisionExclusionAccumulated:
         # And: seed a decision for listing A
         _seed_decision(tmp_path, job_id="decided-1", title="Decided Job")
 
-        new = _make_ranked(final_score=0.90, external_id="new-1", title="New Job")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="new-1", title="New Job")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: decided listing excluded, undecided listing present
         csv_path = output_dir / "results.csv"
@@ -1288,28 +1094,10 @@ class TestDecisionExclusionAccumulated:
         # And: seed the prior CSV (includes the decided listing)
         _write_prior_csv(output_dir / "results.csv", [decided])
 
-        new = _make_ranked(final_score=0.90, external_id="new-jd-2", title="New JD 2")
-        result = RunResult(
-            ranked_listings=[new],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        new = _make_listing(external_id="new-jd-2", title="New JD 2")
 
         # When: handle_search in accumulate mode
-        with (
-            patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
-            patch("webbrowser.open"),
-        ):
-            handle_search(
-                argparse.Namespace(
-                    board=None,
-                    overnight=False,
-                    open_top=0,
-                    force_rescore=False,
-                    fresh=False,
-                )
-            )
+        _run_handle_search(tmp_path, mock_client, [new])
 
         # Then: decided JD file is preserved
         assert decided_jd_path.exists(), "JD file for decided listing should be preserved"
