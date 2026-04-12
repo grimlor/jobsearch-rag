@@ -10,22 +10,23 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import shutil
 import typing
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import chromadb
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from jobsearch_rag.config import Settings
 
 from jobsearch_rag.adapters import AdapterRegistry
-from jobsearch_rag.adapters.base import JobListing
+from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.cli import (
     build_parser,
     handle_boards,
@@ -41,11 +42,11 @@ from jobsearch_rag.cli import (
 )
 from jobsearch_rag.config import load_settings
 from jobsearch_rag.errors import ActionableError
-from jobsearch_rag.pipeline.ranker import RankedListing, RankSummary
+from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.review import ReviewSession
-from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.scorer import ScoreResult
 from jobsearch_rag.rag.store import VectorStore
+from tests.conftest import make_mock_ollama_client
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -212,6 +213,59 @@ def _make_ranked(
     return ranked
 
 
+def _adapt(adapter: object) -> Callable[..., JobBoardAdapter]:
+    """Wrap an adapter/mock as a registry-compatible factory accepting any kwargs."""
+
+    def _factory(**_kwargs: object) -> JobBoardAdapter:
+        return cast("JobBoardAdapter", adapter)
+
+    return _factory
+
+
+def _make_test_adapter(
+    board_name: str = "testboard",
+    *,
+    search_results: list[JobListing] | None = None,
+) -> MagicMock:
+    """Create a test adapter that returns specified listings from search."""
+    adapter = MagicMock()
+    adapter.board_name = board_name
+    adapter.rate_limit_seconds = (0.0, 0.0)
+    adapter.authenticate = AsyncMock()
+    adapter.search = AsyncMock(return_value=search_results if search_results is not None else [])
+    adapter.extract_detail = AsyncMock()
+    return adapter
+
+
+def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
+    """
+    Create a mock Playwright I/O boundary.
+
+    Returns ``(mock_async_playwright, mock_page)``.
+    """
+    mock_page = MagicMock()
+
+    mock_context = MagicMock()
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+    mock_context.storage_state = AsyncMock(return_value={"cookies": [], "origins": []})
+    mock_context.close = AsyncMock()
+
+    mock_browser = MagicMock()
+    mock_browser.new_context = AsyncMock(return_value=mock_context)
+    mock_browser.close = AsyncMock()
+
+    mock_pw = MagicMock()
+    mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+    mock_pw.stop = AsyncMock()
+
+    mock_pw_cm = MagicMock()
+    mock_pw_cm.start = AsyncMock(return_value=mock_pw)
+
+    mock_async_pw = MagicMock(return_value=mock_pw_cm)
+
+    return mock_async_pw, mock_page
+
+
 def _setup_index_env(
     tmp_path: Path,
     *,
@@ -366,13 +420,7 @@ Test resume content for indexing.
 """)
 
     # Mock Ollama client — the I/O boundary
-    mock_client = AsyncMock()
-    model_embed = MagicMock()
-    model_embed.model = "nomic-embed-text"
-    model_llm = MagicMock()
-    model_llm.model = "mistral:7b"
-    mock_client.list.return_value = MagicMock(models=[model_embed, model_llm])
-    mock_client.embed.return_value = MagicMock(embeddings=[[0.1, 0.2, 0.3, 0.4, 0.5]])
+    mock_client = make_mock_ollama_client()
 
     return mock_client
 
@@ -939,16 +987,12 @@ class TestSearchCommand:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O),
-               PipelineRunner.run (browser/scraping I/O — accepted exception),
-               webbrowser.open (OS browser launch)
-        Real:  load_settings, PipelineRunner construction (Embedder, VectorStore,
-               Scorer, Ranker, DecisionRecorder), output formatting, file exports
-        Never: Patch load_settings, PipelineRunner constructor
-        Exception: PipelineRunner.run is mocked because it orchestrates Playwright
-            browser automation across multiple job boards. Mocking at the actual
-            browser boundary would require adapter-specific HTML fixtures and
-            couple output formatting tests to adapter parsing internals.
-            The pipeline itself is tested in test_runner.py.
+               async_playwright (Playwright browser I/O),
+               webbrowser.open (OS browser launch),
+               AdapterRegistry (test adapters via override context manager)
+        Real:  load_settings, PipelineRunner (full pipeline: run, Scorer,
+               Ranker, DecisionRecorder), output formatting, file exports
+        Never: Patch load_settings, PipelineRunner.run, or PipelineRunner constructor
     """
 
     def test_search_prints_summary_with_all_required_fields(
@@ -962,22 +1006,19 @@ class TestSearchCommand:
         When handle_search is called
         Then all required summary fields are printed to stdout
         """
-        # Given: real settings environment, mock pipeline result
+        # Given: real settings environment, adapter returns one listing
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = RunResult(
-            ranked_listings=[],
-            summary=RankSummary(
-                total_found=20, total_scored=18, total_deduplicated=3, total_excluded=2
-            ),
-            failed_listings=2,
-            boards_searched=["ziprecruiter"],
-        )
+        listing = _make_listing()
+        adapter = _make_test_adapter(search_results=[listing])
+        mock_pw_fn, _ = _mock_playwright_boundary()
 
-        # When: handle_search runs with real settings construction
+        # When: handle_search runs through the real pipeline
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
+            AdapterRegistry.override({"testboard": _adapt(adapter)}),
+            patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+            patch("webbrowser.open"),
         ):
             handle_search(
                 argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
@@ -988,11 +1029,9 @@ class TestSearchCommand:
         assert "Boards searched:" in output, (
             f"Expected 'Boards searched:' in output, got: {output!r}"
         )
-        assert "ziprecruiter" in output, f"Expected board name in output, got: {output!r}"
+        assert "testboard" in output, f"Expected board name in output, got: {output!r}"
         assert "Total found:" in output, f"Expected 'Total found:' in output, got: {output!r}"
-        assert "20" in output, f"Expected total count '20' in output, got: {output!r}"
         assert "Scored:" in output, f"Expected 'Scored:' in output, got: {output!r}"
-        assert "18" in output, f"Expected scored count '18' in output, got: {output!r}"
         assert "Deduplicated:" in output, f"Expected 'Deduplicated:' in output, got: {output!r}"
         assert "Failed:" in output, f"Expected 'Failed:' in output, got: {output!r}"
         assert "Final results:" in output, f"Expected 'Final results:' in output, got: {output!r}"
@@ -1008,31 +1047,32 @@ class TestSearchCommand:
         When handle_search is called
         Then each listing shows score, title, company, and URL
         """
-        # Given: real settings environment, mock pipeline result with listings
+        # Given: real settings environment, adapter returns one listing
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        ranked = _make_ranked(final_score=0.82, title="Staff Architect", company="Acme Corp")
-        result = RunResult(
-            ranked_listings=[ranked],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        listing = _make_listing(title="Staff Architect", company="Acme Corp")
+        adapter = _make_test_adapter(search_results=[listing])
+        mock_pw_fn, _ = _mock_playwright_boundary()
 
-        # When: handle_search runs with real settings construction
+        # When: handle_search runs through the real pipeline
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
+            AdapterRegistry.override({"testboard": _adapt(adapter)}),
+            patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open"),
         ):
             handle_search(
                 argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
             )
 
-        # Then: output shows score, title, and company
+        # Then: output shows title, company, and a pipeline-computed score
         output = capsys.readouterr().out
-        assert "0.82" in output, f"Expected score '0.82' in output, got: {output!r}"
         assert "Staff Architect" in output, f"Expected title in output, got: {output!r}"
         assert "Acme Corp" in output, f"Expected company in output, got: {output!r}"
+        # Score is pipeline-computed; verify a score line exists (e.g. "1. [0.XX] Staff Architect")
+        assert re.search(r"\d+\.\s*\[\d+\.\d+\]", output), (
+            f"Expected a scored listing line in output, got: {output!r}"
+        )
 
     def test_search_notes_duplicate_boards_on_listing(
         self,
@@ -1045,57 +1085,62 @@ class TestSearchCommand:
         When handle_search is called
         Then the duplicate boards are noted in the output
         """
-        # Given: real settings environment, mock pipeline result with duplicates
-        mock_client = _setup_index_env(tmp_path)
+        # Given: three boards each return a listing so the real Ranker detects
+        # them as near-duplicates (mock embedder returns identical vectors)
+        boards = ["testboard", "indeed", "linkedin"]
+        mock_client = _setup_index_env(tmp_path, enabled_boards=boards)
         monkeypatch.chdir(tmp_path)
-        ranked = _make_ranked(duplicate_boards=["indeed", "linkedin"])
-        result = RunResult(
-            ranked_listings=[ranked],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        adapters: dict[str, MagicMock] = {}
+        for board in boards:
+            listing = _make_listing(board=board, external_id=f"{board}-1")
+            adapters[board] = _make_test_adapter(board_name=board, search_results=[listing])
+        mock_pw_fn, _ = _mock_playwright_boundary()
+        overrides = {name: _adapt(adapter) for name, adapter in adapters.items()}
 
-        # When: handle_search runs
+        # When: handle_search runs through the real pipeline (Ranker deduplicates)
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
+            AdapterRegistry.override(overrides),
+            patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open"),
         ):
             handle_search(
                 argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
             )
 
-        # Then: output notes the duplicate boards
+        # Then: the surviving listing notes the duplicate boards
         output = capsys.readouterr().out
         assert "Also on:" in output, f"Expected 'Also on:' in output, got: {output!r}"
-        assert "indeed" in output, f"Expected 'indeed' in output, got: {output!r}"
-        assert "linkedin" in output, f"Expected 'linkedin' in output, got: {output!r}"
 
     def test_search_board_flag_restricts_to_single_board(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """
         Given the --board flag specifies a single board
         When handle_search is called
-        Then only that board is passed to the pipeline runner
+        Then only that board is searched by the pipeline
         """
-        # Given: real settings environment
-        mock_client = _setup_index_env(tmp_path)
+        # Given: two boards configured but only "indeed" will be requested
+        mock_client = _setup_index_env(tmp_path, enabled_boards=["testboard", "indeed"])
         monkeypatch.chdir(tmp_path)
-        result = RunResult(
-            ranked_listings=[],
-            summary=RankSummary(),
-            boards_searched=["indeed"],
-        )
+        indeed_adapter = _make_test_adapter(board_name="indeed")
+        testboard_adapter = _make_test_adapter(board_name="testboard")
+        mock_pw_fn, _ = _mock_playwright_boundary()
 
         # When: handle_search runs with --board indeed
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(
-                PipelineRunner, "run", new_callable=AsyncMock, return_value=result
-            ) as mock_run,
+            AdapterRegistry.override(
+                {
+                    "indeed": _adapt(indeed_adapter),
+                    "testboard": _adapt(testboard_adapter),
+                }
+            ),
+            patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+            patch("webbrowser.open"),
         ):
             handle_search(
                 argparse.Namespace(
@@ -1103,12 +1148,11 @@ class TestSearchCommand:
                 )
             )
 
-        # Then: the runner was called with boards=["indeed"]
-        mock_run.assert_awaited_once()
-        call_kwargs = mock_run.call_args.kwargs
-        assert call_kwargs.get("boards") == ["indeed"], (
-            f"Expected boards=['indeed'], got: {mock_run.call_args!r}"
-        )
+        # Then: only the "indeed" adapter was searched
+        indeed_adapter.search.assert_awaited()
+        testboard_adapter.search.assert_not_awaited()
+        output = capsys.readouterr().out
+        assert "indeed" in output, f"Expected 'indeed' in boards output, got: {output!r}"
 
     def test_search_open_top_opens_browser_tabs(
         self,
@@ -1120,20 +1164,18 @@ class TestSearchCommand:
         When handle_search returns a ranked listing
         Then the top result's URL is opened in the browser
         """
-        # Given: real settings environment, pipeline returns one result
+        # Given: real settings environment, adapter returns one listing
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        ranked = _make_ranked(final_score=0.9)
-        result = RunResult(
-            ranked_listings=[ranked],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        listing = _make_listing()
+        adapter = _make_test_adapter(search_results=[listing])
+        mock_pw_fn, _ = _mock_playwright_boundary()
 
         # When: handle_search runs with --open-top 1
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
+            AdapterRegistry.override({"testboard": _adapt(adapter)}),
+            patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open") as mock_open,
         ):
             handle_search(
@@ -1153,20 +1195,18 @@ class TestSearchCommand:
         When handle_search returns ranked listings
         Then no browser tabs are opened
         """
-        # Given: real settings with open_top_n=0
+        # Given: real settings with open_top_n=0, adapter returns one listing
         mock_client = _setup_index_env(tmp_path, open_top_n=0)
         monkeypatch.chdir(tmp_path)
-        ranked = _make_ranked(final_score=0.9)
-        result = RunResult(
-            ranked_listings=[ranked],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        listing = _make_listing()
+        adapter = _make_test_adapter(search_results=[listing])
+        mock_pw_fn, _ = _mock_playwright_boundary()
 
         # When: handle_search runs without --open-top
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
+            AdapterRegistry.override({"testboard": _adapt(adapter)}),
+            patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open") as mock_open,
         ):
             handle_search(
@@ -1959,10 +1999,12 @@ class TestSearchBrowserFailure:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O),
-               PipelineRunner.run (browser/scraping I/O — same exception as
-               TestSearchCommand), webbrowser.open (OS browser launch — the SUT)
-        Real:  load_settings, PipelineRunner construction, output formatting
-        Never: Patch load_settings, PipelineRunner constructor
+               async_playwright (Playwright browser I/O),
+               webbrowser.open (OS browser launch — the SUT),
+               AdapterRegistry (test adapters via override context manager)
+        Real:  load_settings, PipelineRunner (full pipeline: run, Scorer,
+               Ranker, DecisionRecorder), output formatting
+        Never: Patch load_settings, PipelineRunner.run, or PipelineRunner constructor
     """
 
     def test_webbrowser_open_failure_prints_error_message(
@@ -1976,20 +2018,18 @@ class TestSearchBrowserFailure:
         When webbrowser.open raises an OSError
         Then the error is printed and the search completes normally
         """
-        # Given: real settings environment, pipeline returns one result
+        # Given: real settings environment, adapter returns one listing
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        ranked = _make_ranked(final_score=0.9, external_id="fail-1")
-        result = RunResult(
-            ranked_listings=[ranked],
-            summary=RankSummary(total_found=1, total_scored=1),
-            boards_searched=["testboard"],
-        )
+        listing = _make_listing(external_id="fail-1")
+        adapter = _make_test_adapter(search_results=[listing])
+        mock_pw_fn, _ = _mock_playwright_boundary()
 
         # When: handle_search runs and webbrowser.open raises
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
+            AdapterRegistry.override({"testboard": _adapt(adapter)}),
+            patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open", side_effect=OSError("no browser")),
         ):
             handle_search(
