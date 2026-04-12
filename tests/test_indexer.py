@@ -225,9 +225,9 @@ class TestResumeChunking:
         self, indexer: Indexer, resume_path: Path
     ) -> None:
         """
-        GIVEN a resume with 4 ## section headings
-        WHEN index_resume is called
-        THEN 4 chunks are produced (one per section).
+        Given a resume with 4 ## section headings
+        When index_resume is called
+        Then 4 chunks are produced (one per section).
         """
         # When: index the resume
         count = await indexer.index_resume(str(resume_path))
@@ -239,9 +239,9 @@ class TestResumeChunking:
         self, indexer: Indexer, store: VectorStore, resume_path: Path
     ) -> None:
         """
-        GIVEN a resume indexed into chunks
-        WHEN a chunk is retrieved by ID
-        THEN it starts with its ## heading for semantic context.
+        Given a resume indexed into chunks
+        When a chunk is retrieved by ID
+        Then it starts with its ## heading for semantic context.
         """
         # Given: indexed resume
         await indexer.index_resume(str(resume_path))
@@ -258,9 +258,9 @@ class TestResumeChunking:
         self, indexer: Indexer, store: VectorStore, resume_path: Path
     ) -> None:
         """
-        GIVEN a resume with ### sub-headings under ## Experience
-        WHEN the Experience chunk is retrieved
-        THEN ### sub-headings are included in the parent section's chunk.
+        Given a resume with ### sub-headings under ## Experience
+        When the Experience chunk is retrieved
+        Then ### sub-headings are included in the parent section's chunk.
         """
         # Given: indexed resume
         await indexer.index_resume(str(resume_path))
@@ -277,9 +277,9 @@ class TestResumeChunking:
         self, indexer: Indexer, store: VectorStore, resume_path: Path
     ) -> None:
         """
-        GIVEN a resume indexed into chunks
-        WHEN chunks are retrieved by slugified heading IDs
-        THEN both chunks are found (stable, readable identifiers).
+        Given a resume indexed into chunks
+        When chunks are retrieved by slugified heading IDs
+        Then both chunks are found (stable, readable identifiers).
         """
         # Given: indexed resume
         await indexer.index_resume(str(resume_path))
@@ -296,9 +296,9 @@ class TestResumeChunking:
         self, indexer: Indexer, store: VectorStore, resume_path: Path
     ) -> None:
         """
-        GIVEN a resume section with multiple sentences
-        WHEN the section chunk is retrieved
-        THEN all sentences are present (no mid-sentence truncation).
+        Given a resume section with multiple sentences
+        When the section chunk is retrieved
+        Then all sentences are present (no mid-sentence truncation).
         """
         # Given: indexed resume
         await indexer.index_resume(str(resume_path))
@@ -315,9 +315,9 @@ class TestResumeChunking:
         self, indexer: Indexer, store: VectorStore, resume_path: Path
     ) -> None:
         """
-        GIVEN a resume with a # Name title line
-        WHEN index_resume is called
-        THEN only ## section chunks are created (title excluded).
+        Given a resume with a # Name title line
+        When index_resume is called
+        Then only ## section chunks are created (title excluded).
         """
         # When: index the resume
         count = await indexer.index_resume(str(resume_path))
@@ -329,9 +329,9 @@ class TestResumeChunking:
         self, indexer: Indexer, store: VectorStore, tmp_path: Path
     ) -> None:
         """
-        GIVEN a resume with no ## headings
-        WHEN index_resume is called
-        THEN zero chunks are produced.
+        Given a resume with no ## headings
+        When index_resume is called
+        Then zero chunks are produced.
         """
         # Given: flat resume with no sections
         flat_resume = tmp_path / "flat.md"
@@ -373,9 +373,9 @@ class TestResumeIndexing:
         self, indexer: Indexer, store: VectorStore, resume_path: Path
     ) -> None:
         """
-        GIVEN a resume with multiple sections
-        WHEN index_resume is called
-        THEN the returned count matches the number of documents stored.
+        Given a resume with multiple sections
+        When index_resume is called
+        Then the returned count matches the number of documents stored.
         """
         # When: index the resume
         count = await indexer.index_resume(str(resume_path))
@@ -390,9 +390,9 @@ class TestResumeIndexing:
         self, indexer: Indexer, store: VectorStore, resume_path: Path
     ) -> None:
         """
-        GIVEN a resume already indexed
-        WHEN index_resume is called again
-        THEN previous content is replaced, not duplicated.
+        Given a resume already indexed
+        When index_resume is called again
+        Then previous content is replaced, not duplicated.
         """
         # Given: first index
         await indexer.index_resume(str(resume_path))
@@ -406,9 +406,9 @@ class TestResumeIndexing:
 
     async def test_index_returns_chunk_count(self, indexer: Indexer, resume_path: Path) -> None:
         """
-        GIVEN a valid resume file
-        WHEN index_resume is called
-        THEN it returns the number of chunks created as an integer.
+        Given a valid resume file
+        When index_resume is called
+        Then it returns the number of chunks created as an integer.
         """
         # When: index the resume
         count = await indexer.index_resume(str(resume_path))
@@ -421,9 +421,9 @@ class TestResumeIndexing:
         self, indexer: Indexer, store: VectorStore, resume_path: Path
     ) -> None:
         """
-        GIVEN a resume indexed into chunks
-        WHEN chunk metadata is inspected
-        THEN the source field records 'resume' for traceability.
+        Given a resume indexed into chunks
+        When chunk metadata is inspected
+        Then the source field records 'resume' for traceability.
         """
         # Given: indexed resume
         await indexer.index_resume(str(resume_path))
@@ -438,9 +438,9 @@ class TestResumeIndexing:
 
     async def test_missing_resume_file_tells_operator_to_create_it(self, indexer: Indexer) -> None:
         """
-        GIVEN a nonexistent resume file path
-        WHEN index_resume is called
-        THEN a CONFIG error with actionable guidance is raised.
+        Given a nonexistent resume file path
+        When index_resume is called
+        Then a CONFIG error with actionable guidance is raised.
         """
         # When/Then: missing file raises CONFIG error
         with pytest.raises(ActionableError) as exc_info:
@@ -486,9 +486,9 @@ class TestArchetypeIndexing:
         self, indexer: Indexer, store: VectorStore, archetypes_path: Path
     ) -> None:
         """
-        GIVEN a TOML file with two archetype entries
-        WHEN index_archetypes is called
-        THEN each entry produces exactly one ChromaDB document.
+        Given a TOML file with two archetype entries
+        When index_archetypes is called
+        Then each entry produces exactly one ChromaDB document.
         """
         # When: index archetypes
         count = await indexer.index_archetypes(str(archetypes_path))
@@ -503,9 +503,9 @@ class TestArchetypeIndexing:
         self, indexer: Indexer, store: VectorStore, archetypes_path: Path
     ) -> None:
         """
-        GIVEN an indexed archetype collection
-        WHEN a document is retrieved by ID
-        THEN the archetype name is stored in metadata for debugging.
+        Given an indexed archetype collection
+        When a document is retrieved by ID
+        Then the archetype name is stored in metadata for debugging.
         """
         # Given: indexed archetypes
         await indexer.index_archetypes(str(archetypes_path))
@@ -522,9 +522,9 @@ class TestArchetypeIndexing:
         self, indexer: Indexer, store: VectorStore, archetypes_path: Path
     ) -> None:
         """
-        GIVEN an indexed archetype
-        WHEN the document text is retrieved
-        THEN the normalized description is stored as document content.
+        Given an indexed archetype
+        When the document text is retrieved
+        Then the normalized description is stored as document content.
         """
         # Given: indexed archetypes
         await indexer.index_archetypes(str(archetypes_path))
@@ -541,9 +541,9 @@ class TestArchetypeIndexing:
         self, indexer: Indexer, mock_embedder: Embedder, archetypes_path: Path
     ) -> None:
         """
-        GIVEN archetype descriptions with extra whitespace
-        WHEN index_archetypes embeds them
-        THEN no leading/trailing whitespace or double spaces remain.
+        Given archetype descriptions with extra whitespace
+        When index_archetypes embeds them
+        Then no leading/trailing whitespace or double spaces remain.
         """
         # When: index archetypes
         await indexer.index_archetypes(str(archetypes_path))
@@ -559,9 +559,9 @@ class TestArchetypeIndexing:
         self, indexer: Indexer, tmp_path: Path
     ) -> None:
         """
-        GIVEN a TOML file with invalid syntax
-        WHEN index_archetypes is called
-        THEN a PARSE error with actionable guidance is raised.
+        Given a TOML file with invalid syntax
+        When index_archetypes is called
+        Then a PARSE error with actionable guidance is raised.
         """
         # Given: malformed TOML
         bad_toml = tmp_path / "bad.toml"
@@ -581,9 +581,9 @@ class TestArchetypeIndexing:
         self, indexer: Indexer, tmp_path: Path
     ) -> None:
         """
-        GIVEN an empty archetypes TOML file
-        WHEN index_archetypes is called
-        THEN a VALIDATION error with actionable guidance is raised.
+        Given an empty archetypes TOML file
+        When index_archetypes is called
+        Then a VALIDATION error with actionable guidance is raised.
         """
         # Given: empty file
         empty = tmp_path / "empty.toml"
@@ -605,9 +605,9 @@ class TestArchetypeIndexing:
         self, indexer: Indexer
     ) -> None:
         """
-        GIVEN a nonexistent archetypes file path
-        WHEN index_archetypes is called
-        THEN a CONFIG error with actionable guidance is raised.
+        Given a nonexistent archetypes file path
+        When index_archetypes is called
+        Then a CONFIG error with actionable guidance is raised.
         """
         # When/Then: raises CONFIG error
         with pytest.raises(ActionableError) as exc_info:
@@ -623,9 +623,9 @@ class TestArchetypeIndexing:
         self, indexer: Indexer, store: VectorStore, archetypes_path: Path
     ) -> None:
         """
-        GIVEN archetypes already indexed
-        WHEN index_archetypes is called again
-        THEN previous content is replaced, not duplicated.
+        Given archetypes already indexed
+        When index_archetypes is called again
+        Then previous content is replaced, not duplicated.
         """
         # Given: first index
         await indexer.index_archetypes(str(archetypes_path))
@@ -668,9 +668,9 @@ class TestArchetypeEmbeddingSynthesis:
 
     def test_synthesis_includes_description_and_signals(self) -> None:
         """
-        GIVEN an archetype dict with description and positive signals
-        WHEN build_archetype_embedding_text is called
-        THEN the result includes both description and all signals.
+        Given an archetype dict with description and positive signals
+        When build_archetype_embedding_text is called
+        Then the result includes both description and all signals.
         """
         # Given: archetype with description and signals
         archetype: dict[str, object] = {
@@ -694,9 +694,9 @@ class TestArchetypeEmbeddingSynthesis:
 
     def test_synthesis_normalizes_description_whitespace(self) -> None:
         """
-        GIVEN an archetype description with extra whitespace
-        WHEN build_archetype_embedding_text is called
-        THEN the description whitespace is normalized before synthesis.
+        Given an archetype description with extra whitespace
+        When build_archetype_embedding_text is called
+        Then the description whitespace is normalized before synthesis.
         """
         # Given: archetype with messy whitespace
         archetype: dict[str, object] = {
@@ -714,9 +714,9 @@ class TestArchetypeEmbeddingSynthesis:
 
     def test_synthesis_without_signals_returns_description_only(self) -> None:
         """
-        GIVEN an archetype with no signals_positive key
-        WHEN build_archetype_embedding_text is called
-        THEN only the normalized description is returned.
+        Given an archetype with no signals_positive key
+        When build_archetype_embedding_text is called
+        Then only the normalized description is returned.
         """
         # Given: archetype without signals
         archetype: dict[str, object] = {"description": "  A simple role.  "}
@@ -729,9 +729,9 @@ class TestArchetypeEmbeddingSynthesis:
 
     def test_synthesis_with_empty_signals_returns_description_only(self) -> None:
         """
-        GIVEN an archetype with an empty signals_positive list
-        WHEN build_archetype_embedding_text is called
-        THEN only the description is returned.
+        Given an archetype with an empty signals_positive list
+        When build_archetype_embedding_text is called
+        Then only the description is returned.
         """
         # Given: archetype with empty signals list
         archetype: dict[str, object] = {"description": "A role.", "signals_positive": []}
@@ -746,9 +746,9 @@ class TestArchetypeEmbeddingSynthesis:
         self, indexer: Indexer, store: VectorStore, archetypes_with_signals_path: Path
     ) -> None:
         """
-        GIVEN archetypes with positive signals defined
-        WHEN index_archetypes stores documents
-        THEN the stored text includes both description and signal content.
+        Given archetypes with positive signals defined
+        When index_archetypes stores documents
+        Then the stored text includes both description and signal content.
         """
         # When: index archetypes with signals
         await indexer.index_archetypes(str(archetypes_with_signals_path))
@@ -796,9 +796,9 @@ class TestGlobalRubricLoading:
         archetypes_with_signals_path: Path,
     ) -> None:
         """
-        GIVEN a rubric with 4 negative signals and archetypes with 4
-        WHEN index_negative_signals is called
-        THEN all 8 signals are indexed into the collection.
+        Given a rubric with 4 negative signals and archetypes with 4
+        When index_negative_signals is called
+        Then all 8 signals are indexed into the collection.
         """
         # When: index negative signals
         count = await indexer.index_negative_signals(
@@ -815,9 +815,9 @@ class TestGlobalRubricLoading:
         self, indexer: Indexer, archetypes_with_signals_path: Path
     ) -> None:
         """
-        GIVEN a nonexistent rubric file path
-        WHEN index_negative_signals is called
-        THEN a CONFIG error with actionable guidance is raised.
+        Given a nonexistent rubric file path
+        When index_negative_signals is called
+        Then a CONFIG error with actionable guidance is raised.
         """
         # When/Then: raises CONFIG error
         with pytest.raises(ActionableError) as exc_info:
@@ -835,9 +835,9 @@ class TestGlobalRubricLoading:
         self, indexer: Indexer, tmp_path: Path, archetypes_with_signals_path: Path
     ) -> None:
         """
-        GIVEN a rubric TOML file with invalid syntax
-        WHEN index_negative_signals is called
-        THEN a PARSE error with actionable guidance is raised.
+        Given a rubric TOML file with invalid syntax
+        When index_negative_signals is called
+        Then a PARSE error with actionable guidance is raised.
         """
         # Given: malformed rubric
         bad_rubric = tmp_path / "bad_rubric.toml"
@@ -892,9 +892,9 @@ class TestNegativeSignalIndexing:
         archetypes_with_signals_path: Path,
     ) -> None:
         """
-        GIVEN a rubric and archetypes with negative signals
-        WHEN index_negative_signals is called
-        THEN both sources contribute to the collection.
+        Given a rubric and archetypes with negative signals
+        When index_negative_signals is called
+        Then both sources contribute to the collection.
         """
         # When: index negative signals
         count = await indexer.index_negative_signals(
@@ -915,9 +915,9 @@ class TestNegativeSignalIndexing:
         archetypes_with_signals_path: Path,
     ) -> None:
         """
-        GIVEN a rubric and archetypes with negative signals
-        WHEN index_negative_signals is called
-        THEN the returned count matches the number of documents stored.
+        Given a rubric and archetypes with negative signals
+        When index_negative_signals is called
+        Then the returned count matches the number of documents stored.
         """
         # When: index negative signals
         count = await indexer.index_negative_signals(
@@ -938,9 +938,9 @@ class TestNegativeSignalIndexing:
         archetypes_with_signals_path: Path,
     ) -> None:
         """
-        GIVEN indexed negative signals from rubric and archetypes
-        WHEN signal metadata is inspected
-        THEN each source starts with 'rubric:' or 'archetype:'.
+        Given indexed negative signals from rubric and archetypes
+        When signal metadata is inspected
+        Then each source starts with 'rubric:' or 'archetype:'.
         """
         # Given: indexed signals
         await indexer.index_negative_signals(str(rubric_path), str(archetypes_with_signals_path))
@@ -966,9 +966,9 @@ class TestNegativeSignalIndexing:
         archetypes_with_signals_path: Path,
     ) -> None:
         """
-        GIVEN negative signals already indexed
-        WHEN index_negative_signals is called again
-        THEN previous content is replaced, not appended.
+        Given negative signals already indexed
+        When index_negative_signals is called again
+        Then previous content is replaced, not appended.
         """
         # Given: first index
         count1 = await indexer.index_negative_signals(
@@ -994,9 +994,9 @@ class TestNegativeSignalIndexing:
         archetypes_with_signals_path: Path,
     ) -> None:
         """
-        GIVEN a rubric with no dimensions
-        WHEN index_negative_signals is called
-        THEN only archetype negative signals are indexed.
+        Given a rubric with no dimensions
+        When index_negative_signals is called
+        Then only archetype negative signals are indexed.
         """
         # Given: empty rubric
         empty_rubric = tmp_path / "empty_rubric.toml"
@@ -1014,9 +1014,9 @@ class TestNegativeSignalIndexing:
         self, indexer: Indexer, rubric_path: Path
     ) -> None:
         """
-        GIVEN a nonexistent archetypes file path
-        WHEN index_negative_signals is called
-        THEN a CONFIG error with actionable guidance is raised.
+        Given a nonexistent archetypes file path
+        When index_negative_signals is called
+        Then a CONFIG error with actionable guidance is raised.
         """
         # When/Then: raises CONFIG error
         with pytest.raises(ActionableError) as exc_info:
@@ -1030,9 +1030,9 @@ class TestNegativeSignalIndexing:
         self, indexer: Indexer, rubric_path: Path, tmp_path: Path
     ) -> None:
         """
-        GIVEN an archetypes file with invalid TOML syntax
-        WHEN index_negative_signals is called
-        THEN a PARSE error is raised naming the file and suggesting a fix.
+        Given an archetypes file with invalid TOML syntax
+        When index_negative_signals is called
+        Then a PARSE error is raised naming the file and suggesting a fix.
         """
         # Given: malformed archetypes TOML
         bad_toml = tmp_path / "bad_archetypes.toml"
@@ -1055,9 +1055,9 @@ class TestNegativeSignalIndexing:
         self, indexer: Indexer, store: VectorStore, tmp_path: Path
     ) -> None:
         """
-        GIVEN a rubric and archetypes with no negative signals
-        WHEN index_negative_signals is called
-        THEN the method returns 0 and the collection is empty.
+        Given a rubric and archetypes with no negative signals
+        When index_negative_signals is called
+        Then the method returns 0 and the collection is empty.
         """
         # Given: rubric with dimensions but no negative signals
         empty_rubric = tmp_path / "no_neg_rubric.toml"

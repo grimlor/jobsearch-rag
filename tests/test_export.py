@@ -165,9 +165,9 @@ class TestMarkdownExport:
 
     def test_output_includes_all_required_fields_per_listing(self, tmp_path: Path) -> None:
         """
-        GIVEN a single ranked listing
-        WHEN exported to Markdown
-        THEN the output includes title, company, board, scores, disqualifier status, and URL.
+        Given a single ranked listing
+        When exported to Markdown
+        Then the output includes title, company, board, scores, disqualifier status, and URL.
         """
         # Given: a single listing
         listings = [_ranked()]
@@ -187,9 +187,9 @@ class TestMarkdownExport:
 
     def test_listings_are_sorted_descending_by_final_score(self, tmp_path: Path) -> None:
         """
-        GIVEN listings with different final scores
-        WHEN exported to Markdown
-        THEN they appear in descending score order so the best matches are reviewed first.
+        Given listings with different final scores
+        When exported to Markdown
+        Then they appear in descending score order so the best matches are reviewed first.
         """
         # Given: three listings with different scores
         listings = [
@@ -221,9 +221,9 @@ class TestMarkdownExport:
 
     def test_disqualified_roles_are_not_present_in_output(self, tmp_path: Path) -> None:
         """
-        GIVEN a mix of qualified and disqualified listings
-        WHEN exported to Markdown
-        THEN disqualified roles (score 0.0) are excluded entirely.
+        Given a mix of qualified and disqualified listings
+        When exported to Markdown
+        Then disqualified roles (score 0.0) are excluded entirely.
         """
         # Given: one good, one disqualified
         listings = [
@@ -249,9 +249,9 @@ class TestMarkdownExport:
 
     def test_score_explanation_shows_all_three_component_scores(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing with specific component scores
-        WHEN exported to Markdown
-        THEN the output shows fit, archetype, history, and comp values for transparency.
+        Given a listing with specific component scores
+        When exported to Markdown
+        Then the output shows fit, archetype, history, and comp values for transparency.
         """
         # Given: listing with known component scores
         listings = [_ranked(fit=0.74, archetype=0.81, history=0.62, comp=0.90)]
@@ -269,9 +269,9 @@ class TestMarkdownExport:
 
     def test_score_explanation_includes_culture_score(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing with culture_score set
-        WHEN exported to Markdown
-        THEN the output includes the culture score for environment-quality transparency.
+        Given a listing with culture_score set
+        When exported to Markdown
+        Then the output includes the culture score for environment-quality transparency.
         """
         # Given: listing with culture_score
         scores = _scores(fit=0.74, archetype=0.81, history=0.62, comp=0.90)
@@ -297,9 +297,9 @@ class TestMarkdownExport:
 
     def test_score_explanation_includes_negative_score(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing with negative_score set
-        WHEN exported to Markdown
-        THEN the output includes the negative score for penalty signal transparency.
+        Given a listing with negative_score set
+        When exported to Markdown
+        Then the output includes the negative score for penalty signal transparency.
         """
         # Given: listing with negative_score
         scores = _scores(fit=0.74, archetype=0.81, history=0.62, comp=0.90)
@@ -325,9 +325,9 @@ class TestMarkdownExport:
 
     def test_run_summary_appears_at_top_of_output(self, tmp_path: Path) -> None:
         """
-        GIVEN listings with a run summary
-        WHEN exported to Markdown
-        THEN the summary header appears before any listing, providing immediate run context.
+        Given listings with a run summary
+        When exported to Markdown
+        Then the summary header appears before any listing, providing immediate run context.
         """
         # Given: a listing with summary
         listings = [_ranked()]
@@ -346,9 +346,9 @@ class TestMarkdownExport:
         self, tmp_path: Path
     ) -> None:
         """
-        GIVEN specific run summary counts
-        WHEN exported to Markdown
-        THEN the output reports total found, scored, excluded, and deduplicated counts.
+        Given specific run summary counts
+        When exported to Markdown
+        Then the output reports total found, scored, excluded, and deduplicated counts.
         """
         # Given: summary with specific counts
         listings = [_ranked()]
@@ -366,9 +366,9 @@ class TestMarkdownExport:
 
     def test_url_is_present_and_non_empty_for_every_listing(self, tmp_path: Path) -> None:
         """
-        GIVEN multiple listings with distinct URLs
-        WHEN exported to Markdown
-        THEN every listing has its URL present so the operator can click through.
+        Given multiple listings with distinct URLs
+        When exported to Markdown
+        Then every listing has its URL present so the operator can click through.
         """
         # Given: two listings with different URLs
         listings = [
@@ -389,9 +389,9 @@ class TestMarkdownExport:
         self, tmp_path: Path
     ) -> None:
         """
-        GIVEN an empty result set
-        WHEN exported to Markdown
-        THEN a valid file is produced with a summary but no listing table.
+        Given an empty result set
+        When exported to Markdown
+        Then a valid file is produced with a summary but no listing table.
         """
         # Given: empty listings
         out = tmp_path / "results.md"
@@ -407,9 +407,9 @@ class TestMarkdownExport:
 
     def test_export_without_summary_omits_summary_stats(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing set with no summary provided
-        WHEN exported to Markdown
-        THEN the output contains the summary heading but no total-found/scored lines.
+        Given a listing set with no summary provided
+        When exported to Markdown
+        Then the output contains the summary heading but no total-found/scored lines.
         """
         # Given: listings with no summary
         out = tmp_path / "results.md"
@@ -456,9 +456,9 @@ class TestCSVExport:
 
     def test_csv_has_header_row_with_all_required_columns(self, tmp_path: Path) -> None:
         """
-        GIVEN a single ranked listing
-        WHEN exported to CSV
-        THEN the file starts with a header row containing all required column names.
+        Given a single ranked listing
+        When exported to CSV
+        Then the file starts with a header row containing all required column names.
         """
         # Given: a single listing
         listings = [_ranked()]
@@ -477,9 +477,9 @@ class TestCSVExport:
 
     def test_csv_includes_comp_score_comp_min_comp_max_columns(self, tmp_path: Path) -> None:
         """
-        GIVEN a ranked listing
-        WHEN exported to CSV
-        THEN the header includes comp_score, comp_min, and comp_max columns.
+        Given a ranked listing
+        When exported to CSV
+        Then the header includes comp_score, comp_min, and comp_max columns.
         """
         # Given: a single listing
         listings = [_ranked()]
@@ -497,9 +497,9 @@ class TestCSVExport:
 
     def test_full_jd_text_is_not_included_in_csv_output(self, tmp_path: Path) -> None:
         """
-        GIVEN a ranked listing with full_text
-        WHEN exported to CSV
-        THEN full_text is omitted since it is too large for spreadsheet cells.
+        Given a ranked listing with full_text
+        When exported to CSV
+        Then full_text is omitted since it is too large for spreadsheet cells.
         """
         # Given: a listing with full_text
         listings = [_ranked()]
@@ -516,9 +516,9 @@ class TestCSVExport:
 
     def test_company_names_with_commas_are_properly_quoted(self, tmp_path: Path) -> None:
         """
-        GIVEN a company name containing commas
-        WHEN exported to CSV
-        THEN the name is properly quoted so it doesn't split across columns on import.
+        Given a company name containing commas
+        When exported to CSV
+        Then the name is properly quoted so it doesn't split across columns on import.
         """
         # Given: listing with comma in company name
         listings = [_ranked(company="Acme, Inc.")]
@@ -536,9 +536,9 @@ class TestCSVExport:
 
     def test_empty_result_set_produces_header_only_csv(self, tmp_path: Path) -> None:
         """
-        GIVEN an empty result set
-        WHEN exported to CSV
-        THEN the file contains headers only, remaining valid for import tools.
+        Given an empty result set
+        When exported to CSV
+        Then the file contains headers only, remaining valid for import tools.
         """
         # Given: empty listings
         out = tmp_path / "results.csv"
@@ -557,9 +557,9 @@ class TestCSVExport:
 
     def test_csv_row_count_matches_scored_listing_count(self, tmp_path: Path) -> None:
         """
-        GIVEN a mix of scored and disqualified listings
-        WHEN exported to CSV
-        THEN the data row count equals the number of non-disqualified listings.
+        Given a mix of scored and disqualified listings
+        When exported to CSV
+        Then the data row count equals the number of non-disqualified listings.
         """
         # Given: 2 scored + 1 disqualified
         listings = [
@@ -588,9 +588,9 @@ class TestCSVExport:
 
     def test_csv_includes_culture_score_column(self, tmp_path: Path) -> None:
         """
-        GIVEN a ranked listing
-        WHEN exported to CSV
-        THEN the header includes a culture_score column.
+        Given a ranked listing
+        When exported to CSV
+        Then the header includes a culture_score column.
         """
         # Given: a listing
         listings = [_ranked()]
@@ -607,9 +607,9 @@ class TestCSVExport:
 
     def test_csv_includes_negative_score_column(self, tmp_path: Path) -> None:
         """
-        GIVEN a ranked listing
-        WHEN exported to CSV
-        THEN the header includes a negative_score column.
+        Given a ranked listing
+        When exported to CSV
+        Then the header includes a negative_score column.
         """
         # Given: a listing
         listings = [_ranked()]
@@ -680,9 +680,9 @@ class TestBrowserTabOpener:
     @patch("webbrowser.open")
     def test_tabs_open_in_descending_score_order(self, mock_open: object) -> None:
         """
-        GIVEN listings with different scores
-        WHEN tabs are opened
-        THEN browser tabs open highest-scored first so the best match is immediately visible.
+        Given listings with different scores
+        When tabs are opened
+        Then browser tabs open highest-scored first so the best match is immediately visible.
         """
         # Given: three listings with different scores
         listings = [
@@ -712,9 +712,9 @@ class TestBrowserTabOpener:
     @patch("webbrowser.open")
     def test_tab_count_respects_open_top_n_from_cli(self, mock_open: object) -> None:
         """
-        GIVEN 5 listings
-        WHEN the --open-top N CLI flag limits to 2
-        THEN exactly 2 tabs are opened.
+        Given 5 listings
+        When the --open-top N CLI flag limits to 2
+        Then exactly 2 tabs are opened.
         """
         # Given: 5 listings
         listings = [
@@ -738,9 +738,9 @@ class TestBrowserTabOpener:
         self, mock_open: object
     ) -> None:
         """
-        GIVEN 10 listings and no CLI --open-top specified
-        WHEN tabs are opened with the default
-        THEN the default from settings.toml (5) is used.
+        Given 10 listings and no CLI --open-top specified
+        When tabs are opened with the default
+        Then the default from settings.toml (5) is used.
         """
         # Given: 10 listings
         listings = [
@@ -764,9 +764,9 @@ class TestBrowserTabOpener:
         self, mock_open: object
     ) -> None:
         """
-        GIVEN fewer results than N
-        WHEN tabs are opened with a large top_n
-        THEN all available are opened without raising on the shortfall.
+        Given fewer results than N
+        When tabs are opened with a large top_n
+        Then all available are opened without raising on the shortfall.
         """
         # Given: only 1 listing
         listings = [
@@ -782,9 +782,9 @@ class TestBrowserTabOpener:
     @patch("webbrowser.open")
     def test_disqualified_roles_are_never_opened_as_tabs(self, mock_open: object) -> None:
         """
-        GIVEN a mix of qualified and disqualified listings
-        WHEN tabs are opened
-        THEN disqualified roles are excluded regardless of position.
+        Given a mix of qualified and disqualified listings
+        When tabs are opened
+        Then disqualified roles are excluded regardless of position.
         """
         # Given: one qualified, one disqualified
         listings = [
@@ -812,9 +812,9 @@ class TestBrowserTabOpener:
         self, mock_open: object, caplog: pytest.LogCaptureFixture
     ) -> None:
         """
-        GIVEN the first tab open fails with OSError
-        WHEN tabs are opened
-        THEN the failed URL is logged and the next tab still opens.
+        Given the first tab open fails with OSError
+        When tabs are opened
+        Then the failed URL is logged and the next tab still opens.
         """
         # Given: two listings, first will fail
         listings = [
@@ -836,9 +836,9 @@ class TestBrowserTabOpener:
         self, mock_open: object, caplog: pytest.LogCaptureFixture
     ) -> None:
         """
-        GIVEN all results score zero (disqualified)
-        WHEN tabs are opened
-        THEN no tabs open and an advisory message is logged.
+        Given all results score zero (disqualified)
+        When tabs are opened
+        Then no tabs open and an advisory message is logged.
         """
         # Given: only disqualified listings
         listings = [
@@ -858,9 +858,9 @@ class TestBrowserTabOpener:
         self, mock_open: object
     ) -> None:
         """
-        GIVEN a listing
-        WHEN a tab is opened
-        THEN it opens in the system browser, not the Playwright automation session.
+        Given a listing
+        When a tab is opened
+        Then it opens in the system browser, not the Playwright automation session.
         """
         # Given: a single listing
         listings = [_ranked()]
@@ -874,9 +874,9 @@ class TestBrowserTabOpener:
     @patch("webbrowser.open")
     def test_open_top_zero_opens_no_tabs_without_error(self, mock_open: object) -> None:
         """
-        GIVEN a listing
-        WHEN --open-top 0 is specified
-        THEN no tabs are opened and no error is raised.
+        Given a listing
+        When --open-top 0 is specified
+        Then no tabs are opened and no error is raised.
         """
         # Given: a listing
         listings = [_ranked()]
@@ -927,9 +927,9 @@ class TestJDFileExport:
 
     def test_creates_individual_files_for_each_listing(self, tmp_path: Path) -> None:
         """
-        GIVEN multiple qualified listings
-        WHEN exported as JD files
-        THEN each listing gets its own Markdown file.
+        Given multiple qualified listings
+        When exported as JD files
+        Then each listing gets its own Markdown file.
         """
         # Given: two listings
         listings = [
@@ -980,9 +980,9 @@ class TestJDFileExport:
 
     def test_file_contains_metadata_header(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing with specific metadata
-        WHEN exported as a JD file
-        THEN the file includes company, URL, external_id, and score section.
+        Given a listing with specific metadata
+        When exported as a JD file
+        Then the file includes company, URL, external_id, and score section.
         """
         # Given: a listing
         listings = [
@@ -1011,9 +1011,9 @@ class TestJDFileExport:
 
     def test_file_contains_full_jd_text(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing with full_text
-        WHEN exported as a JD file
-        THEN the full job description text appears after the score section.
+        Given a listing with full_text
+        When exported as a JD file
+        Then the full job description text appears after the score section.
         """
         # Given: a listing with full_text
         listings = [_ranked()]
@@ -1029,9 +1029,9 @@ class TestJDFileExport:
 
     def test_skips_listings_without_full_text(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing with empty full_text
-        WHEN exported as JD files
-        THEN the listing is skipped and no file is created.
+        Given a listing with empty full_text
+        When exported as JD files
+        Then the listing is skipped and no file is created.
         """
         # Given: listing with empty full_text
         listing = _ranked(title="Empty JD")
@@ -1045,9 +1045,9 @@ class TestJDFileExport:
 
     def test_excludes_disqualified_listings(self, tmp_path: Path) -> None:
         """
-        GIVEN a mix of qualified and disqualified listings
-        WHEN exported as JD files
-        THEN disqualified listings with final_score=0 are excluded.
+        Given a mix of qualified and disqualified listings
+        When exported as JD files
+        Then disqualified listings with final_score=0 are excluded.
         """
         # Given: one qualified, one disqualified
         listings = [
@@ -1071,9 +1071,9 @@ class TestJDFileExport:
 
     def test_sorts_by_final_score_descending(self, tmp_path: Path) -> None:
         """
-        GIVEN listings with different scores
-        WHEN exported as JD files
-        THEN files are sorted by score, with higher-scored listing exported first.
+        Given listings with different scores
+        When exported as JD files
+        Then files are sorted by score, with higher-scored listing exported first.
         """
         # Given: two listings, lower-scored first
         listings = [
@@ -1100,9 +1100,9 @@ class TestJDFileExport:
 
     def test_creates_output_directory_if_missing(self, tmp_path: Path) -> None:
         """
-        GIVEN a nested output directory that doesn't exist
-        WHEN JD files are exported
-        THEN the directory is created automatically.
+        Given a nested output directory that doesn't exist
+        When JD files are exported
+        Then the directory is created automatically.
         """
         # Given: a non-existent nested directory
         nested = tmp_path / "deep" / "nested" / "jds"
@@ -1117,9 +1117,9 @@ class TestJDFileExport:
 
     def test_score_section_includes_all_components(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing with specific component scores
-        WHEN exported as a JD file
-        THEN the score section shows fit, archetype, history, and comp scores.
+        Given a listing with specific component scores
+        When exported as a JD file
+        Then the score section shows fit, archetype, history, and comp scores.
         """
         # Given: listing with known scores
         listings = [
@@ -1140,9 +1140,9 @@ class TestJDFileExport:
 
     def test_duplicate_boards_shown_in_jd_file(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing with duplicate_boards populated
-        WHEN the JD file is exported
-        THEN the file contains an 'Also on:' line listing the other boards.
+        Given a listing with duplicate_boards populated
+        When the JD file is exported
+        Then the file contains an 'Also on:' line listing the other boards.
         """
         # Given: listing with duplicate boards
         listings = [
@@ -1166,9 +1166,9 @@ class TestJDFileExport:
 
     def test_disqualified_listing_shows_reason_in_jd_file(self, tmp_path: Path) -> None:
         """
-        GIVEN a listing that is disqualified but has a non-zero final score
-        WHEN the JD file is exported
-        THEN the file contains a 'Disqualified:' line with the reason.
+        Given a listing that is disqualified but has a non-zero final score
+        When the JD file is exported
+        Then the file contains a 'Disqualified:' line with the reason.
         """
         # Given: disqualified listing with non-zero score
         listings = [

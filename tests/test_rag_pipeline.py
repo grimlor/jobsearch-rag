@@ -533,9 +533,9 @@ description = "Defines tech strategy."
         self, indexer: Indexer
     ) -> None:
         """
-        GIVEN an empty archetypes TOML file
-        WHEN index_archetypes is called
-        THEN a VALIDATION error with actionable guidance is raised.
+        Given an empty archetypes TOML file
+        When index_archetypes is called
+        Then a VALIDATION error with actionable guidance is raised.
         """
         # Given: empty TOML
         empty_toml = "# No archetypes defined\n"
@@ -559,9 +559,9 @@ description = "Defines tech strategy."
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN an archetype with excessive whitespace in its description
-        WHEN index_archetypes is called
-        THEN the stored document text has normalized whitespace.
+        Given an archetype with excessive whitespace in its description
+        When index_archetypes is called
+        Then the stored document text has normalized whitespace.
         """
         # Given: TOML with messy whitespace
         toml_content = """\
@@ -615,9 +615,9 @@ class TestNegativeScoring:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a VectorStore with resume and archetypes but no negative_signals collection
-        WHEN scorer.score is called
-        THEN negative_score defaults to 0.0.
+        Given a VectorStore with resume and archetypes but no negative_signals collection
+        When scorer.score is called
+        Then negative_score defaults to 0.0.
         """
         # Given: populate resume and archetypes only — no negative_signals
         store.add_documents(
@@ -648,9 +648,9 @@ class TestNegativeScoring:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a VectorStore with an empty negative_signals collection
-        WHEN scorer.score is called
-        THEN negative_score defaults to 0.0.
+        Given a VectorStore with an empty negative_signals collection
+        When scorer.score is called
+        Then negative_score defaults to 0.0.
         """
         # Given: resume + archetypes populated, empty negative_signals
         store.add_documents(
@@ -682,9 +682,9 @@ class TestNegativeScoring:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a VectorStore with populated negative_signals
-        WHEN scorer.score is called with a JD matching a negative signal
-        THEN ScoreResult includes negative_score in [0.0, 1.0].
+        Given a VectorStore with populated negative_signals
+        When scorer.score is called with a JD matching a negative signal
+        Then ScoreResult includes negative_score in [0.0, 1.0].
         """
         # Given: resume + archetypes + negative_signals populated
         store.add_documents(
@@ -757,9 +757,9 @@ class TestGlobalPositiveSignalIndexing:
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN a rubric TOML with two dimensions that have signals_positive
-        WHEN index_global_positive_signals is called
-        THEN each dimension produces exactly one ChromaDB document.
+        Given a rubric TOML with two dimensions that have signals_positive
+        When index_global_positive_signals is called
+        Then each dimension produces exactly one ChromaDB document.
         """
         # Given: TOML with 2 dimensions having signals_positive
         rubric_toml = """\
@@ -790,9 +790,9 @@ signals_negative = ["60-hour weeks"]
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN an indexed rubric dimension with signals_positive
-        WHEN the document metadata is retrieved
-        THEN the source dimension name is stored in metadata.
+        Given an indexed rubric dimension with signals_positive
+        When the document metadata is retrieved
+        Then the source dimension name is stored in metadata.
         """
         # Given: TOML with one dimension
         rubric_toml = """\
@@ -820,9 +820,9 @@ signals_positive = ["strategic thinking", "cross-org influence"]
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN an already-indexed global positive collection
-        WHEN index_global_positive_signals is called again
-        THEN the collection is replaced, not appended to.
+        Given an already-indexed global positive collection
+        When index_global_positive_signals is called again
+        Then the collection is replaced, not appended to.
         """
         # Given: TOML indexed once
         rubric_toml = """\
@@ -850,9 +850,9 @@ signals_positive = ["strategic"]
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN a rubric dimension with only signals_negative (no signals_positive)
-        WHEN index_global_positive_signals is called
-        THEN zero documents are produced.
+        Given a rubric dimension with only signals_negative (no signals_positive)
+        When index_global_positive_signals is called
+        Then zero documents are produced.
         """
         # Given: TOML with negative-only dimension
         rubric_toml = """\
@@ -872,9 +872,9 @@ signals_negative = ["equity-only compensation"]
 
     async def test_missing_global_rubric_produces_actionable_error(self, indexer: Indexer) -> None:
         """
-        GIVEN a nonexistent global_rubric.toml path
-        WHEN index_global_positive_signals is called
-        THEN a CONFIG error with actionable guidance is raised.
+        Given a nonexistent global_rubric.toml path
+        When index_global_positive_signals is called
+        Then a CONFIG error with actionable guidance is raised.
         """
         # When/Then: raises CONFIG error
         with pytest.raises(ActionableError) as exc_info:
@@ -891,9 +891,9 @@ signals_negative = ["equity-only compensation"]
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN a rubric TOML with a dimension having signals_positive
-        WHEN --archetypes-only triggers index_global_positive_signals
-        THEN the global positive collection is rebuilt.
+        Given a rubric TOML with a dimension having signals_positive
+        When --archetypes-only triggers index_global_positive_signals
+        Then the global positive collection is rebuilt.
         """
         # Given: TOML with one positive dimension
         rubric_toml = """\
@@ -915,9 +915,9 @@ signals_positive = ["strategic vision"]
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN a rubric with 2 positive and 1 negative-only dimension
-        WHEN index_global_positive_signals is called
-        THEN the collection count equals the number of contributing dimensions.
+        Given a rubric with 2 positive and 1 negative-only dimension
+        When index_global_positive_signals is called
+        Then the collection count equals the number of contributing dimensions.
         """
         # Given: 3 dimensions, only 2 with signals_positive
         rubric_toml = """\
@@ -950,9 +950,9 @@ signals_negative = ["equity-only"]
         self, indexer: Indexer, store: VectorStore
     ) -> None:
         """
-        GIVEN a dimension with only signals_negative (e.g., Compensation Red Flags)
-        WHEN index_global_positive_signals is called
-        THEN zero positive documents are produced.
+        Given a dimension with only signals_negative (e.g., Compensation Red Flags)
+        When index_global_positive_signals is called
+        Then zero positive documents are produced.
         """
         # Given: negative-only dimension
         rubric_toml = """\
@@ -974,9 +974,9 @@ signals_negative = ["equity-only compensation", "unpaid position"]
         self, indexer: Indexer
     ) -> None:
         """
-        GIVEN a global rubric TOML file with invalid syntax
-        WHEN index_global_positive_signals is called
-        THEN a PARSE error is raised naming the file and suggesting a fix.
+        Given a global rubric TOML file with invalid syntax
+        When index_global_positive_signals is called
+        Then a PARSE error is raised naming the file and suggesting a fix.
         """
         # Given: malformed TOML
         with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
@@ -1035,9 +1035,9 @@ class TestCultureScoring:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a VectorStore without a global_positive_signals collection
-        WHEN scorer.score is called
-        THEN culture_score defaults to 0.0.
+        Given a VectorStore without a global_positive_signals collection
+        When scorer.score is called
+        Then culture_score defaults to 0.0.
         """
         # Given: required collections populated but NOT global_positive_signals
         store.add_documents(
@@ -1068,9 +1068,9 @@ class TestCultureScoring:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a VectorStore with populated global_positive_signals
-        WHEN scorer.score is called
-        THEN culture_score is a float in [0.0, 1.0].
+        Given a VectorStore with populated global_positive_signals
+        When scorer.score is called
+        Then culture_score is a float in [0.0, 1.0].
         """
         # Given: all required collections + global_positive_signals populated
         store.add_documents(
@@ -1111,9 +1111,9 @@ class TestCultureScoring:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a VectorStore with required collections
-        WHEN scorer.score is called
-        THEN ScoreResult includes culture_score as a named field.
+        Given a VectorStore with required collections
+        When scorer.score is called
+        Then ScoreResult includes culture_score as a named field.
         """
         # Given: required collections populated
         store.add_documents(
@@ -1140,9 +1140,9 @@ class TestCultureScoring:
 
     async def test_culture_score_appears_in_score_breakdown_output(self) -> None:
         """
-        GIVEN a RankedListing with a culture_score of 0.65
-        WHEN score_explanation is called
-        THEN the explanation string includes 'Culture: 0.65'.
+        Given a RankedListing with a culture_score of 0.65
+        When score_explanation is called
+        Then the explanation string includes 'Culture: 0.65'.
         """
         # Given: scores with culture_score=0.65
         scores = ScoreResult(
@@ -1179,9 +1179,9 @@ class TestCultureScoring:
 
     async def test_culture_weight_is_read_from_settings_not_hardcoded(self) -> None:
         """
-        GIVEN a Ranker instantiated with culture_weight=0.2
-        WHEN the attribute is read
-        THEN it reflects the configured value, not a hardcoded default.
+        Given a Ranker instantiated with culture_weight=0.2
+        When the attribute is read
+        Then it reflects the configured value, not a hardcoded default.
         """
         # Given: Ranker with explicit culture_weight
         ranker = Ranker(
@@ -1201,9 +1201,9 @@ class TestCultureScoring:
 
     async def test_high_culture_score_raises_final_score(self) -> None:
         """
-        GIVEN two ScoreResults identical except for culture_score (0.0 vs 0.9)
-        WHEN compute_final_score is called on each
-        THEN the high-culture result has a higher final score.
+        Given two ScoreResults identical except for culture_score (0.0 vs 0.9)
+        When compute_final_score is called on each
+        Then the high-culture result has a higher final score.
         """
         # Given: Ranker with culture_weight=0.3
         ranker = Ranker(
@@ -1247,9 +1247,9 @@ class TestCultureScoring:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN an empty global_positive_signals collection
-        WHEN scorer.score is called
-        THEN culture_score is 0.0.
+        Given an empty global_positive_signals collection
+        When scorer.score is called
+        Then culture_score is 0.0.
         """
         # Given: required collections + empty global_positive_signals
         store.add_documents(
@@ -1279,9 +1279,9 @@ class TestCultureScoring:
 
     async def test_score_explanation_includes_all_six_component_values(self) -> None:
         """
-        GIVEN a RankedListing with all six score components set
-        WHEN score_explanation is called
-        THEN all six components appear in the explanation string.
+        Given a RankedListing with all six score components set
+        When score_explanation is called
+        Then all six components appear in the explanation string.
         """
         # Given: scores with all 6 components
         scores = ScoreResult(

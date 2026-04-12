@@ -69,7 +69,7 @@ class TestMainDispatch:
         extra_argv: list[str],
     ) -> None:
         """
-        GIVEN a CLI invocation with a subcommand
+        Given a CLI invocation with a subcommand
         When main() is called
         Then the corresponding handle_* function is invoked.
         """
@@ -113,7 +113,7 @@ class TestMainErrorDisplay:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """
-        GIVEN a handler that raises an ActionableError with a suggestion
+        Given a handler that raises an ActionableError with a suggestion
         When main() catches it
         Then error_type, message, and suggestion are printed to stderr.
         """
@@ -147,7 +147,7 @@ class TestMainErrorDisplay:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """
-        GIVEN a handler that raises an ActionableError without a suggestion
+        Given a handler that raises an ActionableError without a suggestion
         When main() catches it
         Then only error_type and message are printed (no Suggestion line).
         """
@@ -178,7 +178,7 @@ class TestMainErrorDisplay:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """
-        GIVEN a handler that raises a non-ActionableError exception
+        Given a handler that raises a non-ActionableError exception
         When main() catches it
         Then 'Unexpected error' and the message are printed to stderr.
         """

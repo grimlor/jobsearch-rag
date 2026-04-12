@@ -95,9 +95,9 @@ class TestDecisionRecording:
         self, recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN a recorder with an empty history
-        WHEN a 'yes' verdict is recorded
-        THEN the decision is persisted and becomes part of the history signal for future scoring.
+        Given a recorder with an empty history
+        When a 'yes' verdict is recorded
+        Then the decision is persisted and becomes part of the history signal for future scoring.
         """
         # When: record a yes verdict
         await recorder.record(
@@ -117,9 +117,9 @@ class TestDecisionRecording:
 
     async def test_reason_is_stored_in_chromadb_metadata(self, recorder: DecisionRecorder) -> None:
         """
-        GIVEN a verdict with an explicit reason
-        WHEN the decision is recorded
-        THEN the reason is persisted alongside the verdict so the operator's reasoning is preserved.
+        Given a verdict with an explicit reason
+        When the decision is recorded
+        Then the reason is persisted alongside the verdict so the operator's reasoning is preserved.
         """
         # When: record a verdict with a reason
         await recorder.record(
@@ -141,9 +141,9 @@ class TestDecisionRecording:
 
     async def test_empty_reason_stored_when_not_provided(self, recorder: DecisionRecorder) -> None:
         """
-        GIVEN a verdict with no reason provided
-        WHEN the decision is recorded
-        THEN an empty string is stored — the field is always present.
+        Given a verdict with no reason provided
+        When the decision is recorded
+        Then an empty string is stored — the field is always present.
         """
         # When: record a verdict without a reason
         await recorder.record(
@@ -164,9 +164,9 @@ class TestDecisionRecording:
         self, recorder: DecisionRecorder, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a verdict with a reason
-        WHEN the decision is recorded
-        THEN the embedder receives JD text + reason so the vector captures operator intent.
+        Given a verdict with a reason
+        When the decision is recorded
+        Then the embedder receives JD text + reason so the vector captures operator intent.
         """
         # Given: a JD and an explicit reason
         jd = "Staff Platform Architect role at Acme Corp."
@@ -190,9 +190,9 @@ class TestDecisionRecording:
         self, recorder: DecisionRecorder, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a verdict with no reason
-        WHEN the decision is recorded
-        THEN the embedder receives only the bare JD text — no enrichment suffix.
+        Given a verdict with no reason
+        When the decision is recorded
+        Then the embedder receives only the bare JD text — no enrichment suffix.
         """
         # Given: a JD with no reason
         jd = "Staff Platform Architect role at Acme Corp."
@@ -213,9 +213,9 @@ class TestDecisionRecording:
         self, recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN a 'no' verdict
-        WHEN the decision is recorded
-        THEN it is stored for audit but excluded from history_score — rejections have confounding reasons.
+        Given a 'no' verdict
+        When the decision is recorded
+        Then it is stored for audit but excluded from history_score — rejections have confounding reasons.
         """
         # When: record a 'no' verdict
         await recorder.record(
@@ -237,9 +237,9 @@ class TestDecisionRecording:
         self, recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN a 'maybe' verdict
-        WHEN the decision is recorded
-        THEN it is stored but excluded from scoring — only clear 'yes' signals are useful.
+        Given a 'maybe' verdict
+        When the decision is recorded
+        Then it is stored but excluded from scoring — only clear 'yes' signals are useful.
         """
         # When: record a 'maybe' verdict
         await recorder.record(
@@ -263,9 +263,9 @@ class TestDecisionRecording:
         self, recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN an invalid verdict value
-        WHEN the decision is recorded
-        THEN a DECISION error is raised naming the ID and suggesting the operator check the latest output.
+        Given an invalid verdict value
+        When the decision is recorded
+        Then a DECISION error is raised naming the ID and suggesting the operator check the latest output.
         """
         # When/Then: invalid verdict raises ActionableError
         with pytest.raises(ActionableError) as exc_info:
@@ -286,9 +286,9 @@ class TestDecisionRecording:
         self, recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN an empty history collection
-        WHEN decisions are recorded
-        THEN the history count increases by one for each decision.
+        Given an empty history collection
+        When decisions are recorded
+        Then the history count increases by one for each decision.
         """
         # Given: initial count
         initial = recorder.history_count()
@@ -323,9 +323,9 @@ class TestDecisionRecording:
         self, recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN a decision already recorded for a job_id
-        WHEN the same job_id is recorded again with a different verdict
-        THEN the previous decision is overwritten rather than duplicated.
+        Given a decision already recorded for a job_id
+        When the same job_id is recorded again with a different verdict
+        Then the previous decision is overwritten rather than duplicated.
         """
         # Given: initial decision recorded
         await recorder.record(
@@ -356,9 +356,9 @@ class TestDecisionRecording:
         self, recorder: DecisionRecorder
     ) -> None:
         """
-        GIVEN a verdict with whitespace-only JD text
-        WHEN the decision is recorded
-        THEN a VALIDATION error is raised telling the operator to provide content.
+        Given a verdict with whitespace-only JD text
+        When the decision is recorded
+        Then a VALIDATION error is raised telling the operator to provide content.
         """
         # When/Then: empty JD text raises ActionableError
         with pytest.raises(ActionableError) as exc_info:
@@ -379,9 +379,9 @@ class TestDecisionRecording:
         self, store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a verdict with a reason
-        WHEN the decision is recorded
-        THEN the reason field appears in the daily JSONL audit file alongside the verdict.
+        Given a verdict with a reason
+        When the decision is recorded
+        Then the reason field appears in the daily JSONL audit file alongside the verdict.
         """
         with tempfile.TemporaryDirectory() as decisions_dir:
             # Given: a recorder with a fresh decisions directory
@@ -416,9 +416,9 @@ class TestDecisionRecording:
         self, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a store with no decisions collection
-        WHEN get_decision() is called
-        THEN None is returned instead of raising.
+        Given a store with no decisions collection
+        When get_decision() is called
+        Then None is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -434,9 +434,9 @@ class TestDecisionRecording:
         self, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a decisions collection that exists but has no matching document
-        WHEN get_decision() is called
-        THEN None is returned.
+        Given a decisions collection that exists but has no matching document
+        When get_decision() is called
+        Then None is returned.
         """
         # Given: a store with an empty decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -453,9 +453,9 @@ class TestDecisionRecording:
         self, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a store where the decisions collection does not exist
-        WHEN history_count() is called
-        THEN 0 is returned instead of raising.
+        Given a store where the decisions collection does not exist
+        When history_count() is called
+        Then 0 is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -469,9 +469,9 @@ class TestDecisionRecording:
         self, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a store where the decisions collection does not exist
-        WHEN audit_decisions() is called
-        THEN an empty list is returned instead of raising.
+        Given a store where the decisions collection does not exist
+        When audit_decisions() is called
+        Then an empty list is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:

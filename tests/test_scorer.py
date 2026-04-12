@@ -207,7 +207,7 @@ class TestSemanticScoring:
 
     async def test_all_scores_are_floats_between_zero_and_one(self, scorer: Scorer) -> None:
         """
-        GIVEN a scorer with populated store and mocked embedder
+        Given a scorer with populated store and mocked embedder
         When a JD is scored
         Then all three component scores (fit, archetype, history) are floats in [0.0, 1.0].
         """
@@ -233,7 +233,7 @@ class TestSemanticScoring:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a JD matching an archetype and an unrelated JD
+        Given a JD matching an archetype and an unrelated JD
         When both are scored
         Then the matching JD has a higher archetype_score.
         """
@@ -255,7 +255,7 @@ class TestSemanticScoring:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a JD matching resume skills and one without overlap
+        Given a JD matching resume skills and one without overlap
         When both are scored
         Then the matching JD has a higher fit_score.
         """
@@ -275,7 +275,7 @@ class TestSemanticScoring:
 
     async def test_scores_are_stable_across_repeated_calls(self, scorer: Scorer) -> None:
         """
-        GIVEN a scorer with populated store and mocked embedder
+        Given a scorer with populated store and mocked embedder
         When the same JD is scored twice
         Then both calls produce identical component scores.
         """
@@ -301,7 +301,7 @@ class TestSemanticScoring:
         self, scorer_empty_history: Scorer
     ) -> None:
         """
-        GIVEN no decisions collection exists
+        Given no decisions collection exists
         When a JD is scored
         Then history_score is 0.0 rather than raising.
         """
@@ -323,7 +323,7 @@ class TestSemanticScoring:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
-        GIVEN a collection that returns no distances from a query
+        Given a collection that returns no distances from a query
         When score() is called
         Then the resulting score component is 0.0.
         """
@@ -365,7 +365,7 @@ class TestSemanticScoring:
         self, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN no resume collection exists
+        Given no resume collection exists
         When score() is called
         Then an ActionableError of type INDEX is raised with guidance.
         """
@@ -393,7 +393,7 @@ class TestSemanticScoring:
         self, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a resume collection with 0 documents
+        Given a resume collection with 0 documents
         When score() is called
         Then an ActionableError of type INDEX is raised with guidance.
         """
@@ -422,7 +422,7 @@ class TestSemanticScoring:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a decisions collection that exists but is empty
+        Given a decisions collection that exists but is empty
         When a JD is scored
         Then history_score is 0.0.
         """
@@ -442,7 +442,7 @@ class TestSemanticScoring:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a decisions collection with documents
+        Given a decisions collection with documents
         When a JD is scored
         Then history_score is greater than 0.0.
         """
@@ -468,7 +468,7 @@ class TestSemanticScoring:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN disqualify_on_llm_flag is set to False
+        Given disqualify_on_llm_flag is set to False
         When score() is called
         Then the LLM disqualifier is skipped entirely.
         """
@@ -525,7 +525,7 @@ class TestJDChunking:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a short JD that fits in one chunk
+        Given a short JD that fits in one chunk
         When the JD is scored
         Then the result has valid component scores.
         """
@@ -542,7 +542,7 @@ class TestJDChunking:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a long JD where chunk 1 is weak and chunk 2 is strong
+        Given a long JD where chunk 1 is weak and chunk 2 is strong
         When the JD is scored
         Then embed is called multiple times and the strong chunk's score wins.
         """
@@ -565,7 +565,7 @@ class TestJDChunking:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a long JD with a weak head and strong tail
+        Given a long JD with a weak head and strong tail
         When the chunked JD is scored and compared to head-only scoring
         Then the chunked result is at least as good as head-only.
         """
@@ -598,7 +598,7 @@ class TestJDChunking:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a long JD that triggers chunking
+        Given a long JD that triggers chunking
         When the JD is scored
         Then the LLM disqualifier receives the full text, not individual chunks.
         """
@@ -647,7 +647,7 @@ class TestParseDisqualifierResponse:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN the LLM returns reason as the string 'null'
+        Given the LLM returns reason as the string 'null'
         When the disqualifier response is parsed
         Then reason is normalised to None.
         """
@@ -665,7 +665,7 @@ class TestParseDisqualifierResponse:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN the LLM returns JSON null for reason
+        Given the LLM returns JSON null for reason
         When the disqualifier response is parsed
         Then reason is parsed as None.
         """
@@ -683,7 +683,7 @@ class TestParseDisqualifierResponse:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN the LLM returns a numeric reason
+        Given the LLM returns a numeric reason
         When the disqualifier response is parsed
         Then the reason is coerced to a string.
         """
@@ -701,7 +701,7 @@ class TestParseDisqualifierResponse:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN the LLM response is missing the 'disqualified' key
+        Given the LLM response is missing the 'disqualified' key
         When the disqualifier response is parsed
         Then disqualified defaults to False.
         """
@@ -747,7 +747,7 @@ class TestDisqualifierClassification:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN the LLM flags a JD as disqualified with a reason
+        Given the LLM flags a JD as disqualified with a reason
         When the disqualifier is invoked
         Then disqualified is True and the reason is returned.
         """
@@ -770,7 +770,7 @@ class TestDisqualifierClassification:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN the LLM approves a JD
+        Given the LLM approves a JD
         When the disqualifier is invoked
         Then disqualified is False and reason is None.
         """
@@ -788,7 +788,7 @@ class TestDisqualifierClassification:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN the LLM returns unparseable JSON
+        Given the LLM returns unparseable JSON
         When the disqualifier is invoked
         Then the role is kept as a safe default (disqualified=False).
         """
@@ -807,7 +807,7 @@ class TestDisqualifierClassification:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN the LLM returns a disqualification with a specific reason
+        Given the LLM returns a disqualification with a specific reason
         When the disqualifier is invoked
         Then the reason string is preserved for audit.
         """
@@ -829,7 +829,7 @@ class TestDisqualifierClassification:
         self, scorer: Scorer, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN the LLM flags the JD as disqualified
+        Given the LLM flags the JD as disqualified
         When score() is called
         Then the ScoreResult has disqualified=True and the reason.
         """
@@ -852,7 +852,7 @@ class TestDisqualifierClassification:
 
     async def test_score_not_disqualified_by_default(self, scorer: Scorer) -> None:
         """
-        GIVEN the default mock_embedder that approves JDs
+        Given the default mock_embedder that approves JDs
         When a JD is scored
         Then score() returns disqualified=False with no reason.
         """
@@ -899,7 +899,7 @@ class TestRejectionReasonInjection:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN past 'no' verdicts with reasons in the decisions collection
+        Given past 'no' verdicts with reasons in the decisions collection
         When the disqualifier runs
         Then the LLM prompt includes those reasons as additional disqualifier patterns.
         """
@@ -932,7 +932,7 @@ class TestRejectionReasonInjection:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN 'yes' verdicts with reasons
+        Given 'yes' verdicts with reasons
         When the disqualifier runs
         Then those reasons are NOT injected — only 'no' reasons are rejection patterns.
         """
@@ -961,7 +961,7 @@ class TestRejectionReasonInjection:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN 'no' verdicts where reason is empty
+        Given 'no' verdicts where reason is empty
         When the disqualifier runs
         Then no rejection-reasons block is added to the prompt.
         """
@@ -988,7 +988,7 @@ class TestRejectionReasonInjection:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN multiple 'no' verdicts with the same reason
+        Given multiple 'no' verdicts with the same reason
         When the disqualifier runs
         Then each unique reason appears only once in the prompt.
         """
@@ -1018,7 +1018,7 @@ class TestRejectionReasonInjection:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN no decisions collection exists
+        Given no decisions collection exists
         When the disqualifier runs
         Then no rejection-reasons block is added and scoring proceeds normally.
         """
@@ -1038,7 +1038,7 @@ class TestRejectionReasonInjection:
         self, populated_store: VectorStore, mock_embedder: Embedder
     ) -> None:
         """
-        GIVEN a Scorer with cached rejection reasons
+        Given a Scorer with cached rejection reasons
         When disqualify is called multiple times
         Then the reasons appear in all prompts (cached after first call).
         """
