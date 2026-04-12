@@ -31,8 +31,6 @@ if TYPE_CHECKING:
     from jobsearch_rag.config import Settings
     from jobsearch_rag.rag.store import VectorStore
 
-from jobsearch_rag.pipeline.ranker import RankSummary
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1503,8 +1501,7 @@ class TestErrorSurfacing:
 
     MOCK BOUNDARY:
         Mock:  Playwright I/O boundaries, ollama_sdk.AsyncClient (Ollama
-               network I/O — embed and chat calls),
-               runner invocation in CLI handler
+               network I/O — embed and chat calls)
         Real:  PipelineRunner error accumulation, RunResult construction,
                Scorer, Embedder, CLI rendering logic
         Never: Patch Scorer or Embedder methods directly — inject errors at
@@ -1709,31 +1706,32 @@ class TestErrorSurfacing:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
-        Given runner.run() returns RunResult with surfaced ActionableErrors.
-
+        Given two boards whose adapters raise ActionableErrors on authenticate.
         When handle_search() prints the run summary
         Then each surfaced error includes printed error, service, and suggestion lines
         """
         from jobsearch_rag.cli import handle_search  # noqa: PLC0415
 
-        # Given: a RunResult with surfaced errors
-        error_1 = ActionableError.authentication("linkedin", "session expired")
-        error_2 = ActionableError(
-            error="Rate limit hit on ziprecruiter",
-            error_type=ErrorType.CONNECTION,
-            service="ziprecruiter",
-            suggestion="Retry with --overnight flag",
-        )
-        result = RunResult(
-            ranked_listings=[],
-            summary=_make_rank_summary(),
-            boards_searched=["linkedin", "ziprecruiter"],
-            errors=[error_1, error_2],
+        # Given: two boards whose adapters fail on authenticate
+        _setup_cli_env(tmp_path, monkeypatch, enabled_boards=["linkedin", "ziprecruiter"])
+        mock_client = _make_mock_ollama_client()
+
+        linkedin_adapter = _make_test_adapter(board_name="linkedin")
+        linkedin_adapter.authenticate = AsyncMock(
+            side_effect=ActionableError.authentication("linkedin", "session expired"),
         )
 
-        # Set up minimal config environment
-        _setup_cli_env(tmp_path, monkeypatch)
-        mock_client = _make_mock_ollama_client()
+        zr_adapter = _make_test_adapter(board_name="ziprecruiter")
+        zr_adapter.authenticate = AsyncMock(
+            side_effect=ActionableError(
+                error="Rate limit hit on ziprecruiter",
+                error_type=ErrorType.CONNECTION,
+                service="ziprecruiter",
+                suggestion="Retry with --overnight flag",
+            ),
+        )
+
+        mock_pw_fn, _ = _mock_playwright_boundary()
 
         # When: handle_search renders the result
         with (
@@ -1741,7 +1739,17 @@ class TestErrorSurfacing:
                 "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
                 return_value=mock_client,
             ),
-            patch.object(PipelineRunner, "run", new_callable=AsyncMock, return_value=result),
+            adapter_override(
+                {
+                    "linkedin": _adapt(linkedin_adapter),
+                    "ziprecruiter": _adapt(zr_adapter),
+                },
+            ),
+            patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+            patch(
+                "jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR",
+                tmp_path,
+            ),
         ):
             handle_search(
                 argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
@@ -1994,13 +2002,14 @@ class TestErrorSurfacing:
 # ---------------------------------------------------------------------------
 
 
-def _make_rank_summary() -> RankSummary:
-    """Create a minimal RankSummary for CLI rendering tests."""
-    return RankSummary(total_found=5, total_scored=3)
-
-
-def _setup_cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _setup_cli_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    enabled_boards: list[str] | None = None,
+) -> None:
     """Write minimal config files so handle_search can construct Settings."""
+    boards = enabled_boards or ["testboard"]
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     data_dir = tmp_path / "data"
@@ -2008,17 +2017,24 @@ def _setup_cli_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
+    # Build per-board TOML sections
+    board_sections = ""
+    for board in boards:
+        board_sections += (
+            f"\n[boards.{board}]\n"
+            f'searches = ["https://example.org/{board}/search"]\n'
+            "max_pages = 1\nheadless = true\n"
+            "rate_limit_range = [1.5, 3.5]\n"
+        )
+
     (config_dir / "settings.toml").write_text(
         f'resume_path = "{data_dir / "resume.md"}"\n'
         f'archetypes_path = "{config_dir / "role_archetypes.toml"}"\n'
         f'global_rubric_path = "{config_dir / "global_rubric.toml"}"\n'
         "\n[boards]\n"
-        'enabled = ["testboard"]\n'
+        f"enabled = {boards!r}\n"
         'session_storage_dir = "data"\n'
-        "\n[boards.testboard]\n"
-        'searches = ["https://example.org/search"]\n'
-        "max_pages = 1\nheadless = true\n"
-        "rate_limit_range = [1.5, 3.5]\n"
+        f"{board_sections}"
         "\n[scoring]\n"
         "archetype_weight = 0.5\nfit_weight = 0.3\nhistory_weight = 0.2\n"
         "comp_weight = 0.15\nnegative_weight = 0.4\nculture_weight = 0.2\n"
@@ -2079,7 +2095,7 @@ def _make_mock_ollama_client() -> AsyncMock:
     model_embed = MagicMock()
     model_embed.model = "nomic-embed-text"
     model_llm = MagicMock()
-    model_llm.model = "llama3.2"
+    model_llm.model = "mistral:7b"
     list_response = MagicMock()
     list_response.models = [model_embed, model_llm]
     mock_client.list.return_value = list_response
