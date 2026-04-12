@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.cli import handle_search
 from jobsearch_rag.export.csv_export import CSVExporter
@@ -23,7 +22,7 @@ from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.rescorer import load_jd_files
 from jobsearch_rag.rag.scorer import ScoreResult
 from jobsearch_rag.rag.store import VectorStore
-from tests.conftest import make_mock_ollama_client
+from tests.conftest import adapter_override, make_mock_ollama_client
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -207,7 +206,7 @@ def _run_handle_search(
 
     with (
         patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-        AdapterRegistry.override({"testboard": _adapt(adapter)}),
+        adapter_override({"testboard": _adapt(adapter)}),
         patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
         patch("webbrowser.open"),
     ):

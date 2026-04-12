@@ -25,12 +25,14 @@ import contextlib
 import stat
 import sys
 import tempfile as _tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.config import (
     AdaptersConfig,
     BoardConfig,
@@ -48,7 +50,9 @@ from jobsearch_rag.rag.store import VectorStore
 from tests.constants import EMBED_FAKE as EMBED_FAKE  # re-export for fixtures below
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+
+    from jobsearch_rag.adapters.base import JobBoardAdapter
 
 _PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
 
@@ -74,6 +78,49 @@ if sys.platform == "win32":
             super().__init__(*args, **kwargs)
 
     _tempfile.TemporaryDirectory = _WinSafeTemporaryDirectory  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Adapter registry override — test infrastructure
+# ---------------------------------------------------------------------------
+# Moved from AdapterRegistry (production code) because the method has zero
+# production callers.  Accessing _registry directly is intentional: the
+# registry exposes no public snapshot/restore API, and adding one would be
+# equally test-only.
+_REGISTRY = AdapterRegistry._registry  # pyright: ignore[reportPrivateUsage]
+
+
+@contextmanager
+def adapter_override(
+    factories: dict[str, Callable[..., JobBoardAdapter]],
+    *,
+    clear: bool = False,
+) -> Iterator[None]:
+    """
+    Context manager that temporarily replaces AdapterRegistry entries.
+
+    Saves the current registry state, applies *factories* (merging by
+    default), yields, then restores the original state on exit.
+
+    Parameters
+    ----------
+    factories:
+        Board-name → factory mappings to add/overwrite.
+    clear:
+        If ``True``, remove all pre-existing entries before merging.
+        Useful for test isolation when no production adapters should
+        be visible.
+
+    """
+    saved = dict(_REGISTRY)
+    if clear:
+        _REGISTRY.clear()
+    _REGISTRY.update(factories)  # type: ignore[arg-type]  # test factories may return mock subtypes
+    try:
+        yield
+    finally:
+        _REGISTRY.clear()
+        _REGISTRY.update(saved)
 
 
 # ---------------------------------------------------------------------------

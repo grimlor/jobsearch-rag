@@ -25,6 +25,7 @@ from jobsearch_rag.adapters.indeed import IndeedAdapter
 from jobsearch_rag.adapters.linkedin import LinkedInAdapter
 from jobsearch_rag.adapters.registry import AdapterRegistry
 from jobsearch_rag.adapters.weworkremotely import WeWorkRemotelyAdapter
+from tests.conftest import adapter_override
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -85,7 +86,7 @@ def _make_listing(
 @pytest.fixture(autouse=True)
 def _clean_registry() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
     """Reset the registry before each test, restoring original state after."""
-    with AdapterRegistry.override({}, clear=True):
+    with adapter_override({}, clear=True):
         yield
 
 

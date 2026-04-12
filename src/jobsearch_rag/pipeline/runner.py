@@ -124,16 +124,6 @@ class PipelineRunner:
         """Public access to the pipeline's vector store."""
         return self._store
 
-    @property
-    def scorer(self) -> Scorer:
-        """Public access to the pipeline's scorer."""
-        return self._scorer
-
-    @property
-    def decision_recorder(self) -> DecisionRecorder:
-        """Public access to the pipeline's decision recorder."""
-        return self._decision_recorder
-
     async def run(
         self,
         boards: list[str] | None = None,
@@ -431,8 +421,6 @@ class PipelineRunner:
         # Step 4b: Emit per-collection retrieval quality metrics
         threshold = self._settings.scoring.min_score_threshold
         for coll_name, scores in self._scorer.collection_scores.items():
-            if not scores:
-                continue
             sorted_scores = sorted(scores)
             n = len(sorted_scores)
             if n >= 2:

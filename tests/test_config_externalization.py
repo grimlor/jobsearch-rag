@@ -79,7 +79,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from ollama import ResponseError
 
-from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.adapters.session import SessionConfig, SessionManager
 from jobsearch_rag.cli import handle_login
@@ -95,7 +94,7 @@ from jobsearch_rag.pipeline.runner import PipelineRunner
 from jobsearch_rag.rag.comp_parser import compute_comp_score
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
-from tests.conftest import make_mock_ollama_client, make_test_settings
+from tests.conftest import adapter_override, make_mock_ollama_client, make_test_settings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -2395,7 +2394,7 @@ class TestStealthConfig:
             mock_browser_mgr.__aexit__ = AsyncMock(return_value=None)
 
             with (
-                AdapterRegistry.override(
+                adapter_override(
                     {"testboard": _adapt(mock_adapter)},
                 ),
                 patch(

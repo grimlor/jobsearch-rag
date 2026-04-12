@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.pipeline.runner import PipelineRunner
+from tests.conftest import adapter_override
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
@@ -288,7 +288,7 @@ def _run_pipeline_and_read_logs(
 
     with (
         patch("jobsearch_rag.adapters.session.async_playwright", mock_async_pw),
-        AdapterRegistry.override(
+        adapter_override(
             {"testboard": type(adapter)},
         ),
         patch(
@@ -1322,34 +1322,3 @@ class TestRetrievalMetrics:
                     assert isinstance(summary.get(field), (int, float)), (
                         f"'{field}' should be numeric in {summary.get('collection')}: {summary}"
                     )
-
-    def test_empty_collection_scores_entry_is_skipped(self) -> None:
-        """
-        Given a scorer whose collection_scores contains a phantom entry
-              with an empty list
-        When the pipeline runs and emits retrieval_summary entries
-        Then no retrieval_summary is emitted for the phantom collection
-        """
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with distant embeddings and one listing
-            settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_distant_store(settings)
-            listings = [_make_listing()]
-
-            # Override: inject an empty-list entry into the scorer's accumulator.
-            # This exercises the defensive guard (if not scores: continue).
-            runner.scorer.collection_scores["phantom_empty"] = []
-
-            # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
-
-            # Then: no retrieval_summary for the phantom collection
-            summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
-            phantom_summaries = [s for s in summaries if s.get("collection") == "phantom_empty"]
-            assert len(phantom_summaries) == 0, (
-                f"Expected no retrieval_summary for phantom_empty, got {phantom_summaries}"
-            )
-            # And: real collections still have summaries
-            assert len(summaries) >= 1, (
-                f"Expected at least 1 real retrieval_summary, got {len(summaries)}"
-            )

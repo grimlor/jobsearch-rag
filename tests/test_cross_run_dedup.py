@@ -15,10 +15,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.pipeline.runner import PipelineRunner
-from tests.conftest import make_test_settings
+from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
@@ -223,7 +222,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                AdapterRegistry.override({"testboard": _adapt(adapter)}),
+                adapter_override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -259,7 +258,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                AdapterRegistry.override({"testboard": _adapt(adapter)}),
+                adapter_override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -295,7 +294,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                AdapterRegistry.override({"testboard": _adapt(adapter)}),
+                adapter_override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -324,7 +323,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                AdapterRegistry.override({"testboard": _adapt(adapter)}),
+                adapter_override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -358,7 +357,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                AdapterRegistry.override({"testboard": _adapt(adapter)}),
+                adapter_override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
@@ -393,7 +392,7 @@ class TestCrossRunDedup:
             mock_pw_fn, _ = _mock_playwright_boundary()
 
             with (
-                AdapterRegistry.override({"testboard": _adapt(adapter)}),
+                adapter_override({"testboard": _adapt(adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):

@@ -46,7 +46,7 @@ from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.review import ReviewSession
 from jobsearch_rag.rag.scorer import ScoreResult
 from jobsearch_rag.rag.store import VectorStore
-from tests.conftest import make_mock_ollama_client
+from tests.conftest import adapter_override, make_mock_ollama_client
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -788,7 +788,7 @@ class TestBoardsCommand:
         """
         # Given: temporarily clear the registry to simulate a transitional
         # state (e.g. all adapters removed before new ones are added).
-        with AdapterRegistry.override({}, clear=True):
+        with adapter_override({}, clear=True):
             # When: handle_boards is called
             handle_boards()
 
@@ -1016,7 +1016,7 @@ class TestSearchCommand:
         # When: handle_search runs through the real pipeline
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            AdapterRegistry.override({"testboard": _adapt(adapter)}),
+            adapter_override({"testboard": _adapt(adapter)}),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open"),
         ):
@@ -1057,7 +1057,7 @@ class TestSearchCommand:
         # When: handle_search runs through the real pipeline
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            AdapterRegistry.override({"testboard": _adapt(adapter)}),
+            adapter_override({"testboard": _adapt(adapter)}),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open"),
         ):
@@ -1100,7 +1100,7 @@ class TestSearchCommand:
         # When: handle_search runs through the real pipeline (Ranker deduplicates)
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            AdapterRegistry.override(overrides),
+            adapter_override(overrides),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open"),
         ):
@@ -1133,7 +1133,7 @@ class TestSearchCommand:
         # When: handle_search runs with --board indeed
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            AdapterRegistry.override(
+            adapter_override(
                 {
                     "indeed": _adapt(indeed_adapter),
                     "testboard": _adapt(testboard_adapter),
@@ -1174,7 +1174,7 @@ class TestSearchCommand:
         # When: handle_search runs with --open-top 1
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            AdapterRegistry.override({"testboard": _adapt(adapter)}),
+            adapter_override({"testboard": _adapt(adapter)}),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open") as mock_open,
         ):
@@ -1205,7 +1205,7 @@ class TestSearchCommand:
         # When: handle_search runs without --open-top
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            AdapterRegistry.override({"testboard": _adapt(adapter)}),
+            adapter_override({"testboard": _adapt(adapter)}),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open") as mock_open,
         ):
@@ -2028,7 +2028,7 @@ class TestSearchBrowserFailure:
         # When: handle_search runs and webbrowser.open raises
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
-            AdapterRegistry.override({"testboard": _adapt(adapter)}),
+            adapter_override({"testboard": _adapt(adapter)}),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
             patch("webbrowser.open", side_effect=OSError("no browser")),
         ):

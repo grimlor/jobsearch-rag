@@ -38,11 +38,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import ollama as ollama_sdk
 import pytest
 
-from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.logging import log_event as _real_log_event
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
-from tests.conftest import make_test_settings
+from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
@@ -212,7 +211,7 @@ async def _run_pipeline(
     }
 
     with (
-        AdapterRegistry.override(patches),
+        adapter_override(patches),
         patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
         patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
     ):
@@ -626,9 +625,7 @@ class TestCollectionScoreAggregation:
     from concurrent scoring tasks.
 
     WHO: The observability layer that emits retrieval_summary log events
-    WHAT: (1) scorer.collection_scores reflects scores from all listings
-              after parallel scoring completes
-          (2) The retrieval_summary log events contain correct statistics
+    WHAT: (1) The retrieval_summary log events contain correct statistics
               (count, p50, p90, min, max) across all listings
     WHY: _collection_scores is a dict[str, list[float]] that accumulates
          scores across score() calls. Under asyncio cooperative multitasking,
@@ -642,38 +639,6 @@ class TestCollectionScoreAggregation:
         Never: Manually construct _collection_scores — must come from real
                Scorer.score() calls
     """
-
-    async def test_collection_scores_reflect_all_listings(self) -> None:
-        """
-        Given 3 listings scored with OLLAMA_NUM_PARALLEL=2,
-        When scoring completes,
-        Then scorer.collection_scores['resume'] has exactly 3 entries.
-        """
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: 3 listings
-            settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
-            listings = [_make_listing(external_id=str(i)) for i in range(3)]
-
-            # When: run with parallelism
-            await _run_pipeline(
-                runner,
-                listings,
-                tmpdir=tmpdir,
-                env={"OLLAMA_NUM_PARALLEL": "2"},
-            )
-
-            # Then: collection_scores has 3 entries per collection
-            scorer = runner.scorer
-            resume_scores = scorer.collection_scores.get("resume", [])
-            assert len(resume_scores) == 3, (
-                f"Expected 3 resume scores, got {len(resume_scores)}. "
-                f"All collection_scores: {scorer.collection_scores}"
-            )
-            archetype_scores = scorer.collection_scores.get("role_archetypes", [])
-            assert len(archetype_scores) == 3, (
-                f"Expected 3 archetype scores, got {len(archetype_scores)}"
-            )
 
     async def test_retrieval_summary_statistics_correct(self) -> None:
         """

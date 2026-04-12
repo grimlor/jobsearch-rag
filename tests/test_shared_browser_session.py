@@ -43,7 +43,6 @@ if TYPE_CHECKING:
 
     from jobsearch_rag.adapters.base import JobBoardAdapter
 
-from jobsearch_rag.adapters.registry import AdapterRegistry
 from jobsearch_rag.adapters.session import (
     BoardSession,
     BrowserManager,
@@ -52,7 +51,7 @@ from jobsearch_rag.adapters.session import (
 )
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner
-from tests.conftest import make_test_settings
+from tests.conftest import adapter_override, make_test_settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1333,7 +1332,7 @@ class TestSharedBrowserOrchestration:
         mock_pw_fn, _ = _mock_playwright_boundary()
 
         with (
-            AdapterRegistry.override(
+            adapter_override(
                 {
                     "edge_a": _adapt(adapter_a),
                     "edge_b": _adapt(adapter_b),
@@ -1391,7 +1390,7 @@ class TestSharedBrowserOrchestration:
         mock_pw_fn, _mock_page = _mock_playwright_boundary()
 
         with (
-            AdapterRegistry.override(
+            adapter_override(
                 {
                     "board_a": _adapt(adapter_a),
                     "board_b": _adapt(adapter_b),
@@ -1436,7 +1435,7 @@ class TestSharedBrowserOrchestration:
         mock_pw_fn, _ = _mock_playwright_boundary()
 
         with (
-            AdapterRegistry.override(
+            adapter_override(
                 {
                     "board_x": _adapt(adapter_x),
                     "board_y": _adapt(adapter_y),
@@ -1480,7 +1479,7 @@ class TestSharedBrowserOrchestration:
         mock_pw_fn, _ = _mock_playwright_boundary()
 
         with (
-            AdapterRegistry.override(
+            adapter_override(
                 {
                     "edge_board": _adapt(adapter_edge),
                     "chromium_board": _adapt(adapter_chrom),
@@ -1535,7 +1534,7 @@ class TestSharedBrowserOrchestration:
         mock_pw_fn, _ = _mock_playwright_boundary()
 
         with (
-            AdapterRegistry.override(
+            adapter_override(
                 {
                     "failing_board": _adapt(failing_adapter),
                     "good_board": _adapt(good_adapter),

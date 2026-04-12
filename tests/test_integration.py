@@ -71,6 +71,7 @@ from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.pipeline.rescorer import Rescorer
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
+from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
@@ -1703,8 +1704,9 @@ class TestLiveDecisionExclusionAcrossRuns:
         ]
 
         # When: run 2 -- monkeypatch PipelineRunner.run to inject
-        # the decision through the runner's OWN _decision_recorder before
-        # scoring begins.
+        # the decision through the runner's own store before scoring begins.
+        # We construct a separate DecisionRecorder using the runner's public
+        # store property (guaranteeing ChromaDB PersistentClient visibility).
         _original_run = PipelineRunner.run
 
         async def _run_with_decisions(
@@ -1715,8 +1717,13 @@ class TestLiveDecisionExclusionAcrossRuns:
             force_rescore: bool = False,
             max_listings: int = 0,
         ) -> RunResult:
+            recorder = DecisionRecorder(
+                store=self_runner.store,
+                embedder=Embedder(live_settings.ollama),
+                decisions_dir=live_settings.output.decisions_dir,
+            )
             for decision in decision_data:
-                await self_runner.decision_recorder.record(**decision)
+                await recorder.record(**decision)
             return await _original_run(
                 self_runner,
                 boards=boards,
