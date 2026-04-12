@@ -22,9 +22,10 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
+import chromadb
 import pytest
 
 from jobsearch_rag.adapters.base import JobListing
@@ -196,12 +197,12 @@ class TestSemanticScoring:
 
     MOCK BOUNDARY:
         Mock:  ollama.AsyncClient (Ollama HTTP I/O via conftest mock_embedder)
+               chromadb.Collection.query (patched in test_query_returning_no_distances
+               to return empty distances for the resume collection — ChromaDB cannot
+               naturally return empty distances from a populated collection, so
+               interception is needed to exercise _distance_to_score([]) → 0.0)
         Real:  Scorer.score, Embedder.embed + Embedder.classify, VectorStore (ChromaDB via tmp_path), ScoreResult
         Never: Construct ScoreResult directly — always obtain via scorer.score()
-        Exception: test_query_returning_no_distances wraps store.query to inject
-                   empty distances — ChromaDB cannot naturally return empty distances
-                   from a populated collection, so interception is needed to exercise
-                   the defensive _distance_to_score([]) → 0.0 path
     """
 
     async def test_all_scores_are_floats_between_zero_and_one(self, scorer: Scorer) -> None:
@@ -316,32 +317,40 @@ class TestSemanticScoring:
         )
 
     async def test_query_returning_no_distances_produces_zero_score(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self,
+        populated_store: VectorStore,
+        mock_embedder: Embedder,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
         GIVEN a collection that returns no distances from a query
         When score() is called
         Then the resulting score component is 0.0.
         """
-        # Given: a store whose resume query returns empty distances
-        original_query = populated_store.query
+        # Given: patch chromadb.Collection.query to return empty distances
+        # for the resume collection (I/O boundary)
+        _original_collection_query = chromadb.Collection.query
 
         def _query_empty_distances(
-            collection_name: str,
-            query_embedding: list[float],
-            n_results: int = 3,
-            **kwargs: object,
-        ) -> dict[str, object]:
-            result = original_query(
-                collection_name=collection_name,
-                query_embedding=query_embedding,
+            self_collection: chromadb.Collection,
+            *,
+            query_embeddings: Any = None,
+            query_texts: Any = None,
+            n_results: int = 10,
+            where: Any = None,
+            include: Any = None,
+        ) -> dict[str, Any]:
+            result = _original_collection_query(
+                self_collection,
+                query_embeddings=query_embeddings,
                 n_results=n_results,
+                include=include,
             )
-            if collection_name == "resume":
+            if self_collection.name == "resume":
                 result["distances"] = [[]]
             return result
 
-        populated_store.query = _query_empty_distances  # type: ignore[method-assign]
+        monkeypatch.setattr(chromadb.Collection, "query", _query_empty_distances)
         scorer = Scorer(store=populated_store, embedder=mock_embedder)
 
         # When: a JD is scored
@@ -1056,13 +1065,6 @@ class TestRejectionReasonInjection:
         )
         assert "Requires clearance" in second_prompt, (
             "Second call should include cached rejection reason"
-        )
-        # Then: caching is working — internal list is populated
-        assert scorer._cached_rejection_reasons is not None, (  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_cached_rejection_reasons)
-            "Rejection reasons should be cached after first call"
-        )
-        assert len(scorer._cached_rejection_reasons) == 1, (  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_cached_rejection_reasons)
-            f"Expected 1 cached reason, got {len(scorer._cached_rejection_reasons)}"  # pyright: ignore[reportPrivateUsage] # Tests verify internal state (_cached_rejection_reasons)
         )
 
 

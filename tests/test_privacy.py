@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import socket
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -20,7 +20,7 @@ from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.scorer import Scorer
 from jobsearch_rag.rag.store import VectorStore
-from tests.conftest import make_test_ollama_config
+from tests.conftest import make_mock_ollama_client, make_test_ollama_config
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
@@ -114,25 +114,9 @@ def _mock_ollama_client() -> AsyncMock:  # pyright: ignore[reportUnusedFunction]
     all Embedder logic (retry, truncation, metrics, token counting) runs
     for real.  Only the final HTTP call is replaced.
     """
-    client = AsyncMock()
-
-    # embed() → response with embeddings list and token count
-    embed_response = MagicMock()
-    embed_response.embeddings = [EMBED_FAKE]
-    embed_response.prompt_eval_count = 42
-    client.embed = AsyncMock(return_value=embed_response)
-
-    # chat() → response with message.content (JSON recognised by both
-    # the injection screener and disqualifier parser)
-    chat_message = MagicMock()
-    chat_message.content = '{"suspicious": false, "disqualified": false}'
-    chat_response = MagicMock()
-    chat_response.message = chat_message
-    chat_response.prompt_eval_count = 100
-    chat_response.eval_count = 20
-    client.chat = AsyncMock(return_value=chat_response)
-
-    return client
+    return make_mock_ollama_client(
+        classify_response='{"suspicious": false, "disqualified": false}',
+    )
 
 
 @pytest.fixture
@@ -142,13 +126,15 @@ def _embedder(  # pyright: ignore[reportUnusedFunction]
     """
     Real Embedder instance with the ollama client stubbed at the I/O boundary.
 
-    Uses the real ``Embedder.__init__`` and then replaces ``_client`` with the
-    mock.  All Embedder logic — retry, truncation, metrics, token counting —
-    runs for real.
+    Patches ``ollama_sdk.AsyncClient`` at import time so ``Embedder.__init__``
+    receives the mock.  All Embedder logic — retry, truncation, metrics,
+    token counting — runs for real.
     """
-    embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
-    embedder._client = _mock_ollama_client  # type: ignore[attr-defined]
-    return embedder
+    with patch(
+        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+        return_value=_mock_ollama_client,
+    ):
+        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
 
 @pytest.fixture
@@ -205,9 +191,9 @@ class TestPrivacyGuarantee:
          is not
 
     MOCK BOUNDARY:
-        Mock:  _mock_ollama_client fixture (ollama AsyncClient — the I/O
-               boundary); socket.create_connection monkeypatched to reject
-               non-localhost connections
+        Mock:  ``patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient")``
+               via ``_mock_ollama_client`` fixture; ``socket.create_connection``
+               monkeypatched to reject non-localhost connections
         Real:  Embedder (embed, classify, retry, truncation, metrics),
                Scorer, DecisionRecorder, ChromaDB via VectorStore (all local)
         Never: Replace Embedder.embed() or classify() — the point is to
@@ -221,10 +207,10 @@ class TestPrivacyGuarantee:
         _scorer: Scorer,
     ) -> None:
         """
-        GIVEN a complete pipeline run with Scorer, Embedder, and VectorStore
-        WHEN all outbound connections to non-localhost hosts are intercepted
-        THEN no such calls are made during scoring
-        AND the pipeline completes without error.
+        Given a complete pipeline run with Scorer, Embedder, and VectorStore
+        When all outbound connections to non-localhost hosts are intercepted
+        Then no such calls are made during scoring
+        And the pipeline completes without error.
         """
         # Given: network guard is active (via fixture), scorer is wired
 
@@ -243,10 +229,10 @@ class TestPrivacyGuarantee:
         _embed_call_tracker: AsyncMock,
     ) -> None:
         """
-        GIVEN the same interception setup that blocks external calls
-        WHEN the pipeline scores a listing
-        THEN calls to localhost:11434 complete normally
-        AND at least one embedding call is made.
+        Given the same interception setup that blocks external calls
+        When the pipeline scores a listing
+        Then calls to localhost:11434 complete normally
+        And at least one embedding call is made.
         """
         # Given: network guard is active, scorer is wired
 
@@ -265,9 +251,9 @@ class TestPrivacyGuarantee:
         _scorer: Scorer,
     ) -> None:
         """
-        GIVEN a listing that passes through the LLM disqualifier
-        WHEN external network calls to non-localhost hosts are intercepted
-        THEN no such calls occur during the disqualifier pass.
+        Given a listing that passes through the LLM disqualifier
+        When external network calls to non-localhost hosts are intercepted
+        Then no such calls occur during the disqualifier pass.
         """
         # Given: network guard is active, scorer has disqualifier enabled
 
@@ -287,9 +273,9 @@ class TestPrivacyGuarantee:
         _recorder: DecisionRecorder,
     ) -> None:
         """
-        GIVEN a verdict recorded via DecisionRecorder
-        WHEN external network calls to non-localhost hosts are intercepted
-        THEN no such calls occur during the recording operation.
+        Given a verdict recorded via DecisionRecorder
+        When external network calls to non-localhost hosts are intercepted
+        Then no such calls occur during the recording operation.
         """
         # Given: network guard is active, recorder is wired
 

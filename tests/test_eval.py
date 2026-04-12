@@ -1578,8 +1578,8 @@ class TestLoadDecisionsResilience:
          all other valid decisions — the pipeline must degrade gracefully.
 
     MOCK BOUNDARY:
-        Mock:  ``VectorStore.get_or_create_collection`` (for exception test only,
-               at the ChromaDB boundary)
+        Mock:  ``store._client.get_or_create_collection`` (for exception test
+               only, at the ChromaDB PersistentClient I/O boundary)
         Real:  EvalRunner, VectorStore (real ChromaDB for data-quality tests)
         Never: mock ``_load_decisions`` itself
     """
@@ -1590,13 +1590,17 @@ class TestLoadDecisionsResilience:
         When evaluate() is called
         Then the result has 0 decisions and no crash
         """
-        # Given: a real store with the collection access patched to raise
+        # Given: a real store with the ChromaDB client patched to raise
         settings = _make_settings(str(tmp_path))
         runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
         _seed_required_collections(store, EMBED_FAKE)
 
+        # Patch at the ChromaDB I/O boundary (the PersistentClient instance)
+        chroma_client = store._client  # pyright: ignore[reportPrivateUsage]  # reaching through to the I/O boundary; VectorStore has no public client accessor
         with patch.object(
-            store, "get_or_create_collection", side_effect=RuntimeError("db locked")
+            chroma_client,
+            "get_or_create_collection",
+            side_effect=RuntimeError("db locked"),
         ):
             # When: evaluate() is called
             result = asyncio.run(runner.evaluate())
