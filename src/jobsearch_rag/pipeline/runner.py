@@ -52,6 +52,8 @@ if TYPE_CHECKING:
     from jobsearch_rag.config import Settings
     from jobsearch_rag.rag.scorer import ScoreResult
 
+from jobsearch_rag.config import synthesize_disqualifier_prompt
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,10 +85,20 @@ class PipelineRunner:
             persist_dir=settings.chroma.persist_dir,
             distance_metric=settings.chroma.distance_metric,
         )
+        # Resolve disqualifier prompt: freeform override takes precedence,
+        # otherwise synthesize from archetypes.
+        disqualifier_prompt: str | None = None
+        if settings.disqualifier and settings.disqualifier.system_prompt:
+            disqualifier_prompt = settings.disqualifier.system_prompt
+        else:
+            disqualifier_prompt = synthesize_disqualifier_prompt(settings.archetypes_path)
+
         self._scorer = Scorer(
             store=self._store,
             embedder=self._embedder,
             disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
+            disqualifier_prompt=disqualifier_prompt,
+            screen_prompt=settings.security.screen_prompt,
             chunk_overlap=settings.scoring.chunk_overlap,
             top_k_retrieval=settings.scoring.top_k_retrieval,
         )

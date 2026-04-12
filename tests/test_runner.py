@@ -18,6 +18,7 @@ import ollama as ollama_sdk
 
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
+from jobsearch_rag.config import DisqualifierConfig
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.decisions import DecisionRecorder
@@ -718,6 +719,36 @@ class TestPipelineOrchestration:
             runner, _ = _make_runner_with_real_stack(settings)
             recorder = runner.decision_recorder
             assert isinstance(recorder, DecisionRecorder)
+
+    async def test_freeform_disqualifier_override_bypasses_synthesis(self) -> None:
+        """
+        Given settings with a freeform disqualifier system_prompt override,
+        When PipelineRunner is constructed and a listing is scored,
+        Then the pipeline completes successfully using the freeform prompt
+             (the listing is scored without synthesis from archetypes).
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = _make_settings(tmpdir)
+            settings.disqualifier = DisqualifierConfig(
+                system_prompt="Custom freeform disqualifier prompt for testing",
+            )
+            runner, _mock_client = _make_runner_with_real_stack(settings)
+
+            listing = _make_listing()
+            mock_adapter = _make_test_adapter(search_results=[listing])
+
+            mock_pw_fn, _ = _mock_playwright_boundary()
+            with (
+                AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
+                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
+                patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
+            ):
+                result = await runner.run()
+
+            # Then: pipeline completed — listing was scored using the freeform prompt
+            assert result.summary.total_scored > 0, (
+                f"Expected at least 1 scored listing, got {result.summary.total_scored}"
+            )
 
     async def test_forwards_throttle_config_to_adapter_constructor(self) -> None:
         """
@@ -1484,11 +1515,13 @@ class TestErrorSurfacing:
          are searched in a single run.
 
     MOCK BOUNDARY:
-        Mock:  Playwright I/O boundaries, scorer/embedder failure boundaries,
+        Mock:  Playwright I/O boundaries, ollama_sdk.AsyncClient (Ollama
+               network I/O — embed and chat calls),
                runner invocation in CLI handler
         Real:  PipelineRunner error accumulation, RunResult construction,
-               CLI rendering logic
-        Never: Assert on hand-built output strings without invoking the CLI path
+               Scorer, Embedder, CLI rendering logic
+        Never: Patch Scorer or Embedder methods directly — inject errors at
+               the Ollama boundary instead
     """
 
     async def test_board_level_actionable_errors_are_appended_to_run_result_errors(
@@ -1814,19 +1847,24 @@ class TestErrorSurfacing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a listing that collects ok, but scoring raises bare RuntimeError
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner, mock_client = _make_runner_with_real_stack(settings)
 
             listing = _make_listing()
             mock_adapter = _make_test_adapter(search_results=[listing])
 
             runtime_error = RuntimeError("unexpected CUDA out of memory")
 
+            # Inject the error at the Ollama I/O boundary: embed() is the
+            # first network call inside Scorer.score(), so making the
+            # client raise RuntimeError exercises the real error propagation
+            # path: Ollama → Embedder → Scorer → Runner → ActionableError.
+            mock_client.embed.side_effect = runtime_error
+
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
                 AdapterRegistry.override({"testboard": _adapt(mock_adapter)}),
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
-                patch.object(runner.scorer, "score", side_effect=runtime_error),
                 caplog.at_level(logging.ERROR),
             ):
                 # When: pipeline runs — RuntimeError should NOT propagate
