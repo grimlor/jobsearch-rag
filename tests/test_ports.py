@@ -35,8 +35,6 @@ import inspect
 from typing import Any, cast, get_type_hints
 from unittest.mock import patch
 
-import pytest
-
 # D1 imports — will be created in src/jobsearch_rag/ports.py
 from jobsearch_rag.ports import (
     EmbeddingPort,
@@ -741,10 +739,6 @@ class TestVectorStorePortProtocol:
             f"close() return type should be None. Got: {hints.get('return')}"
         )
 
-    @pytest.mark.xfail(
-        reason="VectorStore lacks get_all_documents() until D3 adds it",
-        strict=True,
-    )
     def test_vector_store_satisfies_vector_store_port(self, tmp_path: Any) -> None:
         """
         Given a real VectorStore instance (ChromaDB temp dir)
@@ -759,7 +753,7 @@ class TestVectorStorePortProtocol:
 
         # When: checking isinstance
         try:
-            result = isinstance(store, VectorStorePort)
+            result = isinstance(cast("object", store), VectorStorePort)
         finally:
             store.close()
 

@@ -53,6 +53,7 @@ if TYPE_CHECKING:
 
 from jobsearch_rag.config import load_settings
 from jobsearch_rag.errors import ActionableError
+from jobsearch_rag.ports import QueryResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -284,10 +285,12 @@ class TestTopKRetrievalConfig:
         # Given: a mock store where all collections have 10 documents
         mock_store = MagicMock()
         mock_store.collection_count.return_value = 10
-        mock_store.query.return_value = {
-            "distances": [[0.1, 0.2, 0.3, 0.4, 0.5]],
-            "metadatas": [[{"name": "test"}]],
-        }
+        mock_store.query.return_value = QueryResult(
+            ids=[["d1", "d2", "d3", "d4", "d5"]],
+            documents=[["a", "b", "c", "d", "e"]],
+            metadatas=[[{"name": "test"}]],
+            distances=[[0.1, 0.2, 0.3, 0.4, 0.5]],
+        )
 
         mock_embedder = MagicMock()
         mock_embedder.embed = AsyncMock(return_value=[0.1] * 384)
@@ -328,10 +331,12 @@ class TestTopKRetrievalConfig:
         # Given: a mock store where all collections have 2 documents
         mock_store = MagicMock()
         mock_store.collection_count.return_value = 2
-        mock_store.query.return_value = {
-            "distances": [[0.1, 0.2]],
-            "metadatas": [[{"name": "test"}]],
-        }
+        mock_store.query.return_value = QueryResult(
+            ids=[["d1", "d2"]],
+            documents=[["a", "b"]],
+            metadatas=[[{"name": "test"}]],
+            distances=[[0.1, 0.2]],
+        )
 
         mock_embedder = MagicMock()
         mock_embedder.embed = AsyncMock(return_value=[0.1] * 384)

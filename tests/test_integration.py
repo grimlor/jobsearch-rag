@@ -385,7 +385,7 @@ class TestChromaDBContract:
         )
 
         # Then: distance ~0
-        distances = results["distances"][0]
+        distances = results.distances[0]
         assert len(distances) == 1, f"Expected 1 result, got {len(distances)}"
         assert distances[0] == pytest.approx(0.0, abs=1e-5), (
             f"Identical vector should have ~0 distance, got {distances[0]}"
@@ -419,8 +419,8 @@ class TestChromaDBContract:
         )
 
         # Then: architecture doc is closer
-        distances = results["distances"][0]
-        ids = results["ids"][0]
+        distances = results.distances[0]
+        ids = results.ids[0]
         arch_idx = ids.index("doc-arch")
         cooking_idx = ids.index("doc-cooking")
         assert distances[arch_idx] < distances[cooking_idx], (
@@ -454,12 +454,12 @@ class TestChromaDBContract:
         )
 
         # Then: expected keys present with correct structure
-        assert "ids" in results, "Results should contain 'ids'"
-        assert "documents" in results, "Results should contain 'documents'"
-        assert "metadatas" in results, "Results should contain 'metadatas'"
-        assert "distances" in results, "Results should contain 'distances'"
-        assert isinstance(results["ids"][0], list), "ids[0] should be a list"
-        assert isinstance(results["distances"][0], list), "distances[0] should be a list"
+        assert hasattr(results, "ids"), "Results should contain 'ids'"
+        assert hasattr(results, "documents"), "Results should contain 'documents'"
+        assert hasattr(results, "metadatas"), "Results should contain 'metadatas'"
+        assert hasattr(results, "distances"), "Results should contain 'distances'"
+        assert isinstance(results.ids[0], list), "ids[0] should be a list"
+        assert isinstance(results.distances[0], list), "distances[0] should be a list"
 
     async def test_persistence_survives_client_restart(self, embedder: Embedder) -> None:
         """
@@ -490,7 +490,7 @@ class TestChromaDBContract:
 
             # Then: document is retrievable
             docs = store2.get_documents("test_persist", ids=["persist-1"])
-            assert docs["documents"][0] == "persistence test", (
+            assert docs.documents[0] == "persistence test", (
                 "Retrieved document should match original"
             )
             store2.close()
@@ -680,8 +680,8 @@ class TestEndToEndScoring:
             query_embedding=test_vec,
             n_results=3,
         )
-        assert len(results["ids"][0]) == 3, "Should return 3 results"
-        assert all(d >= 0.0 for d in results["distances"][0]), "Distances should be non-negative"
+        assert len(results.ids[0]) == 3, "Should return 3 results"
+        assert all(d >= 0.0 for d in results.distances[0]), "Distances should be non-negative"
 
     async def test_index_with_real_archetypes_file(
         self,

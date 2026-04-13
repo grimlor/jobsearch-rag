@@ -338,12 +338,13 @@ Python, distributed systems, cloud platforms.
             collection_name="resume",
             ids=["resume-summary", "resume-experience", "resume-skills"],
         )
-        assert len(docs["documents"]) == 3, "Should retrieve all 3 chunks"
-        assert "principal architect" in docs["documents"][0], "Summary chunk should have content"
-        assert "platform architecture" in docs["documents"][1], (
-            "Experience chunk should have content"
-        )
-        assert "distributed systems" in docs["documents"][2], "Skills chunk should have content"
+        assert len(docs.documents) == 3, "Should retrieve all 3 chunks"
+        for idx, expected in enumerate(
+            ["principal architect", "platform architecture", "distributed systems"]
+        ):
+            doc = docs.documents[idx]
+            assert doc is not None, f"Document {idx} should not be None"
+            assert expected in doc, f"Chunk {idx} should contain '{expected}'"
 
     async def test_each_chunk_contains_at_least_one_complete_sentence(
         self, indexer: Indexer, store: VectorStore
@@ -373,7 +374,8 @@ Led teams. Built platforms.
         # Then: each chunk has complete sentences
         for doc_id in ["resume-summary", "resume-experience"]:
             docs = store.get_documents(collection_name="resume", ids=[doc_id])
-            body = docs["documents"][0]
+            body = docs.documents[0]
+            assert body is not None, f"Document for {doc_id} should not be None"
             text = body.split("\n", 1)[-1] if "\n" in body else body
             assert "." in text, f"Chunk {doc_id} lacks complete sentence: {body!r}"
 
@@ -517,8 +519,8 @@ description = "Defines tech strategy."
         )
 
         # Then: name in metadata
-        assert docs["metadatas"][0]["name"] == "Staff Architect", (
-            f"Expected 'Staff Architect', got {docs['metadatas'][0].get('name')!r}"
+        assert docs.metadatas[0]["name"] == "Staff Architect", (
+            f"Expected 'Staff Architect', got {docs.metadatas[0].get('name')!r}"
         )
 
     async def test_malformed_toml_identifies_syntax_error_and_file_path(
@@ -600,7 +602,8 @@ description = \"\"\"
             collection_name="role_archetypes",
             ids=["archetype-test"],
         )
-        doc_text = docs["documents"][0]
+        doc_text = docs.documents[0]
+        assert doc_text is not None, "Document should not be None"
         assert "  " not in doc_text, f"Double spaces remain in stored text: {doc_text!r}"
 
 
@@ -852,8 +855,8 @@ signals_positive = ["strategic thinking", "cross-org influence"]
         )
 
         # Then: source in metadata
-        assert docs["metadatas"][0]["source"] == "Altitude", (
-            f"Expected source 'Altitude', got {docs['metadatas'][0].get('source')}"
+        assert docs.metadatas[0]["source"] == "Altitude", (
+            f"Expected source 'Altitude', got {docs.metadatas[0].get('source')}"
         )
 
     async def test_reindex_replaces_global_positive_collection_not_appends(

@@ -42,7 +42,7 @@ class QueryResult:
 
     ids: list[list[str]] = field(default_factory=lambda: [[]])
     documents: list[list[str]] = field(default_factory=lambda: [[]])
-    metadatas: list[list[dict[str, Any]]] = field(default_factory=lambda: [[]])
+    metadatas: list[list[dict[str, Any] | None]] = field(default_factory=lambda: [[]])
     distances: list[list[float]] = field(default_factory=lambda: [[]])
 
 

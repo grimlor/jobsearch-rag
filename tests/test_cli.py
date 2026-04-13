@@ -2661,8 +2661,8 @@ class TestReviewCommandHandler:
         # And: decision was persisted in ChromaDB
         store: VectorStore = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
-        assert len(result["ids"]) == 1, f"Expected 1 decision in ChromaDB, got: {result['ids']}"
-        meta = result["metadatas"][0]
+        assert len(result.ids) == 1, f"Expected 1 decision in ChromaDB, got: {result.ids}"
+        meta = result.metadatas[0]
         assert meta["verdict"] == "yes", f"Expected verdict 'yes', got: {meta['verdict']!r}"
         assert meta["reason"] == "Good fit", f"Expected reason 'Good fit', got: {meta['reason']!r}"
 
@@ -2691,7 +2691,8 @@ class TestReviewCommandHandler:
         # Then: the JD body was stored as the document in ChromaDB
         store: VectorStore = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
-        stored_doc = result["documents"][0]
+        stored_doc = result.documents[0]
+        assert stored_doc is not None, "Document should not be None"
         assert "Lead the platform team" in stored_doc, (
             f"Expected JD body in stored document, got: {stored_doc!r}"
         )
@@ -2860,8 +2861,8 @@ class TestReviewCommandHandler:
         # And: decision was persisted in ChromaDB with empty reason
         store: VectorStore = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
-        assert len(result["ids"]) == 1, f"Expected 1 decision in ChromaDB, got: {result['ids']}"
-        meta = result["metadatas"][0]
+        assert len(result.ids) == 1, f"Expected 1 decision in ChromaDB, got: {result.ids}"
+        meta = result.metadatas[0]
         assert meta["reason"] == "", f"Expected empty reason, got: {meta['reason']!r}"
 
     def test_review_handler_reads_external_id_from_csv_column(
@@ -2896,8 +2897,8 @@ class TestReviewCommandHandler:
         result = store.get_documents(
             collection_name="decisions", ids=["decision-81cb444f00994fff"]
         )
-        assert len(result["ids"]) == 1, (
-            f"Expected decision keyed by CSV external_id '81cb444f00994fff', got: {result['ids']}"
+        assert len(result.ids) == 1, (
+            f"Expected decision keyed by CSV external_id '81cb444f00994fff', got: {result.ids}"
         )
 
 

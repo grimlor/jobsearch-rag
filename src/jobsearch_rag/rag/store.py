@@ -25,6 +25,7 @@ import chromadb
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
+from jobsearch_rag.ports import GetResult, QueryResult
 
 
 class VectorStore:
@@ -153,19 +154,23 @@ class VectorStore:
         collection_name: str,
         *,
         ids: list[str],
-    ) -> dict[str, Any]:
+    ) -> GetResult:
         """
         Retrieve documents by ID from a collection.
 
-        Returns a dict with ``ids``, ``documents``, ``metadatas`` keys
-        matching ChromaDB's native format.
+        Returns a :class:`~jobsearch_rag.ports.GetResult` with ``ids``,
+        ``documents``, ``metadatas`` fields.
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection does not exist.
         """
         collection = self._get_existing_collection(collection_name)
         result = collection.get(ids=ids, include=["documents", "metadatas"])
-        return dict(result)
+        return GetResult(
+            ids=result["ids"],
+            documents=result.get("documents") or [],
+            metadatas=result.get("metadatas") or [],
+        )
 
     def get_by_metadata(
         self,
@@ -173,13 +178,12 @@ class VectorStore:
         *,
         where: dict[str, Any],
         include: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> GetResult:
         """
         Retrieve documents matching a metadata filter.
 
         Uses ChromaDB's ``where`` filter syntax (e.g.
-        ``{"verdict": "no"}``).  Returns a dict with keys matching
-        ChromaDB's native format (``ids``, ``metadatas``, etc.).
+        ``{"verdict": "no"}``).  Returns a :class:`~jobsearch_rag.ports.GetResult`.
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection does not exist.
@@ -187,7 +191,34 @@ class VectorStore:
         collection = self._get_existing_collection(collection_name)
         include = include or ["metadatas"]
         result = collection.get(where=where, include=include)
-        return dict(result)
+        return GetResult(
+            ids=result["ids"],
+            documents=result.get("documents") or [],
+            metadatas=result.get("metadatas") or [],
+        )
+
+    def get_all_documents(
+        self,
+        collection_name: str,
+        *,
+        include: list[str] | None = None,
+    ) -> GetResult:
+        """
+        Retrieve all documents in a collection.
+
+        Returns a :class:`~jobsearch_rag.ports.GetResult`.
+
+        Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
+        if the collection does not exist.
+        """
+        collection = self._get_existing_collection(collection_name)
+        include = include or ["documents", "metadatas"]
+        result = collection.get(include=include)
+        return GetResult(
+            ids=result["ids"],
+            documents=result.get("documents") or [],
+            metadatas=result.get("metadatas") or [],
+        )
 
     # -- Similarity query ----------------------------------------------------
 
@@ -222,13 +253,13 @@ class VectorStore:
         *,
         query_embedding: list[float],
         n_results: int,
-    ) -> dict[str, Any]:
+    ) -> QueryResult:
         """
         Find the *n_results* most similar documents to *query_embedding*.
 
-        Returns a dict with ``ids``, ``documents``, ``metadatas``,
-        ``distances`` keys. Distances are cosine distances (lower = more
-        similar; 0.0 = identical direction).
+        Returns a :class:`~jobsearch_rag.ports.QueryResult` with ``ids``,
+        ``documents``, ``metadatas``, ``distances`` fields.  Distances
+        are cosine distances (lower = more similar; 0.0 = identical direction).
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection does not exist.
@@ -238,7 +269,7 @@ class VectorStore:
         # ChromaDB raises if n_results > count; clamp to available
         count = collection.count()
         if count == 0:
-            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+            return QueryResult()
 
         effective_n = min(n_results, count)
         result = collection.query(
@@ -246,7 +277,12 @@ class VectorStore:
             n_results=effective_n,
             include=["documents", "metadatas", "distances"],
         )
-        return dict(result)
+        return QueryResult(
+            ids=result.get("ids") or [[]],
+            documents=result.get("documents") or [[]],
+            metadatas=result.get("metadatas") or [[]],
+            distances=result.get("distances") or [[]],
+        )
 
     # -- Internal helpers ----------------------------------------------------
 

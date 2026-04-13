@@ -374,7 +374,7 @@ class Scorer:
             query_embedding=embedding,
             n_results=n_results,
         )
-        distances: list[float] = results.get("distances", [[]])[0]
+        distances: list[float] = results.distances[0]
         return _distance_to_score(distances)
 
     def _query_archetypes(self, embedding: list[float]) -> tuple[float, str | None]:
@@ -395,14 +395,14 @@ class Scorer:
             query_embedding=embedding,
             n_results=n_results,
         )
-        distances: list[float] = results.get("distances", [[]])[0]
+        distances: list[float] = results.distances[0]
         score = _distance_to_score(distances)
 
         # Extract best archetype name from the closest match's metadata.
         # The count > 0 guard above ensures the query returns non-empty,
         # consistently-shaped results. ChromaDB returns None for entries added
         # without metadata, so guard against non-dict items.
-        metadatas_raw: list[dict[str, str] | None] = results.get("metadatas", [[]])[0]
+        metadatas_raw = results.metadatas[0]
         best_name: str | None = None
         best_idx = distances.index(min(distances))
         meta = metadatas_raw[best_idx]
@@ -425,7 +425,7 @@ class Scorer:
             query_embedding=embedding,
             n_results=n_results,
         )
-        distances: list[float] = results.get("distances", [[]])[0]
+        distances: list[float] = results.distances[0]
         return _distance_to_score(distances)
 
     def _get_rejection_reasons(self) -> list[str]:
@@ -445,7 +445,7 @@ class Scorer:
                 where={"verdict": "no"},
                 include=["metadatas"],
             )
-            for meta in results.get("metadatas", []):
+            for meta in results.metadatas:
                 if meta and meta.get("reason"):
                     reasons.append(str(meta["reason"]))
         except ActionableError:

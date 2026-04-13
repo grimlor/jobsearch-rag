@@ -250,8 +250,10 @@ class TestResumeChunking:
         result = store.get_documents("resume", ids=["resume-summary"])
 
         # Then: chunk starts with its heading
-        assert result["documents"][0].startswith("## Summary"), (
-            f"Expected chunk to start with '## Summary', got: {result['documents'][0][:30]!r}"
+        doc = result.documents[0]
+        assert doc is not None, "Document should not be None"
+        assert doc.startswith("## Summary"), (
+            f"Expected chunk to start with '## Summary', got: {doc[:30]!r}"
         )
 
     async def test_nested_headings_stay_with_parent_section(
@@ -267,7 +269,8 @@ class TestResumeChunking:
 
         # When: retrieve the experience chunk
         result = store.get_documents("resume", ids=["resume-experience"])
-        doc = result["documents"][0]
+        doc = result.documents[0]
+        assert doc is not None, "Document should not be None"
 
         # Then: nested headings present
         assert "### Acme Corp" in doc, "Sub-heading '### Acme Corp' should be in experience chunk"
@@ -288,9 +291,7 @@ class TestResumeChunking:
         result = store.get_documents("resume", ids=["resume-summary", "resume-core-strengths"])
 
         # Then: both chunks found
-        assert len(result["documents"]) == 2, (
-            f"Expected 2 chunks by ID, got {len(result['documents'])}"
-        )
+        assert len(result.documents) == 2, f"Expected 2 chunks by ID, got {len(result.documents)}"
 
     async def test_chunks_contain_at_least_one_complete_sentence(
         self, indexer: Indexer, store: VectorStore, resume_path: Path
@@ -305,7 +306,8 @@ class TestResumeChunking:
 
         # When: retrieve the summary chunk
         result = store.get_documents("resume", ids=["resume-summary"])
-        doc = result["documents"][0]
+        doc = result.documents[0]
+        assert doc is not None, "Document should not be None"
 
         # Then: both sentences preserved
         assert "distributed systems" in doc, "First sentence content should be present"
@@ -432,8 +434,8 @@ class TestResumeIndexing:
         result = store.get_documents("resume", ids=["resume-summary"])
 
         # Then: source is 'resume'
-        assert result["metadatas"][0]["source"] == "resume", (
-            f"Expected source='resume', got {result['metadatas'][0].get('source')!r}"
+        assert result.metadatas[0]["source"] == "resume", (
+            f"Expected source='resume', got {result.metadatas[0].get('source')!r}"
         )
 
     async def test_missing_resume_file_tells_operator_to_create_it(self, indexer: Indexer) -> None:
@@ -514,8 +516,8 @@ class TestArchetypeIndexing:
         result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
 
         # Then: name in metadata
-        assert result["metadatas"][0]["name"] == "Staff Platform Architect", (
-            f"Expected name='Staff Platform Architect', got {result['metadatas'][0].get('name')!r}"
+        assert result.metadatas[0]["name"] == "Staff Platform Architect", (
+            f"Expected name='Staff Platform Architect', got {result.metadatas[0].get('name')!r}"
         )
 
     async def test_archetype_description_is_the_document_text(
@@ -531,7 +533,8 @@ class TestArchetypeIndexing:
 
         # When: retrieve document text
         result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
-        doc = result["documents"][0]
+        doc = result.documents[0]
+        assert doc is not None, "Document should not be None"
 
         # Then: description content present
         assert "distributed systems" in doc, "Description should contain 'distributed systems'"
@@ -755,7 +758,8 @@ class TestArchetypeEmbeddingSynthesis:
 
         # Then: stored document includes synthesized content
         result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
-        doc = result["documents"][0]
+        doc = result.documents[0]
+        assert doc is not None, "Document should not be None"
         assert "Cross-team architecture ownership" in doc, (
             f"Positive signal missing from stored document: {doc!r}"
         )

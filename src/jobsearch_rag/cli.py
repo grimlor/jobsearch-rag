@@ -328,7 +328,7 @@ def handle_search(args: argparse.Namespace) -> None:
                         dec_results = runner.store.get_documents(
                             collection_name="decisions", ids=decision_ids
                         )
-                        decided_set = {m["job_id"] for m in dec_results.get("metadatas", []) if m}
+                        decided_set = {m["job_id"] for m in dec_results.metadatas if m}
                     except Exception:  # decisions collection may not exist
                         decided_set: set[str] = set()
                     export_list = [
@@ -390,7 +390,7 @@ def handle_decide(args: argparse.Namespace) -> None:
             collection_name="decisions",
             ids=[f"decision-{args.job_id}"],
         )
-        documents = results.get("documents", [])
+        documents = results.documents
         if documents and documents[0]:
             jd_text = documents[0]
         else:

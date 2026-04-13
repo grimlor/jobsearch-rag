@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from jobsearch_rag.logging import logger
 
@@ -287,16 +287,17 @@ class EvalRunner:
     def _load_decisions(self) -> list[tuple[str, str, str]]:
         """Load all decisions from the store as (job_id, verdict, jd_text) tuples."""
         try:
-            collection = self._store.get_or_create_collection("decisions")
+            result = self._store.get_all_documents(
+                "decisions",
+                include=["documents", "metadatas"],
+            )
         except Exception:
             logger.debug("Decisions collection not accessible.")
             return []
 
-        result = collection.get(include=["documents", "metadatas"])
-
-        ids: list[str] = result["ids"]
-        documents: list[Any] = result.get("documents") or []
-        metadatas: list[Any] = result.get("metadatas") or []
+        ids: list[str] = result.ids
+        documents = result.documents
+        metadatas = result.metadatas
 
         decisions: list[tuple[str, str, str]] = []
         for i, doc_id in enumerate(ids):

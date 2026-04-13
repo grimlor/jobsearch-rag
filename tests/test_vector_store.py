@@ -208,10 +208,10 @@ class TestDocumentOperations:
         result = populated_store.get_documents("test_collection", ids=["doc-1"])
 
         # Then: document is returned
-        assert len(result["documents"]) == 1, "Should return exactly one document"
-        assert "Staff Platform Architect" in result["documents"][0], (
-            "Returned document should match the original"
-        )
+        assert len(result.documents) == 1, "Should return exactly one document"
+        doc = result.documents[0]
+        assert doc is not None, "Document should not be None"
+        assert "Staff Platform Architect" in doc, "Returned document should match the original"
 
     def test_metadata_is_preserved(self, populated_store: VectorStore) -> None:
         """
@@ -223,7 +223,7 @@ class TestDocumentOperations:
         result = populated_store.get_documents("test_collection", ids=["doc-3"])
 
         # Then: metadata preserved
-        assert result["metadatas"][0]["section"] == "skills", (
+        assert result.metadatas[0]["section"] == "skills", (
             "Metadata should be preserved on retrieval"
         )
 
@@ -247,7 +247,9 @@ class TestDocumentOperations:
             "Duplicate ID should update, not append"
         )
         result = populated_store.get_documents("test_collection", ids=["doc-1"])
-        assert "Updated" in result["documents"][0], "Document text should be updated"
+        doc = result.documents[0]
+        assert doc is not None, "Document should not be None"
+        assert "Updated" in doc, "Document text should be updated"
 
     def test_add_documents_with_mismatched_lengths_names_the_mismatch(
         self, store: VectorStore
@@ -311,7 +313,7 @@ class TestSimilarityQuery:
         )
 
         # Then: doc-1 (architect) is most similar
-        assert results["ids"][0][0] == "doc-1", "Architect document should be most similar"
+        assert results.ids[0][0] == "doc-1", "Architect document should be most similar"
 
     def test_query_returns_similarity_distances(self, populated_store: VectorStore) -> None:
         """
@@ -327,7 +329,7 @@ class TestSimilarityQuery:
         )
 
         # Then: distances are floats
-        distances = results["distances"][0]
+        distances = results.distances[0]
         assert len(distances) == 2, "Should return 2 distance values"
         assert all(isinstance(d, float) for d in distances), "Distances should be floats"
 
@@ -345,7 +347,7 @@ class TestSimilarityQuery:
         )
 
         # Then: exactly 1 result
-        assert len(results["ids"][0]) == 1, "Should return exactly 1 result"
+        assert len(results.ids[0]) == 1, "Should return exactly 1 result"
 
     def test_query_empty_collection_returns_empty(self, store: VectorStore) -> None:
         """
@@ -364,7 +366,7 @@ class TestSimilarityQuery:
         )
 
         # Then: empty results
-        assert results["ids"][0] == [], "Empty collection should return empty results"
+        assert results.ids[0] == [], "Empty collection should return empty results"
 
     def test_query_includes_document_text_and_metadata(self, populated_store: VectorStore) -> None:
         """
@@ -380,8 +382,8 @@ class TestSimilarityQuery:
         )
 
         # Then: document and metadata present
-        assert results["documents"][0][0] is not None, "Document text should be included"
-        assert results["metadatas"][0][0] is not None, "Metadata should be included"
+        assert results.documents[0][0] is not None, "Document text should be included"
+        assert results.metadatas[0][0] is not None, "Metadata should be included"
 
 
 # ---------------------------------------------------------------------------
@@ -536,8 +538,8 @@ class TestMetadataQuery:
         )
 
         # Then: only 'no' verdicts returned
-        assert len(results["ids"]) == 2, "Should return 2 matching documents"
-        reasons = [m["reason"] for m in results["metadatas"]]
+        assert len(results.ids) == 2, "Should return 2 matching documents"
+        reasons = [m["reason"] for m in results.metadatas]
         assert "on-call required" in reasons, "First reason should match"
         assert "fully on-site" in reasons, "Second reason should match"
 
@@ -566,7 +568,7 @@ class TestMetadataQuery:
         )
 
         # Then: no documents match
-        assert len(results["ids"]) == 0, "Should return no matching documents"
+        assert len(results.ids) == 0, "Should return no matching documents"
 
     def test_get_by_metadata_nonexistent_collection_raises_index_error(
         self, store: VectorStore

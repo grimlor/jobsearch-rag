@@ -199,8 +199,8 @@ class DecisionRecorder:
         except ActionableError:
             return None
 
-        ids = results.get("ids", [])
-        metadatas = results.get("metadatas", [])
+        ids = results.ids
+        metadatas = results.metadatas
         if not ids or not metadatas:
             return None
 
@@ -230,7 +230,7 @@ class DecisionRecorder:
         except ActionableError:
             return []
 
-        metadatas: list[dict[str, str]] = results.get("metadatas", [])
+        metadatas = results.metadatas
         return [
             {
                 "job_id": m.get("job_id", ""),
