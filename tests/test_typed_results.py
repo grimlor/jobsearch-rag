@@ -29,7 +29,7 @@ from __future__ import annotations
 import importlib.util
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -286,19 +286,57 @@ class TestEvalRunnerAbstractionLeak:
             f"Expected verdict='yes', got {result.per_decision[0].verdict!r}"
         )
 
-    @pytest.mark.xfail(
-        reason="InMemoryVectorStore not yet implemented — D4 deliverable",
-        strict=True,
-    )
-    def test_eval_pipeline_works_with_in_memory_store(self) -> None:
+    async def test_eval_pipeline_works_with_in_memory_store(self) -> None:
         """
         Given an EvalRunner constructed with InMemoryVectorStore
         When evaluate() is called with decisions in the store
         Then it returns valid EvalResult without ChromaDB dependency
         """
-        # This test will be implemented when D4 (InMemoryVectorStore) is delivered.
-        assert hasattr(fakes_mod, "InMemoryVectorStore"), (
-            "InMemoryVectorStore not yet available in tests.fakes"
+        # Given: an InMemoryVectorStore with decisions
+        store = fakes_mod.InMemoryVectorStore()
+        store.add_documents(
+            "decisions",
+            ids=["dec-1"],
+            documents=["JD text for in-memory test"],
+            embeddings=[[0.1] * EMBED_DIM],
+            metadatas=[{"job_id": "mem-j1", "verdict": "yes"}],
+        )
+
+        scorer_stub = AsyncMock()
+        scorer_stub.score = AsyncMock(
+            return_value=MagicMock(
+                fit_score=0.5,
+                archetype_score=0.5,
+                history_score=0.5,
+                comp_score=0.5,
+                negative_score=0.0,
+                culture_score=0.5,
+                disqualified=False,
+                disqualify_reason=None,
+                best_archetype="Test",
+                explanation="test",
+            )
+        )
+        ranker_stub = MagicMock()
+        ranker_stub.min_score_threshold = 0.4
+        ranker_stub.compute_final_score = MagicMock(return_value=0.6)
+
+        # cast until D5 changes EvalRunner.__init__ to accept VectorStorePort
+        runner = EvalRunner(
+            scorer=scorer_stub,
+            ranker=ranker_stub,
+            store=cast("VectorStore", store),
+        )
+
+        # When: evaluate
+        result = await runner.evaluate()
+
+        # Then: EvalResult reflects the decision — no ChromaDB needed
+        assert result.decisions_evaluated == 1, (
+            f"Expected 1 decision, got {result.decisions_evaluated}"
+        )
+        assert result.per_decision[0].job_id == "mem-j1", (
+            f"Expected job_id='mem-j1', got {result.per_decision[0].job_id!r}"
         )
 
     def test_eval_module_has_no_chromadb_import(self) -> None:
