@@ -754,7 +754,7 @@ class TestBrowserTabOpener:
         ]
 
         # When: open with default top_n
-        BrowserTabOpener().open(listings)
+        BrowserTabOpener().open(listings, top_n=5)
 
         # Then: default 5 tabs opened
         assert webbrowser.open.call_count == 5, "Default should open 5 tabs"  # type: ignore[attr-defined]
@@ -944,7 +944,7 @@ class TestJDFileExport:
         ]
 
         # When: export JD files
-        paths = JDFileExporter().export(listings, str(tmp_path))
+        paths = JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
 
         # Then: one file per listing
         assert len(paths) == 2, "Should create one file per listing"
@@ -968,7 +968,7 @@ class TestJDFileExport:
         ]
 
         # When: export JD files
-        paths = JDFileExporter().export(listings, str(tmp_path))
+        paths = JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
 
         # Then: filename uses external_id prefix, not rank number
         name = paths[0].name
@@ -995,7 +995,7 @@ class TestJDFileExport:
         ]
 
         # When: export JD files
-        paths = JDFileExporter().export(listings, str(tmp_path))
+        paths = JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
         content = paths[0].read_text()
 
         # Then: metadata header present
@@ -1019,7 +1019,7 @@ class TestJDFileExport:
         listings = [_ranked()]
 
         # When: export JD files
-        JDFileExporter().export(listings, str(tmp_path))
+        JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
         files = list(tmp_path.glob("*.md"))
         content = files[0].read_text()
 
@@ -1038,7 +1038,7 @@ class TestJDFileExport:
         listing.listing.full_text = ""
 
         # When: export JD files
-        paths = JDFileExporter().export([listing], str(tmp_path))
+        paths = JDFileExporter(max_slug_length=80).export([listing], str(tmp_path))
 
         # Then: no files created
         assert len(paths) == 0, "Listings without full_text should be skipped"
@@ -1063,7 +1063,7 @@ class TestJDFileExport:
         ]
 
         # When: export JD files
-        paths = JDFileExporter().export(listings, str(tmp_path))
+        paths = JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
 
         # Then: only qualified listing exported
         assert len(paths) == 1, "Only qualified listings should be exported"
@@ -1088,7 +1088,7 @@ class TestJDFileExport:
         ]
 
         # When: export JD files
-        paths = JDFileExporter().export(listings, str(tmp_path))
+        paths = JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
 
         # Then: higher score is exported first (index 0), named by external_id
         assert "higher-score" in paths[0].name, (
@@ -1109,7 +1109,7 @@ class TestJDFileExport:
         listings = [_ranked()]
 
         # When: export JD files
-        paths = JDFileExporter().export(listings, str(nested))
+        paths = JDFileExporter(max_slug_length=80).export(listings, str(nested))
 
         # Then: directory created and file exists
         assert len(paths) == 1, "Should create one file"
@@ -1127,7 +1127,7 @@ class TestJDFileExport:
         ]
 
         # When: export JD files
-        JDFileExporter().export(listings, str(tmp_path))
+        JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
         files = list(tmp_path.glob("*.md"))
         content = files[0].read_text()
 
@@ -1155,7 +1155,7 @@ class TestJDFileExport:
         ]
 
         # When: export JD files
-        JDFileExporter().export(listings, str(tmp_path))
+        JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
         files = list(tmp_path.glob("*.md"))
         content = files[0].read_text()
 
@@ -1182,7 +1182,7 @@ class TestJDFileExport:
         ]
 
         # When: export JD files
-        JDFileExporter().export(listings, str(tmp_path))
+        JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
         files = list(tmp_path.glob("*.md"))
         content = files[0].read_text()
 
@@ -1208,7 +1208,7 @@ class TestJDFileExport:
         ]
 
         # When: export JD files
-        paths = JDFileExporter().export(listings, str(tmp_path))
+        paths = JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
         content = paths[0].read_text()
 
         # Then: External ID metadata is present in header
@@ -1237,7 +1237,7 @@ class TestJDFileExport:
                 external_id="ext-001",
             ),
         ]
-        JDFileExporter().export(listings, str(tmp_path))
+        JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
 
         # Then: stale file is removed, new file exists
         remaining = {f.name for f in tmp_path.glob("*.md")}

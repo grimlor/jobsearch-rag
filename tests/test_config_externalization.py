@@ -473,7 +473,11 @@ class TestDisqualifierPromptConfig:
         scorer = Scorer(
             store=vector_store,
             embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
             disqualifier_prompt=prompt,
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
         )
 
         # When: disqualify is called
@@ -591,7 +595,11 @@ class TestScreenPromptConfig:
         scorer = Scorer(
             store=vector_store,
             embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
             screen_prompt=custom_prompt,
+            chunk_overlap=50,
+            top_k_retrieval=3,
         )
 
         # When: screening is invoked (via disqualify which calls screening first)
@@ -997,7 +1005,9 @@ score = 1.0
         comp_max = 160_000  # 80% of base
 
         # When: compute_comp_score is called with custom breakpoints
-        score = compute_comp_score(comp_max, base_salary, breakpoints=breakpoints)
+        score = compute_comp_score(
+            comp_max, base_salary, breakpoints=breakpoints, default_score=0.5
+        )
 
         # Then: score is 0.5 (at the 0.80 breakpoint)
         assert score == pytest.approx(0.5, abs=0.01), (
@@ -1037,7 +1047,9 @@ score = 1.0
         comp_max = 250_000  # 125% of base — above highest breakpoint
 
         # When: compute_comp_score is called
-        score = compute_comp_score(comp_max, base_salary, breakpoints=breakpoints)
+        score = compute_comp_score(
+            comp_max, base_salary, breakpoints=breakpoints, default_score=0.5
+        )
 
         # Then: score equals the top breakpoint score
         assert score == pytest.approx(1.0), (
@@ -1061,7 +1073,9 @@ score = 1.0
         comp_max = 80_000  # 40% of base — below lowest breakpoint
 
         # When: compute_comp_score is called
-        score = compute_comp_score(comp_max, base_salary, breakpoints=breakpoints)
+        score = compute_comp_score(
+            comp_max, base_salary, breakpoints=breakpoints, default_score=0.5
+        )
 
         # Then: score equals the bottom breakpoint score
         assert score == pytest.approx(0.0), (
@@ -1085,7 +1099,9 @@ score = 1.0
         comp_max = 140_000  # ratio = 0.70, midpoint of 0.60-0.80 segment
 
         # When: compute_comp_score is called
-        score = compute_comp_score(comp_max, base_salary, breakpoints=breakpoints)
+        score = compute_comp_score(
+            comp_max, base_salary, breakpoints=breakpoints, default_score=0.5
+        )
 
         # Then: interpolated score is 0.25 (halfway between 0.0 and 0.5)
         assert score == pytest.approx(0.25), (
@@ -1729,7 +1745,11 @@ class TestScoringTunablesConfig:
         scorer = Scorer(
             store=vector_store,
             embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
             chunk_overlap=50,
+            top_k_retrieval=3,
         )
         # Seed required collections so score() doesn't raise
         # Use 5-dim to match EMBED_FAKE from mock_embedder
@@ -1801,6 +1821,9 @@ class TestScoringTunablesConfig:
             archetype_weight=0.5,
             fit_weight=0.3,
             history_weight=0.2,
+            comp_weight=0.10,
+            negative_weight=0.35,
+            culture_weight=0.05,
             dedup_similarity_threshold=0.80,
             min_score_threshold=0.0,  # don't filter by score
         )
@@ -2057,9 +2080,9 @@ class TestEvalHistoryConfig:
         settings = load_settings(settings_path)
 
         # Then: eval_history_path is "output/eval.jsonl"
-        assert settings.output.eval_history_path == "output/eval.jsonl", (  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType] # Phase 3 field
+        assert settings.output.eval_history_path == "output/eval.jsonl", (
             f"Expected eval_history_path='output/eval.jsonl', "
-            f"got {settings.output.eval_history_path!r}"  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType] # Phase 3 field
+            f"got {settings.output.eval_history_path!r}"
         )
 
     def test_missing_eval_history_path_raises_actionable_error(self, tmp_path: Path) -> None:
@@ -2124,8 +2147,8 @@ class TestLoginUrlConfig:
 
         # Then: login_url is "https://custom.example.com/login"
         board = settings.boards["testboard"]
-        assert board.login_url == "https://custom.example.com/login", (  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType] # Phase 3 field
-            f"Expected login_url='https://custom.example.com/login', got {board.login_url!r}"  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType] # Phase 3 field
+        assert board.login_url == "https://custom.example.com/login", (
+            f"Expected login_url='https://custom.example.com/login', got {board.login_url!r}"
         )
 
     def test_board_without_login_url_gets_none(self, tmp_path: Path) -> None:
@@ -2143,8 +2166,8 @@ class TestLoginUrlConfig:
 
         # Then: login_url is None
         board = settings.boards["testboard"]
-        assert board.login_url is None, (  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType] # Phase 3 field
-            f"Expected login_url=None for board without login_url, got {board.login_url!r}"  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType] # Phase 3 field
+        assert board.login_url is None, (
+            f"Expected login_url=None for board without login_url, got {board.login_url!r}"
         )
 
     # -- Wiring (WHAT 3-4) --------------------------------------------------
@@ -2308,7 +2331,7 @@ class TestStealthConfig:
 
         # Then: stealth is True
         board = settings.boards["testboard"]
-        assert board.stealth is True, f"Expected stealth=True, got {board.stealth!r}"  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType] # Phase 3 field
+        assert board.stealth is True, f"Expected stealth=True, got {board.stealth!r}"
 
     def test_board_without_stealth_defaults_to_false(self, tmp_path: Path) -> None:
         """
@@ -2325,7 +2348,7 @@ class TestStealthConfig:
 
         # Then: stealth defaults to False
         board = settings.boards["testboard"]
-        assert board.stealth is False, f"Expected stealth=False by default, got {board.stealth!r}"  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType] # Phase 3 field
+        assert board.stealth is False, f"Expected stealth=False by default, got {board.stealth!r}"
 
     # -- Wiring (WHAT 3) ----------------------------------------------------
 
@@ -2479,15 +2502,15 @@ class TestAdaptersConfig:
         settings = load_settings(settings_path)
 
         # Then: browser_paths has msedge and chrome
-        adapters = settings.adapters  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType,reportUnknownVariableType] # Phase 3 field
-        assert "msedge" in adapters.browser_paths, (  # pyright: ignore[reportUnknownMemberType] # Phase 3 field
-            f"Expected 'msedge' in browser_paths. Got: {adapters.browser_paths!r}"  # pyright: ignore[reportUnknownMemberType] # Phase 3 field
+        adapters = settings.adapters
+        assert "msedge" in adapters.browser_paths, (
+            f"Expected 'msedge' in browser_paths. Got: {adapters.browser_paths!r}"
         )
-        assert "chrome" in adapters.browser_paths, (  # pyright: ignore[reportUnknownMemberType] # Phase 3 field
-            f"Expected 'chrome' in browser_paths. Got: {adapters.browser_paths!r}"  # pyright: ignore[reportUnknownMemberType] # Phase 3 field
+        assert "chrome" in adapters.browser_paths, (
+            f"Expected 'chrome' in browser_paths. Got: {adapters.browser_paths!r}"
         )
-        assert isinstance(adapters.browser_paths["msedge"], list), (  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType] # Phase 3 field
-            f"browser_paths['msedge'] should be a list, got {type(adapters.browser_paths['msedge'])}"  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType] # Phase 3 field
+        assert isinstance(adapters.browser_paths["msedge"], list), (
+            f"browser_paths['msedge'] should be a list, got {type(adapters.browser_paths['msedge'])}"
         )
 
     def test_cdp_timeout_loaded_from_settings(self, tmp_path: Path) -> None:
@@ -2504,8 +2527,8 @@ class TestAdaptersConfig:
         settings = load_settings(settings_path)
 
         # Then: cdp_timeout is 30.0
-        assert settings.adapters.cdp_timeout == 30.0, (  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType] # Phase 3 field
-            f"Expected cdp_timeout=30.0, got {settings.adapters.cdp_timeout}"  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType] # Phase 3 field
+        assert settings.adapters.cdp_timeout == 30.0, (
+            f"Expected cdp_timeout=30.0, got {settings.adapters.cdp_timeout}"
         )
 
     # -- Missing field errors (WHAT 3-6) ------------------------------------
@@ -2631,13 +2654,15 @@ class TestAdaptersConfig:
         (tmp_path / "custom" / "msedge").touch()
 
         # Given: a SessionConfig with browser_channel and config browser_paths
-        config = SessionConfig(  # pyright: ignore[reportCallIssue]  # Phase 3 fields
+        config = SessionConfig(
             board_name="testboard",
+            viewport_width=1440,
+            viewport_height=900,
             headless=True,
             browser_channel="msedge",
             storage_dir=tmp_path,
-            browser_paths={"msedge": [custom_binary]},  # pyright: ignore[reportCallIssue]  # Phase 3 field
-            cdp_timeout=15.0,  # pyright: ignore[reportCallIssue]  # Phase 3 field
+            browser_paths={"msedge": [custom_binary]},
+            cdp_timeout=15.0,
         )
 
         # Given: mock Playwright and subprocess at I/O boundaries
@@ -2703,13 +2728,15 @@ class TestAdaptersConfig:
         suggesting the operator add it to [adapters] browser_paths
         """
         # Given: browser_paths has only msedge, not chrome
-        config = SessionConfig(  # pyright: ignore[reportCallIssue]  # Phase 3 fields
+        config = SessionConfig(
             board_name="testboard",
+            viewport_width=1440,
+            viewport_height=900,
             headless=True,
             browser_channel="chrome",
             storage_dir=tmp_path,
-            browser_paths={"msedge": ["/some/path/msedge"]},  # pyright: ignore[reportCallIssue]  # Phase 3 field
-            cdp_timeout=15.0,  # pyright: ignore[reportCallIssue]  # Phase 3 field
+            browser_paths={"msedge": ["/some/path/msedge"]},
+            cdp_timeout=15.0,
         )
 
         mock_pw = MagicMock()
@@ -2748,13 +2775,15 @@ class TestAdaptersConfig:
         (tmp_path / "msedge").touch()
 
         # Given: a SessionConfig with short cdp_timeout
-        config = SessionConfig(  # pyright: ignore[reportCallIssue]  # Phase 3 fields
+        config = SessionConfig(
             board_name="testboard",
+            viewport_width=1440,
+            viewport_height=900,
             headless=True,
             browser_channel="msedge",
             storage_dir=tmp_path,
-            browser_paths={"msedge": [fake_binary]},  # pyright: ignore[reportCallIssue]  # Phase 3 field
-            cdp_timeout=0.5,  # pyright: ignore[reportCallIssue]  # Phase 3 field
+            browser_paths={"msedge": [fake_binary]},
+            cdp_timeout=0.5,
         )
 
         # Given: mock Playwright and subprocess, but urlopen always fails (CDP never ready)
@@ -2809,13 +2838,15 @@ class TestAdaptersConfig:
         (tmp_path / "real").mkdir()
         (tmp_path / "real" / "msedge").touch()
 
-        config = SessionConfig(  # pyright: ignore[reportCallIssue]  # Phase 3 fields
+        config = SessionConfig(
             board_name="testboard",
+            viewport_width=1440,
+            viewport_height=900,
             headless=True,
             browser_channel="msedge",
             storage_dir=tmp_path,
-            browser_paths={"msedge": [missing_binary, valid_binary]},  # pyright: ignore[reportCallIssue]  # Phase 3 field
-            cdp_timeout=15.0,  # pyright: ignore[reportCallIssue]  # Phase 3 field
+            browser_paths={"msedge": [missing_binary, valid_binary]},
+            cdp_timeout=15.0,
         )
 
         # Given: mock Playwright and subprocess at I/O boundaries

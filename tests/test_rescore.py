@@ -99,7 +99,13 @@ class TestJdFileLoading:
         Then a JobListing is returned with all metadata fields populated.
         """
         # When: load JD files
-        listings = load_jd_files(jd_dir)
+        listings = load_jd_files(
+            jd_dir,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: one listing with all metadata
         assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
@@ -121,7 +127,13 @@ class TestJdFileLoading:
         Then the listing's full_text contains the JD body text.
         """
         # When: load the listing
-        listings = load_jd_files(jd_dir)
+        listings = load_jd_files(
+            jd_dir,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: full_text includes JD content
         assert "Staff Platform Architect to lead" in listings[0].full_text, (
@@ -138,7 +150,13 @@ class TestJdFileLoading:
         Then external_id equals "zr-42" (from metadata, not URL derivation)
         """
         # When: load the listing
-        listings = load_jd_files(jd_dir)
+        listings = load_jd_files(
+            jd_dir,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: external_id comes from **External ID:** metadata
         assert listings[0].external_id == "zr-42", (
@@ -152,7 +170,13 @@ class TestJdFileLoading:
         Then an empty list is returned.
         """
         # When: load from non-existent path
-        listings = load_jd_files(tmp_path / "does-not-exist")
+        listings = load_jd_files(
+            tmp_path / "does-not-exist",
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: empty list, no error
         assert listings == [], f"Expected empty list, got {listings}"
@@ -169,7 +193,13 @@ class TestJdFileLoading:
         (d / "no-body_no-body_title.md").write_text("# Title\n\n**Company:** Co\n")
 
         # When: load JD files
-        listings = load_jd_files(d)
+        listings = load_jd_files(
+            d,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: no listings (file skipped)
         assert listings == [], f"Expected empty list for body-less file, got {listings}"
@@ -191,7 +221,13 @@ class TestJdFileLoading:
         (d / "minimal.md").write_text(content)
 
         # When: load JD files
-        listings = load_jd_files(d)
+        listings = load_jd_files(
+            d,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: listing loaded with defaults
         assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
@@ -232,7 +268,13 @@ class TestJdFileLoading:
             )
 
         # When: load all JD files
-        listings = load_jd_files(d)
+        listings = load_jd_files(
+            d,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: sorted by filename (ext-a, ext-b, ext-c)
         assert len(listings) == 3, f"Expected 3 listings, got {len(listings)}"
@@ -269,7 +311,13 @@ class TestJdFileLoading:
         (d / "legacy_oldcorp_legacy-role.md").write_text(content)
 
         # When: load JD files
-        listings = load_jd_files(d)
+        listings = load_jd_files(
+            d,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: external_id falls back to URL derivation
         assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
@@ -301,7 +349,13 @@ class TestJdFileLoading:
         (d / "fn-ext-99_techco_platform-engineer.md").write_text(content)
 
         # When: load JD files
-        listings = load_jd_files(d)
+        listings = load_jd_files(
+            d,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: external_id matches the filename prefix and metadata
         assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
@@ -332,7 +386,13 @@ class TestJdFileLoading:
         (d / "001_oldco_legacy-ranked-role.md").write_text(content)
 
         # When: load JD files
-        listings = load_jd_files(d)
+        listings = load_jd_files(
+            d,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: file loads successfully, external_id from URL
         assert len(listings) == 1, f"Expected 1 listing, got {len(listings)}"
@@ -376,6 +436,10 @@ class TestRescoreWorkflow:
             store=store,
             embedder=mock_embedder,  # type: ignore[arg-type]
             disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
         )
 
     @staticmethod
@@ -405,7 +469,9 @@ class TestRescoreWorkflow:
             history_weight=0.2,
             comp_weight=0.0,
             negative_weight=0.4,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
 
     async def test_rescore_returns_ranked_listings(
@@ -420,7 +486,16 @@ class TestRescoreWorkflow:
         self._populate_store(vector_store)
         scorer = self._make_scorer(vector_store, mock_embedder)
         ranker = self._make_ranker()
-        rescorer = Rescorer(scorer=scorer, ranker=ranker)
+        rescorer = Rescorer(
+            scorer=scorer,
+            ranker=ranker,
+            base_salary=220_000,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+            missing_comp_score=0.5,
+        )
 
         # When: rescore the JD directory
         result = await rescorer.rescore(str(jd_dir))
@@ -444,7 +519,16 @@ class TestRescoreWorkflow:
         self._populate_store(vector_store)
         scorer = self._make_scorer(vector_store, mock_embedder)
         ranker = self._make_ranker()
-        rescorer = Rescorer(scorer=scorer, ranker=ranker)
+        rescorer = Rescorer(
+            scorer=scorer,
+            ranker=ranker,
+            base_salary=220_000,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+            missing_comp_score=0.5,
+        )
 
         # When: rescore a non-existent directory
         result = await rescorer.rescore(str(tmp_path / "empty"))
@@ -466,7 +550,16 @@ class TestRescoreWorkflow:
         # Given: empty store (no resume collection) → Scorer.score raises ActionableError
         scorer = self._make_scorer(vector_store, mock_embedder)
         ranker = self._make_ranker()
-        rescorer = Rescorer(scorer=scorer, ranker=ranker)
+        rescorer = Rescorer(
+            scorer=scorer,
+            ranker=ranker,
+            base_salary=220_000,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+            missing_comp_score=0.5,
+        )
 
         # When: rescore the JD directory
         result = await rescorer.rescore(str(jd_dir))

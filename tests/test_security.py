@@ -236,7 +236,7 @@ EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
 def _store() -> Iterator[VectorStore]:  # pyright: ignore[reportUnusedFunction]
     """Yield a temporary VectorStore for test isolation."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir)
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 

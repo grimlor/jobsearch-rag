@@ -298,6 +298,9 @@ class TestTopKRetrievalConfig:
             store=mock_store,
             embedder=mock_embedder,
             disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
             top_k_retrieval=5,
         )
 
@@ -339,6 +342,9 @@ class TestTopKRetrievalConfig:
             store=mock_store,
             embedder=mock_embedder,
             disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
             top_k_retrieval=10,
         )
 

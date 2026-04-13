@@ -152,7 +152,7 @@ class TestZipRecruiterDomExtraction:
         cards[0]["url"] = urls[0]
 
         # When: convert
-        listing = card_to_listing(cards[0])
+        listing = card_to_listing(cards[0], max_full_text_chars=250_000)
 
         # Then: title matches
         assert listing.title == "Staff Platform Architect", (
@@ -170,7 +170,7 @@ class TestZipRecruiterDomExtraction:
         cards = extract_job_cards(html)
 
         # When: convert
-        listing = card_to_listing(cards[0])
+        listing = card_to_listing(cards[0], max_full_text_chars=250_000)
 
         # Then: company matches
         assert listing.company == "Acme Corp", f"Expected 'Acme Corp', got {listing.company!r}"
@@ -186,7 +186,7 @@ class TestZipRecruiterDomExtraction:
         cards = extract_job_cards(html)
 
         # When: convert
-        listing = card_to_listing(cards[0])
+        listing = card_to_listing(cards[0], max_full_text_chars=250_000)
 
         # Then: location matches
         assert listing.location == "Remote (USA)", (
@@ -204,7 +204,7 @@ class TestZipRecruiterDomExtraction:
         cards = extract_job_cards(html)
 
         # When: convert
-        listing = card_to_listing(cards[0])
+        listing = card_to_listing(cards[0], max_full_text_chars=250_000)
 
         # Then: external_id matches article ID suffix
         assert listing.external_id == "abc123key", (
@@ -224,7 +224,7 @@ class TestZipRecruiterDomExtraction:
         cards[0]["url"] = urls[0]
 
         # When: convert
-        listing = card_to_listing(cards[0])
+        listing = card_to_listing(cards[0], max_full_text_chars=250_000)
 
         # Then: URL matches JSON-LD
         assert listing.url.startswith("https://www.ziprecruiter.com/c/Acme-Corp/"), (
@@ -242,7 +242,7 @@ class TestZipRecruiterDomExtraction:
         cards = extract_job_cards(html)
 
         # When: convert
-        listing = card_to_listing(cards[0])
+        listing = card_to_listing(cards[0], max_full_text_chars=250_000)
 
         # Then: board is ziprecruiter
         assert listing.board == "ziprecruiter", f"Expected 'ziprecruiter', got {listing.board!r}"
@@ -258,7 +258,7 @@ class TestZipRecruiterDomExtraction:
         cards = extract_job_cards(html)
 
         # When: convert
-        listing = card_to_listing(cards[0])
+        listing = card_to_listing(cards[0], max_full_text_chars=250_000)
 
         # Then: empty full_text
         assert listing.full_text == "", f"Expected empty full_text, got {listing.full_text!r}"
@@ -274,7 +274,7 @@ class TestZipRecruiterDomExtraction:
         cards = extract_job_cards(html)
 
         # When: convert
-        listing = card_to_listing(cards[0])
+        listing = card_to_listing(cards[0], max_full_text_chars=250_000)
 
         # Then: salary_range present with correct values
         assert "salary_range" in listing.metadata, "Missing salary_range metadata"
@@ -296,7 +296,7 @@ class TestZipRecruiterDomExtraction:
         cards = extract_job_cards(html)
 
         # When: convert card without salary
-        listing = card_to_listing(cards[2])
+        listing = card_to_listing(cards[2], max_full_text_chars=250_000)
 
         # Then: no salary_range
         assert "salary_range" not in listing.metadata, (
@@ -320,7 +320,7 @@ class TestZipRecruiterDomExtraction:
         }
 
         # When: convert card
-        listing = card_to_listing(card)
+        listing = card_to_listing(card, max_full_text_chars=250_000)
 
         # Then: no salary metadata, comp fields are None
         assert "salary_range" not in listing.metadata, (
@@ -590,7 +590,7 @@ class TestRealWorldExtraction:
         # When: convert all
         for i, c in enumerate(cards):
             c["url"] = urls[i] if i < len(urls) else ""
-        listings = [card_to_listing(c) for c in cards]
+        listings = [card_to_listing(c, max_full_text_chars=250_000) for c in cards]
 
         # Then: 20 listings
         assert len(listings) == 20, f"Expected 20 listings, got {len(listings)}"
@@ -606,7 +606,7 @@ class TestRealWorldExtraction:
         cards = extract_job_cards(html)
 
         # When: convert first
-        listing = card_to_listing(cards[0])
+        listing = card_to_listing(cards[0], max_full_text_chars=250_000)
 
         # Then: Anchorage Digital
         assert listing.company == "Anchorage Digital", (
@@ -625,7 +625,7 @@ class TestRealWorldExtraction:
         # Given: all real listings
         html = _REAL_FIXTURE.read_text()
         cards = extract_job_cards(html)
-        listings = [card_to_listing(c) for c in cards]
+        listings = [card_to_listing(c, max_full_text_chars=250_000) for c in cards]
 
         # Then: all non-empty and unique
         assert all(item.external_id for item in listings), "All listings must have external_id"
@@ -660,7 +660,7 @@ class TestRealWorldExtraction:
         urls = extract_json_ld_urls(html)
         for i, c in enumerate(cards):
             c["url"] = urls[i] if i < len(urls) else ""
-        listings = [card_to_listing(c) for c in cards]
+        listings = [card_to_listing(c, max_full_text_chars=250_000) for c in cards]
 
         # Then: all URLs valid
         assert all(item.url.startswith("https://www.ziprecruiter.com/c/") for item in listings), (
@@ -676,7 +676,7 @@ class TestRealWorldExtraction:
         # Given: Pearly listing (3rd card)
         html = _REAL_FIXTURE.read_text()
         cards = extract_job_cards(html)
-        listing = card_to_listing(cards[2])
+        listing = card_to_listing(cards[2], max_full_text_chars=250_000)
 
         # Then: salary range present
         assert listing.company == "Pearly", f"Expected 'Pearly', got {listing.company!r}"
@@ -822,7 +822,9 @@ class TestAuthenticate:
         THEN it completes without error.
         """
         # Given: valid mock page
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         page = _make_mock_page()
 
         # When: authenticate
@@ -839,7 +841,9 @@ class TestAuthenticate:
         THEN an ActionableError suggesting manual-solve is raised.
         """
         # Given: page with CAPTCHA
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         page = _make_mock_page(captcha=True)
 
         # When/Then: raises with CAPTCHA guidance
@@ -860,7 +864,9 @@ class TestAuthenticate:
         THEN an ActionableError about session expiration is raised.
         """
         # Given: page redirected to login
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         page = _make_mock_page(url="https://www.ziprecruiter.com/login")
 
         # When/Then: raises session expired
@@ -881,7 +887,9 @@ class TestAuthenticate:
         THEN an ActionableError about session expiration is raised.
         """
         # Given: page redirected to sign-in
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         page = _make_mock_page(url="https://www.ziprecruiter.com/sign-in")
 
         # When/Then: raises session expired
@@ -902,7 +910,9 @@ class TestAuthenticate:
         THEN an ActionableError suggesting headed mode is raised.
         """
         # Given: Cloudflare challenge page
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         page = _make_mock_page(title="Just a moment...")
 
         # When/Then: raises after timeout (asyncio.sleep mocked so 15 iterations are instant)
@@ -931,7 +941,9 @@ class TestAuthenticate:
         """
         # Given: page.title() raises once (navigation-destroyed context),
         # then returns a normal page title on retry
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         page = _make_mock_page(title="Jobs - ZipRecruiter")
         page.title = AsyncMock(
             side_effect=[
@@ -995,7 +1007,9 @@ class TestSearch:
         THEN 3 listings are returned with the first titled 'Staff Platform Architect'.
         """
         # Given: mock page with fixture HTML
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         fixture_html = _SERP_FIXTURE.read_text()
         panel_text = "A detailed job description for testing " * 10  # > 100 chars
 
@@ -1026,7 +1040,9 @@ class TestSearch:
         THEN all cards are enriched via click-through panel text.
         """
         # Given: mock page with distinct panel text per card
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         fixture_html = _SERP_FIXTURE.read_text()
         panel_a_text = "Role A detailed job description for panel " * 10
         panel_b_text = "Role B detailed job description for panel " * 10
@@ -1058,7 +1074,9 @@ class TestSearch:
         THEN title/company fallback is used for those cards.
         """
         # Given: mock page with short panel text
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         fixture_html = _SERP_FIXTURE.read_text()
 
         page = _make_mock_page(
@@ -1085,7 +1103,9 @@ class TestSearch:
         THEN the failed card's full_text is empty or fallback, while others are enriched.
         """
         # Given: mock page with failing card click
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         fixture_html = _SERP_FIXTURE.read_text()
 
         page = _make_mock_page(
@@ -1133,7 +1153,9 @@ class TestSearch:
         THEN pagination stops after 2 pages with only page 1 listings.
         """
         # Given: page 1 has cards, page 2 has zero cards
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         fixture_html = _SERP_FIXTURE.read_text()
         no_cards_html = "<html><head><title>Jobs</title></head><body></body></html>"
 
@@ -1174,7 +1196,9 @@ class TestSearch:
         THEN an empty listing list is returned.
         """
         # Given: HTML with no articles
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         no_articles_html = "<html><head><title>Jobs</title></head><body>No jobs here</body></html>"
 
         page = _make_mock_page(content_html=no_articles_html)
@@ -1193,7 +1217,9 @@ class TestSearch:
         THEN the unparseable card is skipped and 2 listings are returned.
         """
         # Given: mock page with 3 cards, one will fail
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         fixture_html = _SERP_FIXTURE.read_text()
         panel_text = "Long panel text for testing with enough chars " * 10
 
@@ -1238,7 +1264,9 @@ class TestSearch:
         THEN page 2 URL appends '&page=2'.
         """
         # Given: a query URL with existing query string
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         fixture_html = _SERP_FIXTURE.read_text()
         empty_html = "<html><head><title>Jobs</title></head><body></body></html>"
 
@@ -1282,7 +1310,9 @@ class TestSearch:
         THEN '?page=2' is used as the separator.
         """
         # Given: a query URL without '?'
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         fixture_html = _SERP_FIXTURE.read_text()
         empty_html = "<html><head><title>Jobs</title></head><body></body></html>"
 
@@ -1323,7 +1353,9 @@ class TestSearch:
         THEN only 1 page is navigated.
         """
         # Given: fixture with cards, but max_pages=1
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         fixture_html = _SERP_FIXTURE.read_text()
         panel_text = "Full detail text with enough content for tests " * 5
 
@@ -1351,7 +1383,9 @@ class TestSearch:
         THEN the pre-populated listing keeps its original full_text.
         """
         # Given: fixture with 3 cards; we pre-populate one listing's full_text
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         fixture_html = _SERP_FIXTURE.read_text()
         panel_text = "Panel text from click-through enrichment " * 10
         prepopulated_text = "Original text that should be preserved"
@@ -1425,7 +1459,9 @@ class TestExtractDetailPassthrough:
         THEN the listing is returned unchanged.
         """
         # Given: listing with full_text
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing(full_text="Full JD already populated")
         mock_page = MagicMock()
 
@@ -1446,7 +1482,9 @@ class TestExtractDetailPassthrough:
         THEN the shortDescription fallback populates full_text.
         """
         # Given: listing with empty full_text, short_description in metadata
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing(full_text="", short_description="Python role at company")
         mock_page = MagicMock()
 
@@ -1469,7 +1507,9 @@ class TestExtractDetailPassthrough:
         THEN full_text remains empty.
         """
         # Given: listing with empty full_text, no fallback
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing(full_text="")
         mock_page = MagicMock()
 

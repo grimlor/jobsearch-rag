@@ -229,6 +229,8 @@ class PipelineRunner:
 
             mgr_config = SessionConfig(
                 board_name=f"group-{channel or 'default'}",
+                viewport_width=self._settings.adapters.viewport_width,
+                viewport_height=self._settings.adapters.viewport_height,
                 headless=first_board_cfg.headless,
                 browser_channel=channel,
                 storage_dir=Path(self._settings.session_storage_dir),
@@ -371,6 +373,7 @@ class PipelineRunner:
                     score_result.comp_score = compute_comp_score(
                         listing.comp_max,
                         self._base_salary,
+                        default_score=self._settings.scoring.missing_comp_score,
                     )
 
                     scored.append((listing, score_result))
@@ -559,6 +562,8 @@ class PipelineRunner:
         is_overnight = overnight or board_name in self._settings.overnight_boards
         config = SessionConfig(
             board_name=board_name,
+            viewport_width=self._settings.adapters.viewport_width,
+            viewport_height=self._settings.adapters.viewport_height,
             headless=board_cfg.headless,
             stealth=board_cfg.stealth,
             overnight=is_overnight,

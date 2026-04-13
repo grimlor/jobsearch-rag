@@ -91,7 +91,7 @@ class JobBoardAdapter(ABC):
         self,
         page: Page,
         query: str,
-        max_pages: int = 3,
+        max_pages: int,
     ) -> list[JobListing]:
         """
         Navigate search results and return shallow listings.

@@ -150,7 +150,7 @@ class TestWeWorkRemotelySearch:
 
         # When: search
         result = await adapter.search(
-            page, "https://weworkremotely.com/remote-jobs/search?term=engineer"
+            page, "https://weworkremotely.com/remote-jobs/search?term=engineer", max_pages=3
         )
 
         # Then: returns a list of JobListings
@@ -172,7 +172,7 @@ class TestWeWorkRemotelySearch:
 
         # When: search
         listings = await adapter.search(
-            page, "https://weworkremotely.com/remote-jobs/search?term=engineer"
+            page, "https://weworkremotely.com/remote-jobs/search?term=engineer", max_pages=3
         )
 
         # Then: required fields populated

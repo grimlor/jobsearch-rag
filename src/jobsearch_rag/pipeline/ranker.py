@@ -88,11 +88,11 @@ class Ranker:
         archetype_weight: float,
         fit_weight: float,
         history_weight: float,
-        comp_weight: float = 0.0,
-        negative_weight: float = 0.4,
-        culture_weight: float = 0.0,
-        min_score_threshold: float = 0.45,
-        dedup_similarity_threshold: float = 0.95,
+        comp_weight: float,
+        negative_weight: float,
+        culture_weight: float,
+        min_score_threshold: float,
+        dedup_similarity_threshold: float,
     ) -> None:
         """Initialize with scoring weights and threshold."""
         self.archetype_weight = archetype_weight

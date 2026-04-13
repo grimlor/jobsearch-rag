@@ -31,9 +31,13 @@ class JDFileExporter:
 
     Usage::
 
-        exporter = JDFileExporter()
+        exporter = JDFileExporter(max_slug_length=80)
         paths = exporter.export(ranked_listings, "output/jds")
     """
+
+    def __init__(self, *, max_slug_length: int) -> None:
+        """Initialize with slug length limit."""
+        self._max_slug_length = max_slug_length
 
     def export(
         self,
@@ -68,8 +72,8 @@ class JDFileExporter:
                     r.listing.title,
                 )
                 continue
-            company_slug = slugify(r.listing.company)
-            title_slug = slugify(r.listing.title)
+            company_slug = slugify(r.listing.company, max_len=self._max_slug_length)
+            title_slug = slugify(r.listing.title, max_len=self._max_slug_length)
             filename = f"{r.listing.external_id}_{company_slug}_{title_slug}.md"
             new_filenames.add(filename)
             exportable.append(r)
@@ -82,8 +86,8 @@ class JDFileExporter:
 
         paths: list[Path] = []
         for r in exportable:
-            company_slug = slugify(r.listing.company)
-            title_slug = slugify(r.listing.title)
+            company_slug = slugify(r.listing.company, max_len=self._max_slug_length)
+            title_slug = slugify(r.listing.title, max_len=self._max_slug_length)
             filename = f"{r.listing.external_id}_{company_slug}_{title_slug}.md"
             filepath = out / filename
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 
-def slugify(text: str, *, max_len: int = 80) -> str:
+def slugify(text: str, *, max_len: int) -> str:
     """
     Convert *text* to a filesystem-safe slug.
 

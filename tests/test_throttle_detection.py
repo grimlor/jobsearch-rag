@@ -227,7 +227,9 @@ class TestThrottleDetection:
         Then it waits before retrying
         """
         # Given: a listing that throttles once then returns real JD
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing()
 
         panel_mock = AsyncMock()
@@ -257,7 +259,9 @@ class TestThrottleDetection:
              starts backoff from the base delay again
         """
         # Given: two listings, each throttled once before succeeding
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing1 = _make_listing(external_id="zr-1")
         listing2 = _make_listing(external_id="zr-2")
 
@@ -299,7 +303,9 @@ class TestThrottleDetection:
         Then the listing is skipped with empty or fallback full_text
         """
         # Given: a listing that always returns throttle text
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing()
 
         panel_mock = AsyncMock()
@@ -329,7 +335,9 @@ class TestThrottleDetection:
         Then it is counted as a failed extraction
         """
         # Given: a listing that always returns throttle text
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing()
 
         panel_mock = AsyncMock()
@@ -362,7 +370,9 @@ class TestThrottleDetection:
         Then it is logged at WARNING with the listing identifier
         """
         # Given: a listing that always returns throttle text
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing()
 
         panel_mock = AsyncMock()
@@ -398,7 +408,9 @@ class TestThrottleDetection:
         Then the listing full_text contains the real JD content
         """
         # Given: a listing that throttles once then returns real JD
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing()
 
         panel_mock = AsyncMock()
@@ -427,7 +439,9 @@ class TestThrottleDetection:
         Then it detects the late throttle and retries with backoff
         """
         # Given: wait_for times out on first attempt, panel shows throttle text
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing()
 
         panel_mock = AsyncMock()
@@ -454,7 +468,9 @@ class TestThrottleDetection:
         Then all retries are exhausted and listing has empty fallback text
         """
         # Given: a listing that always throttles (no short_description in DOM flow)
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing()
 
         panel_mock = AsyncMock()
@@ -484,7 +500,9 @@ class TestThrottleDetection:
         Then it falls back to empty text without retrying (no short_description in DOM flow)
         """
         # Given: a listing where both wait_for and inner_text fail
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing()
 
         panel_mock = AsyncMock()
@@ -514,7 +532,9 @@ class TestThrottleDetection:
         Then the adapter attempts at most 2 clicks (initial + 1 retry)
         """
         # Given: adapter with max_retries=1 (not the default 3)
-        adapter = ZipRecruiterAdapter(throttle_max_retries=1)
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=1, throttle_base_delay=2.0, max_full_text_chars=250_000
+        )
         listing = _make_listing()
 
         panel_mock = AsyncMock()

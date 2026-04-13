@@ -283,7 +283,7 @@ class TestAdapterContract:
         page = MagicMock()
 
         # When: run search
-        result = asyncio.run(adapter.search(page, "staff architect"))
+        result = asyncio.run(adapter.search(page, "staff architect", max_pages=3))
 
         # Then: result is a list
         assert isinstance(result, list), "search() should return a list"
@@ -554,7 +554,7 @@ class TestStubAdapterContract:
         page = MagicMock()
 
         # When: search is called
-        result = asyncio.run(adapter.search(page, "staff architect"))
+        result = asyncio.run(adapter.search(page, "staff architect", max_pages=3))
 
         # Then: returns a list of JobListings
         assert isinstance(result, list), f"Expected list, got {type(result)}"

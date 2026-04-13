@@ -104,7 +104,7 @@ def _chat_user_prompt(embedder: Embedder, call_index: int = -1) -> str:
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir)
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
@@ -162,13 +162,29 @@ def populated_store(store: VectorStore) -> VectorStore:
 @pytest.fixture
 def scorer(populated_store: VectorStore, mock_embedder: Embedder) -> Scorer:
     """A Scorer wired to a populated VectorStore and mocked Embedder."""
-    return Scorer(store=populated_store, embedder=mock_embedder)
+    return Scorer(
+        store=populated_store,
+        embedder=mock_embedder,
+        disqualify_on_llm_flag=True,
+        disqualifier_prompt="test disqualifier prompt",
+        screen_prompt="test screen prompt",
+        chunk_overlap=50,
+        top_k_retrieval=3,
+    )
 
 
 @pytest.fixture
 def scorer_empty_history(populated_store: VectorStore, mock_embedder: Embedder) -> Scorer:
     """A Scorer with resume+archetypes but no decisions collection."""
-    return Scorer(store=populated_store, embedder=mock_embedder)
+    return Scorer(
+        store=populated_store,
+        embedder=mock_embedder,
+        disqualify_on_llm_flag=False,
+        disqualifier_prompt="test disqualifier prompt",
+        screen_prompt="test screen prompt",
+        chunk_overlap=50,
+        top_k_retrieval=3,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +367,15 @@ class TestSemanticScoring:
             return result
 
         monkeypatch.setattr(chromadb.Collection, "query", _query_empty_distances)
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: a JD is scored
         score_result = await scorer.score("Any JD text")
@@ -371,8 +395,16 @@ class TestSemanticScoring:
         """
         # Given: an empty VectorStore with no resume collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(persist_dir=tmpdir)
-            scorer = Scorer(store=empty_store, embedder=mock_embedder)
+            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            scorer = Scorer(
+                store=empty_store,
+                embedder=mock_embedder,
+                disqualify_on_llm_flag=False,
+                disqualifier_prompt="test disqualifier prompt",
+                screen_prompt="test screen prompt",
+                chunk_overlap=50,
+                top_k_retrieval=3,
+            )
 
             # When: a JD is scored
             with pytest.raises(ActionableError) as exc_info:
@@ -399,9 +431,17 @@ class TestSemanticScoring:
         """
         # Given: a VectorStore with an empty resume collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            store = VectorStore(persist_dir=tmpdir)
+            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
             store.reset_collection("resume")
-            scorer = Scorer(store=store, embedder=mock_embedder)
+            scorer = Scorer(
+                store=store,
+                embedder=mock_embedder,
+                disqualify_on_llm_flag=False,
+                disqualifier_prompt="test disqualifier prompt",
+                screen_prompt="test screen prompt",
+                chunk_overlap=50,
+                top_k_retrieval=3,
+            )
 
             # When: a JD is scored
             with pytest.raises(ActionableError) as exc_info:
@@ -428,7 +468,15 @@ class TestSemanticScoring:
         """
         # Given: an empty decisions collection
         populated_store.reset_collection("decisions")
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: a JD is scored
         result = await scorer.score("Staff architect")
@@ -454,7 +502,15 @@ class TestSemanticScoring:
             embeddings=[EMBED_ARCHITECT],
             metadatas=[{"decision": "applied", "source": "decisions"}],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: a matching JD is scored
         result = await scorer.score("Staff architect for distributed systems")
@@ -481,6 +537,10 @@ class TestSemanticScoring:
             store=populated_store,
             embedder=mock_embedder,
             disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
         )
 
         # When: a JD is scored
@@ -551,7 +611,15 @@ class TestJDChunking:
 
         # Given: first chunk returns weak embedding, remaining chunks return strong
         _set_embed_side_effect(mock_embedder, [EMBED_UNRELATED_JD] + [EMBED_ARCH_JD] * 20)
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the long JD is scored
         result = await scorer.score(long_jd)
@@ -574,14 +642,30 @@ class TestJDChunking:
 
         # Given: first chunk is far from everything; remaining chunks match architect
         _set_embed_side_effect(mock_embedder, [EMBED_UNRELATED_JD] + [EMBED_ARCH_JD] * 20)
-        scorer_chunked = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer_chunked = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the long JD is scored with chunking
         result_chunked = await scorer_chunked.score(long_jd)
 
         # Given: a head-only scorer with only the weak embedding
         _set_embed_response(mock_embedder, EMBED_UNRELATED_JD)
-        scorer_head_only = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer_head_only = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         result_head = await scorer_head_only.score("short text")
 
         # Then: chunked result is at least as good as head-only
@@ -607,7 +691,15 @@ class TestJDChunking:
 
         _set_embed_response(mock_embedder, EMBED_ARCH_JD)
         _set_classify_response(mock_embedder, '{"disqualified": false, "reason": null}')
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=True,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the long JD is scored
         await scorer.score(long_jd)
@@ -914,7 +1006,15 @@ class TestRejectionReasonInjection:
                 {"verdict": "no", "reason": "No remote option"},
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         await scorer.disqualify("Some new JD text")
@@ -946,7 +1046,15 @@ class TestRejectionReasonInjection:
                 {"verdict": "yes", "reason": "Fully remote architecture leadership"},
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         await scorer.disqualify("Some JD")
@@ -973,7 +1081,15 @@ class TestRejectionReasonInjection:
             embeddings=[EMBED_UNRELATED_JD],
             metadatas=[{"verdict": "no", "reason": ""}],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         await scorer.disqualify("Any JD")
@@ -1003,7 +1119,15 @@ class TestRejectionReasonInjection:
                 {"verdict": "no", "reason": "On-call required"},
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         await scorer.disqualify("Some JD")
@@ -1025,7 +1149,15 @@ class TestRejectionReasonInjection:
         # Given: populated_store has resume + archetypes but NO decisions
 
         # When: the disqualifier runs
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         await scorer.disqualify("Any JD")
 
         # Then: no rejection-reasons block in the prompt
@@ -1050,7 +1182,15 @@ class TestRejectionReasonInjection:
             embeddings=[EMBED_UNRELATED_JD],
             metadatas=[{"verdict": "no", "reason": "Requires clearance"}],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: disqualify is called twice
         await scorer.disqualify("JD one")
@@ -1117,7 +1257,15 @@ class TestPromptInjectionScreening:
                 '{"disqualified": true, "reason": "proves disqualifier ran"}',  # disqualifier
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         disqualified, reason = await scorer.disqualify("Normal job description")
@@ -1147,7 +1295,15 @@ class TestPromptInjectionScreening:
                 '{"disqualified": true, "reason": "would flag if reached"}',
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         disqualified, reason = await scorer.disqualify(
@@ -1176,7 +1332,15 @@ class TestPromptInjectionScreening:
             mock_embedder,
             '{"suspicious": true, "reason": "AI-directed instructions detected"}',
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         with caplog.at_level(logging.WARNING):
@@ -1207,7 +1371,15 @@ class TestPromptInjectionScreening:
                 '{"disqualified": true, "reason": "SRE on-call role"}',  # disqualifier: flagged
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         disqualified, reason = await scorer.disqualify("SRE with on-call duties")
@@ -1235,7 +1407,15 @@ class TestPromptInjectionScreening:
                 '{"disqualified": true, "reason": "proves recovery"}',  # disqualifier: flags
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         disqualified, reason = await scorer.disqualify("Normal job description")
@@ -1263,7 +1443,15 @@ class TestPromptInjectionScreening:
                 '{"disqualified": true, "reason": "proves recovery"}',  # disqualifier: flags
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         disqualified, reason = await scorer.disqualify("Normal job description")
@@ -1326,7 +1514,15 @@ class TestPromptInjectionMitigation:
                 '{"disqualified": false, "reason": null}',  # disqualifier
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         await scorer.disqualify(jd_with_injection)
@@ -1363,7 +1559,15 @@ class TestPromptInjectionMitigation:
                 '{"disqualified": false, "reason": null}',  # disqualifier
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         await scorer.disqualify(jd_with_json)
@@ -1397,7 +1601,15 @@ class TestPromptInjectionMitigation:
                 "I cannot parse this as JSON!!!",  # disqualifier: malformed
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         disqualified, _reason = await scorer.disqualify("Normal JD text")
@@ -1427,7 +1639,15 @@ class TestPromptInjectionMitigation:
                 long_garbage,  # disqualifier: malformed
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         with caplog.at_level(logging.WARNING):
@@ -1467,7 +1687,15 @@ class TestPromptInjectionMitigation:
                 '{"disqualified": false, "reason": null}',  # disqualifier
             ],
         )
-        scorer = Scorer(store=populated_store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When: the disqualifier runs
         await scorer.disqualify(jd_with_injection)
@@ -1538,6 +1766,7 @@ class TestScoreFusion:
             culture_weight=0.2,
             negative_weight=0.4,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
         scores = ScoreResult(
             fit_score=0.8,
@@ -1569,7 +1798,10 @@ class TestScoreFusion:
             fit_weight=0.8,
             history_weight=0.1,
             comp_weight=0.0,
+            negative_weight=0.35,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
         scores = ScoreResult(
             fit_score=1.0,
@@ -1599,7 +1831,10 @@ class TestScoreFusion:
             fit_weight=0.3,
             history_weight=0.2,
             comp_weight=0.15,
+            negative_weight=0.35,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
         scores = ScoreResult(
             fit_score=1.0,
@@ -1628,7 +1863,10 @@ class TestScoreFusion:
             fit_weight=0.3,
             history_weight=0.2,
             comp_weight=0.0,
+            negative_weight=0.35,
+            culture_weight=0.05,
             min_score_threshold=0.5,
+            dedup_similarity_threshold=0.85,
         )
         listing = self._make_listing()
         low_scores = ScoreResult(
@@ -1657,7 +1895,10 @@ class TestScoreFusion:
             fit_weight=0.0,
             history_weight=0.0,
             comp_weight=0.0,
+            negative_weight=0.35,
+            culture_weight=0.05,
             min_score_threshold=0.5,
+            dedup_similarity_threshold=0.85,
         )
         listing = self._make_listing()
         scores = ScoreResult(
@@ -1754,7 +1995,9 @@ class TestScoreFusion:
             history_weight=0.0,
             comp_weight=0.0,
             negative_weight=0.5,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
         scores = ScoreResult(
             fit_score=0.0,
@@ -1783,7 +2026,9 @@ class TestScoreFusion:
             history_weight=0.0,
             comp_weight=0.0,
             negative_weight=1.0,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
         scores = ScoreResult(
             fit_score=0.0,
@@ -1814,7 +2059,9 @@ class TestScoreFusion:
             history_weight=0.2,
             comp_weight=0.0,
             negative_weight=0.4,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
         scores = ScoreResult(
             fit_score=0.8,
@@ -1846,7 +2093,9 @@ class TestScoreFusion:
             history_weight=0.0,
             comp_weight=1.0,
             negative_weight=0.0,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
         scores = ScoreResult(
             fit_score=0.0,
@@ -1877,7 +2126,9 @@ class TestScoreFusion:
             history_weight=0.2,
             comp_weight=0.15,
             negative_weight=0.0,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
         scores = ScoreResult(
             fit_score=0.8,
@@ -1950,7 +2201,9 @@ class TestCrossBoardDeduplication:
             history_weight=0.2,
             comp_weight=0.0,
             negative_weight=0.0,
+            culture_weight=0.05,
             min_score_threshold=threshold,
+            dedup_similarity_threshold=0.85,
         )
 
     def test_near_duplicate_listings_are_collapsed_to_one(self) -> None:

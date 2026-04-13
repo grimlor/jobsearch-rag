@@ -67,7 +67,9 @@ class TestCompensationParsing:
         text = "Compensation: $180,000 - $220,000 per year"
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: both endpoints are extracted correctly
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -88,7 +90,9 @@ class TestCompensationParsing:
         text = "Salary range: $180k-$220k"
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: k multiplier produces 180000 and 220000
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -109,7 +113,9 @@ class TestCompensationParsing:
         text = "This position pays $95/hr"
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: hourly rate is annualized via x2080
         expected = 95 * 2080
@@ -131,7 +137,9 @@ class TestCompensationParsing:
         text = "Rate: $85 - $105/hour"
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: both hourly endpoints are annualized
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -152,7 +160,9 @@ class TestCompensationParsing:
         text = "Base salary: $200,000"
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: both min and max equal the single value
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -173,7 +183,9 @@ class TestCompensationParsing:
         text = "We are looking for a Staff Architect to lead platform design."
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: None is returned (no comp data extracted)
         assert result is None, f"Expected None for text with no salary info, got {result}"
@@ -188,7 +200,9 @@ class TestCompensationParsing:
         text = "The salary for this role is $180,000 - $220,000 per year."
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: comp_text contains the original dollar amounts
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -209,7 +223,9 @@ class TestCompensationParsing:
         text = "We have 5,000 employees across 10 offices worldwide."
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: no false positive
         assert result is None, f"Employee count '5,000' was falsely parsed as salary: {result}"
@@ -224,7 +240,9 @@ class TestCompensationParsing:
         text = "The company has $2.5 billion in revenue and $500M ARR."
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: no false positive
         assert result is None, f"Revenue figure was falsely parsed as salary: {result}"
@@ -239,7 +257,9 @@ class TestCompensationParsing:
         text = "Pay: $150,000 - $200,000"
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: both endpoints extracted
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -260,7 +280,9 @@ class TestCompensationParsing:
         text = "Salary: $150,000 to $200,000 annually"
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: both endpoints extracted
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -282,7 +304,9 @@ class TestCompensationParsing:
             text = f"Compensation: $200,000 {suffix}"
 
             # When: the text is parsed
-            result = parse_compensation(text)
+            result = parse_compensation(
+                text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+            )
 
             # Then: salary is recognized with the given suffix
             assert result is not None, f"Failed to parse salary with suffix '{suffix}'"
@@ -300,7 +324,9 @@ class TestCompensationParsing:
         text = "Base salary for this role: $180,000 - $220,000"
 
         # When: the text is parsed (default source)
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: comp_source defaults to 'employer'
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -318,7 +344,13 @@ class TestCompensationParsing:
         text = "Estimated: $180,000 - $220,000"
 
         # When: the text is parsed with source override
-        result = parse_compensation(text, source="estimated")
+        result = parse_compensation(
+            text,
+            source="estimated",
+            salary_floor=40_000,
+            salary_ceiling=500_000,
+            hours_per_year=2080,
+        )
 
         # Then: comp_source is 'estimated'
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -334,10 +366,18 @@ class TestCompensationParsing:
         """
         # Given: two parse results — one employer, one estimated
         jd_result = parse_compensation(
-            "Base salary: $200,000 - $250,000 per year", source="employer"
+            "Base salary: $200,000 - $250,000 per year",
+            source="employer",
+            salary_floor=40_000,
+            salary_ceiling=500_000,
+            hours_per_year=2080,
         )
         board_result = parse_compensation(
-            "Estimated salary: $170,000 - $200,000", source="estimated"
+            "Estimated salary: $170,000 - $200,000",
+            source="estimated",
+            salary_floor=40_000,
+            salary_ceiling=500_000,
+            hours_per_year=2080,
         )
 
         # When / Then: source tags distinguish them for pipeline preference
@@ -360,7 +400,9 @@ class TestCompensationParsing:
         text = "Salary: $200,000"
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: all expected fields are present
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -379,7 +421,12 @@ class TestCompensationParsing:
         # Given: salary values with uppercase and lowercase k
         for variant in ["$200K", "$200k"]:
             # When: the text is parsed
-            result = parse_compensation(f"Salary: {variant}")
+            result = parse_compensation(
+                f"Salary: {variant}",
+                salary_floor=40_000,
+                salary_ceiling=500_000,
+                hours_per_year=2080,
+            )
 
             # Then: k multiplier is applied
             assert result is not None, f"Expected a CompResult for '{variant}', got None"
@@ -397,7 +444,9 @@ class TestCompensationParsing:
         text = "Salary: $180,000-$220,000"
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: both endpoints extracted
         assert result is not None, f"Expected a CompResult, got None for: {text!r}"
@@ -418,7 +467,9 @@ class TestCompensationParsing:
         text = "Rate: $95.50/hr"
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: decimal hourly rate is annualized
         expected = 95.50 * 2080
@@ -437,7 +488,9 @@ class TestCompensationParsing:
         text = "Our company raised $100,000 - $200,000 in funding last quarter."
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: the false-positive context is recognized and skipped
         assert result is None, f"Funding context was falsely parsed as salary: {result}"
@@ -452,7 +505,9 @@ class TestCompensationParsing:
         text = "The fee is $3 - $5 per widget."
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: below-threshold values are rejected
         assert result is None, (
@@ -469,7 +524,9 @@ class TestCompensationParsing:
         text = "The price is $5 per unit."
 
         # When: the text is parsed
-        result = parse_compensation(text)
+        result = parse_compensation(
+            text, salary_floor=40_000, salary_ceiling=500_000, hours_per_year=2080
+        )
 
         # Then: below-threshold value is rejected
         assert result is None, f"Below-threshold value '$5' was falsely parsed as salary: {result}"

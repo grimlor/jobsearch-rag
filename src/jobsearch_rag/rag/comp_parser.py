@@ -109,9 +109,9 @@ def parse_compensation(
     text: str,
     source: str = "employer",
     *,
-    salary_floor: float = 10.0,
-    salary_ceiling: float = 1_000_000.0,
-    hours_per_year: int = 2080,
+    salary_floor: float,
+    salary_ceiling: float,
+    hours_per_year: int,
 ) -> CompResult | None:
     """
     Extract compensation data from job description text.
@@ -193,7 +193,7 @@ def compute_comp_score(
     base_salary: float,
     *,
     breakpoints: list[CompBand] | None = None,
-    default_score: float = 0.5,
+    default_score: float,
 ) -> float:
     """
     Compute a continuous compensation score in [0.0, 1.0].

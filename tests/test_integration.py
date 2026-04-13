@@ -127,7 +127,7 @@ def embedder() -> Embedder:
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir)
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
@@ -469,7 +469,7 @@ class TestChromaDBContract:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: index with first client
-            store1 = VectorStore(persist_dir=tmpdir)
+            store1 = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
             embedding = await embedder.embed("persistence test")
             store1.add_documents(
                 collection_name="test_persist",
@@ -481,7 +481,7 @@ class TestChromaDBContract:
             store1.close()
 
             # When: create new client against same directory
-            store2 = VectorStore(persist_dir=tmpdir)
+            store2 = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
             count_after = store2.collection_count("test_persist")
 
             # Then: data persisted
@@ -545,6 +545,10 @@ class TestEndToEndScoring:
             store=store,
             embedder=embedder,
             disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
         )
         result = await scorer.score(
             "Staff Platform Architect: design and build distributed "
@@ -581,6 +585,10 @@ class TestEndToEndScoring:
             store=store,
             embedder=embedder,
             disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
         )
         result_match = await scorer.score(
             "Principal Engineer: distributed systems, Kubernetes, "
@@ -622,6 +630,10 @@ class TestEndToEndScoring:
             store=store,
             embedder=embedder,
             disqualify_on_llm_flag=True,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
         )
 
         # When: score with disqualifier enabled
@@ -738,7 +750,7 @@ class TestLiveZipRecruiterPipeline:
     def live_store(self) -> Iterator[VectorStore]:
         """A VectorStore in a temp directory for live pipeline tests."""
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-            s = VectorStore(persist_dir=tmpdir)
+            s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
             yield s
             s.close()
 
@@ -769,9 +781,15 @@ class TestLiveZipRecruiterPipeline:
         await indexer.index_archetypes(str(sample_archetypes))
 
         # When: browser session → authenticate → search one query
-        adapter = ZipRecruiterAdapter()
+        adapter = ZipRecruiterAdapter(
+            throttle_max_retries=3,
+            throttle_base_delay=2.0,
+            max_full_text_chars=250_000,
+        )
         config = SessionConfig(
             board_name="ziprecruiter",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -819,6 +837,10 @@ class TestLiveZipRecruiterPipeline:
             store=live_store,
             embedder=live_embedder,
             disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
         )
         base_salary = 220_000
 
@@ -828,13 +850,20 @@ class TestLiveZipRecruiterPipeline:
         for listing in with_jd[: self.MIN_LISTINGS]:
             result = await scorer.score(listing.full_text)
 
-            comp = parse_compensation(listing.full_text)
+            comp = parse_compensation(
+                listing.full_text,
+                salary_floor=40_000,
+                salary_ceiling=500_000,
+                hours_per_year=2080,
+            )
             if comp is not None:
                 listing.comp_min = comp.comp_min
                 listing.comp_max = comp.comp_max
                 listing.comp_source = comp.comp_source
                 listing.comp_text = comp.comp_text
-            result.comp_score = compute_comp_score(listing.comp_max, base_salary)
+            result.comp_score = compute_comp_score(
+                listing.comp_max, base_salary, default_score=0.5
+            )
 
             scored.append((listing, result))
             embedding = await live_embedder.embed(listing.full_text)
@@ -862,7 +891,10 @@ class TestLiveZipRecruiterPipeline:
             fit_weight=0.3,
             history_weight=0.2,
             comp_weight=0.15,
+            negative_weight=0.35,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
         ranked, summary = ranker.rank(scored, embeddings)
 
@@ -886,7 +918,7 @@ class TestLiveZipRecruiterPipeline:
 
         MarkdownExporter().export(ranked, md_path, summary=summary)
         CSVExporter().export(ranked, csv_path, summary=summary)
-        jd_paths = JDFileExporter().export(ranked, jd_dir, summary=summary)
+        jd_paths = JDFileExporter(max_slug_length=80).export(ranked, jd_dir, summary=summary)
 
         # Then: Markdown export
         md_content = Path(md_path).read_text()
@@ -1111,15 +1143,31 @@ class TestIntegrationRescoreAccumulatedJDs:
             store=store,
             embedder=embedder,
             disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
         )
         ranker = Ranker(
             archetype_weight=0.5,
             fit_weight=0.3,
             history_weight=0.2,
             comp_weight=0.15,
+            negative_weight=0.35,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
-        rescorer = Rescorer(scorer=scorer, ranker=ranker, base_salary=220_000)
+        rescorer = Rescorer(
+            scorer=scorer,
+            ranker=ranker,
+            base_salary=220_000,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+            missing_comp_score=0.5,
+        )
         result = await rescorer.rescore(str(jd_dir))
 
         # Then: all 3 JD files discovered and scored
@@ -1171,15 +1219,31 @@ class TestIntegrationRescoreAccumulatedJDs:
             store=store,
             embedder=embedder,
             disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
         )
         ranker = Ranker(
             archetype_weight=0.5,
             fit_weight=0.3,
             history_weight=0.2,
             comp_weight=0.15,
+            negative_weight=0.35,
+            culture_weight=0.05,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
-        rescorer = Rescorer(scorer=scorer, ranker=ranker, base_salary=220_000)
+        rescorer = Rescorer(
+            scorer=scorer,
+            ranker=ranker,
+            base_salary=220_000,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+            missing_comp_score=0.5,
+        )
         result = await rescorer.rescore(str(jd_dir))
 
         # Then: export CSV and verify

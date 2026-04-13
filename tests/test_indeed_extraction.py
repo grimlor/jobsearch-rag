@@ -168,7 +168,9 @@ class TestIndeedSearch:
         page = MagicMock()
 
         # When: search
-        result = await adapter.search(page, "https://www.indeed.com/jobs?q=data+engineer")
+        result = await adapter.search(
+            page, "https://www.indeed.com/jobs?q=data+engineer", max_pages=3
+        )
 
         # Then: returns a list of JobListings
         assert isinstance(result, list), f"Expected list, got {type(result)}"
@@ -188,7 +190,9 @@ class TestIndeedSearch:
         page = MagicMock()
 
         # When: search
-        listings = await adapter.search(page, "https://www.indeed.com/jobs?q=data+engineer")
+        listings = await adapter.search(
+            page, "https://www.indeed.com/jobs?q=data+engineer", max_pages=3
+        )
 
         # Then: required fields populated
         for i, listing in enumerate(listings):

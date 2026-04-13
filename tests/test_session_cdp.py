@@ -101,7 +101,7 @@ class TestSessionConfigCDP:
         THEN browser_channel defaults to None (Playwright-managed mode).
         """
         # Given/When: config with no channel
-        config = SessionConfig(board_name="test")
+        config = SessionConfig(board_name="test", viewport_width=1440, viewport_height=900)
 
         # Then: defaults to None
         assert config.browser_channel is None, "browser_channel should default to None"
@@ -113,7 +113,9 @@ class TestSessionConfigCDP:
         THEN browser_channel is set to 'msedge' (CDP launch mode).
         """
         # Given/When: config with msedge channel
-        config = SessionConfig(board_name="test", browser_channel="msedge")
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, browser_channel="msedge"
+        )
 
         # Then: channel is preserved
         assert config.browser_channel == "msedge", "browser_channel should be 'msedge'"
@@ -165,6 +167,8 @@ class TestSessionManagerCDP:
         """Return a CDP-mode SessionConfig for ZipRecruiter."""
         return SessionConfig(
             board_name="ziprecruiter",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -174,6 +178,8 @@ class TestSessionManagerCDP:
         """Return a standard Playwright SessionConfig in headless mode."""
         return SessionConfig(
             board_name="testboard",
+            viewport_width=1440,
+            viewport_height=900,
             headless=True,
         )
 
@@ -274,6 +280,8 @@ class TestSessionManagerCDP:
         # Given: headless CDP config
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=True,
             browser_channel="msedge",
         )
@@ -318,6 +326,8 @@ class TestSessionManagerCDP:
 
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -400,6 +410,8 @@ class TestSessionManagerCDP:
         # Given: config and mock subprocess
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -450,6 +462,8 @@ class TestSessionManagerCDP:
         # Given: config and mock subprocess that ignores SIGTERM
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -500,6 +514,8 @@ class TestSessionManagerCDP:
         # Given: config and mock subprocess that already exited
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -546,6 +562,8 @@ class TestSessionManagerCDP:
         # Given: config and mock where CDP never starts
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -604,6 +622,8 @@ class TestSessionManagerCDP:
         #        expires the deadline on the second poll
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -658,7 +678,9 @@ class TestSessionManagerCDP:
         THEN an ActionableError is raised.
         """
         # Given: uninitialised manager
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         manager = SessionManager(config)
 
         # When/Then: new_page raises ActionableError
@@ -672,7 +694,9 @@ class TestSessionManagerCDP:
         THEN an ActionableError is raised.
         """
         # Given: uninitialised manager
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         manager = SessionManager(config)
 
         # When/Then: save_storage_state raises ActionableError
@@ -686,7 +710,9 @@ class TestSessionManagerCDP:
         THEN cookies are written to the storage state path as JSON.
         """
         # Given: mock Playwright with cookie data
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_pw = _mock_playwright(connect_over_cdp=False)
         mock_context = mock_pw.chromium.launch.return_value.new_context.return_value
         mock_context.storage_state = AsyncMock(return_value={"cookies": [{"name": "session"}]})
@@ -716,7 +742,9 @@ class TestSessionManagerCDP:
         THEN it returns True.
         """
         # Given: session file exists on disk
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         with patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", tmp_path):
             state_file = config.storage_state_path
             state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -735,7 +763,12 @@ class TestSessionManagerCDP:
         THEN it returns False.
         """
         # Given/When: no session file on disk
-        config = SessionConfig(board_name="nonexistent_board_xyz", headless=True)
+        config = SessionConfig(
+            board_name="nonexistent_board_xyz",
+            viewport_width=1440,
+            viewport_height=900,
+            headless=True,
+        )
         manager = SessionManager(config)
 
         # Then: has_storage_state returns False
@@ -750,7 +783,13 @@ class TestSessionManagerCDP:
         THEN playwright-stealth patches are applied to the context.
         """
         # Given: stealth config with mock stealth module
-        config = SessionConfig(board_name="linkedin", headless=True, stealth=True)
+        config = SessionConfig(
+            board_name="linkedin",
+            viewport_width=1440,
+            viewport_height=900,
+            headless=True,
+            stealth=True,
+        )
         mock_pw = _mock_playwright(connect_over_cdp=False)
         mock_stealth = MagicMock()
         mock_stealth_instance = MagicMock()
@@ -779,7 +818,13 @@ class TestSessionManagerCDP:
         THEN the session still starts and a warning is logged.
         """
         # Given: stealth config with playwright_stealth import rigged to fail
-        config = SessionConfig(board_name="linkedin", headless=True, stealth=True)
+        config = SessionConfig(
+            board_name="linkedin",
+            viewport_width=1440,
+            viewport_height=900,
+            headless=True,
+            stealth=True,
+        )
         mock_pw = _mock_playwright(connect_over_cdp=False)
 
         def _raise_import_error(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -805,7 +850,9 @@ class TestSessionManagerCDP:
         THEN a new page is returned from the browser context.
         """
         # Given: mock Playwright with a new page stub
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_pw = _mock_playwright(connect_over_cdp=False)
         mock_context = mock_pw.chromium.launch.return_value.new_context.return_value
         mock_page = MagicMock()
@@ -846,7 +893,9 @@ class TestSessionManagerEdgeCases:
         THEN no error is raised (graceful no-op).
         """
         # Given: uninitialised manager
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         manager = SessionManager(config)
 
         # When/Then: __aexit__ is a no-op
@@ -881,6 +930,8 @@ class TestSessionManagerEdgeCases:
             # When: enter the session manager
             config = SessionConfig(
                 board_name="test",
+                viewport_width=1440,
+                viewport_height=900,
                 headless=False,
                 browser_channel="msedge",
             )

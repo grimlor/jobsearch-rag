@@ -343,7 +343,7 @@ def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
 @pytest.fixture
 def vector_store(tmp_path: Path) -> Iterator[VectorStore]:
     """Real ChromaDB VectorStore backed by a per-test temp directory."""
-    store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+    store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
     yield store
     store.close()
 

@@ -193,6 +193,10 @@ def _write_test_settings_toml(base_dir: Path, *, min_score_threshold: float = 0.
     )
     (config_dir / "settings.toml").write_text(toml_text, encoding="utf-8")
     (config_dir / "global_rubric.toml").write_text("# empty rubric for tests\n", encoding="utf-8")
+    (config_dir / "role_archetypes.toml").write_text(
+        '[[archetypes]]\nname = "Test Architect"\nsignals_negative = ["on-call rotation"]\n',
+        encoding="utf-8",
+    )
 
 
 def _make_settings(tmpdir: str, *, min_score_threshold: float = 0.45) -> Settings:
@@ -245,11 +249,15 @@ def _make_eval_stack(
 ) -> tuple[EvalRunner, Scorer, Ranker, VectorStore, AsyncMock]:
     """Build a full eval stack: EvalRunner + Scorer + Ranker + real VectorStore."""
     embedder, mock_client = _make_mock_embedder(embed_return=embed_return)
-    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
     scorer = Scorer(
         store=store,
         embedder=embedder,
         disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
+        disqualifier_prompt="test disqualifier prompt",
+        screen_prompt="test screen prompt",
+        chunk_overlap=50,
+        top_k_retrieval=3,
     )
     ranker = Ranker(
         archetype_weight=settings.scoring.archetype_weight,
@@ -259,6 +267,7 @@ def _make_eval_stack(
         negative_weight=settings.scoring.negative_weight,
         culture_weight=settings.scoring.culture_weight,
         min_score_threshold=settings.scoring.min_score_threshold,
+        dedup_similarity_threshold=0.85,
     )
     runner = EvalRunner(scorer=scorer, ranker=ranker, store=store)
     return runner, scorer, ranker, store, mock_client
@@ -1179,7 +1188,7 @@ class TestEvalIntegration:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="eval-1", verdict="yes")
         _seed_decision(store, job_id="eval-2", verdict="no", embedding=_EMBED_DISTANT)
@@ -1447,7 +1456,7 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
@@ -1486,7 +1495,7 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
         _seed_decision(store, job_id="cmp-2", verdict="no", embedding=_EMBED_DISTANT)
@@ -1530,7 +1539,7 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
@@ -1705,7 +1714,7 @@ class TestEvalSinglePath:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir)
+        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
 
         _, mock_client = _make_mock_embedder()

@@ -123,7 +123,7 @@ def _write_prior_csv(csv_path: Path, rows: list[RankedListing]) -> None:
 
 def _write_prior_jd(jd_dir: Path, ranked: RankedListing) -> Path:
     """Write a single JD file and return its path."""
-    paths = JDFileExporter().export([ranked], str(jd_dir))
+    paths = JDFileExporter(max_slug_length=80).export([ranked], str(jd_dir))
     assert len(paths) == 1, f"Expected 1 JD file, got {len(paths)}"
     return paths[0]
 
@@ -359,7 +359,7 @@ def _seed_decision(
     company: str = "Acme Corp",
 ) -> None:
     """Pre-populate the ChromaDB decisions collection with a test record."""
-    store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+    store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
     store.get_or_create_collection("decisions")
     store.add_documents(
         collection_name="decisions",
@@ -1001,10 +1001,16 @@ class TestRescoreAccumulatedSet:
             title="Run2 Job",
             company="Run2 Corp",
         )
-        JDFileExporter().export([run1, run2], str(jd_dir))
+        JDFileExporter(max_slug_length=80).export([run1, run2], str(jd_dir))
 
         # When: load_jd_files reads the directory
-        loaded = load_jd_files(jd_dir)
+        loaded = load_jd_files(
+            jd_dir,
+            max_full_text_chars=250_000,
+            salary_floor=40_000.0,
+            salary_ceiling=500_000.0,
+            hours_per_year=2080,
+        )
 
         # Then: both files are loaded
         ids = {listing.external_id for listing in loaded}

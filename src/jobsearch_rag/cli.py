@@ -19,7 +19,7 @@ from pathlib import Path
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.adapters.session import SessionConfig, SessionManager
-from jobsearch_rag.config import Settings, load_settings
+from jobsearch_rag.config import Settings, load_settings, synthesize_disqualifier_prompt
 from jobsearch_rag.export import CSVExporter, JDFileExporter, MarkdownExporter
 from jobsearch_rag.logging import configure_file_logging
 from jobsearch_rag.pipeline.eval import (
@@ -46,6 +46,7 @@ def _read_jd_text(
     company: str,
     *,
     jd_dir: Path | str = "output/jds",
+    max_slug_length: int,
 ) -> str:
     """
     Read the full JD body from the corresponding JD markdown file.
@@ -54,7 +55,7 @@ def _read_jd_text(
     empty string if the file is missing or the marker is absent.
     """
     jd_dir = Path(jd_dir)
-    filename = f"{external_id}_{slugify(company)}_{slugify(title)}.md"
+    filename = f"{external_id}_{slugify(company, max_len=max_slug_length)}_{slugify(title, max_len=max_slug_length)}.md"
     jd_path = jd_dir / filename
     if not jd_path.exists():
         return ""
@@ -169,6 +170,8 @@ def handle_login(args: argparse.Namespace) -> None:
 
     config = SessionConfig(
         board_name=board,
+        viewport_width=settings.adapters.viewport_width,
+        viewport_height=settings.adapters.viewport_height,
         headless=False,  # Always headed for interactive login
         browser_channel=browser,
         browser_paths=settings.adapters.browser_paths,
@@ -212,7 +215,10 @@ def handle_index(args: argparse.Namespace) -> None:
     """Index resume and/or archetypes into ChromaDB."""
     settings = load_settings()
     embedder = Embedder(settings.ollama)
-    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    store = VectorStore(
+        persist_dir=settings.chroma.persist_dir,
+        distance_metric=settings.chroma.distance_metric,
+    )
     indexer = Indexer(store=store, embedder=embedder)
 
     archetypes_only = getattr(args, "archetypes_only", False)
@@ -341,7 +347,7 @@ def handle_search(args: argparse.Namespace) -> None:
             print(f"Exported CSV      → {csv_path}")
 
             jd_dir = settings.output.jd_dir
-            jd_paths = JDFileExporter().export(
+            jd_paths = JDFileExporter(max_slug_length=settings.output.max_slug_length).export(
                 result.ranked_listings,
                 jd_dir,
                 summary=result.summary,
@@ -367,7 +373,10 @@ def handle_decide(args: argparse.Namespace) -> None:
     """Record a verdict on a job listing."""
     settings = load_settings()
     embedder = Embedder(settings.ollama)
-    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    store = VectorStore(
+        persist_dir=settings.chroma.persist_dir,
+        distance_metric=settings.chroma.distance_metric,
+    )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
     )
@@ -418,7 +427,10 @@ def handle_decisions(args: argparse.Namespace) -> None:
     """Dispatch decisions subcommands: show, remove, audit."""
     settings = load_settings()
     embedder = Embedder(settings.ollama)
-    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    store = VectorStore(
+        persist_dir=settings.chroma.persist_dir,
+        distance_metric=settings.chroma.distance_metric,
+    )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
     )
@@ -479,7 +491,10 @@ def handle_review(args: argparse.Namespace) -> None:
     """
     settings = load_settings()
     embedder = Embedder(settings.ollama)
-    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    store = VectorStore(
+        persist_dir=settings.chroma.persist_dir,
+        distance_metric=settings.chroma.distance_metric,
+    )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
     )
@@ -502,7 +517,13 @@ def handle_review(args: argparse.Namespace) -> None:
             external_id = (
                 row.get("external_id") or row.get("url", "").rstrip("/").rsplit("/", 1)[-1]
             )
-            full_text = _read_jd_text(external_id, title, company, jd_dir=jd_dir)
+            full_text = _read_jd_text(
+                external_id,
+                title,
+                company,
+                jd_dir=jd_dir,
+                max_slug_length=settings.output.max_slug_length,
+            )
             listing = JobListing(
                 board=row.get("board", "unknown"),
                 external_id=external_id,
@@ -535,6 +556,7 @@ def handle_review(args: argparse.Namespace) -> None:
         ranked_listings=ranked_listings,
         recorder=recorder,
         jd_dir=str(jd_dir),
+        max_slug_length=settings.output.max_slug_length,
     )
 
     undecided = session.undecided_listings()
@@ -601,6 +623,13 @@ def handle_rescore(args: argparse.Namespace) -> None:
         store=store,
         embedder=embedder,
         disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
+        disqualifier_prompt=(
+            settings.disqualifier.system_prompt
+            if settings.disqualifier and settings.disqualifier.system_prompt
+            else synthesize_disqualifier_prompt(settings.archetypes_path)
+        ),
+        screen_prompt=settings.security.screen_prompt,
+        chunk_overlap=settings.scoring.chunk_overlap,
         top_k_retrieval=settings.scoring.top_k_retrieval,
     )
     ranker = Ranker(
@@ -611,6 +640,7 @@ def handle_rescore(args: argparse.Namespace) -> None:
         negative_weight=settings.scoring.negative_weight,
         culture_weight=settings.scoring.culture_weight,
         min_score_threshold=settings.scoring.min_score_threshold,
+        dedup_similarity_threshold=settings.scoring.dedup_similarity_threshold,
     )
     rescorer = Rescorer(
         scorer=scorer,
@@ -620,6 +650,7 @@ def handle_rescore(args: argparse.Namespace) -> None:
         salary_floor=settings.scoring.salary_floor,
         salary_ceiling=settings.scoring.salary_ceiling,
         hours_per_year=settings.scoring.hours_per_year,
+        missing_comp_score=settings.scoring.missing_comp_score,
     )
 
     jd_dir = settings.output.jd_dir
@@ -661,7 +692,7 @@ def handle_rescore(args: argparse.Namespace) -> None:
             print(f"Exported CSV      → {csv_path}")
 
             jd_out_dir = str(out_dir / "jds")
-            jd_paths = JDFileExporter().export(
+            jd_paths = JDFileExporter(max_slug_length=settings.output.max_slug_length).export(
                 result.ranked_listings, jd_out_dir, summary=result.summary
             )
             print(f"Exported JDs      → {jd_out_dir}/ ({len(jd_paths)} files)")
@@ -705,6 +736,12 @@ def _build_eval_stack(
         store=store,
         embedder=embedder,
         disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
+        disqualifier_prompt=(
+            settings.disqualifier.system_prompt
+            if settings.disqualifier and settings.disqualifier.system_prompt
+            else synthesize_disqualifier_prompt(settings.archetypes_path)
+        ),
+        screen_prompt=settings.security.screen_prompt,
         chunk_overlap=settings.scoring.chunk_overlap,
         top_k_retrieval=settings.scoring.top_k_retrieval,
     )
@@ -842,7 +879,10 @@ _COLLECTIONS = ["resume", "role_archetypes", "negative_signals", "decisions"]
 def handle_reset(args: argparse.Namespace) -> None:
     """Reset ChromaDB collections and optionally clear output files."""
     settings = load_settings()
-    store = VectorStore(persist_dir=settings.chroma.persist_dir)
+    store = VectorStore(
+        persist_dir=settings.chroma.persist_dir,
+        distance_metric=settings.chroma.distance_metric,
+    )
 
     collections = [args.collection] if args.collection else list(_COLLECTIONS)
 

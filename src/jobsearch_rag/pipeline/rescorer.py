@@ -80,10 +80,10 @@ def _extract_jd_body(content: str) -> str:
 def load_jd_files(
     jd_dir: str | Path,
     *,
-    max_full_text_chars: int = 250_000,
-    salary_floor: float = 10.0,
-    salary_ceiling: float = 1_000_000.0,
-    hours_per_year: int = 2080,
+    max_full_text_chars: int,
+    salary_floor: float,
+    salary_ceiling: float,
+    hours_per_year: int,
 ) -> list[JobListing]:
     """
     Load JobListing objects from exported JD markdown files.
@@ -162,11 +162,12 @@ class Rescorer:
         *,
         scorer: Scorer,
         ranker: Ranker,
-        base_salary: float = 220_000,
-        max_full_text_chars: int = 250_000,
-        salary_floor: float = 10.0,
-        salary_ceiling: float = 1_000_000.0,
-        hours_per_year: int = 2080,
+        base_salary: float,
+        max_full_text_chars: int,
+        salary_floor: float,
+        salary_ceiling: float,
+        hours_per_year: int,
+        missing_comp_score: float,
     ) -> None:
         """Initialize with a scorer, ranker, and base salary for compensation scoring."""
         self._scorer = scorer
@@ -176,6 +177,7 @@ class Rescorer:
         self._salary_floor = salary_floor
         self._salary_ceiling = salary_ceiling
         self._hours_per_year = hours_per_year
+        self._missing_comp_score = missing_comp_score
 
     async def rescore(self, jd_dir: str | Path) -> RescoreResult:
         """
@@ -211,6 +213,7 @@ class Rescorer:
                 scores.comp_score = compute_comp_score(
                     listing.comp_max,
                     self._base_salary,
+                    default_score=self._missing_comp_score,
                 )
                 scored.append((listing, scores))
             except ActionableError as exc:

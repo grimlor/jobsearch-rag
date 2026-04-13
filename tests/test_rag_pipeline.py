@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 def store() -> Iterator[VectorStore]:
     """Yield a temporary VectorStore for test isolation."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir)
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
@@ -253,7 +253,15 @@ class TestResumeIndexing:
         Then an INDEX error telling the operator to run the index command is raised.
         """
         # Given: empty store (no resume indexed)
-        scorer = Scorer(store=store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When/Then: raises INDEX error
         with pytest.raises(ActionableError) as exc_info:
@@ -275,7 +283,15 @@ class TestResumeIndexing:
         Then the INDEX error names 'resume' and provides step-by-step setup guidance.
         """
         # Given: empty store
-        scorer = Scorer(store=store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When/Then: raises error naming the collection
         with pytest.raises(ActionableError) as exc_info:
@@ -636,7 +652,15 @@ class TestNegativeScoring:
         )
 
         # When: score a JD
-        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         result = await scorer.score("Any JD text")
 
         # Then: negative_score is 0.0
@@ -670,7 +694,15 @@ class TestNegativeScoring:
         store.reset_collection("negative_signals")
 
         # When: score a JD
-        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         result = await scorer.score("Any JD text")
 
         # Then: negative_score is 0.0
@@ -710,7 +742,15 @@ class TestNegativeScoring:
         )
 
         # When: score a matching JD
-        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         result = await scorer.score("Some JD about adtech platform")
 
         # Then: negative_score field present and in valid range
@@ -1056,7 +1096,15 @@ class TestCultureScoring:
         )
 
         # When: score
-        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         result = await scorer.score("Any JD text")
 
         # Then: culture_score is 0.0
@@ -1096,7 +1144,15 @@ class TestCultureScoring:
         )
 
         # When: score a JD
-        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         result = await scorer.score("A strategic platform architect role")
 
         # Then: float in [0.0, 1.0]
@@ -1132,7 +1188,15 @@ class TestCultureScoring:
         )
 
         # When: score
-        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         result = await scorer.score("Any JD text")
 
         # Then: culture_score field exists
@@ -1192,6 +1256,7 @@ class TestCultureScoring:
             culture_weight=0.2,
             negative_weight=0.4,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
 
         # Then: culture_weight matches configured value
@@ -1214,6 +1279,7 @@ class TestCultureScoring:
             culture_weight=0.3,
             negative_weight=0.0,
             min_score_threshold=0.0,
+            dedup_similarity_threshold=0.85,
         )
         scores_no_culture = ScoreResult(
             fit_score=0.5,
@@ -1269,7 +1335,15 @@ class TestCultureScoring:
         store.reset_collection("global_positive_signals")
 
         # When: score
-        scorer = Scorer(store=store, embedder=mock_embedder, disqualify_on_llm_flag=False)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         result = await scorer.score("Any JD text")
 
         # Then: culture_score is 0.0

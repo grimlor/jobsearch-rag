@@ -38,11 +38,13 @@ class ReviewSession:
         recorder: DecisionRecorder,
         *,
         jd_dir: str = "output/jds",
+        max_slug_length: int,
     ) -> None:
         """Initialize with ranked listings and a decision recorder."""
         self._listings = ranked_listings
         self._recorder = recorder
         self._jd_dir = jd_dir
+        self._max_slug_length = max_slug_length
 
     def undecided_listings(self) -> list[RankedListing]:
         """
@@ -136,8 +138,8 @@ class ReviewSession:
         Falls back to the listing URL if the file does not exist.
         """
         listing = ranked.listing
-        company_slug = slugify(listing.company)
-        title_slug = slugify(listing.title)
+        company_slug = slugify(listing.company, max_len=self._max_slug_length)
+        title_slug = slugify(listing.title, max_len=self._max_slug_length)
         filename = f"{listing.external_id}_{company_slug}_{title_slug}.md"
         jd_path = Path(self._jd_dir) / filename
         if jd_path.exists():

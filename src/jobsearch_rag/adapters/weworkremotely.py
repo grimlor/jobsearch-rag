@@ -28,7 +28,7 @@ class WeWorkRemotelyAdapter(JobBoardAdapter):
         self,
         page: Page,
         query: str,
-        max_pages: int = 3,
+        max_pages: int,
     ) -> list[JobListing]:
         """Search WeWorkRemotely for job listings matching *query*."""
         raise NotImplementedError

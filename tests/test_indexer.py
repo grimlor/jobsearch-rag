@@ -140,7 +140,7 @@ SAMPLE_RUBRIC_TOML = textwrap.dedent("""\
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir)
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 

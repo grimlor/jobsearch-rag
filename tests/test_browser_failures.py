@@ -190,7 +190,11 @@ class TestAuthenticationFailures:
         THEN it reports no state available instead of crashing.
         """
         # Given: a config for a board with no session file
-        config = SessionConfig(board_name="nonexistent")
+        config = SessionConfig(
+            board_name="nonexistent",
+            viewport_width=1440,
+            viewport_height=900,
+        )
 
         # When/Then: no crash — just reports no stored state
         assert not config.storage_state_path.exists(), "Session file should not exist"

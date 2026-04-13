@@ -163,7 +163,7 @@ def _make_ranked(
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir)
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
@@ -213,7 +213,15 @@ def populated_store(store: VectorStore) -> VectorStore:
 @pytest.fixture
 def scorer(populated_store: VectorStore, mock_embedder: Embedder) -> Scorer:
     """A Scorer wired to a populated VectorStore and mocked Embedder."""
-    return Scorer(store=populated_store, embedder=mock_embedder)
+    return Scorer(
+        store=populated_store,
+        embedder=mock_embedder,
+        disqualify_on_llm_flag=False,
+        disqualifier_prompt="test disqualifier prompt",
+        screen_prompt="test screen prompt",
+        chunk_overlap=50,
+        top_k_retrieval=3,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +326,15 @@ class TestBestArchetypeMatch:
         # Given: a scorer with a very small max_embed_chars to force chunking,
         # and zero overlap so chunks don't multiply
         mock_embedder.max_embed_chars = 60
-        scorer = Scorer(store=populated_store, embedder=mock_embedder, chunk_overlap=0)
+        scorer = Scorer(
+            store=populated_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=0,
+            top_k_retrieval=3,
+        )
 
         # Chunk 1 produces DATA_JD embedding (closer to Data Platform Lead, score ~0.996)
         # Chunk 2 produces ARCH_JD_CLOSER embedding (closer to AI Systems Engineer, score ~0.9998)
@@ -357,7 +373,15 @@ class TestBestArchetypeMatch:
             embeddings=[EMBED_ARCHITECT],
             metadatas=[{"name": "Solo Archetype", "source": "role_archetypes"}],
         )
-        scorer = Scorer(store=store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         _set_embed_response(mock_embedder, EMBED_UNRELATED_JD)
 
         # When: any JD is scored
@@ -484,7 +508,7 @@ class TestBestArchetypeMatch:
         output_dir = str(tmp_path / "jds")  # type: ignore[operator]
 
         # When: JD file is exported
-        paths = JDFileExporter().export([ranked], output_dir)
+        paths = JDFileExporter(max_slug_length=80).export([ranked], output_dir)
 
         # Then: the file contains the best archetype line
         assert len(paths) == 1, f"Expected 1 JD file, got {len(paths)}"
@@ -524,7 +548,7 @@ class TestBestArchetypeMatch:
             embedder=mock_embedder,
             decisions_dir=tempfile.mkdtemp(),
         )
-        session = ReviewSession(ranked_listings=[ranked], recorder=recorder)
+        session = ReviewSession(ranked_listings=[ranked], recorder=recorder, max_slug_length=80)
 
         # When: the listing is formatted for display
         output = session.format_listing(ranked, rank=1, total=1)
@@ -552,7 +576,7 @@ class TestBestArchetypeMatch:
         output_dir = str(tmp_path / "jds_none")  # type: ignore[operator]
 
         # When: JD file is exported
-        paths = JDFileExporter().export([ranked], output_dir)
+        paths = JDFileExporter(max_slug_length=80).export([ranked], output_dir)
 
         # Then: no best archetype line appears
         assert len(paths) == 1, f"Expected 1 JD file, got {len(paths)}"
@@ -586,7 +610,15 @@ class TestBestArchetypeMatch:
             documents=["Some archetype without metadata."],
             embeddings=[EMBED_ARCHITECT],
         )
-        scorer = Scorer(store=store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
         _set_embed_response(mock_embedder, EMBED_ARCH_JD)
 
         # When: a JD is scored
@@ -616,7 +648,15 @@ class TestBestArchetypeMatch:
             metadatas=[{"source": "resume", "section": "Summary"}],
         )
         store.reset_collection("role_archetypes")
-        scorer = Scorer(store=store, embedder=mock_embedder)
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
         # When/Then: scoring raises an INDEX error about empty archetypes
         with pytest.raises(ActionableError) as exc_info:

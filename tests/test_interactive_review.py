@@ -145,6 +145,7 @@ class TestInteractiveReview:
         session = ReviewSession(
             ranked_listings=[low, high, mid],
             recorder=decision_recorder,
+            max_slug_length=80,
         )
         undecided = session.undecided_listings()
 
@@ -171,7 +172,9 @@ class TestInteractiveReview:
         _seed_decisions(vector_store, decided_ids={"decided-1"})
 
         # When: get undecided
-        session = ReviewSession(ranked_listings=[r1, r2], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[r1, r2], recorder=decision_recorder, max_slug_length=80
+        )
         undecided = session.undecided_listings()
 
         # Then: only undecided listing remains
@@ -189,7 +192,9 @@ class TestInteractiveReview:
         """
         # Given: a ranked listing
         ranked = _make_ranked(title="Staff Architect", company="TechCo", final_score=0.88)
-        session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: format the listing
         output = session.format_listing(ranked, rank=1, total=5)
@@ -211,7 +216,9 @@ class TestInteractiveReview:
         """
         # Given: listing with specific component scores
         ranked = _make_ranked(fit=0.85, archetype=0.90, history=0.50, comp=0.60)
-        session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: format the listing
         output = session.format_listing(ranked, rank=1, total=1)
@@ -233,7 +240,9 @@ class TestInteractiveReview:
         """
         # Given: listing with comp range
         ranked = _make_ranked(comp_min=180_000, comp_max=250_000)
-        session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: format the listing
         output = session.format_listing(ranked, rank=1, total=1)
@@ -254,7 +263,9 @@ class TestInteractiveReview:
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="job-1")
-        session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: record 'y' verdict
         await session.record_verdict(ranked, "y")
@@ -277,7 +288,9 @@ class TestInteractiveReview:
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="job-reason")
-        session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: record 'n' with reason
         await session.record_verdict(ranked, "n", reason="Requires 5 years Kubernetes experience")
@@ -302,7 +315,9 @@ class TestInteractiveReview:
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="job-noreason")
-        session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: record 'y' without reason
         await session.record_verdict(ranked, "y")
@@ -324,7 +339,9 @@ class TestInteractiveReview:
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="job-2")
-        session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: record 'n' verdict
         await session.record_verdict(ranked, "n")
@@ -346,7 +363,9 @@ class TestInteractiveReview:
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="job-3")
-        session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: record 'm' verdict
         await session.record_verdict(ranked, "m")
@@ -367,7 +386,9 @@ class TestInteractiveReview:
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="skip-me")
-        session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: check if 's' should record
         result = session.should_record("s")
@@ -391,6 +412,7 @@ class TestInteractiveReview:
             ranked_listings=[ranked],
             recorder=decision_recorder,
             jd_dir="output/jds",
+            max_slug_length=80,
         )
 
         # When: open listing
@@ -414,7 +436,9 @@ class TestInteractiveReview:
         r1 = _make_ranked(external_id="keep-1")
         r2 = _make_ranked(external_id="keep-2")
         r3 = _make_ranked(external_id="quit-before")
-        session = ReviewSession(ranked_listings=[r1, r2, r3], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[r1, r2, r3], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: record two verdicts then simulate quit
         await session.record_verdict(r1, "y")
@@ -443,6 +467,7 @@ class TestInteractiveReview:
         session = ReviewSession(
             ranked_listings=[_make_ranked(external_id=f"p{i}") for i in range(28)],
             recorder=decision_recorder,
+            max_slug_length=80,
         )
 
         # When: format progress at position 3
@@ -464,7 +489,9 @@ class TestInteractiveReview:
         # Given: all listings decided
         r1 = _make_ranked(external_id="done-1")
         _seed_decisions(vector_store, decided_ids={"done-1"})
-        session = ReviewSession(ranked_listings=[r1], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[r1], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: get undecided
         undecided = session.undecided_listings()
@@ -482,7 +509,7 @@ class TestInteractiveReview:
         THEN an empty list is returned.
         """
         # Given: empty session
-        session = ReviewSession(ranked_listings=[], recorder=decision_recorder)
+        session = ReviewSession(ranked_listings=[], recorder=decision_recorder, max_slug_length=80)
 
         # When: get undecided
         undecided = session.undecided_listings()
@@ -526,7 +553,9 @@ class TestListingDisplayDisqualified:
             disqualified=True,
             disqualifier_reason="Requires active security clearance",
         )
-        session = ReviewSession(ranked_listings=[ranked], recorder=decision_recorder)
+        session = ReviewSession(
+            ranked_listings=[ranked], recorder=decision_recorder, max_slug_length=80
+        )
 
         # When: format the listing
         output = session.format_listing(ranked, rank=1, total=1)

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class BrowserTabOpener:
     """Opens the top-N ranked listing URLs in the default browser."""
 
-    def open(self, listings: list[RankedListing], top_n: int = 5) -> None:
+    def open(self, listings: list[RankedListing], top_n: int) -> None:
         """
         Open the first *top_n* listing URLs in browser tabs.
 

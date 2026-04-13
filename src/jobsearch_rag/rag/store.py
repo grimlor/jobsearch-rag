@@ -39,7 +39,7 @@ class VectorStore:
         results = store.query("resume", query_embedding=[...], n_results=5)
     """
 
-    def __init__(self, persist_dir: str, distance_metric: str = "cosine") -> None:
+    def __init__(self, persist_dir: str, distance_metric: str) -> None:
         """Initialize ChromaDB client at *persist_dir*."""
         self.persist_dir = persist_dir
         self._distance_metric = distance_metric
@@ -221,7 +221,7 @@ class VectorStore:
         collection_name: str,
         *,
         query_embedding: list[float],
-        n_results: int = 5,
+        n_results: int,
     ) -> dict[str, Any]:
         """
         Find the *n_results* most similar documents to *query_embedding*.

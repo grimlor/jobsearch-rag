@@ -72,10 +72,10 @@ class SessionConfig:
     """Per-board browser session configuration."""
 
     board_name: str
+    viewport_width: int
+    viewport_height: int
     headless: bool = True
     user_agent: str | None = None
-    viewport_width: int = 1440
-    viewport_height: int = 900
     stealth: bool = False
     overnight: bool = False
     browser_channel: str | None = None

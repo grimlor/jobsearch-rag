@@ -71,10 +71,6 @@ _THROTTLE_PHRASES = [
     "we encountered an error while loading this job",
 ]
 
-# Throttle backoff parameters
-_DEFAULT_THROTTLE_MAX_RETRIES = 3
-_DEFAULT_THROTTLE_BASE_DELAY = 2.0  # seconds; doubles each retry
-
 
 def is_throttle_response(text: str) -> bool:
     """
@@ -241,7 +237,7 @@ def extract_job_cards(html: str) -> list[dict[str, Any]]:
     return cards
 
 
-def card_to_listing(card: dict[str, Any], *, max_full_text_chars: int = 250_000) -> JobListing:
+def card_to_listing(card: dict[str, Any], *, max_full_text_chars: int) -> JobListing:
     """
     Convert an extracted card dict to a ``JobListing``.
 
@@ -339,21 +335,13 @@ class ZipRecruiterAdapter(JobBoardAdapter):
     def __init__(
         self,
         *,
-        throttle_max_retries: int | None = None,
-        throttle_base_delay: float | None = None,
-        max_full_text_chars: int = 250_000,
+        throttle_max_retries: int,
+        throttle_base_delay: float,
+        max_full_text_chars: int,
     ) -> None:
-        """Initialize with optional throttle configuration."""
-        self._throttle_max_retries = (
-            throttle_max_retries
-            if throttle_max_retries is not None
-            else _DEFAULT_THROTTLE_MAX_RETRIES
-        )
-        self._throttle_base_delay = (
-            throttle_base_delay
-            if throttle_base_delay is not None
-            else _DEFAULT_THROTTLE_BASE_DELAY
-        )
+        """Initialize with throttle configuration and text limits."""
+        self._throttle_max_retries = throttle_max_retries
+        self._throttle_base_delay = throttle_base_delay
         self._max_full_text_chars = max_full_text_chars
 
     @property
@@ -407,7 +395,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         self,
         page: Page,
         query: str,
-        max_pages: int = 3,
+        max_pages: int,
     ) -> list[JobListing]:
         """
         Navigate search results, click through cards, and return enriched listings.

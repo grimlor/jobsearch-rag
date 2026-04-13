@@ -176,7 +176,7 @@ class TestLinkedInSearch:
 
         # When: search
         result = await adapter.search(
-            page, "https://www.linkedin.com/jobs/search/?keywords=staff+engineer"
+            page, "https://www.linkedin.com/jobs/search/?keywords=staff+engineer", max_pages=3
         )
 
         # Then: returns a list of JobListings
@@ -198,7 +198,7 @@ class TestLinkedInSearch:
 
         # When: search
         listings = await adapter.search(
-            page, "https://www.linkedin.com/jobs/search/?keywords=staff+engineer"
+            page, "https://www.linkedin.com/jobs/search/?keywords=staff+engineer", max_pages=3
         )
 
         # Then: required fields populated

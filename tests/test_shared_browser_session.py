@@ -174,7 +174,9 @@ class TestBrowserManager:
         Then Playwright starts and launches a browser via chromium.launch()
         """
         # Given: config with no browser_channel
-        config = SessionConfig(board_name="testboard", headless=True)
+        config = SessionConfig(
+            board_name="testboard", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_pw = _mock_playwright(connect_over_cdp=False)
 
         with _patch_playwright(mock_pw):
@@ -205,6 +207,8 @@ class TestBrowserManager:
 
         config = SessionConfig(
             board_name="ziprecruiter",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -248,6 +252,8 @@ class TestBrowserManager:
 
         config = SessionConfig(
             board_name="ziprecruiter",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -299,6 +305,8 @@ class TestBrowserManager:
 
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=True,
             browser_channel="msedge",
         )
@@ -339,6 +347,8 @@ class TestBrowserManager:
 
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -372,6 +382,8 @@ class TestBrowserManager:
         # Given: no binary available
         config = SessionConfig(
             board_name="ziprecruiter",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -405,6 +417,8 @@ class TestBrowserManager:
         # Given: config and mock subprocess
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -456,6 +470,8 @@ class TestBrowserManager:
         # Given: config and mock subprocess that ignores SIGTERM
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -507,6 +523,8 @@ class TestBrowserManager:
         # Given: config and mock subprocess that already exited
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -554,6 +572,8 @@ class TestBrowserManager:
         # Given: config and mock where CDP never starts
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -611,6 +631,8 @@ class TestBrowserManager:
         #        expires the deadline on the third call
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -665,7 +687,9 @@ class TestBrowserManager:
         Then it returns the Playwright Browser object
         """
         # Given: standard config
-        config = SessionConfig(board_name="testboard", headless=True)
+        config = SessionConfig(
+            board_name="testboard", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_pw = _mock_playwright(connect_over_cdp=False)
         expected_browser = mock_pw.chromium.launch.return_value
 
@@ -693,6 +717,8 @@ class TestBrowserManager:
 
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
         )
@@ -728,6 +754,8 @@ class TestBrowserManager:
         # Given: config override browser_paths with non-existent paths
         config = SessionConfig(
             board_name="test",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
             browser_paths={"msedge": ["/nonexistent/a", "/nonexistent/b"]},
@@ -753,7 +781,9 @@ class TestBrowserManager:
         Then an ActionableError is raised telling the caller to use 'async with'
         """
         # Given: uninitialised BrowserManager
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mgr = BrowserManager(config)
 
         # When/Then: accessing .browser raises ActionableError
@@ -776,7 +806,9 @@ class TestBrowserManager:
         Then no error is raised and no resources are cleaned up
         """
         # Given: uninitialised BrowserManager
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mgr = BrowserManager(config)
 
         # When/Then: __aexit__ completes without error
@@ -838,7 +870,9 @@ class TestBoardSession:
         Then a new BrowserContext is created on that Browser
         """
         # Given: mock browser and config
-        config = SessionConfig(board_name="testboard", headless=True)
+        config = SessionConfig(
+            board_name="testboard", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_browser = MagicMock()
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
@@ -858,7 +892,9 @@ class TestBoardSession:
         Then the context is created with the stored cookies
         """
         # Given: a storage state file exists
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_browser = MagicMock()
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
@@ -886,7 +922,12 @@ class TestBoardSession:
         Then the context is created without a storage_state parameter
         """
         # Given: no storage state file
-        config = SessionConfig(board_name="nonexistent_board_xyz", headless=True)
+        config = SessionConfig(
+            board_name="nonexistent_board_xyz",
+            viewport_width=1440,
+            viewport_height=900,
+            headless=True,
+        )
         mock_browser = MagicMock()
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
@@ -909,7 +950,13 @@ class TestBoardSession:
         Then playwright-stealth patches are applied to the context
         """
         # Given: stealth config with mock stealth module
-        config = SessionConfig(board_name="linkedin", headless=True, stealth=True)
+        config = SessionConfig(
+            board_name="linkedin",
+            viewport_width=1440,
+            viewport_height=900,
+            headless=True,
+            stealth=True,
+        )
         mock_browser = MagicMock()
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
@@ -938,7 +985,13 @@ class TestBoardSession:
         Then the session still starts and a warning is logged
         """
         # Given: stealth config with broken import
-        config = SessionConfig(board_name="linkedin", headless=True, stealth=True)
+        config = SessionConfig(
+            board_name="linkedin",
+            viewport_width=1440,
+            viewport_height=900,
+            headless=True,
+            stealth=True,
+        )
         mock_browser = MagicMock()
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
@@ -965,7 +1018,9 @@ class TestBoardSession:
         Then a new page is returned from the board's browser context
         """
         # Given: mock browser with page stub
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_browser = MagicMock()
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
@@ -989,7 +1044,9 @@ class TestBoardSession:
         Then cookies are written to the board's storage state path as JSON
         """
         # Given: mock browser with cookie data
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_browser = MagicMock()
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
@@ -1017,7 +1074,9 @@ class TestBoardSession:
         Then it returns True
         """
         # Given: session file exists and BoardSession enters properly
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_browser = MagicMock()
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
@@ -1043,7 +1102,12 @@ class TestBoardSession:
         Then it returns False
         """
         # Given: no session file, BoardSession enters properly
-        config = SessionConfig(board_name="nonexistent_board_xyz", headless=True)
+        config = SessionConfig(
+            board_name="nonexistent_board_xyz",
+            viewport_width=1440,
+            viewport_height=900,
+            headless=True,
+        )
         mock_browser = MagicMock()
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
@@ -1064,7 +1128,9 @@ class TestBoardSession:
         Then the BrowserContext is closed but the Browser remains open
         """
         # Given: mock browser and context
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_browser = MagicMock()
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
@@ -1088,7 +1154,9 @@ class TestBoardSession:
         Then an ActionableError is raised telling the caller to use 'async with'
         """
         # Given: uninitialised BoardSession
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_browser = MagicMock()
         session = BoardSession(mock_browser, config)
 
@@ -1112,7 +1180,9 @@ class TestBoardSession:
         Then an ActionableError is raised telling the caller to use 'async with'
         """
         # Given: uninitialised BoardSession
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_browser = MagicMock()
         session = BoardSession(mock_browser, config)
 
@@ -1136,7 +1206,9 @@ class TestBoardSession:
         Then no error is raised and the browser remains unaffected
         """
         # Given: uninitialised BoardSession
-        config = SessionConfig(board_name="test", headless=True)
+        config = SessionConfig(
+            board_name="test", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_browser = MagicMock()
         mock_browser.close = AsyncMock()
         session = BoardSession(mock_browser, config)
@@ -1567,9 +1639,15 @@ class TestSharedBrowserOrchestration:
         Then the BrowserManager's browser remains open until its own exit
         """
         # Given: a mock Playwright boundary
-        config_a = SessionConfig(board_name="board_a", headless=True)
-        config_b = SessionConfig(board_name="board_b", headless=True)
-        config_browser = SessionConfig(board_name="board_a", headless=True)
+        config_a = SessionConfig(
+            board_name="board_a", viewport_width=1440, viewport_height=900, headless=True
+        )
+        config_b = SessionConfig(
+            board_name="board_b", viewport_width=1440, viewport_height=900, headless=True
+        )
+        config_browser = SessionConfig(
+            board_name="board_a", viewport_width=1440, viewport_height=900, headless=True
+        )
 
         mock_pw = _mock_playwright(connect_over_cdp=False)
         mock_browser = mock_pw.chromium.launch.return_value
@@ -1600,7 +1678,9 @@ class TestSharedBrowserOrchestration:
              and exposes new_page, save_storage_state, has_storage_state
         """
         # Given: standard config
-        config = SessionConfig(board_name="testboard", headless=True)
+        config = SessionConfig(
+            board_name="testboard", viewport_width=1440, viewport_height=900, headless=True
+        )
         mock_pw = _mock_playwright(connect_over_cdp=False)
         mock_context = mock_pw.chromium.launch.return_value.new_context.return_value
         mock_page = MagicMock()
@@ -1638,6 +1718,8 @@ class TestSharedBrowserOrchestration:
 
         config = SessionConfig(
             board_name="ziprecruiter",
+            viewport_width=1440,
+            viewport_height=900,
             headless=False,
             browser_channel="msedge",
             storage_dir=tmp_path,
@@ -1685,6 +1767,8 @@ class TestSharedBrowserOrchestration:
         # Given: config with no storage file -> has_storage_state should be False
         config = SessionConfig(
             board_name="testboard",
+            viewport_width=1440,
+            viewport_height=900,
             headless=True,
             storage_dir=tmp_path,
         )

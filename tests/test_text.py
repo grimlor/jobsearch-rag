@@ -47,7 +47,7 @@ class TestSlugify:
         # Given: a mixed-case title with spaces
 
         # When: the title is slugified
-        result = slugify("Senior Staff Engineer")
+        result = slugify("Senior Staff Engineer", max_len=80)
 
         # Then: the result is lowercase with hyphens
         assert result == "senior-staff-engineer", (
@@ -63,7 +63,7 @@ class TestSlugify:
         # Given: text containing parentheses, em-dashes, and punctuation
 
         # When: the text is slugified
-        result = slugify("Senior Staff Engineer — Platform (Remote)")
+        result = slugify("Senior Staff Engineer — Platform (Remote)", max_len=80)
 
         # Then: special characters are stripped
         assert result == "senior-staff-engineer-platform-remote", (
@@ -79,7 +79,7 @@ class TestSlugify:
         # Given: text containing underscores
 
         # When: the text is slugified
-        result = slugify("some_company_name")
+        result = slugify("some_company_name", max_len=80)
 
         # Then: underscores become hyphens
         assert result == "some-company-name", f"Expected underscores→hyphens, got {result!r}"
@@ -93,7 +93,7 @@ class TestSlugify:
         # Given: text with multiple consecutive spaces
 
         # When: the text is slugified
-        result = slugify("too   many   spaces")
+        result = slugify("too   many   spaces", max_len=80)
 
         # Then: consecutive whitespace collapses to a single hyphen
         assert result == "too-many-spaces", f"Expected collapsed whitespace, got {result!r}"
@@ -107,7 +107,7 @@ class TestSlugify:
         # Given: text that produces leading and trailing hyphens
 
         # When: the text is slugified
-        result = slugify("--leading and trailing--")
+        result = slugify("--leading and trailing--", max_len=80)
 
         # Then: edge hyphens are stripped
         assert result == "leading-and-trailing", f"Expected stripped edges, got {result!r}"
@@ -122,7 +122,7 @@ class TestSlugify:
         long_text = "a " * (_DEFAULT_MAX_SLUG_LEN + 10)
 
         # When: the text is slugified
-        result = slugify(long_text)
+        result = slugify(long_text, max_len=80)
 
         # Then: the result is truncated to the default max_len
         assert len(result) <= _DEFAULT_MAX_SLUG_LEN, (
@@ -153,7 +153,7 @@ class TestSlugify:
         # Given: an empty string
 
         # When: slugified
-        result = slugify("")
+        result = slugify("", max_len=80)
 
         # Then: the result is empty
         assert result == "", f"Expected empty string, got {result!r}"
@@ -167,7 +167,7 @@ class TestSlugify:
         # Given: text that is already a valid slug
 
         # When: slugified
-        result = slugify("already-clean")
+        result = slugify("already-clean", max_len=80)
 
         # Then: the result is unchanged
         assert result == "already-clean", f"Expected no change, got {result!r}"
@@ -184,7 +184,7 @@ class TestSlugify:
         external_id = "zr-42abc"
 
         # When: company and title are slugified into the JD filename pattern
-        filename = f"{external_id}_{slugify(company)}_{slugify(title)}.md"
+        filename = f"{external_id}_{slugify(company, max_len=80)}_{slugify(title, max_len=80)}.md"
 
         # Then: the result matches the {external_id}_{company}_{title}.md convention
         assert filename == "zr-42abc_acme-corp_staff-engineer-platform.md", (
