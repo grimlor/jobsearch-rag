@@ -26,8 +26,6 @@ from __future__ import annotations
 
 from typing import cast
 
-import pytest
-
 from jobsearch_rag.ports import EmbeddingPort, HealthCheckable, MetricsProvider
 from tests.fakes import FakeEmbedder
 
@@ -118,7 +116,6 @@ class TestFakeEmbedder:
             f"FakeEmbedder should NOT satisfy MetricsProvider. isinstance returned {result}"
         )
 
-    @pytest.mark.anyio()
     async def test_embed_returns_configured_vector(self) -> None:
         """
         Given a FakeEmbedder configured with embed_vector=[0.1, 0.2, 0.3]
@@ -134,7 +131,6 @@ class TestFakeEmbedder:
         # Then: the configured vector is returned
         assert result == [0.1, 0.2, 0.3], f"Expected [0.1, 0.2, 0.3], got {result}"
 
-    @pytest.mark.anyio()
     async def test_classify_returns_configured_response(self) -> None:
         """
         Given a FakeEmbedder configured with classify_response='{"disqualified": false}'
@@ -152,7 +148,6 @@ class TestFakeEmbedder:
             f"Expected '{{\"disqualified\": false}}', got {result!r}"
         )
 
-    @pytest.mark.anyio()
     async def test_embed_side_effect_overrides_fixed_vector(self) -> None:
         """
         Given a FakeEmbedder with a side_effect callable on embed
@@ -174,7 +169,6 @@ class TestFakeEmbedder:
             f"Expected side_effect vector {custom_vector}, got {result}"
         )
 
-    @pytest.mark.anyio()
     async def test_classify_side_effect_overrides_fixed_response(self) -> None:
         """
         Given a FakeEmbedder with a side_effect callable on classify
@@ -196,7 +190,6 @@ class TestFakeEmbedder:
             f"Expected side_effect response {custom_response!r}, got {result!r}"
         )
 
-    @pytest.mark.anyio()
     async def test_embed_records_call_arguments(self) -> None:
         """
         Given a FakeEmbedder
@@ -214,7 +207,6 @@ class TestFakeEmbedder:
             f"Expected embed_calls=['specific text'], got {fake.embed_calls}"
         )
 
-    @pytest.mark.anyio()
     async def test_embed_tracks_call_count(self) -> None:
         """
         Given a FakeEmbedder
@@ -234,7 +226,6 @@ class TestFakeEmbedder:
             f"Expected embed_call_count=3, got {fake.embed_call_count}"
         )
 
-    @pytest.mark.anyio()
     async def test_classify_tracks_call_count(self) -> None:
         """
         Given a FakeEmbedder
