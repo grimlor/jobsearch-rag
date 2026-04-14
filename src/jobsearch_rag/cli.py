@@ -31,7 +31,7 @@ from jobsearch_rag.pipeline.eval import (
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
 from jobsearch_rag.pipeline.rescorer import Rescorer
 from jobsearch_rag.pipeline.review import ReviewSession
-from jobsearch_rag.pipeline.runner import PipelineRunner
+from jobsearch_rag.pipeline.runner import create_pipeline
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
@@ -72,7 +72,7 @@ def _load_prior_csv(csv_path: Path, *, max_full_text_chars: int) -> list[RankedL
     Read a prior results CSV and reconstruct ``RankedListing`` objects.
 
     Listings round-tripped from CSV have empty ``full_text`` because the
-    CSV deliberately excludes it.  This is fine — the merge path never
+    CSV deliberately excludes it.  This is fine -- the merge path never
     re-exports JD files for prior-only listings.
     """
     if not csv_path.exists():
@@ -155,7 +155,7 @@ def handle_login(args: argparse.Namespace) -> None:
     ``data/{board}_session.json`` for reuse by subsequent searches.
 
     Use ``--browser msedge`` to launch Microsoft Edge instead of
-    Chromium — Edge bypasses Cloudflare where Chromium cannot.
+    Chromium -- Edge bypasses Cloudflare where Chromium cannot.
     """
     settings = load_settings()
     board = args.board
@@ -184,7 +184,7 @@ def handle_login(args: argparse.Namespace) -> None:
             await page.goto(login_url, wait_until="domcontentloaded")
 
             print(f"\n{'=' * 60}")
-            print(f"  Interactive Login — {board}")
+            print(f"  Interactive Login -- {board}")
             print(f"{'=' * 60}")
             print(f"  Browser opened to: {login_url}")
             print("  Complete login / solve any CAPTCHA in the browser.")
@@ -195,7 +195,7 @@ def handle_login(args: argparse.Namespace) -> None:
 
             path = await session.save_storage_state()
             print(f"\nSession saved to {path}")
-            print("You can now run 'search' — cookies will be loaded automatically.")
+            print("You can now run 'search' -- cookies will be loaded automatically.")
 
     asyncio.run(_run())
 
@@ -261,7 +261,7 @@ def handle_search(args: argparse.Namespace) -> None:
     log_dir = settings.output.log_dir
     configure_file_logging(log_dir)
 
-    runner = PipelineRunner(settings)
+    runner = create_pipeline(settings)
 
     boards = [args.board] if args.board else None
 
@@ -382,10 +382,10 @@ def handle_decide(args: argparse.Namespace) -> None:
     )
 
     # Look up the job in the decisions or latest results
-    # For now, we need the JD text from somewhere — check if it exists in any collection
+    # For now, we need the JD text from somewhere -- check if it exists in any collection
     existing = recorder.get_decision(args.job_id)
     if existing:
-        # Re-recording with a new verdict — retrieve the stored document
+        # Re-recording with a new verdict -- retrieve the stored document
         results = store.get_documents(
             collection_name="decisions",
             ids=[f"decision-{args.job_id}"],
@@ -561,7 +561,7 @@ def handle_review(args: argparse.Namespace) -> None:
 
     undecided = session.undecided_listings()
     if not undecided:
-        print("All listings have been decided — nothing to review.")
+        print("All listings have been decided -- nothing to review.")
         return
 
     print(f"\n{len(undecided)} undecided listing(s) to review.\n")
@@ -585,7 +585,7 @@ def handle_review(args: argparse.Namespace) -> None:
                     session.open_listing(ranked, rank=idx)
                     continue  # re-prompt after opening
                 elif key == "s":
-                    break  # skip — advance to next listing
+                    break  # skip -- advance to next listing
                 elif session.should_record(key):
                     try:
                         reason = input("  Reason (Enter to skip): ").strip()
@@ -594,7 +594,7 @@ def handle_review(args: argparse.Namespace) -> None:
                     await session.record_verdict(ranked, key, reason=reason)
                     msg = f"  Recorded: {key}"
                     if reason:
-                        msg += f" — {reason}"
+                        msg += f" -- {reason}"
                     print(msg)
                     break
                 else:

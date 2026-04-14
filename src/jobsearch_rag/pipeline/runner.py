@@ -1,5 +1,5 @@
 """
-Pipeline runner — orchestrates adapters → RAG → rank.
+Pipeline runner -- orchestrates adapters → RAG → rank.
 
 The PipelineRunner is the top-level orchestrator that ties the entire
 system together:
@@ -36,6 +36,7 @@ from jobsearch_rag.adapters.session import (
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import configure_session_logging, log_event, session_logger
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker, RankSummary
+from jobsearch_rag.ports import EmbeddingPort, HealthCheckable, MetricsProvider, VectorStorePort
 from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
@@ -77,11 +78,23 @@ class PipelineRunner:
     the RAG scorer, and hands off to the ranker.
     """
 
-    def __init__(self, settings: Settings) -> None:
-        """Initialize pipeline components from application settings."""
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        store: VectorStorePort | None = None,
+        embedder: EmbeddingPort | None = None,
+    ) -> None:
+        """
+        Initialize pipeline components from application settings.
+
+        When *store* and *embedder* are provided, they are used directly
+        (constructor injection). When omitted, concrete implementations
+        are constructed from *settings* (backward-compatible default).
+        """
         self._settings = settings
-        self._embedder = Embedder(settings.ollama)
-        self._store = VectorStore(
+        self._embedder: EmbeddingPort = embedder or Embedder(settings.ollama)
+        self._store: VectorStorePort = store or VectorStore(
             persist_dir=settings.chroma.persist_dir,
             distance_metric=settings.chroma.distance_metric,
         )
@@ -120,7 +133,7 @@ class PipelineRunner:
         )
 
     @property
-    def store(self) -> VectorStore:
+    def store(self) -> VectorStorePort:
         """Public access to the pipeline's vector store."""
         return self._store
 
@@ -175,8 +188,9 @@ class PipelineRunner:
         t0 = time.perf_counter()
 
         # Step 1: Health check Ollama before any browser work
-        await self._embedder.health_check()
-        logger.info("Ollama health check passed")
+        if isinstance(self._embedder, HealthCheckable):
+            await self._embedder.health_check()
+            logger.info("Ollama health check passed")
 
         # Step 1b: Auto-index if collections are empty (first run or post-reset)
         await self._ensure_indexed()
@@ -223,7 +237,7 @@ class PipelineRunner:
                     break
 
             if first_board_cfg is None:
-                # No valid board configs in this group — _search_board
+                # No valid board configs in this group -- _search_board
                 # will skip each one individually.
                 return [(name, [], 0) for name in group_boards]
 
@@ -286,24 +300,27 @@ class PipelineRunner:
 
         if not all_listings:
             logger.warning("No listings collected from any board")
-            m = self._embedder.metrics
-            log_event(
-                "session_summary",
-                jobs_found=0,
-                jobs_scored=0,
-                jobs_excluded=0,
-                jobs_deduplicated=0,
-                failed_listings=failed_count,
-                skipped_decisions=0,
-                boards_searched=board_names,
-                embed_calls=m.embed_calls,
-                embed_tokens_total=m.embed_tokens_total,
-                llm_calls=m.llm_calls,
-                llm_tokens_total=m.llm_tokens_total,
-                llm_latency_ms_total=m.llm_latency_ms_total,
-                slow_llm_calls=m.slow_llm_calls,
-                wall_clock_ms=int((time.perf_counter() - t0) * 1000),
-            )
+            summary_kwargs: dict[str, object] = {
+                "jobs_found": 0,
+                "jobs_scored": 0,
+                "jobs_excluded": 0,
+                "jobs_deduplicated": 0,
+                "failed_listings": failed_count,
+                "skipped_decisions": 0,
+                "boards_searched": board_names,
+                "wall_clock_ms": int((time.perf_counter() - t0) * 1000),
+            }
+            if isinstance(self._embedder, MetricsProvider):
+                m = self._embedder.metrics
+                summary_kwargs.update(
+                    embed_calls=m.embed_calls,
+                    embed_tokens_total=m.embed_tokens_total,
+                    llm_calls=m.llm_calls,
+                    llm_tokens_total=m.llm_tokens_total,
+                    llm_latency_ms_total=m.llm_latency_ms_total,
+                    slow_llm_calls=m.slow_llm_calls,
+                )
+            log_event("session_summary", **summary_kwargs)
             return RunResult(
                 boards_searched=board_names,
                 failed_listings=failed_count,
@@ -346,7 +363,7 @@ class PipelineRunner:
                 decision = self._decision_recorder.get_decision(listing.external_id)
                 if decision is not None:
                     logger.info(
-                        "Skipping %s (%s) — already decided: %s",
+                        "Skipping %s (%s) -- already decided: %s",
                         listing.title,
                         listing.external_id,
                         decision.get("verdict", "unknown"),
@@ -449,24 +466,27 @@ class PipelineRunner:
         ranked, summary = self._ranker.rank(scored, embeddings)
 
         # Emit structured session_summary event
-        m = self._embedder.metrics
-        log_event(
-            "session_summary",
-            jobs_found=len(all_listings),
-            jobs_scored=len(scored),
-            jobs_excluded=summary.total_excluded,
-            jobs_deduplicated=summary.total_deduplicated,
-            failed_listings=failed_count,
-            skipped_decisions=skipped_decisions,
-            boards_searched=board_names,
-            embed_calls=m.embed_calls,
-            embed_tokens_total=m.embed_tokens_total,
-            llm_calls=m.llm_calls,
-            llm_tokens_total=m.llm_tokens_total,
-            llm_latency_ms_total=m.llm_latency_ms_total,
-            slow_llm_calls=m.slow_llm_calls,
-            wall_clock_ms=int((time.perf_counter() - t0) * 1000),
-        )
+        final_kwargs: dict[str, object] = {
+            "jobs_found": len(all_listings),
+            "jobs_scored": len(scored),
+            "jobs_excluded": summary.total_excluded,
+            "jobs_deduplicated": summary.total_deduplicated,
+            "failed_listings": failed_count,
+            "skipped_decisions": skipped_decisions,
+            "boards_searched": board_names,
+            "wall_clock_ms": int((time.perf_counter() - t0) * 1000),
+        }
+        if isinstance(self._embedder, MetricsProvider):
+            m = self._embedder.metrics
+            final_kwargs.update(
+                embed_calls=m.embed_calls,
+                embed_tokens_total=m.embed_tokens_total,
+                llm_calls=m.llm_calls,
+                llm_tokens_total=m.llm_tokens_total,
+                llm_latency_ms_total=m.llm_latency_ms_total,
+                slow_llm_calls=m.slow_llm_calls,
+            )
+        log_event("session_summary", **final_kwargs)
 
         return RunResult(
             ranked_listings=ranked,
@@ -484,7 +504,7 @@ class PipelineRunner:
         After a ``reset`` or on first run, the ``resume``,
         ``role_archetypes``, and ``global_positive_signals`` collections
         will be empty.  Rather than failing every scoring call, detect
-        this and run the indexer automatically — it's the only sensible
+        this and run the indexer automatically -- it's the only sensible
         recovery.
         """
         needs_resume = self._collection_empty("resume")
@@ -494,7 +514,7 @@ class PipelineRunner:
         if not needs_resume and not needs_archetypes and not needs_positive:
             return
 
-        logger.info("Empty collections detected — auto-indexing before scoring")
+        logger.info("Empty collections detected -- auto-indexing before scoring")
         indexer = Indexer(store=self._store, embedder=self._embedder)
 
         if needs_archetypes:
@@ -544,7 +564,7 @@ class PipelineRunner:
         board_cfg = self._settings.boards.get(board_name)
 
         if board_cfg is None:
-            logger.warning("No config section for board '%s' — skipping", board_name)
+            logger.warning("No config section for board '%s' -- skipping", board_name)
             return [], 0, []
 
         # Pass per-board throttle configuration at construction time.
@@ -612,7 +632,7 @@ class PipelineRunner:
                             listings.append(enriched)
                         else:
                             logger.warning(
-                                "Empty JD text for %s — skipping",
+                                "Empty JD text for %s -- skipping",
                                 listing.url,
                             )
                             failed += 1
@@ -635,3 +655,25 @@ class PipelineRunner:
                         failed += 1
 
         return listings, failed, caught_errors
+
+
+# ============================================================================
+# Factory
+# ============================================================================
+
+
+def create_pipeline(settings: Settings) -> PipelineRunner:
+    """
+    Construct a :class:`PipelineRunner` with production infrastructure.
+
+    Centralizes the wiring of concrete ``Embedder`` and ``VectorStore``
+    so that CLI handlers only need ``create_pipeline(settings)`` and
+    tests can bypass this entirely by injecting fakes via the
+    ``PipelineRunner`` constructor.
+    """
+    embedder = Embedder(settings.ollama)
+    store = VectorStore(
+        persist_dir=settings.chroma.persist_dir,
+        distance_metric=settings.chroma.distance_metric,
+    )
+    return PipelineRunner(settings, store=store, embedder=embedder)

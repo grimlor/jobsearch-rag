@@ -1,5 +1,5 @@
 """
-Evaluation harness — measures pipeline-vs-human agreement.
+Evaluation harness -- measures pipeline-vs-human agreement.
 
 Re-scores every stored decision's JD through the current scorer/ranker
 configuration and computes agreement rate, precision, recall, and Spearman
@@ -20,8 +20,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from jobsearch_rag.pipeline.ranker import Ranker
+    from jobsearch_rag.ports import VectorStorePort
     from jobsearch_rag.rag.scorer import Scorer
-    from jobsearch_rag.rag.store import VectorStore
 
 
 _VERDICT_ORDINAL: dict[str, float] = {"no": 0.0, "maybe": 1.0, "yes": 2.0}
@@ -56,7 +56,7 @@ def spearman_rank_correlation(x: Sequence[float], y: Sequence[float]) -> float:
 
     Uses average ranks for ties. Returns 0.0 for fewer than 2 items or
     when either sequence has zero variance (all identical values).
-    No external dependencies — stdlib only.
+    No external dependencies -- stdlib only.
     """
     n = len(x)
     if n != len(y) or n < 2:
@@ -105,7 +105,7 @@ class EvalReport:
         path = out / f"eval_{today}.md"
 
         lines: list[str] = [
-            f"# Evaluation Report — {today}",
+            f"# Evaluation Report -- {today}",
             "",
             f"**Decisions evaluated:** {result.decisions_evaluated}",
             f"**Agreement rate:** {result.agreement_rate:.2f}",
@@ -197,7 +197,7 @@ class EvalRunner:
         self,
         scorer: Scorer,
         ranker: Ranker,
-        store: VectorStore,
+        store: VectorStorePort,
     ) -> None:
         """Initialize with a scorer, ranker, and vector store."""
         self._scorer = scorer
@@ -220,7 +220,7 @@ class EvalRunner:
         """
         decisions = self._load_decisions()
         if not decisions:
-            logger.info("No decisions found — nothing to evaluate.")
+            logger.info("No decisions found -- nothing to evaluate.")
             return EvalResult(
                 decisions_evaluated=0,
                 agreement_rate=0.0,
@@ -304,12 +304,12 @@ class EvalRunner:
             meta = metadatas[i] if metadatas and i < len(metadatas) else None
             doc = documents[i] if documents and i < len(documents) else None
             if meta is None or doc is None:
-                logger.warning("Skipping decision %s — missing metadata or document.", doc_id)
+                logger.warning("Skipping decision %s -- missing metadata or document.", doc_id)
                 continue
             job_id = str(meta.get("job_id", doc_id))
             verdict = str(meta.get("verdict", ""))
             if not verdict:
-                logger.warning("Skipping decision %s — no verdict.", doc_id)
+                logger.warning("Skipping decision %s -- no verdict.", doc_id)
                 continue
             decisions.append((job_id, verdict, doc))
 

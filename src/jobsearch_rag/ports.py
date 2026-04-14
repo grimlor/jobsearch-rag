@@ -4,18 +4,18 @@ Hexagonal port interfaces for the domain boundary.
 Defines :class:`Protocol` interfaces that decouple domain classes
 (Scorer, DecisionRecorder, Indexer, EvalRunner, PipelineRunner)
 from concrete infrastructure (Ollama SDK, ChromaDB).  Any
-implementation satisfying the protocol can be injected — including
+implementation satisfying the protocol can be injected -- including
 test fakes.
 
 Protocols:
-    EmbeddingPort — core embedding and LLM classification operations.
-    HealthCheckable — supplementary pre-flight connectivity check.
-    MetricsProvider — supplementary inference metrics exposure.
-    VectorStorePort — all vector storage operations.
+    EmbeddingPort -- core embedding and LLM classification operations.
+    HealthCheckable -- supplementary pre-flight connectivity check.
+    MetricsProvider -- supplementary inference metrics exposure.
+    VectorStorePort -- all vector storage operations.
 
 Result dataclasses:
-    QueryResult — typed replacement for dict[str, Any] query returns.
-    GetResult — typed replacement for dict[str, Any] get returns.
+    QueryResult -- typed replacement for dict[str, Any] query returns.
+    GetResult -- typed replacement for dict[str, Any] get returns.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class QueryResult:
     Typed result from :meth:`VectorStorePort.query`.
 
     Batch shape (nested lists) matches ChromaDB's native ``query()``
-    response — one inner list per query embedding.
+    response -- one inner list per query embedding.
     """
 
     ids: list[list[str]] = field(default_factory=lambda: [[]])
@@ -76,6 +76,12 @@ class EmbeddingPort(Protocol):
     health-check or metrics stubs.
     """
 
+    max_embed_chars: int
+    """Maximum character count accepted by the embedding model."""
+
+    llm_model: str
+    """Name of the LLM model used for classification."""
+
     async def embed(self, text: str) -> list[float]:
         """Return the embedding vector for *text*."""
         ...
@@ -98,7 +104,7 @@ class HealthCheckable(Protocol):
     :class:`PipelineRunner` uses an ``isinstance`` guard to optionally
     call :meth:`health_check` before pipeline execution.  Implementations
     that do not support health checks (e.g. test fakes) simply don't
-    satisfy this protocol — the guard is skipped silently.
+    satisfy this protocol -- the guard is skipped silently.
     """
 
     async def health_check(self) -> None:

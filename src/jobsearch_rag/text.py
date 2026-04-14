@@ -24,5 +24,6 @@ def slugify(text: str, *, max_len: int) -> str:
     slug = text.lower()
     slug = re.sub(r"[^\w\s-]", "", slug)
     slug = re.sub(r"[\s_]+", "-", slug)
+    slug = re.sub(r"-{2,}", "-", slug)
     slug = slug.strip("-")
     return slug[:max_len]

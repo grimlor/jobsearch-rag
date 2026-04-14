@@ -1,5 +1,5 @@
 """
-Observability tests — structured session tracing, per-call tracing,
+Observability tests -- structured session tracing, per-call tracing,
 inference metrics, and retrieval quality metrics.
 
 Maps to BDD spec: TestSessionTracing, TestOllamaCallTracing,
@@ -23,7 +23,7 @@ from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
     from jobsearch_rag.config import Settings
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.ports import VectorStorePort
 
 # ---------------------------------------------------------------------------
 # Public API surface (from src/jobsearch_rag/logging):
@@ -36,24 +36,24 @@ if TYPE_CHECKING:
 #   RunResult.ranked_listings, .summary, .failed_listings, .errors, .boards_searched
 #
 # Events emitted by structured logging:
-#   "score_computed" — one per scored listing, includes component scores
-#   "session_summary" — one per run, closes the session; includes
+#   "score_computed" -- one per scored listing, includes component scores
+#   "session_summary" -- one per run, closes the session; includes
 #       jobs_found, jobs_scored, jobs_excluded, jobs_deduplicated,
 #       failed_listings, skipped_decisions, boards_searched,
 #       embed_calls, llm_calls, embed_tokens_total, llm_tokens_total,
 #       llm_latency_ms_total, slow_llm_calls, wall_clock_ms
-#   "embed_call" — one per Ollama embed() call, includes model, input_chars,
+#   "embed_call" -- one per Ollama embed() call, includes model, input_chars,
 #       latency_ms, tokens (prompt_eval_count or estimate)
-#   "classify_call" — one per classify() call, includes model, input_chars,
+#   "classify_call" -- one per classify() call, includes model, input_chars,
 #       latency_ms, tokens (prompt_eval_count + eval_count or estimate)
-#   "disqualifier_call" — one per disqualify() call, includes model, input_chars, outcome
-#   "retrieval_summary" — one per collection per run; includes collection,
+#   "disqualifier_call" -- one per disqualify() call, includes model, input_chars, outcome
+#   "retrieval_summary" -- one per collection per run; includes collection,
 #       n_scored, score_min, score_p50, score_p90, score_max, below_threshold
 # ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
-# Helpers — same patterns as test_runner.py
+# Helpers -- same patterns as test_runner.py
 # ---------------------------------------------------------------------------
 
 
@@ -105,7 +105,7 @@ def _make_runner_with_real_stack(
     """
     Create a PipelineRunner with real stack and mocked Ollama client.
 
-    Only ``ollama_sdk.AsyncClient`` is mocked — the I/O boundary.
+    Only ``ollama_sdk.AsyncClient`` is mocked -- the I/O boundary.
     """
     mock_client = AsyncMock()
 
@@ -132,7 +132,7 @@ def _make_runner_with_real_stack(
     return runner, mock_client
 
 
-def _populate_store(store: VectorStore) -> None:
+def _populate_store(store: VectorStorePort) -> None:
     """Seed the three required collections so auto-indexing is skipped."""
     for name in ("resume", "role_archetypes", "global_positive_signals"):
         store.add_documents(
@@ -143,12 +143,12 @@ def _populate_store(store: VectorStore) -> None:
         )
 
 
-# An embedding vector distant from EMBED_FAKE — produces cosine distance > 0
+# An embedding vector distant from EMBED_FAKE -- produces cosine distance > 0
 # when JD text is embedded with EMBED_FAKE.  This creates non-trivial score
 # distributions (< 1.0) so retrieval_summary tests exercise real metric computation.
 _EMBED_DISTANT: list[float] = [0.9, 0.1, 0.9, 0.1, 0.9]
 
-# The four collections that contribute to scoring — required and optional.
+# The four collections that contribute to scoring -- required and optional.
 # negative_signals and decisions are optional; if empty, scorer returns 0.0.
 _RETRIEVAL_COLLECTIONS = (
     "resume",
@@ -158,12 +158,12 @@ _RETRIEVAL_COLLECTIONS = (
 )
 
 
-def _populate_store_with_distant_embeddings(store: VectorStore) -> None:
+def _populate_store_with_distant_embeddings(store: VectorStorePort) -> None:
     """
     Seed collections with distant embeddings so score distributions are non-trivial.
 
     Uses _EMBED_DISTANT for stored documents while the mock Ollama returns
-    EMBED_FAKE for JD queries — producing cosine distances > 0 and scores < 1.0.
+    EMBED_FAKE for JD queries -- producing cosine distances > 0 and scores < 1.0.
     """
     for name in _RETRIEVAL_COLLECTIONS:
         store.add_documents(
@@ -208,7 +208,7 @@ def _make_runner_with_distant_store(
 
 
 def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
-    """Mock async_playwright — the Playwright I/O boundary."""
+    """Mock async_playwright -- the Playwright I/O boundary."""
     mock_page = MagicMock()
 
     mock_context = MagicMock()
@@ -567,7 +567,7 @@ class TestOllamaCallTracing:
               'disqualifier_call' entries
     WHY: Without per-call logging, the operator cannot distinguish whether
          a slow run was caused by one expensive LLM call or many slow
-         embedding calls — the session summary alone is not enough
+         embedding calls -- the session summary alone is not enough
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama HTTP); async_playwright
@@ -769,7 +769,7 @@ class TestInferenceMetrics:
           (7) slow_llm_calls counts LLM calls that exceeded
               slow_llm_threshold_ms
           (8) slow_llm_calls is zero when no calls exceed the threshold
-          (9) the slow_llm_threshold_ms setting is respected — different
+          (9) the slow_llm_threshold_ms setting is respected -- different
               values produce different slow_llm_calls counts
           (10) session_summary includes wall_clock_ms as the end-to-end
                pipeline duration in milliseconds
@@ -1160,7 +1160,7 @@ class TestRetrievalMetrics:
           (6) a collection_scores entry with an empty list is skipped
               gracefully
     WHY: A collection whose median score is 0.92 for every role it sees is
-         not discriminating — it is noise. Score distribution logging makes
+         not discriminating -- it is noise. Score distribution logging makes
          this visible
 
     MOCK BOUNDARY:
@@ -1269,7 +1269,7 @@ class TestRetrievalMetrics:
         Then below_threshold is 5
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: high threshold (0.9) — distant embeddings produce scores < 0.9
+            # Given: high threshold (0.9) -- distant embeddings produce scores < 0.9
             settings = _make_settings(tmpdir, min_score_threshold=0.9)
             runner, mock_client = _make_runner_with_distant_store(settings)
             listings = [_make_listing(external_id=str(i), title=f"Role {i}") for i in range(1, 6)]

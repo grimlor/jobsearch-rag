@@ -3,16 +3,16 @@ Decision history recording and retrieval.
 
 Records user verdicts (yes / no / maybe) on scored job listings and
 stores them in the ``decisions`` ChromaDB collection.  Only ``yes``
-verdicts contribute to ``history_score`` — rejected roles have too
+verdicts contribute to ``history_score`` -- rejected roles have too
 many confounding reasons to be a useful negative signal.
 
 Decisions are persisted in two forms:
 
-1. **ChromaDB** — the ``decisions`` collection stores the JD embedding
+1. **ChromaDB** -- the ``decisions`` collection stores the JD embedding
    alongside metadata (verdict, job_id, board) so it can be queried
    for ``history_score`` on future runs.
 
-2. **JSONL on disk** — a daily append-only ``data/decisions/YYYY-MM-DD.jsonl``
+2. **JSONL on disk** -- a daily append-only ``data/decisions/YYYY-MM-DD.jsonl``
    file for audit and debugging.  The JSONL file contains the full JD text
    (which is too large for ChromaDB metadata) plus all scoring data.
 
@@ -33,8 +33,7 @@ from typing import TYPE_CHECKING
 from jobsearch_rag.errors import ActionableError, AIGuidance, ErrorType, Troubleshooting
 
 if TYPE_CHECKING:
-    from jobsearch_rag.rag.embedder import Embedder
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.ports import EmbeddingPort, VectorStorePort
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +64,8 @@ class DecisionRecorder:
     def __init__(
         self,
         *,
-        store: VectorStore,
-        embedder: Embedder,
+        store: VectorStorePort,
+        embedder: EmbeddingPort,
         decisions_dir: str | Path = _DECISIONS_DIR,
     ) -> None:
         """Initialize with a vector store, embedder, and decisions directory."""

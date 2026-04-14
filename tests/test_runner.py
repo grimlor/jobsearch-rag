@@ -1,5 +1,5 @@
 """
-Pipeline runner tests — orchestration, error handling, board delegation, error surfacing.
+Pipeline runner tests -- orchestration, error handling, board delegation, error surfacing.
 
 Maps to BDD specs: TestPipelineOrchestration, TestBoardSearchDelegation,
 TestAutoIndex, TestCompEnrichment, TestErrorSurfacing
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     import pytest
 
     from jobsearch_rag.config import Settings
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.ports import VectorStorePort
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -120,7 +120,7 @@ def _make_runner_with_real_stack(
     """
     Create a PipelineRunner with real Embedder/Scorer and mocked Ollama client.
 
-    The only mock is ``ollama_sdk.AsyncClient`` — the I/O boundary where
+    The only mock is ``ollama_sdk.AsyncClient`` -- the I/O boundary where
     our system ends and the network begins.  Everything else (``Embedder``,
     ``Scorer``, ``VectorStore``, ``Ranker``, ``DecisionRecorder``) runs
     for real.
@@ -133,7 +133,7 @@ def _make_runner_with_real_stack(
     """
     mock_client = AsyncMock()
 
-    # health_check calls client.list() — needs models containing embed + llm names
+    # health_check calls client.list() -- needs models containing embed + llm names
     model_embed = MagicMock()
     model_embed.model = settings.ollama.embed_model
     model_llm = MagicMock()
@@ -142,7 +142,7 @@ def _make_runner_with_real_stack(
     list_response.models = [model_embed, model_llm]
     mock_client.list.return_value = list_response
 
-    # embed() calls client.embed() — needs .embeddings[0]
+    # embed() calls client.embed() -- needs .embeddings[0]
     embed_response = MagicMock()
     embed_response.embeddings = [EMBED_FAKE]
     mock_client.embed.return_value = embed_response
@@ -159,7 +159,7 @@ def _make_runner_with_real_stack(
     return runner, mock_client
 
 
-def _populate_store(store: VectorStore) -> None:
+def _populate_store(store: VectorStorePort) -> None:
     """Seed the three required collections so auto-indexing is skipped."""
     for name in ("resume", "role_archetypes", "global_positive_signals"):
         store.add_documents(
@@ -174,7 +174,7 @@ def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
     """
     Create a mock Playwright I/O boundary for real SessionManager.
 
-    Mocks ``async_playwright`` — the edge where our system ends and the
+    Mocks ``async_playwright`` -- the edge where our system ends and the
     Playwright library begins.  ``SessionManager`` runs for real on top.
 
     Returns ``(mock_async_playwright, mock_page)`` for use with
@@ -256,7 +256,7 @@ class TestPipelineOrchestration:
                async_playwright (Playwright browser library)
         Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
                DecisionRecorder, AdapterRegistry, SessionManager, throttle
-        Never: Construct ScoreResult directly — always obtained via real Scorer.score()
+        Never: Construct ScoreResult directly -- always obtained via real Scorer.score()
     """
 
     async def test_health_check_runs_before_board_search(self) -> None:
@@ -730,7 +730,7 @@ class TestPipelineOrchestration:
             ):
                 result = await runner.run()
 
-            # Then: pipeline completed — listing was scored using the freeform prompt
+            # Then: pipeline completed -- listing was scored using the freeform prompt
             assert result.summary.total_scored > 0, (
                 f"Expected at least 1 scored listing, got {result.summary.total_scored}"
             )
@@ -800,7 +800,7 @@ class TestBoardSearchDelegation:
                async_playwright (Playwright browser library)
         Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
                DecisionRecorder, AdapterRegistry, SessionManager, throttle
-        Never: Construct ScoreResult directly — always obtained via real Scorer.score()
+        Never: Construct ScoreResult directly -- always obtained via real Scorer.score()
     """
 
     async def test_board_with_no_config_section_is_skipped(self) -> None:
@@ -814,7 +814,7 @@ class TestBoardSearchDelegation:
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
 
-            # Register adapter so AdapterRegistry.get() succeeds — but
+            # Register adapter so AdapterRegistry.get() succeeds -- but
             # settings.boards has no entry, so the runner skips it.
             mock_adapter = _make_test_adapter(board_name="nonexistent_board")
 
@@ -878,7 +878,7 @@ class TestBoardSearchDelegation:
                 f"Expected 0 failed_listings from mixed group, got: {result.failed_listings}"
             )
             assert ghost_adapter.authenticate.call_count == 0, (
-                "Ghost adapter should never authenticate — board has no config section"
+                "Ghost adapter should never authenticate -- board has no config section"
             )
             assert test_adapter.authenticate.call_count == 1, (
                 "Testboard adapter should authenticate once"
@@ -1218,7 +1218,7 @@ class TestBoardSearchDelegation:
 
 
 # ---------------------------------------------------------------------------
-# TestAutoIndex (Phase 4a — auto-recovery)
+# TestAutoIndex (Phase 4a -- auto-recovery)
 # ---------------------------------------------------------------------------
 
 
@@ -1233,7 +1233,7 @@ class TestAutoIndex:
           (4) The system treats the collection as empty when collection_count raises ActionableError and runs real auto-indexing.
     WHY: Failing all 180 listings because the operator forgot to run a
          separate index command is a predictable situation with an obvious
-         recovery — the system should just do it
+         recovery -- the system should just do it
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama API),
@@ -1241,7 +1241,7 @@ class TestAutoIndex:
         Real:  PipelineRunner, Embedder, Scorer, Indexer, VectorStore, Ranker,
                DecisionRecorder, AdapterRegistry, SessionManager, throttle,
                config files on disk
-        Never: Construct Indexer directly or patch it — always exercised through
+        Never: Construct Indexer directly or patch it -- always exercised through
                PipelineRunner._ensure_indexed()
     """
 
@@ -1309,7 +1309,7 @@ class TestAutoIndex:
                 # When: pipeline runs
                 await runner.run()
 
-            # Then: counts unchanged — no re-indexing happened
+            # Then: counts unchanged -- no re-indexing happened
             assert store.collection_count("resume") == resume_count_before, (
                 "resume collection should not change when already populated"
             )
@@ -1337,7 +1337,7 @@ class TestAutoIndex:
             listing = _make_listing()
             mock_adapter = _make_test_adapter(search_results=[listing])
 
-            # Track embed calls — auto-index embeds config content,
+            # Track embed calls -- auto-index embeds config content,
             # then scoring embeds listing text
             original_embed = mock_client.embed
 
@@ -1390,7 +1390,7 @@ class TestAutoIndex:
                 patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
             ):
-                # When: pipeline runs — _collection_empty returns True for missing collections
+                # When: pipeline runs -- _collection_empty returns True for missing collections
                 await runner.run()
 
             # Then: all three collections were auto-indexed
@@ -1421,7 +1421,7 @@ class TestCompEnrichment:
         Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
                DecisionRecorder, AdapterRegistry, SessionManager, throttle,
                parse_compensation
-        Never: Construct ScoreResult directly — always obtained via real Scorer.score()
+        Never: Construct ScoreResult directly -- always obtained via real Scorer.score()
     """
 
     async def test_listing_with_salary_text_gets_comp_fields_populated(self) -> None:
@@ -1492,7 +1492,7 @@ class TestErrorSurfacing:
           (8) unexpected scoring exceptions are wrapped via from_exception() and appended
               to RunResult.errors so bare RuntimeErrors do not escape the pipeline.
           (9) errors from multiple boards both accumulate in the same RunResult.errors list.
-          (10) a caught error increments both RunResult.errors and RunResult.failed_listings —
+          (10) a caught error increments both RunResult.errors and RunResult.failed_listings --
                the list and the count are not mutually exclusive.
     WHY: A numeric failure count without contextual guidance forces
          trial-and-error operations and slows recovery. Cross-board error
@@ -1501,10 +1501,10 @@ class TestErrorSurfacing:
 
     MOCK BOUNDARY:
         Mock:  Playwright I/O boundaries, ollama_sdk.AsyncClient (Ollama
-               network I/O — embed and chat calls)
+               network I/O -- embed and chat calls)
         Real:  PipelineRunner error accumulation, RunResult construction,
                Scorer, Embedder, CLI rendering logic
-        Never: Patch Scorer or Embedder methods directly — inject errors at
+        Never: Patch Scorer or Embedder methods directly -- inject errors at
                the Ollama boundary instead
     """
 
@@ -1862,7 +1862,7 @@ class TestErrorSurfacing:
                 patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", Path(tmpdir)),
                 caplog.at_level(logging.ERROR),
             ):
-                # When: pipeline runs — RuntimeError should NOT propagate
+                # When: pipeline runs -- RuntimeError should NOT propagate
                 result = await runner.run()
 
             # Then: error is wrapped and appended
@@ -1896,7 +1896,7 @@ class TestErrorSurfacing:
 
         RATIONALE: Per-board tests confirm a single board's error is appended.
         This scenario confirms errors are not overwritten or deduplicated across
-        boards — accumulation is additive regardless of which board raised.
+        boards -- accumulation is additive regardless of which board raised.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two boards, each raises ActionableError on authenticate
@@ -1953,7 +1953,7 @@ class TestErrorSurfacing:
 
         RATIONALE: The errors list (Phase 4j-B) is additive to the existing
         failed_listings counter (Phase 4j-A). This test locks in that the new
-        surfacing mechanism does not replace the count — both are live simultaneously.
+        surfacing mechanism does not replace the count -- both are live simultaneously.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a listing with empty full_text, extract_detail raises ActionableError
@@ -1998,7 +1998,7 @@ class TestErrorSurfacing:
 
 
 # ---------------------------------------------------------------------------
-# Helpers — TestErrorSurfacing (CLI test support)
+# Helpers -- TestErrorSurfacing (CLI test support)
 # ---------------------------------------------------------------------------
 
 

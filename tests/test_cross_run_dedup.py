@@ -1,5 +1,5 @@
 """
-Cross-run deduplication tests — skip previously-decided listings.
+Cross-run deduplication tests -- skip previously-decided listings.
 
 Maps to BDD spec: TestCrossRunDedup
 
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from jobsearch_rag.config import Settings
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.ports import VectorStorePort
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,7 +69,7 @@ def _make_runner_with_real_stack(
     """
     Create a PipelineRunner with real Embedder/Scorer and mocked Ollama client.
 
-    The only mock is ``ollama_sdk.AsyncClient`` — the I/O boundary where
+    The only mock is ``ollama_sdk.AsyncClient`` -- the I/O boundary where
     our system ends and the network begins.
 
     Returns ``(runner, mock_client)``.
@@ -101,7 +101,7 @@ def _make_runner_with_real_stack(
     return runner, mock_client
 
 
-def _populate_store(store: VectorStore) -> None:
+def _populate_store(store: VectorStorePort) -> None:
     """Seed the three required collections so auto-indexing is skipped."""
     for name in ("resume", "role_archetypes", "global_positive_signals"):
         store.add_documents(
@@ -112,7 +112,7 @@ def _populate_store(store: VectorStore) -> None:
         )
 
 
-def _seed_decision(store: VectorStore, job_id: str, verdict: str = "yes") -> None:
+def _seed_decision(store: VectorStorePort, job_id: str, verdict: str = "yes") -> None:
     """Pre-record a decision into the real VectorStore decisions collection."""
     store.add_documents(
         collection_name="decisions",
@@ -198,7 +198,7 @@ class TestCrossRunDedup:
                async_playwright (Playwright browser library)
         Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
                DecisionRecorder, AdapterRegistry, SessionManager, throttle
-        Never: Construct ScoreResult directly — always obtained via real Scorer.score()
+        Never: Construct ScoreResult directly -- always obtained via real Scorer.score()
     """
 
     async def test_listing_with_existing_decision_is_excluded_from_scoring(
@@ -377,7 +377,7 @@ class TestCrossRunDedup:
         Given a decision for "canonical-id-123" and a listing with that
               external_id but a different URL,
         When run() processes the listing,
-        Then the listing is skipped — proving lookup is by job_id, not URL.
+        Then the listing is skipped -- proving lookup is by job_id, not URL.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with decision keyed by job_id

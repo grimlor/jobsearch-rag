@@ -3,11 +3,11 @@ Semantic scoring and LLM disqualifier classification.
 
 The Scorer bridges two RAG concerns:
 
-1. **Semantic similarity** — embed the JD text, query VectorStore collections
+1. **Semantic similarity** -- embed the JD text, query VectorStore collections
    (resume, role_archetypes, decisions) and convert cosine distances to
    similarity scores in [0.0, 1.0].
 
-2. **LLM disqualification** — send a structured prompt to the Embedder's
+2. **LLM disqualification** -- send a structured prompt to the Embedder's
    ``classify()`` method asking the LLM whether the role is structurally
    unsuitable (e.g. IC-disguised-as-architect, SRE on-call ownership,
    staffing agency chain).  The response is expected as JSON; malformed
@@ -36,8 +36,7 @@ from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import log_event
 
 if TYPE_CHECKING:
-    from jobsearch_rag.rag.embedder import Embedder
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.ports import EmbeddingPort, VectorStorePort
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +128,7 @@ class Scorer:
     ----------
     store:
         A VectorStore with (at minimum) ``resume`` and ``role_archetypes``
-        collections.  A ``decisions`` collection is optional — if absent or
+        collections.  A ``decisions`` collection is optional -- if absent or
         empty, the history score defaults to 0.0.
     embedder:
         An Embedder instance used to embed the JD text and to call the
@@ -143,8 +142,8 @@ class Scorer:
     def __init__(
         self,
         *,
-        store: VectorStore,
-        embedder: Embedder,
+        store: VectorStorePort,
+        embedder: EmbeddingPort,
         disqualify_on_llm_flag: bool,
         disqualifier_prompt: str,
         screen_prompt: str,
@@ -184,16 +183,16 @@ class Scorer:
         Steps per chunk:
 
         1. Embed the chunk.
-        2. Query the ``resume`` collection — best-match distance → ``fit_score``.
-        3. Query the ``role_archetypes`` collection — → ``archetype_score``.
-        4. Query the ``decisions`` collection (if present) — → ``history_score``.
+        2. Query the ``resume`` collection -- best-match distance → ``fit_score``.
+        3. Query the ``role_archetypes`` collection -- → ``archetype_score``.
+        4. Query the ``decisions`` collection (if present) -- → ``history_score``.
 
         After all chunks:
 
         5. Optionally run the LLM disqualifier (on the full JD text).
 
         Raises ``ActionableError`` (INDEX) if the ``resume`` collection is
-        empty or missing — the pipeline *must* index a resume before scoring.
+        empty or missing -- the pipeline *must* index a resume before scoring.
         """
         chunks = _chunk_text(
             jd_text, chunk_size=self._embedder.max_embed_chars, overlap=self._chunk_overlap
@@ -273,21 +272,21 @@ class Scorer:
 
         Defense-in-depth pipeline:
 
-        1. **LLM screening** — a separate classify call checks for
+        1. **LLM screening** -- a separate classify call checks for
            injection language.  Suspicious JDs skip the disqualifier
            entirely (safe default: not disqualified).
-        2. **Regex sanitization** — known injection patterns are stripped
+        2. **Regex sanitization** -- known injection patterns are stripped
            before the JD text reaches the disqualifier prompt.
-        3. **Output validation** — malformed JSON falls back to
+        3. **Output validation** -- malformed JSON falls back to
            *not disqualified* (safe default).
-        4. **Human review** — the operator reviews qualifying JDs during
+        4. **Human review** -- the operator reviews qualifying JDs during
            ``review`` mode, overriding any pipeline decision.
 
         Past rejection reasons from "no" verdicts are injected into the
         system prompt so the LLM learns the operator's personal
         dealbreakers over time.
         """
-        # Layer 1 — LLM screening (original text, not sanitized)
+        # Layer 1 -- LLM screening (original text, not sanitized)
         suspicious, screen_reason = await self._screen_jd_for_injection(jd_text)
         if suspicious:
             logger.warning(
@@ -301,7 +300,7 @@ class Scorer:
             )
             return False, None
 
-        # Layer 3 — Regex pre-filter (before prompt construction)
+        # Layer 3 -- Regex pre-filter (before prompt construction)
         sanitized_jd = _sanitize_jd_for_prompt(jd_text)
 
         # Build prompt with sanitized JD text
@@ -317,7 +316,7 @@ class Scorer:
                 prompt += f"- {r}\n"
         full_prompt = prompt + "\n\n" + sanitized_jd
 
-        # Layer 2 — Output validation (hardened parser with safe default)
+        # Layer 2 -- Output validation (hardened parser with safe default)
         raw = await self._embedder.classify(full_prompt)
         disqualified, reason = self._parse_disqualifier_response(raw)
         log_event(
@@ -337,7 +336,7 @@ class Scorer:
         Screen JD text for prompt injection via a separate LLM call.
 
         Returns ``(suspicious, reason)``.  On any failure (malformed JSON,
-        exception), defaults to ``(False, None)`` — not suspicious — so the
+        exception), defaults to ``(False, None)`` -- not suspicious -- so the
         disqualifier proceeds normally.
         """
         try:
@@ -350,10 +349,10 @@ class Scorer:
                 reason = str(reason)
             return suspicious, reason
         except (json.JSONDecodeError, AttributeError, TypeError):
-            logger.debug("Injection screening returned malformed JSON — treating as clean")
+            logger.debug("Injection screening returned malformed JSON -- treating as clean")
             return False, None
         except Exception:
-            logger.debug("Injection screening failed — treating as clean", exc_info=True)
+            logger.debug("Injection screening failed -- treating as clean", exc_info=True)
             return False, None
 
     def _query_collection(self, collection_name: str, embedding: list[float]) -> float:
@@ -449,7 +448,7 @@ class Scorer:
                 if meta and meta.get("reason"):
                     reasons.append(str(meta["reason"]))
         except ActionableError:
-            pass  # No decisions collection yet — normal on first run
+            pass  # No decisions collection yet -- normal on first run
 
         # Deduplicate while preserving order
         seen: set[str] = set()
@@ -475,7 +474,7 @@ class Scorer:
 
             {"disqualified": true, "reason": "short explanation"}
 
-        Falls back to ``(False, None)`` on any parse error — keeping the
+        Falls back to ``(False, None)`` on any parse error -- keeping the
         role is the safe default.
         """
         try:

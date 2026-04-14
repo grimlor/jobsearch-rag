@@ -4,26 +4,26 @@ Resume, archetype, negative signal, and positive signal ingestion pipeline.
 The Indexer coordinates :class:`VectorStore` and :class:`Embedder` to
 prepare documents for semantic scoring:
 
-1. **Resume indexing** — splits ``resume.md`` on ``##`` headings, embeds
+1. **Resume indexing** -- splits ``resume.md`` on ``##`` headings, embeds
    each section, and stores it in the ``resume`` collection.  Nested
    ``###`` sub-headings stay with their parent section so context is
    preserved.
 
-2. **Archetype indexing** — loads ``role_archetypes.toml``, synthesizes
+2. **Archetype indexing** -- loads ``role_archetypes.toml``, synthesizes
    each archetype's description with its positive signals into a richer
    embedding text, embeds it, and stores one document per archetype in
    the ``role_archetypes`` collection.
 
-3. **Negative signal indexing** — loads ``global_rubric.toml`` negatives
+3. **Negative signal indexing** -- loads ``global_rubric.toml`` negatives
    and per-archetype ``signals_negative``, embeds each signal, and
    stores them in the ``negative_signals`` collection for penalty scoring.
 
-4. **Global positive signal indexing** — loads ``global_rubric.toml``
+4. **Global positive signal indexing** -- loads ``global_rubric.toml``
    positive signals, synthesizes each dimension's signals into a single
    embedding, and stores one document per dimension in the
    ``global_positive_signals`` collection for culture scoring.
 
-All operations are **idempotent** — re-indexing resets the collection
+All operations are **idempotent** -- re-indexing resets the collection
 first, so documents are replaced rather than accumulated.
 """
 
@@ -38,8 +38,7 @@ from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
 
 if TYPE_CHECKING:
-    from jobsearch_rag.rag.embedder import Embedder
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.ports import EmbeddingPort, VectorStorePort
 
 # Regex: match a line starting with ## (but not ###) as a section heading
 _SECTION_HEADING_RE = re.compile(r"^## .+", re.MULTILINE)
@@ -124,7 +123,7 @@ class Indexer:
         n_arch   = await indexer.index_archetypes("config/role_archetypes.toml")
     """
 
-    def __init__(self, store: VectorStore, embedder: Embedder) -> None:
+    def __init__(self, store: VectorStorePort, embedder: EmbeddingPort) -> None:
         """Initialize with a vector store and embedder."""
         self._store = store
         self._embedder = embedder
@@ -271,8 +270,8 @@ class Indexer:
 
         Signals are drawn from two sources:
 
-        1. ``global_rubric.toml`` — ``[[dimensions]]`` entries with ``signals_negative``
-        2. ``role_archetypes.toml`` — per-archetype ``signals_negative``
+        1. ``global_rubric.toml`` -- ``[[dimensions]]`` entries with ``signals_negative``
+        2. ``role_archetypes.toml`` -- per-archetype ``signals_negative``
 
         Each signal becomes one document in the ``negative_signals`` collection.
         Metadata records the source (dimension name or archetype name).
@@ -347,7 +346,7 @@ class Indexer:
         self._store.reset_collection("negative_signals")
 
         if not signals:
-            logger.info("No negative signals found — collection is empty")
+            logger.info("No negative signals found -- collection is empty")
             return 0
 
         ids: list[str] = []

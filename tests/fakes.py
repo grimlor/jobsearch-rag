@@ -5,9 +5,9 @@ Provides deterministic, configurable test doubles that satisfy port
 protocols without depending on external services.
 
 Classes:
-    FakeEmbedder — satisfies :class:`~jobsearch_rag.ports.EmbeddingPort`
+    FakeEmbedder -- satisfies :class:`~jobsearch_rag.ports.EmbeddingPort`
         (but NOT HealthCheckable or MetricsProvider).
-    InMemoryVectorStore — satisfies :class:`~jobsearch_rag.ports.VectorStorePort`
+    InMemoryVectorStore -- satisfies :class:`~jobsearch_rag.ports.VectorStorePort`
         with dict-backed storage and cosine similarity. No ChromaDB dependency.
 """
 
@@ -28,7 +28,7 @@ class FakeEmbedder:
     Deterministic test double satisfying :class:`EmbeddingPort`.
 
     Does **not** satisfy :class:`HealthCheckable` or
-    :class:`MetricsProvider` — validates the ``isinstance`` guard
+    :class:`MetricsProvider` -- validates the ``isinstance`` guard
     pattern in :class:`PipelineRunner`.
 
     Parameters
@@ -53,6 +53,8 @@ class FakeEmbedder:
         classify_response: str = "{}",
         embed_side_effect: Callable[[str], list[float]] | None = None,
         classify_side_effect: Callable[[str], str] | None = None,
+        max_embed_chars: int = 8192,
+        llm_model: str = "fake-model",
     ) -> None:
         """Initialise the fake with configurable return values and side effects."""
         self._embed_vector = embed_vector if embed_vector is not None else [0.0] * 8
@@ -62,6 +64,8 @@ class FakeEmbedder:
         self.embed_calls: list[str] = []
         self.embed_call_count: int = 0
         self.classify_call_count: int = 0
+        self.max_embed_chars: int = max_embed_chars
+        self.llm_model: str = llm_model
 
     async def embed(self, text: str) -> list[float]:
         """Return the configured vector (or side_effect result) for *text*."""
@@ -240,4 +244,4 @@ class InMemoryVectorStore:
         self._collections[name] = {}
 
     def close(self) -> None:
-        """No-op — satisfies the protocol."""
+        """No-op -- satisfies the protocol."""
