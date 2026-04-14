@@ -1,19 +1,19 @@
 """
-Global test configuration — shared fixtures and safety guards.
+Global test configuration -- shared fixtures and safety guards.
 
 This conftest provides:
 
-1. **Output guard** — makes the real ``output/`` directory read-only so
+1. **Output guard** -- makes the real ``output/`` directory read-only so
    tests that forget to use ``tmp_path`` get an immediate ``PermissionError``.
 
-2. **Shared I/O-boundary fixtures** — ``mock_embedder`` (real Embedder with
+2. **Shared I/O-boundary fixtures** -- ``mock_embedder`` (real Embedder with
    ollama client stubbed at the I/O boundary), ``mock_ollama_client`` (the
    raw mock), ``vector_store`` (real ChromaDB backed by ``tmp_path``), and
    ``decision_recorder`` (real recorder wired to the above).  Individual
    test files may shadow these with local fixtures that use different
    return values.
 
-3. **Windows ChromaDB cleanup guard** — ``TemporaryDirectory`` is patched
+3. **Windows ChromaDB cleanup guard** -- ``TemporaryDirectory`` is patched
    to use ``ignore_cleanup_errors=True`` on Windows, preventing
    ``PermissionError`` when ChromaDB file handles are still open during
    temp directory cleanup.
@@ -64,7 +64,7 @@ _PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
 # segment files.  On Windows, TemporaryDirectory.__exit__ cannot delete
 # these files while they're still open, raising PermissionError.  The file
 # handles are released when the PersistentClient is garbage-collected (after
-# the test method returns), so the error is benign — the OS reclaims the
+# the test method returns), so the error is benign -- the OS reclaims the
 # temp files.  Patching TemporaryDirectory globally is simpler and safer
 # than modifying 100+ inline call sites across the test suite.
 if sys.platform == "win32":
@@ -81,7 +81,7 @@ if sys.platform == "win32":
 
 
 # ---------------------------------------------------------------------------
-# Adapter registry override — test infrastructure
+# Adapter registry override -- test infrastructure
 # ---------------------------------------------------------------------------
 # Moved from AdapterRegistry (production code) because the method has zero
 # production callers.  Accessing _registry directly is intentional: the
@@ -124,7 +124,7 @@ def adapter_override(
 
 
 # ---------------------------------------------------------------------------
-# Test config factories — explicit values, no code-side defaults
+# Test config factories -- explicit values, no code-side defaults
 # ---------------------------------------------------------------------------
 
 _TEST_COMP_BANDS: list[CompBand] = [
@@ -276,7 +276,7 @@ def make_mock_ollama_client(
     classify_response: str = '{"disqualified": false}',
 ) -> AsyncMock:
     """
-    Build a stubbed ``ollama.AsyncClient`` — the I/O boundary.
+    Build a stubbed ``ollama.AsyncClient`` -- the I/O boundary.
 
     Returns realistic response objects for ``embed`` and ``chat`` so that
     all Embedder logic (retry, truncation, metrics, token counting) runs
@@ -321,7 +321,7 @@ def make_mock_ollama_client(
 
 @pytest.fixture
 def mock_ollama_client() -> AsyncMock:  # pyright: ignore[reportUnusedFunction]
-    """Stubbed ollama.AsyncClient — the I/O boundary."""
+    """Stubbed ollama.AsyncClient -- the I/O boundary."""
     return make_mock_ollama_client()
 
 
@@ -330,7 +330,7 @@ def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
     """
     Real Embedder with ollama client stubbed at the I/O boundary.
 
-    All Embedder logic — retry, truncation, metrics, token counting —
+    All Embedder logic -- retry, truncation, metrics, token counting --
     runs for real.  Only the ollama HTTP call is replaced.
     """
     with patch(
@@ -379,7 +379,7 @@ def _guard_real_output_dir() -> Iterator[None]:  # pyright: ignore[reportUnusedF
     Make the real output/ directory read-only during tests.
 
     Restores original permissions after the session, even on failure.
-    If the directory does not exist the guard is silently skipped —
+    If the directory does not exist the guard is silently skipped --
     CI environments may not have it.
     """
     if not _PROJECT_OUTPUT.is_dir():

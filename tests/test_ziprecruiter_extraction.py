@@ -2,13 +2,13 @@
 ZipRecruiter adapter extraction tests.
 
 Spec classes:
-    TestZipRecruiterDomExtraction — DOM-based extraction from Next.js SERP
-    TestHtmlToText — HTML-to-plain-text conversion for embedding
-    TestSalaryParsing — Salary text parsing into numeric ranges
-    TestRealWorldExtraction — Regression guard against production HTML
-    TestAuthenticate — Session verification and Cloudflare/CAPTCHA detection
-    TestSearch — SERP navigation, card extraction, and click-through enrichment
-    TestExtractDetailPassthrough — extract_detail passthrough when full_text populated
+    TestZipRecruiterDomExtraction -- DOM-based extraction from Next.js SERP
+    TestHtmlToText -- HTML-to-plain-text conversion for embedding
+    TestSalaryParsing -- Salary text parsing into numeric ranges
+    TestRealWorldExtraction -- Regression guard against production HTML
+    TestAuthenticate -- Session verification and Cloudflare/CAPTCHA detection
+    TestSearch -- SERP navigation, card extraction, and click-through enrichment
+    TestExtractDetailPassthrough -- extract_detail passthrough when full_text populated
 
 Validates the DOM-based extraction strategy against ZipRecruiter's
 Next.js SERP structure where job data is rendered in server-side
@@ -73,11 +73,11 @@ class TestZipRecruiterDomExtraction:
           (14) extract_json_ld_urls returns empty list when no JSON-LD script exists.
           (15) extract_json_ld_urls handles malformed JSON gracefully.
     WHY: ZipRecruiter uses a Next.js SERP with server-rendered article
-         elements and JSON-LD structured data — extraction must parse
+         elements and JSON-LD structured data -- extraction must parse
          both data sources reliably.
 
     MOCK BOUNDARY:
-        Mock:  (none — pure functions operating on fixture HTML)
+        Mock:  (none -- pure functions operating on fixture HTML)
         Real:  extract_job_cards, extract_json_ld_urls, card_to_listing,
                parse_salary_text
         Never: Patch extraction functions or fixture file contents
@@ -391,11 +391,11 @@ class TestHtmlToText:
           (3) The system preserves the text content of all list items in nested list HTML.
           (4) The system returns an empty string when given an empty HTML string.
           (5) The system returns plain text unchanged when no HTML tags are present.
-    WHY: RAG embeddings work best on clean text — HTML artifacts degrade
+    WHY: RAG embeddings work best on clean text -- HTML artifacts degrade
          retrieval quality
 
     MOCK BOUNDARY:
-        Mock:  (none — pure function tests)
+        Mock:  (none -- pure function tests)
         Real:  html_to_text
         Never: Patch html_to_text internals
     """
@@ -487,10 +487,10 @@ class TestSalaryParsing:
           (4) The system parses values without K suffix (e.g. '$60 - $100').
           (5) The system parses M suffix (e.g. '$1.5M - $2M/yr') into millions.
     WHY: Salary data appears as display text in ZipRecruiter's Next.js SERP
-         cards — numeric parsing enables comp scoring and filtering
+         cards -- numeric parsing enables comp scoring and filtering
 
     MOCK BOUNDARY:
-        Mock:  (none — pure function tests)
+        Mock:  (none -- pure function tests)
         Real:  parse_salary_text
         Never: Patch parse_salary_text internals
     """
@@ -567,11 +567,11 @@ class TestRealWorldExtraction:
           (4) The system extracts 20 JSON-LD URLs matching the 20 DOM cards.
           (5) The system assigns every real listing a URL that starts with the ZipRecruiter base URL.
           (6) The system captures a salary_range for the Pearly listing that includes $185,000-$240,000.
-    WHY: Synthetic fixtures can drift from production reality — these tests
+    WHY: Synthetic fixtures can drift from production reality -- these tests
          serve as a regression guard against ZipRecruiter structure changes
 
     MOCK BOUNDARY:
-        Mock:  (none — pure functions operating on real fixture HTML)
+        Mock:  (none -- pure functions operating on real fixture HTML)
         Real:  extract_job_cards, extract_json_ld_urls, card_to_listing
         Never: Patch extraction functions or modify fixture data
     """
@@ -744,7 +744,7 @@ def _make_mock_page(
     mock_page.url = url
     mock_page.query_selector = AsyncMock(return_value=MagicMock() if captcha else None)
 
-    # Panel locator — keyed from the adapter's own selector dict
+    # Panel locator -- keyed from the adapter's own selector dict
     _panel_sel = _SELECTORS["detail_panel"]
     mock_panel_locator = MagicMock()
     mock_panel_locator.wait_for = AsyncMock()
@@ -753,7 +753,7 @@ def _make_mock_page(
     else:
         mock_panel_locator.inner_text = AsyncMock(return_value="")
 
-    # Card locators by ID — derive the per-card selector prefix from the
+    # Card locators by ID -- derive the per-card selector prefix from the
     # adapter's ``_SELECTORS["card_articles"]`` so selector changes only
     # need to happen in one place.
     _card_prefix = _SELECTORS["card_articles"].replace("^=", "='")
@@ -804,7 +804,7 @@ class TestAuthenticate:
           (5) The system raises an ActionableError that mentions Cloudflare and suggests headed mode when the Cloudflare challenge persists until timeout.
           (6) The system retries transparently when a Cloudflare redirect destroys the execution context mid-title-check, and succeeds once the challenge resolves.
     WHY: Starting a search against an expired or blocked session wastes
-         time and produces zero results — fail fast with actionable advice
+         time and produces zero results -- fail fast with actionable advice
 
     MOCK BOUNDARY:
         Mock:  Playwright page (browser I/O via _make_mock_page helper),
@@ -986,7 +986,7 @@ class TestSearch:
           (9) The system appends `?page=2` when paginating a search URL that has no query string.
           (10) The system respects the `max_pages` argument by navigating only the requested number of pages.
           (11) The system preserves existing full_text and skips click-through for already-populated listings.
-    WHY: ZipRecruiter is a Next.js SERP — card metadata comes from
+    WHY: ZipRecruiter is a Next.js SERP -- card metadata comes from
          server-rendered article elements and JSON-LD.  Click-through on
          the SERP avoids Cloudflare challenges that would block per-URL navigation.
 
@@ -1441,12 +1441,12 @@ class TestExtractDetailPassthrough:
     WHAT: (1) The system returns the listing unchanged when full_text is already populated.
           (2) The system populates full_text from the short_description fallback when full_text is empty.
           (3) The system leaves full_text empty when no short_description fallback is available.
-    WHY: SERP click-through makes per-URL extraction unnecessary — the
+    WHY: SERP click-through makes per-URL extraction unnecessary -- the
          runner calls extract_detail out of protocol compliance, but
          ZipRecruiter does all extraction during search()
 
     MOCK BOUNDARY:
-        Mock:  Playwright page (unused — passthrough behaviour)
+        Mock:  Playwright page (unused -- passthrough behaviour)
         Real:  ZipRecruiterAdapter.extract_detail
         Never: Patch extract_detail internals or full_text assignment
     """

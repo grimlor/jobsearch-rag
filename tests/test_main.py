@@ -2,9 +2,9 @@
 CLI entry point dispatch and error display tests.
 
 Spec classes:
-    TestMainDispatch — main() routes each subcommand to its handler
-    TestMainErrorDisplay — main() formats errors for the operator
-    TestMainModuleEntryPoint — ``python -m jobsearch_rag`` invokes main()
+    TestMainDispatch -- main() routes each subcommand to its handler
+    TestMainErrorDisplay -- main() formats errors for the operator
+    TestMainModuleEntryPoint -- ``python -m jobsearch_rag`` invokes main()
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class TestMainDispatch:
     WHO: The operator invoking ``python -m jobsearch_rag <command>``
     WHAT: (1) I invoke the corresponding handle_* function for the provided subcommand.
     WHY: The shim is the only coupling between argparse and handler
-         functions — incorrect wiring silently runs the wrong command
+         functions -- incorrect wiring silently runs the wrong command
 
     MOCK BOUNDARY:
         Mock: handle_* functions (CLI handler I/O), sys.argv (process state)
@@ -99,7 +99,7 @@ class TestMainErrorDisplay:
     WHAT: (1) The system prints the actionable error type, message, and suggestion to stderr when main() catches an ActionableError with a suggestion.
           (2) The system prints only the actionable error type and message to stderr when main() catches an ActionableError without a suggestion.
           (3) The system prints "Unexpected error" and the exception message to stderr when main() catches a non-ActionableError exception.
-    WHY: Unformatted tracebacks are unactionable — the operator needs
+    WHY: Unformatted tracebacks are unactionable -- the operator needs
          the error type, message, and recovery suggestion at a glance
 
     MOCK BOUNDARY:
@@ -217,7 +217,7 @@ class TestMainModuleEntryPoint:
     WHO: The operator running the package as a module
     WHAT: (1) Running the package as ``python -m jobsearch_rag <cmd>`` executes main()
     WHY: Without the guard, ``python -m jobsearch_rag`` would import
-         definitions but never dispatch — the operator would see no output
+         definitions but never dispatch -- the operator would see no output
 
     MOCK BOUNDARY:
         Mock: jobsearch_rag.cli.handle_boards (CLI handler I/O),

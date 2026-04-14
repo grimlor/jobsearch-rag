@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# Role Archetypes — descriptions, positive signals, and negative signals
+# Role Archetypes -- descriptions, positive signals, and negative signals
 # ---------------------------------------------------------------------------
 
 [[archetypes]]
@@ -38,7 +38,7 @@ description = """
 Defines technical strategy and architecture for distributed systems platforms.
 Cross-team influence and alignment across engineering organizations. Roadmap
 ownership for infrastructure and platform capabilities. Cloud-native design
-patterns — Kubernetes, service mesh, API gateways. Drives architectural
+patterns -- Kubernetes, service mesh, API gateways. Drives architectural
 decisions through RFCs and design reviews. Mentors senior engineers. Reports
 to VP Engineering or CTO. IC-track leadership without direct management.
 Expects autonomy in technical direction. Not primarily a hands-on coding role.
@@ -66,17 +66,17 @@ description = """
 Leads architecture of data pipelines, data quality frameworks, and platform
 governance across the data organization. Works across data engineering,
 analytics, ML platform, and product teams. Owns the technical roadmap for
-data infrastructure — streaming, batch, lakehouse, and observability.
+data infrastructure -- streaming, batch, lakehouse, and observability.
 Deep hands-on experience with Spark, Kafka, Flink, dbt, or equivalent.
 Mentors data engineers. Establishes data contracts and quality SLAs.
-Cloud data stack expertise — AWS, GCP, or Azure data services.
+Cloud data stack expertise -- AWS, GCP, or Azure data services.
 """
 signals_positive = [
     "Data pipeline architecture and platform governance ownership",
     "Stream processing, batch pipelines, and lakehouse design",
     "Data quality frameworks, contracts, and observability",
     "Cross-functional work with analytics, ML, and product teams",
-    "Cloud data stack expertise — Spark, Kafka, Flink, dbt",
+    "Cloud data stack expertise -- Spark, Kafka, Flink, dbt",
     "Principal or staff-level data engineering leadership",
     "Enterprise data lineage, cataloging, and metadata systems",
 ]

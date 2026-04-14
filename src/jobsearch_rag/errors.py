@@ -28,7 +28,7 @@ __all__ = ["AIGuidance", "ActionableError", "ErrorType", "Troubleshooting"]
 
 class ErrorType(StrEnum):
     """
-    Recovery-path categories — what to *do*, not where it came from.
+    Recovery-path categories -- what to *do*, not where it came from.
 
     Extends the base ``actionable_errors.ErrorType`` with RAG-specific
     values (EMBEDDING, INDEX, PARSE, DECISION).
@@ -102,7 +102,7 @@ class ActionableError(_ActionableError):
     ) -> ActionableError:
         """Missing or invalid configuration in settings.toml."""
         return cls(
-            error=f"Configuration error — {field_name}: {reason}",
+            error=f"Configuration error -- {field_name}: {reason}",
             error_type=ErrorType.CONFIG,
             service="settings.toml",
             suggestion=suggestion or f"Fix '{field_name}' in config/settings.toml",
@@ -199,7 +199,7 @@ class ActionableError(_ActionableError):
     ) -> ActionableError:
         """ChromaDB collection missing or empty when scoring needs it."""
         return cls(
-            error=f"Collection '{collection}' is empty or missing — run indexing first",
+            error=f"Collection '{collection}' is empty or missing -- run indexing first",
             error_type=ErrorType.INDEX,
             service="ChromaDB",
             suggestion=suggestion
@@ -230,9 +230,9 @@ class ActionableError(_ActionableError):
         *,
         suggestion: str | None = None,
     ) -> ActionableError:
-        """Page structure changed — selector no longer matches."""
+        """Page structure changed -- selector no longer matches."""
         return cls(
-            error=f"Parse failure on {board} — selector '{selector}': {raw_error}",
+            error=f"Parse failure on {board} -- selector '{selector}': {raw_error}",
             error_type=ErrorType.PARSE,
             service=board,
             suggestion=suggestion
@@ -264,7 +264,7 @@ class ActionableError(_ActionableError):
     ) -> ActionableError:
         """Decision recorded for an unknown job_id."""
         return cls(
-            error=f"Cannot record decision — job_id '{job_id}' not found in scored results",
+            error=f"Cannot record decision -- job_id '{job_id}' not found in scored results",
             error_type=ErrorType.DECISION,
             service="decision_history",
             suggestion=suggestion or "Verify the job_id from the latest search output",
@@ -295,7 +295,7 @@ class ActionableError(_ActionableError):
     ) -> ActionableError:
         """Input validation failure (TOML, CLI args, etc.)."""
         return cls(
-            error=f"Validation error — {field_name}: {reason}",
+            error=f"Validation error -- {field_name}: {reason}",
             error_type=ErrorType.VALIDATION,
             service="validation",
             suggestion=suggestion or f"Fix '{field_name}': {reason}",
@@ -325,7 +325,7 @@ class ActionableError(_ActionableError):
             error=f"Unexpected error in {service} during {operation}: {raw_error}",
             error_type=ErrorType.UNEXPECTED,
             service=service,
-            suggestion=suggestion or "This is an unexpected error — check logs for details",
+            suggestion=suggestion or "This is an unexpected error -- check logs for details",
             ai_guidance=AIGuidance(
                 action_required="Analyze the error and escalate if needed",
                 checks=[
@@ -354,7 +354,7 @@ class ActionableError(_ActionableError):
         """
         Auto-classify an exception by keyword patterns.
 
-        A caller-supplied ``suggestion`` is always preserved — it carries
+        A caller-supplied ``suggestion`` is always preserved -- it carries
         context the generic classifier cannot infer.
         """
         error_str = str(error).lower()

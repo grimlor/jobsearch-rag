@@ -108,7 +108,7 @@ class _JsonLinesFormatter(logging.Formatter):
         return json.dumps(entry, default=str)
 
 
-# Session logger — separate from the stderr logger so session events
+# Session logger -- separate from the stderr logger so session events
 # only go to the JSON-lines file and don't clutter console output.
 session_logger = logging.getLogger("jobsearch-rag.session")
 session_logger.propagate = False

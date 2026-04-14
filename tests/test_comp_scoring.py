@@ -1,11 +1,11 @@
 """
-Compensation scoring tests — continuous scale, band boundaries, config integration.
+Compensation scoring tests -- continuous scale, band boundaries, config integration.
 
 Maps to BDD specs: TestCompensationScoring
 
 The comp scorer converts parsed compensation data (comp_max) into a continuous
 score in [0.0, 1.0] relative to a configurable base_salary target.  This is a
-*taste signal* — it nudges rankings without hard-gating any role.
+*taste signal* -- it nudges rankings without hard-gating any role.
 """
 
 from __future__ import annotations
@@ -43,10 +43,10 @@ class TestCompensationScoring:
           (15) The system keeps the compensation scale continuous across band boundaries without score gaps or jumps.
     WHY: Compensation as a taste signal lets well-paying roles float up
          without hard-gating roles that might be stepping stones or have
-         other attractive qualities — a gate would discard too aggressively
+         other attractive qualities -- a gate would discard too aggressively
 
     MOCK BOUNDARY:
-        Mock:  nothing — pure arithmetic, no I/O
+        Mock:  nothing -- pure arithmetic, no I/O
         Real:  compute_comp_score
         Never: Patch band boundaries or clamp logic
     """

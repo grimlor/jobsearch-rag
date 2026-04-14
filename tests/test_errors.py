@@ -32,11 +32,11 @@ class TestErrorFactoryMethods:
           (7) The system returns a decision error that names the job ID and provides lookup guidance.
           (8) The system omits all None-valued fields when converting a factory-produced error to a dictionary.
           (9) The system sets success to False on every factory-produced error so callers never treat an error as a success.
-    WHY: Opaque errors halt autonomous recovery — every error must carry
+    WHY: Opaque errors halt autonomous recovery -- every error must carry
          its own recovery path
 
     MOCK BOUNDARY:
-        Mock: nothing — pure object construction
+        Mock: nothing -- pure object construction
         Real: ActionableError factory methods, to_dict()
         Never: Patch error internals or ErrorType enum
     """
@@ -151,7 +151,7 @@ class TestErrorFactoryMethods:
         """
         Given an error produced by a factory method
         When to_dict() is called
-        Then no values in the dict are None — clean for logging and API responses.
+        Then no values in the dict are None -- clean for logging and API responses.
         """
         # When: create error and serialize
         err = ActionableError.config("weight", "too high")
@@ -183,7 +183,7 @@ class TestSuggestionPreservation:
     WHY: Callers have context that generic classifiers cannot infer
 
     MOCK BOUNDARY:
-        Mock: nothing — pure object construction
+        Mock: nothing -- pure object construction
         Real: ActionableError.authentication(), from_exception()
         Never: Patch suggestion defaults
     """
@@ -236,7 +236,7 @@ class TestAIGuidanceToDict:
          tooling that treats presence as meaningful
 
     MOCK BOUNDARY:
-        Mock: nothing — pure object construction
+        Mock: nothing -- pure object construction
         Real: AIGuidance dataclass, to_dict()
         Never: Patch dataclass fields
     """
@@ -327,7 +327,7 @@ class TestActionableErrorToDict:
     WHY: Structured errors enable automated recovery by downstream agents
 
     MOCK BOUNDARY:
-        Mock: nothing — pure object construction
+        Mock: nothing -- pure object construction
         Real: ActionableError factory methods, to_dict()
         Never: Patch serialization internals
     """
@@ -379,7 +379,7 @@ class TestValidationFactory:
     WHY: Validation errors need distinct routing from config or connection errors
 
     MOCK BOUNDARY:
-        Mock: nothing — pure object construction
+        Mock: nothing -- pure object construction
         Real: ActionableError.validation()
         Never: Patch validation logic
     """
@@ -415,7 +415,7 @@ class TestFromExceptionClassifier:
          exceptions that weren't explicitly caught
 
     MOCK BOUNDARY:
-        Mock: nothing — pure object construction
+        Mock: nothing -- pure object construction
         Real: ActionableError.from_exception(), keyword classifier
         Never: Patch classification logic or keyword lists
     """

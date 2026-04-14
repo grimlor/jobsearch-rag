@@ -1,7 +1,7 @@
 """
-Config externalization tests — internal tuning knobs.
+Config externalization tests -- internal tuning knobs.
 
-Maps to BDD spec: BDD Specifications — config-externalization-tuning.md
+Maps to BDD spec: BDD Specifications -- config-externalization-tuning.md
 Implements: TestTopKRetrievalConfig, TestDistanceMetricConfig,
             TestSalaryBoundsConfig, TestHoursPerYearConfig,
             TestMaxFullTextCharsConfig, TestMaxSlugLengthConfig,
@@ -209,7 +209,7 @@ class TestTopKRetrievalConfig:
           (5) When collection count < top_k_retrieval, Scorer uses collection
               count (existing min() behavior preserved).
     WHY: Different corpus sizes may benefit from more or fewer retrieved
-         documents — the hardcoded 3 prevents tuning.
+         documents -- the hardcoded 3 prevents tuning.
 
     MOCK BOUNDARY:
         Mock:  ollama.AsyncClient (via conftest mock_embedder)
@@ -382,7 +382,7 @@ class TestDistanceMetricConfig:
           (4) VectorStore passes the configured metric to
               get_or_create_collection().
     WHY: Different embedding models may perform better with different distance
-         metrics — the hardcoded "cosine" prevents experimentation.
+         metrics -- the hardcoded "cosine" prevents experimentation.
 
     MOCK BOUNDARY:
         Mock:  chromadb.PersistentClient (via conftest vector_store)
@@ -500,7 +500,7 @@ class TestSalaryBoundsConfig:
          ranges.
 
     MOCK BOUNDARY:
-        Mock:  nothing — pure computation
+        Mock:  nothing -- pure computation
         Real:  load_settings(), parse_compensation(), config validation
         Never: n/a
     """
@@ -682,7 +682,7 @@ class TestHoursPerYearConfig:
     WHY: 2080 assumes US full-time; other contexts use different annual hours.
 
     MOCK BOUNDARY:
-        Mock:  nothing — pure computation
+        Mock:  nothing -- pure computation
         Real:  load_settings(), parse_compensation(), config validation
         Never: n/a
     """
@@ -796,7 +796,7 @@ class TestMaxFullTextCharsConfig:
          should be tunable.
 
     MOCK BOUNDARY:
-        Mock:  nothing — dataclass validation
+        Mock:  nothing -- dataclass validation
         Real:  load_settings(), JobListing construction, config validation
         Never: n/a
     """
@@ -925,7 +925,7 @@ class TestMaxSlugLengthConfig:
     WHY: Some filesystems or tools have tighter path-length limits.
 
     MOCK BOUNDARY:
-        Mock:  nothing — pure computation
+        Mock:  nothing -- pure computation
         Real:  load_settings(), slugify(), config validation
         Never: n/a
     """

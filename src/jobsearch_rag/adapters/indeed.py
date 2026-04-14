@@ -1,4 +1,4 @@
-"""Indeed adapter — auth, search pagination, JD extraction."""
+"""Indeed adapter -- auth, search pagination, JD extraction."""
 
 from __future__ import annotations
 

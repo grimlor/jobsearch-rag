@@ -5,7 +5,7 @@ Extracts salary ranges from job description text via regex, normalizes
 hourly rates to annual (x2080), and computes a continuous comp_score
 relative to a configurable base_salary target.
 
-No LLM involvement — all extraction is pure regex on raw text.
+No LLM involvement -- all extraction is pure regex on raw text.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def parse_compensation(
     text:
         Raw JD text to parse.
     source:
-        Origin of the salary data — ``"employer"`` (JD body) or
+        Origin of the salary data -- ``"employer"`` (JD body) or
         ``"estimated"`` (board-generated estimate).
     salary_floor:
         Minimum plausible salary/hourly rate.

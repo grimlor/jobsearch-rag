@@ -1,13 +1,13 @@
 """
-Indeed adapter extraction tests — high-volume board with aggressive bot detection.
+Indeed adapter extraction tests -- high-volume board with aggressive bot detection.
 
 Spec classes:
-    TestIndeedAuthenticate — session verification and bot-detection handling
-    TestIndeedSearch — search pagination and card extraction
-    TestIndeedExtractDetail — full JD extraction from listing detail pages
+    TestIndeedAuthenticate -- session verification and bot-detection handling
+    TestIndeedSearch -- search pagination and card extraction
+    TestIndeedExtractDetail -- full JD extraction from listing detail pages
 
 All tests are xfail until the adapter is implemented. The specs define
-the delivery contract — each test becomes a regression gate once the
+the delivery contract -- each test becomes a regression gate once the
 adapter is delivered.
 
 Indeed specifics:
@@ -67,7 +67,7 @@ class TestIndeedAuthenticate:
     WHAT: (1) The system completes authentication without error when the Indeed search page loads without detection.
           (2) The system raises an ActionableError suggesting a manual solve when authentication encounters a CAPTCHA challenge.
           (3) The system raises an ActionableError suggesting re-authentication when authentication is redirected to the Indeed login page because the session has expired.
-    WHY: Indeed is aggressive about bot detection — an expired or
+    WHY: Indeed is aggressive about bot detection -- an expired or
          blocked session must fail fast so the operator can intervene
          before wasting search quota
 
@@ -146,7 +146,7 @@ class TestIndeedSearch:
     WHAT: (1) The system returns a list of JobListing objects when Indeed search is called on search results.
           (2) The system populates each Indeed listing with the board, title, company, location, and url fields.
           (3) The system processes only the first page of Indeed results when max_pages is set to 1.
-    WHY: Indeed is the highest-volume general board — extraction must
+    WHY: Indeed is the highest-volume general board -- extraction must
          handle variable HTML structures and aggressive rate limiting
 
     MOCK BOUNDARY:
@@ -239,7 +239,7 @@ class TestIndeedExtractDetail:
     WHAT: (1) The system populates full_text with the job description body when full_text is empty.
           (2) The system leaves the listing unchanged when full_text is already populated.
           (3) The system returns the same listing object after mutating it in place.
-    WHY: Full JD text is required for embedding and scoring — without it
+    WHY: Full JD text is required for embedding and scoring -- without it
          the RAG pipeline cannot compute meaningful similarity
 
     MOCK BOUNDARY:

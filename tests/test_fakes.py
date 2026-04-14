@@ -28,15 +28,15 @@ Public API surface (from tests/fakes):
     store.close()
 
 Public API surface (from src/jobsearch_rag/ports):
-    EmbeddingPort  — Protocol (embed, classify)
-    HealthCheckable — Protocol (health_check)
-    MetricsProvider — Protocol (metrics property)
-    VectorStorePort — Protocol (add_documents, query, get_documents, ...)
-    QueryResult — dataclass (ids, documents, metadatas, distances)
-    GetResult — dataclass (ids, documents, metadatas)
+    EmbeddingPort  -- Protocol (embed, classify)
+    HealthCheckable -- Protocol (health_check)
+    MetricsProvider -- Protocol (metrics property)
+    VectorStorePort -- Protocol (add_documents, query, get_documents, ...)
+    QueryResult -- dataclass (ids, documents, metadatas, distances)
+    GetResult -- dataclass (ids, documents, metadatas)
 
 Public API surface (from src/jobsearch_rag/errors):
-    ActionableError.index(collection_name) — for missing collection errors
+    ActionableError.index(collection_name) -- for missing collection errors
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ class TestFakeEmbedder:
     (but NOT HealthCheckable or MetricsProvider) with configurable,
     deterministic behavior and no Ollama dependency.
 
-    WHO: All unit tests that need an embedder — replaces the mock_embedder
+    WHO: All unit tests that need an embedder -- replaces the mock_embedder
          fixture backed by patched ollama_sdk.AsyncClient.
     WHAT: (1) FakeEmbedder satisfies EmbeddingPort (isinstance check).
           (2) FakeEmbedder does NOT satisfy HealthCheckable.
@@ -84,7 +84,7 @@ class TestFakeEmbedder:
          minimal and validates the isinstance guard pattern in PipelineRunner.
 
     MOCK BOUNDARY:
-        Mock:  Nothing — FakeEmbedder IS the test double
+        Mock:  Nothing -- FakeEmbedder IS the test double
         Real:  FakeEmbedder, EmbeddingPort protocol check
         Never: Mock FakeEmbedder internals
     """
@@ -288,7 +288,7 @@ class TestInMemoryVectorStore:
     VectorStorePort with dict-backed in-memory storage and cosine
     similarity search. No ChromaDB dependency.
 
-    WHO: All unit tests that need a vector store — replaces real ChromaDB
+    WHO: All unit tests that need a vector store -- replaces real ChromaDB
          temp-dir backed VectorStore for unit tests (integration tests
          retain real ChromaDB).
     WHAT: (1) InMemoryVectorStore satisfies VectorStorePort (isinstance check).
@@ -305,14 +305,14 @@ class TestInMemoryVectorStore:
           (11) Operations on non-existent collections raise ActionableError
                (same contract as VectorStore).
           (12) add_documents() with existing IDs performs upsert.
-          (13) No WAL isolation issues — writes are immediately visible
+          (13) No WAL isolation issues -- writes are immediately visible
                from all references (eliminates §1e workaround).
     WHY: InMemoryVectorStore eliminates ChromaDB from unit tests. No temp
          dirs, no WAL isolation, no SDK mocking. Tests run faster and
          express vector-store interactions at the domain level.
 
     MOCK BOUNDARY:
-        Mock:  Nothing — InMemoryVectorStore IS the test double
+        Mock:  Nothing -- InMemoryVectorStore IS the test double
         Real:  InMemoryVectorStore, VectorStorePort protocol check,
                QueryResult, GetResult
         Never: Mock InMemoryVectorStore internals

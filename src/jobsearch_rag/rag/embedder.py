@@ -99,7 +99,7 @@ class Embedder:
         Text longer than :attr:`max_embed_chars` is truncated using a
         **head + tail** strategy to avoid exceeding the model's context
         window.  The head captures title, company, and overview.  The
-        tail preserves hands-on work details and compensation ranges —
+        tail preserves hands-on work details and compensation ranges --
         signals that real-world JDs place in the last third.  The dropped
         middle is typically "about us" boilerplate.
         """
@@ -220,7 +220,7 @@ class Embedder:
 
         # 2. Check both models are available
         available = {m.model for m in response.models if m.model}
-        # Ollama model names may include :latest suffix — normalise
+        # Ollama model names may include :latest suffix -- normalise
         available_base = {name.split(":")[0] for name in available}
         available_all = available | available_base
 
@@ -234,7 +234,7 @@ class Embedder:
                 )
 
         logger.info(
-            "Ollama health check passed — %s and %s available",
+            "Ollama health check passed -- %s and %s available",
             self.embed_model,
             self.llm_model,
         )
@@ -261,7 +261,7 @@ class Embedder:
             except ollama_sdk.ResponseError as exc:
                 last_error = exc
                 if exc.status_code not in self._retryable_status_codes:
-                    # Non-retryable — fail immediately
+                    # Non-retryable -- fail immediately
                     raise ActionableError.embedding(
                         model=self.embed_model if operation == "embed" else self.llm_model,
                         raw_error=str(exc),
@@ -295,5 +295,5 @@ class Embedder:
         raise ActionableError.embedding(
             model=self.embed_model if operation == "embed" else self.llm_model,
             raw_error=f"Failed after {self.max_retries} attempts: {last_error}",
-            suggestion="Ollama may be overloaded — check resources and retry",
+            suggestion="Ollama may be overloaded -- check resources and retry",
         )

@@ -1,6 +1,6 @@
 # Data Flow
 
-> How data moves through the system — from raw HTML on a job board to a
+> How data moves through the system -- from raw HTML on a job board to a
 > ranked, exported, and reviewed result. This document follows a single job
 > listing through the entire pipeline and traces the persistence points.
 
@@ -104,9 +104,9 @@ The ranker fuses scores, deduplicates, and filters.
 Ranked listings are written to disk in multiple formats.
 
 **Output files:**
-- `output/results.md` — summary table
-- `output/results.csv` — all score components
-- `output/jds/{external_id}_company_title.md` — individual JD files with
+- `output/results.md` -- summary table
+- `output/results.csv` -- all score components
+- `output/jds/{external_id}_company_title.md` -- individual JD files with
   metadata headers
 
 ### 6. Review
@@ -120,9 +120,9 @@ The operator reviews undecided listings interactively.
 
 Verdicts are persisted in two forms:
 
-1. **ChromaDB** — The JD text (optionally concatenated with the operator's
+1. **ChromaDB** -- The JD text (optionally concatenated with the operator's
    reasoning) is embedded and stored in the `decisions` collection
-2. **JSONL** — An append-only audit log: `data/decisions/YYYY-MM-DD.jsonl`
+2. **JSONL** -- An append-only audit log: `data/decisions/YYYY-MM-DD.jsonl`
 
 The embedded decision shifts future `history_score` calculations. Only
 `yes` verdicts have `scoring_signal=true` and contribute to scoring.
@@ -148,17 +148,17 @@ The embedded decision shifts future `history_score` calculations. Only
 
 ### Between Adapter and Scorer
 
-`JobListing` — the universal contract. All required fields must be populated
+`JobListing` -- the universal contract. All required fields must be populated
 after `extract_detail()`. The scorer only reads `full_text`.
 
 ### Between Scorer and Ranker
 
-`ScoreResult` — six float scores plus disqualification status. The ranker
+`ScoreResult` -- six float scores plus disqualification status. The ranker
 reads all fields but modifies none.
 
 ### Between Ranker and Export
 
-`RankedListing` — wraps `JobListing` + `ScoreResult` + `final_score` +
+`RankedListing` -- wraps `JobListing` + `ScoreResult` + `final_score` +
 `duplicate_boards`. Exporters read all fields.
 
 ### Between Review and Decisions

@@ -61,7 +61,7 @@ if TYPE_CHECKING:
 EMBED_ARCHITECT = [0.9, 0.1, 0.2, 0.0, 0.3]
 EMBED_DATA_ENG = [0.1, 0.8, 0.1, 0.7, 0.0]
 EMBED_ARCH_JD = [0.85, 0.15, 0.25, 0.05, 0.28]  # close to ARCHITECT
-EMBED_ARCH_JD_CLOSER = [0.89, 0.11, 0.21, 0.01, 0.30]  # even closer — guarantees higher score
+EMBED_ARCH_JD_CLOSER = [0.89, 0.11, 0.21, 0.01, 0.30]  # even closer -- guarantees higher score
 EMBED_DATA_JD = [0.15, 0.75, 0.15, 0.65, 0.05]  # close to DATA_ENG
 EMBED_UNRELATED_JD = [0.0, 0.0, 0.1, 0.9, 0.9]  # far from everything
 
@@ -193,7 +193,7 @@ def populated_store(store: VectorStore) -> VectorStore:
         embeddings=[EMBED_ARCHITECT],
         metadatas=[{"source": "resume", "section": "Summary"}],
     )
-    # Archetype collection — two archetypes with distinct embeddings
+    # Archetype collection -- two archetypes with distinct embeddings
     store.add_documents(
         collection_name="role_archetypes",
         ids=["archetype-ai-systems-engineer", "archetype-data-platform-lead"],
@@ -235,7 +235,7 @@ class TestBestArchetypeMatch:
     archetype per listing, flowing through ScoreResult, score explanation,
     CSV export, JD file metadata, and review display.
 
-    WHO: The operator reviewing scored listings — needs to know which target
+    WHO: The operator reviewing scored listings -- needs to know which target
          role type each JD most resembles, for tuning and tailoring.
     WHAT: (1) ScoreResult includes a best_archetype field containing the name
               metadata from the closest archetype document.
@@ -260,7 +260,7 @@ class TestBestArchetypeMatch:
          ChromaDB but currently discarded.
 
     MOCK BOUNDARY:
-        Mock:  mock_embedder fixture (Ollama HTTP — the only I/O boundary)
+        Mock:  mock_embedder fixture (Ollama HTTP -- the only I/O boundary)
         Real:  Scorer instance, VectorStore (ChromaDB in temp dir),
                RankedListing, CSVExporter, JDFileExporter, ReviewSession
         Never: Construct ScoreResult directly for scorer tests (scenarios 1-4)

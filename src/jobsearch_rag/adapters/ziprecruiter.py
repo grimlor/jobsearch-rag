@@ -1,5 +1,5 @@
 """
-ZipRecruiter adapter — auth, search pagination, JD extraction.
+ZipRecruiter adapter -- auth, search pagination, JD extraction.
 
 ZipRecruiter renders its SERP as a Next.js application with server-side
 rendered article elements and JSON-LD structured data.
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Page
 
 # ---------------------------------------------------------------------------
-# Selectors — only the handful we still need against the actual DOM
+# Selectors -- only the handful we still need against the actual DOM
 # ---------------------------------------------------------------------------
 
 _SELECTORS = {
@@ -63,10 +63,10 @@ _BASE_URL = "https://www.ziprecruiter.com"
 # Maximum seconds to wait for Cloudflare challenge to resolve
 _CF_WAIT_TIMEOUT = 15
 
-# Click-through timing (seconds) — human-like pause between card clicks
+# Click-through timing (seconds) -- human-like pause between card clicks
 _CLICK_DELAY = (0.5, 1.5)
 
-# Throttle detection — ZR returns this error message when rate-limited
+# Throttle detection -- ZR returns this error message when rate-limited
 _THROTTLE_PHRASES = [
     "we encountered an error while loading this job",
 ]
@@ -368,12 +368,12 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         # Wait for Cloudflare challenge if present
         await _wait_for_cloudflare(page)
 
-        # Check for CAPTCHA first — it takes priority
+        # Check for CAPTCHA first -- it takes priority
         captcha = await page.query_selector(_SELECTORS["captcha_indicator"])
         if captcha:
             raise ActionableError.authentication(
                 self.board_name,
-                "CAPTCHA encountered — cannot proceed automatically",
+                "CAPTCHA encountered -- cannot proceed automatically",
                 suggestion="Solve CAPTCHA manually in headed mode, then re-run",
             )
 
@@ -382,7 +382,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         if "/login" in url or "/sign-in" in url:
             raise ActionableError.authentication(
                 self.board_name,
-                "Session expired — redirected to login page",
+                "Session expired -- redirected to login page",
                 suggestion=(
                     "Run in headed mode (headless=false) to authenticate manually. "
                     "Session cookies will be saved automatically."
@@ -431,7 +431,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
             html = await page.content()
             cards = extract_job_cards(html)
             if not cards:
-                logger.info("No job cards on page %d — stopping", page_num)
+                logger.info("No job cards on page %d -- stopping", page_num)
                 break
 
             # Match URLs from JSON-LD structured data
@@ -518,7 +518,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                             await asyncio.sleep(backoff)
                         continue
 
-                    # Real content — accept it
+                    # Real content -- accept it
                     consecutive_throttles = 0
                     if panel_text and len(panel_text.strip()) > 100:
                         listing.full_text = panel_text.strip()
@@ -529,7 +529,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                             len(listing.full_text),
                         )
                     else:
-                        # Too short — not throttle, just sparse content
+                        # Too short -- not throttle, just sparse content
                         self._apply_short_description_fallback(listing)
                         logger.debug(
                             "Card %d/%d: panel text too short, used fallback",
@@ -569,9 +569,9 @@ class ZipRecruiterAdapter(JobBoardAdapter):
                     self._apply_short_description_fallback(listing)
                     break
             else:
-                # Retry budget exhausted — fall back to short description
+                # Retry budget exhausted -- fall back to short description
                 logger.warning(
-                    "Max retries exhausted for %s — skipping",
+                    "Max retries exhausted for %s -- skipping",
                     listing.external_id,
                 )
                 self._apply_short_description_fallback(listing)
@@ -591,7 +591,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
         listing: JobListing,
     ) -> JobListing:
         """
-        Return the listing — full JD is already populated by click-through.
+        Return the listing -- full JD is already populated by click-through.
 
         The ``search()`` method populates ``full_text`` during SERP
         click-through, so this method is a passthrough.  If ``full_text``
@@ -605,7 +605,7 @@ class ZipRecruiterAdapter(JobBoardAdapter):
 
         # Fallback: use the short description from the SERP card
         logger.debug(
-            "extract_detail called with empty full_text for %s — applying fallback",
+            "extract_detail called with empty full_text for %s -- applying fallback",
             listing.external_id,
         )
         self._apply_short_description_fallback(listing)

@@ -1,5 +1,5 @@
 """
-BDD specs for D3 — typed results + eval abstraction leak fix.
+BDD specs for D3 -- typed results + eval abstraction leak fix.
 
 Covers: TestVectorStoreReturnsTypedResults (5 tests),
         TestEvalRunnerAbstractionLeak (3 tests).
@@ -16,8 +16,8 @@ Public API surface (from src/jobsearch_rag/rag/store):
     store.close()
 
 Public API surface (from src/jobsearch_rag/ports):
-    QueryResult  — dataclass (ids, documents, metadatas, distances)
-    GetResult    — dataclass (ids, documents, metadatas)
+    QueryResult  -- dataclass (ids, documents, metadatas, distances)
+    GetResult    -- dataclass (ids, documents, metadatas)
 
 Public API surface (from src/jobsearch_rag/pipeline/eval):
     EvalRunner(scorer, ranker, store)
@@ -86,7 +86,7 @@ class TestVectorStoreReturnsTypedResults:
     dataclasses instead of dict[str, Any].
 
     WHO: All domain callers of VectorStore (Scorer, DecisionRecorder,
-         Indexer, EvalRunner) — they receive typed results.
+         Indexer, EvalRunner) -- they receive typed results.
     WHAT: (1) VectorStore.query() returns a QueryResult instance.
           (2) VectorStore.get_documents() returns a GetResult instance.
           (3) VectorStore.get_by_metadata() returns a GetResult instance.
@@ -96,7 +96,7 @@ class TestVectorStoreReturnsTypedResults:
          Eliminates untyped string-key dict access across the codebase.
 
     MOCK BOUNDARY:
-        Mock:  Nothing — uses real ChromaDB in temp dir
+        Mock:  Nothing -- uses real ChromaDB in temp dir
         Real:  VectorStore (full ChromaDB stack), QueryResult, GetResult
         Never: Mock VectorStore internals; never construct results manually
     """
@@ -213,7 +213,7 @@ class TestEvalRunnerAbstractionLeak:
     REQUIREMENT: EvalRunner loads decisions through the VectorStore port
     (get_all_documents) instead of bypassing it via raw chromadb.Collection.
 
-    WHO: EvalRunner — the only domain class that previously reached through
+    WHO: EvalRunner -- the only domain class that previously reached through
          VectorStore to the underlying ChromaDB collection.
     WHAT: (1) evaluate() correctly loads and scores decisions stored in the
               VectorStore, proving the internal pipeline reads through the port.
@@ -331,7 +331,7 @@ class TestEvalRunnerAbstractionLeak:
         # When: evaluate
         result = await runner.evaluate()
 
-        # Then: EvalResult reflects the decision — no ChromaDB needed
+        # Then: EvalResult reflects the decision -- no ChromaDB needed
         assert result.decisions_evaluated == 1, (
             f"Expected 1 decision, got {result.decisions_evaluated}"
         )

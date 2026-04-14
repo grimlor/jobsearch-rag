@@ -1,5 +1,5 @@
 """
-Integration tests — validate external dependency contracts.
+Integration tests -- validate external dependency contracts.
 
 These tests require **live Ollama** with ``nomic-embed-text`` and
 ``mistral:7b`` models pulled.  They are skipped by default and run
@@ -14,28 +14,28 @@ The integration marker is defined in ``pyproject.toml`` under
 
 Spec classes
 ------------
-* **TestOllamaContract** — Ollama SDK response shapes we rely on
+* **TestOllamaContract** -- Ollama SDK response shapes we rely on
   (embedding vectors, chat responses, model listing, error types).
-* **TestChromaDBContract** — ChromaDB distance semantics and
+* **TestChromaDBContract** -- ChromaDB distance semantics and
   persistence behavior.
-* **TestEndToEndScoring** — full pipeline from resume indexing
+* **TestEndToEndScoring** -- full pipeline from resume indexing
   through scoring, using real Ollama embeddings with no mocks.
-* **TestLiveZipRecruiterPipeline** — full system against live
+* **TestLiveZipRecruiterPipeline** -- full system against live
   ZipRecruiter: browser session → search → extract → score → rank →
   export.
-* **TestOllamaHealthCheckSkip** — ``require_ollama`` fixture yields
+* **TestOllamaHealthCheckSkip** -- ``require_ollama`` fixture yields
   when Ollama is reachable and calls ``pytest.skip()`` when not.
-* **TestIntegrationRescoreAccumulatedJDs** — rescorer processes
+* **TestIntegrationRescoreAccumulatedJDs** -- rescorer processes
   seeded JD files through real Ollama and produces sorted export.
-* **TestLiveCumulativeAccumulation** — two successive live searches
+* **TestLiveCumulativeAccumulation** -- two successive live searches
   produce a merged CSV, preserved JD files, and correct Markdown.
-* **TestLiveFreshModeReset** — ``--fresh`` flag discards prior
+* **TestLiveFreshModeReset** -- ``--fresh`` flag discards prior
   results and restores replace-on-write behavior.
-* **TestLiveDecisionExclusionAcrossRuns** — decided listings are
+* **TestLiveDecisionExclusionAcrossRuns** -- decided listings are
   excluded from CSV/Markdown but JD files are preserved.
 
 Between them, these tests catch the class of bug where our mocks
-silently diverge from reality — e.g. an ollama SDK upgrade changes
+silently diverge from reality -- e.g. an ollama SDK upgrade changes
 the response shape, or ChromaDB alters its distance metric.
 """
 
@@ -87,7 +87,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 # ---------------------------------------------------------------------------
-# Configuration — matches settings.toml defaults
+# Configuration -- matches settings.toml defaults
 # ---------------------------------------------------------------------------
 OLLAMA_BASE_URL = "http://localhost:11434"
 EMBED_MODEL = "nomic-embed-text"
@@ -193,10 +193,10 @@ class TestOllamaContract:
           (6) The system raises an EMBEDDING error with recovery guidance when asked to embed with a nonexistent model.
           (7) The system places semantically similar text closer to a query than unrelated text in embedding space.
     WHY: If an Ollama SDK update changes response shapes, our mocks would
-         still pass but production would break — these tests catch that drift
+         still pass but production would break -- these tests catch that drift
 
     MOCK BOUNDARY:
-        Mock:  (none — integration test uses live Ollama)
+        Mock:  (none -- integration test uses live Ollama)
         Real:  Embedder.embed, Embedder.classify, Embedder.health_check
         Never: Mock Ollama responses (defeats the purpose of contract tests)
     """
@@ -350,11 +350,11 @@ class TestChromaDBContract:
           (3) The system returns query results that include the ids, documents, metadatas, and distances keys.
           (4) The system preserves indexed data across a client restart when a new VectorStore client opens the same directory.
     WHY: Our _distance_to_score function assumes cosine distance semantics
-         (0 = identical, 1 = orthogonal) — any deviation would invert
+         (0 = identical, 1 = orthogonal) -- any deviation would invert
          all scoring logic
 
     MOCK BOUNDARY:
-        Mock:  (none — integration test uses real ChromaDB)
+        Mock:  (none -- integration test uses real ChromaDB)
         Real:  VectorStore operations, ChromaDB persistence, Embedder.embed
         Never: Mock ChromaDB responses (defeats the purpose of contract tests)
     """
@@ -516,7 +516,7 @@ class TestEndToEndScoring:
          LLM classification prompts that produce unparseable output
 
     MOCK BOUNDARY:
-        Mock:  (none — full pipeline with real Ollama and ChromaDB)
+        Mock:  (none -- full pipeline with real Ollama and ChromaDB)
         Real:  Embedder, Indexer, Scorer, VectorStore, all pipeline steps
         Never: Mock any pipeline component (defeats integration purpose)
     """
@@ -665,7 +665,7 @@ class TestEndToEndScoring:
         # Given: real resume file
         real_resume = Path("data/resume.md")
         if not real_resume.exists():
-            pytest.skip("data/resume.md not found — run from project root")
+            pytest.skip("data/resume.md not found -- run from project root")
 
         # When: index the real resume
         indexer = Indexer(store=store, embedder=embedder)
@@ -696,7 +696,7 @@ class TestEndToEndScoring:
         # Given: real archetypes file
         real_archetypes = Path("config/role_archetypes.toml")
         if not real_archetypes.exists():
-            pytest.skip("config/role_archetypes.toml not found — run from project root")
+            pytest.skip("config/role_archetypes.toml not found -- run from project root")
 
         # When: index the real archetypes
         indexer = Indexer(store=store, embedder=embedder)
@@ -710,7 +710,7 @@ class TestEndToEndScoring:
 # TestLiveZipRecruiterPipeline
 # ---------------------------------------------------------------------------
 
-# This class uses the ``live`` \er — it is excluded from both default
+# This class uses the ``live`` \er -- it is excluded from both default
 # and integration runs.  Run it explicitly:
 #
 #     uv run pytest -m live              # live tests only
@@ -724,14 +724,14 @@ class TestLiveZipRecruiterPipeline:
 
     WHO: The operator validating the tool after installation or upgrade
     WHAT: (1) The system extracts live ZipRecruiter listings, scores them, ranks them in descending order, and exports the results when the full pipeline executes.
-    WHY: Unit tests mock every I/O boundary — browser, Ollama, ChromaDB.
+    WHY: Unit tests mock every I/O boundary -- browser, Ollama, ChromaDB.
          Integration tests use real Ollama but fixture HTML.  Only this test
          validates the entire system against the real world: ZipRecruiter's
          DOM structure, Cloudflare behavior, Ollama model output, and
          ChromaDB persistence all working together.
 
     MOCK BOUNDARY:
-        Mock:  (none — live end-to-end against real services)
+        Mock:  (none -- live end-to-end against real services)
         Real:  Browser, ZipRecruiter, Ollama, ChromaDB, all exporters
         Never: Mock any external service (defeats live validation)
     """
@@ -770,7 +770,7 @@ class TestLiveZipRecruiterPipeline:
         # Given: skip if no session file
         session_path = Path("data/ziprecruiter_session.json")
         if not session_path.exists():
-            pytest.skip("No ZipRecruiter session file — run login first")
+            pytest.skip("No ZipRecruiter session file -- run login first")
 
         # Given: health check Ollama
         await live_embedder.health_check()
@@ -881,7 +881,7 @@ class TestLiveZipRecruiterPipeline:
             )
             assert 0.0 <= result.comp_score <= 1.0, f"Comp score out of range: {result.comp_score}"
             assert result.fit_score > 0.0, (
-                f"Zero fit score for '{listing.title}' — embedding may have failed"
+                f"Zero fit score for '{listing.title}' -- embedding may have failed"
             )
             assert result.archetype_score > 0.0, f"Zero archetype score for '{listing.title}'"
 
@@ -954,7 +954,7 @@ class TestLiveZipRecruiterPipeline:
 
 
 # ---------------------------------------------------------------------------
-# require_ollama fixture — shared skip-if-unreachable guard (Phase 7b)
+# require_ollama fixture -- shared skip-if-unreachable guard (Phase 7b)
 # ---------------------------------------------------------------------------
 
 _OLLAMA_HEALTH_URL = f"{OLLAMA_BASE_URL}/api/tags"
@@ -970,7 +970,7 @@ def require_ollama() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TestOllamaHealthCheckSkip (Phase 7b — B1)
+# TestOllamaHealthCheckSkip (Phase 7b -- B1)
 # ---------------------------------------------------------------------------
 
 
@@ -990,7 +990,7 @@ class TestOllamaHealthCheckSkip:
     MOCK BOUNDARY:
         Mock:  (none)
         Real:  HTTP call to Ollama health endpoint
-        Never: Mock the health check itself — that defeats the purpose
+        Never: Mock the health check itself -- that defeats the purpose
     """
 
     def test_fixture_allows_test_when_ollama_is_reachable(self, require_ollama: None) -> None:
@@ -1003,7 +1003,7 @@ class TestOllamaHealthCheckSkip:
 
         # When: fixture ran before this body
 
-        # Then: we reached this point — fixture did not skip
+        # Then: we reached this point -- fixture did not skip
         assert True, "Test body should execute when Ollama is reachable"
 
     def test_fixture_skips_when_ollama_is_unreachable(self) -> None:
@@ -1026,7 +1026,7 @@ class TestOllamaHealthCheckSkip:
 
 
 # ---------------------------------------------------------------------------
-# TestIntegrationRescoreAccumulatedJDs (Phase 7b — B2)
+# TestIntegrationRescoreAccumulatedJDs (Phase 7b -- B2)
 # ---------------------------------------------------------------------------
 
 # Sample JD files matching the format produced by JDFileExporter
@@ -1101,11 +1101,11 @@ class TestIntegrationRescoreAccumulatedJDs:
           (4) Resulting Markdown ``# Run Summary`` reflects the full set of
               rescored listings
     WHY: Unit tests mock the embedder.  This validates real Ollama embedding +
-         scoring against the JD file format produced by the exporter — the full
+         scoring against the JD file format produced by the exporter -- the full
          write-parse-embed-score round trip.
 
     MOCK BOUNDARY:
-        Mock:  (none — real Ollama)
+        Mock:  (none -- real Ollama)
         Real:  Ollama (embed + LLM), ChromaDB, Rescorer, JDFileExporter,
                CSVExporter, MarkdownExporter, JD file parsing
         Never: Mock Ollama or ChromaDB
@@ -1181,7 +1181,7 @@ class TestIntegrationRescoreAccumulatedJDs:
         # Then: every result has valid non-zero scores
         for ranked in result.ranked_listings:
             assert ranked.scores.fit_score > 0.0, (
-                f"Zero fit score for '{ranked.listing.title}' — embedding may have failed"
+                f"Zero fit score for '{ranked.listing.title}' -- embedding may have failed"
             )
             assert ranked.scores.archetype_score > 0.0, (
                 f"Zero archetype score for '{ranked.listing.title}'"
@@ -1281,7 +1281,7 @@ class TestIntegrationRescoreAccumulatedJDs:
 
 
 # ---------------------------------------------------------------------------
-# Shared helpers for live cumulative tests (Phase 7b — B3/B4/B5)
+# Shared helpers for live cumulative tests (Phase 7b -- B3/B4/B5)
 # ---------------------------------------------------------------------------
 
 
@@ -1366,7 +1366,7 @@ def _read_csv_rows(csv_path: Path) -> list[dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------
-# TestLiveCumulativeAccumulation (Phase 7b — B3)
+# TestLiveCumulativeAccumulation (Phase 7b -- B3)
 # ---------------------------------------------------------------------------
 
 
@@ -1425,7 +1425,7 @@ class TestLiveCumulativeAccumulation:
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
-            pytest.skip("No ZipRecruiter session file — run login first")
+            pytest.skip("No ZipRecruiter session file -- run login first")
 
         try:
             urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
@@ -1527,7 +1527,7 @@ class TestLiveCumulativeAccumulation:
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
-            pytest.skip("No ZipRecruiter session file — run login first")
+            pytest.skip("No ZipRecruiter session file -- run login first")
 
         try:
             urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
@@ -1562,7 +1562,7 @@ class TestLiveCumulativeAccumulation:
 
 
 # ---------------------------------------------------------------------------
-# TestLiveFreshModeReset (Phase 7b — B4)
+# TestLiveFreshModeReset (Phase 7b -- B4)
 # ---------------------------------------------------------------------------
 
 
@@ -1603,7 +1603,7 @@ class TestLiveFreshModeReset:
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
-            pytest.skip("No ZipRecruiter session file — run login first")
+            pytest.skip("No ZipRecruiter session file -- run login first")
 
         try:
             urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)
@@ -1665,7 +1665,7 @@ class TestLiveFreshModeReset:
 
 
 # ---------------------------------------------------------------------------
-# TestLiveDecisionExclusionAcrossRuns (Phase 7b — B5)
+# TestLiveDecisionExclusionAcrossRuns (Phase 7b -- B5)
 # ---------------------------------------------------------------------------
 
 
@@ -1719,7 +1719,7 @@ class TestLiveDecisionExclusionAcrossRuns:
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
-            pytest.skip("No ZipRecruiter session file — run login first")
+            pytest.skip("No ZipRecruiter session file -- run login first")
 
         try:
             urllib.request.urlopen(_OLLAMA_HEALTH_URL, timeout=5)

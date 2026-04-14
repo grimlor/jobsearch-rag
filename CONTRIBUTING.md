@@ -42,11 +42,11 @@ task test           # pytest -v
 
 ## Code Style
 
-- **Python 3.11–3.13** — use modern syntax (`X | Y` unions, `match` statements
+- **Python 3.11–3.13** -- use modern syntax (`X | Y` unions, `match` statements
   where appropriate). CI tests all three versions on Ubuntu, macOS, and Windows.
 - **`from __future__ import annotations`** at the top of every module.
 - **ruff** handles formatting and import sorting. Don't fight it.
-- **pyright** — all functions need type annotations. No `Any` unless
+- **pyright** -- all functions need type annotations. No `Any` unless
   you have a good reason and document it.
 - **Line length:** 99 characters (configured in `pyproject.toml`).
 
@@ -75,7 +75,7 @@ class TestYourFeature:
 ### Key Principles
 
 1. **Mock I/O boundaries, not implementation.** Use HTML fixtures and data
-   fixtures. Don't mock internal method calls — that couples tests to
+   fixtures. Don't mock internal method calls -- that couples tests to
    implementation details and makes refactoring painful.
 
 2. **Failure specs matter.** For every happy path, ask: what goes wrong?
@@ -142,14 +142,14 @@ feat(scraper): add WeWorkRemotely adapter with fixture-based tests
 This project uses [universal-dev-skills](https://github.com/grimlor/universal-dev-skills)
 for AI coding agent configuration (skills, instructions, and agents). Clone
 that repo and follow its README to configure your editor. No per-repo setup
-is required — the skills apply automatically across all workspaces.
+is required -- the skills apply automatically across all workspaces.
 
 ## Pull Requests
 
 1. **Branch from `main`.**
-2. **All checks must pass** — `task check` (lint + type + test).
+2. **All checks must pass** -- `task check` (lint + type + test).
 3. **Include tests** for any new behavior or bug fix.
-4. **One concern per PR** — don't mix a new feature with unrelated refactoring.
+4. **One concern per PR** -- don't mix a new feature with unrelated refactoring.
 5. **Describe what and why** in the PR description. If it changes adapter
    behavior, note whether existing tests needed modification (ideally not).
 
@@ -158,13 +158,13 @@ is required — the skills apply automatically across all workspaces.
 Changes to the following paths have security implications and require
 explicit justification in the PR description:
 
-- `src/jobsearch_rag/adapters/` — adapter code runs authenticated Playwright
+- `src/jobsearch_rag/adapters/` -- adapter code runs authenticated Playwright
   sessions; changes here can affect session cookie handling and browser behavior
-- `src/jobsearch_rag/rag/scorer.py` — constructs the disqualifier LLM prompt;
+- `src/jobsearch_rag/rag/scorer.py` -- constructs the disqualifier LLM prompt;
   changes here affect prompt injection attack surface
-- `src/jobsearch_rag/adapters/base.py` — `JobListing` dataclass is the trust
+- `src/jobsearch_rag/adapters/base.py` -- `JobListing` dataclass is the trust
   boundary; changes to validation affect all downstream processing
-- `src/jobsearch_rag/output/jd_files.py` — constructs file paths from
+- `src/jobsearch_rag/output/jd_files.py` -- constructs file paths from
   user-influenced data; changes here affect path traversal risk
 
 CI flags PRs touching these paths with a security warning. When your PR

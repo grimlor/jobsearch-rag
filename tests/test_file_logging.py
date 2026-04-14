@@ -1,5 +1,5 @@
 """
-File logging tests — persistent log files for post-run diagnosis.
+File logging tests -- persistent log files for post-run diagnosis.
 
 Maps to BDD spec: TestFileLogging, TestSessionLogging
 
@@ -46,9 +46,9 @@ class TestFileLogging:
          after the terminal closes, making post-run diagnosis impossible
 
     MOCK BOUNDARY:
-        Mock:  nothing — uses tmp_path for real filesystem I/O
+        Mock:  nothing -- uses tmp_path for real filesystem I/O
         Real:  configure_file_logging, logger, file handlers, log directory
-        Never: Patch logging internals — exercise the real logging stack
+        Never: Patch logging internals -- exercise the real logging stack
     """
 
     def test_run_creates_log_file_in_data_logs_directory(self, tmp_path: Path) -> None:
@@ -217,9 +217,9 @@ class TestSessionLogging:
          requires grepping unstructured text
 
     MOCK BOUNDARY:
-        Mock:  nothing — uses tmp_path for real filesystem I/O
+        Mock:  nothing -- uses tmp_path for real filesystem I/O
         Real:  configure_session_logging, log_event, session_logger, new_session_id
-        Never: Patch logging internals — exercise the real logging stack
+        Never: Patch logging internals -- exercise the real logging stack
     """
 
     def test_new_session_id_produces_8_char_hex_string(self) -> None:

@@ -78,7 +78,7 @@ Naive head-only truncation loses these signals.
 Both `embed` and `classify` retry transient failures:
 
 - **Max retries:** 3
-- **Backoff:** Exponential — `1.0s × 2^(attempt−1)` → 1s, 2s, 4s
+- **Backoff:** Exponential -- `1.0s × 2^(attempt−1)` → 1s, 2s, 4s
 - **Retryable status codes:** 408, 429, 500, 502, 503, 504
 - **Non-retryable:** Immediate failure (e.g., 404 model not found)
 
@@ -124,12 +124,12 @@ client with typed methods.
 
 ### Collection Behaviors
 
-- **Required:** `resume` and `role_archetypes` — an `INDEX` error is raised
+- **Required:** `resume` and `role_archetypes` -- an `INDEX` error is raised
   if either is empty at query time
-- **Optional:** `decisions`, `negative_signals`, `global_positive_signals` —
+- **Optional:** `decisions`, `negative_signals`, `global_positive_signals` --
   return a score of 0.0 if the collection is empty or missing
 - **Query size:** Top 3 results per query (`n_results = min(count, 3)`)
-- **Upsert semantics:** `add_documents` performs upserts — existing IDs are
+- **Upsert semantics:** `add_documents` performs upserts -- existing IDs are
   updated, not duplicated
 
 ---
@@ -137,7 +137,7 @@ client with typed methods.
 ## Indexing
 
 The `Indexer` class populates collections from source files. All operations
-are idempotent — the target collection is reset (dropped and recreated)
+are idempotent -- the target collection is reset (dropped and recreated)
 before re-indexing.
 
 ### Resume Indexing
@@ -168,9 +168,9 @@ target role.
 
 Two sources feed the `negative_signals` collection:
 
-1. **Global rubric** — Each dimension's `signals_negative` list produces
+1. **Global rubric** -- Each dimension's `signals_negative` list produces
    individual documents: `neg-{dimension-slug}-{signal-slug}`
-2. **Per-archetype** — Each archetype's `signals_negative` list produces
+2. **Per-archetype** -- Each archetype's `signals_negative` list produces
    individual documents: `neg-{archetype-slug}-{signal-slug}`
 
 Each signal is embedded independently (not synthesized), so the similarity
@@ -210,7 +210,7 @@ When the scorer processes a JD:
 ### Why Max-Score Aggregation?
 
 A strong signal in any chunk should count. If chunk 3 of 5 mentions your
-exact tech stack, that's a genuine fit — even if chunks 1–2 are generic
+exact tech stack, that's a genuine fit -- even if chunks 1–2 are generic
 company boilerplate. Taking the maximum preserves the strongest match.
 
 ---

@@ -1,8 +1,8 @@
 # Job Search RAG Assistant
 
 > Local LLM + RAG pipeline that automates intelligent job filtering across
-> multiple job boards. Encodes your hiring judgment as semantic search —
-> not keyword matching — and runs entirely on your machine.
+> multiple job boards. Encodes your hiring judgment as semantic search --
+> not keyword matching -- and runs entirely on your machine.
 
 [![CI](https://github.com/grimlor/jobsearch-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/grimlor/jobsearch-rag/actions/workflows/ci.yml)
 [![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/grimlor/b6bda813bb4ef28ff592b6c81a09c791/raw/jobsearch-rag-coverage.json)](https://github.com/grimlor/jobsearch-rag/actions/workflows/ci.yml)
@@ -18,9 +18,9 @@ Mislabeled IC roles, vendor-chain postings, keyword-match junk, and irrelevant
 industries overwhelm every search page. Signal-based tools still produce
 misaligned results because they match keywords, not judgment.
 
-This project encodes your judgment once — as semantic embeddings built from
+This project encodes your judgment once -- as semantic embeddings built from
 your resume, your target role archetypes, a global evaluation rubric, and your
-own growing decision history — then applies it continuously across every board
+own growing decision history -- then applies it continuously across every board
 you care about. Everything runs locally via
 [Ollama](https://ollama.com) and [ChromaDB](https://www.trychroma.com/);
 no data leaves your machine.
@@ -70,9 +70,9 @@ no data leaves your machine.
 
 The scoring pipeline encodes two independent dimensions of judgment:
 
-- **What kind of role** — `archetype_score` (role type match) + `fit_score`
+- **What kind of role** -- `archetype_score` (role type match) + `fit_score`
   (resume alignment) + `comp_score` (compensation vs. target)
-- **What kind of environment** — `culture_score` (work model, ethics,
+- **What kind of environment** -- `culture_score` (work model, ethics,
   autonomy preferences) + `negative_score` (red-flag penalty for adtech,
   chaos culture, seniority mismatch, etc.)
 
@@ -82,19 +82,19 @@ disguised as architect titles, staffing-agency postings).
 
 ### Pipeline Steps
 
-1. **Adapter layer** — Playwright-based browser automation loads job board pages
+1. **Adapter layer** -- Playwright-based browser automation loads job board pages
    exactly as a human would. Each board has its own adapter; all produce the
    same `JobListing` data contract.
-2. **Scoring pipeline** — Job descriptions are embedded locally via
+2. **Scoring pipeline** -- Job descriptions are embedded locally via
    `nomic-embed-text` and scored against six ChromaDB collections
    (resume, role archetypes, global positive signals, negative signals,
    decision history, plus inline compensation parsing).
-3. **LLM disqualifier** — A `mistral:7b` pass screens for structural
+3. **LLM disqualifier** -- A `mistral:7b` pass screens for structural
    mismatches, personalized with your past rejection reasons.
    Defense-in-depth prompt injection mitigation protects this stage.
-4. **Ranker** — Weighted score fusion, cross-board deduplication
+4. **Ranker** -- Weighted score fusion, cross-board deduplication
    (cosine > 0.95), and minimum-score threshold filtering.
-5. **Export** — Ranked results as Markdown table, CSV with compensation
+5. **Export** -- Ranked results as Markdown table, CSV with compensation
    columns, individual JD files, and/or browser tabs.
 
 ### Feedback Loop
@@ -120,7 +120,7 @@ Over time, the pipeline learns your preferences without retraining any models.
 | [Python 3.11+](https://www.python.org) | `brew install python@3.13` or via [uv](https://docs.astral.sh/uv/) |
 | [uv](https://docs.astral.sh/uv/) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | [Ollama](https://ollama.com) | `brew install ollama` |
-| [direnv](https://direnv.net/) | `brew install direnv` *(optional — auto-activates venv)* |
+| [direnv](https://direnv.net/) | `brew install direnv` *(optional -- auto-activates venv)* |
 
 ## Quick Start
 
@@ -142,10 +142,10 @@ ollama pull mistral:7b
 ollama pull nomic-embed-text
 
 # Configure your search (edit these files)
-#   config/settings.toml        — board URLs, scoring weights, output prefs
-#   config/role_archetypes.toml — descriptions of your target roles
-#   config/global_rubric.toml   — universal evaluation dimensions
-#   data/resume.md              — your resume in plain Markdown
+#   config/settings.toml        -- board URLs, scoring weights, output prefs
+#   config/role_archetypes.toml -- descriptions of your target roles
+#   config/global_rubric.toml   -- universal evaluation dimensions
+#   data/resume.md              -- your resume in plain Markdown
 
 # Index your resume, archetypes, and rubric into ChromaDB
 uv run python -m jobsearch_rag index
@@ -225,7 +225,7 @@ uv run task live          # integration + live tests (requires Ollama)
 uv run task check         # format → lint → type → test
 ```
 
-> **Note:** The `uv run` prefix is optional if your venv is already activated —
+> **Note:** The `uv run` prefix is optional if your venv is already activated --
 > either manually (`source .venv/bin/activate`) or automatically via `direnv allow`.
 
 CI runs on **3 OS × 3 Python versions** (Ubuntu, macOS, Windows × 3.11, 3.12,
@@ -240,22 +240,22 @@ testing philosophy, and PR process.
 
 | Phase | Status | Highlights |
 |---|---|---|
-| 1 — Core Adapter Infrastructure | ✅ | Adapter registry, session manager, ZipRecruiter adapter, error hierarchy |
-| 2 — RAG Foundation | ✅ | Ollama embeddings, ChromaDB vector store, resume/archetype indexing, semantic scoring |
-| 3 — Scoring Pipeline | ✅ | Score fusion, cross-board dedup, LLM disqualifier, decision history |
-| 4 — Export & Polish | ✅ | Markdown/CSV/JD file export, compensation scoring, context-length safety, operational resilience, interactive review, rejection reason learning, file identity refactor |
-| 5 — Observability & Evaluation | ✅ | Structured session tracing, inference metrics, retrieval quality metrics, eval harness with Spearman correlation, model A/B comparison |
-| 6 — Security & Data Hygiene | ✅ | Threat model, prompt injection defense (4 layers), input validation, decision audit, privacy verification test, ZipRecruiter Next.js rewrite |
-| 7 — Cumulative Search | ✅ | Accumulate results across runs, parallel scoring loop, live/integration test automation |
-| 8 — Config Externalization | ✅ | All persona-specific, operational, and tuning parameters moved from source to `settings.toml` |
-| 9 — Portfolio Polish | 🔧 | Documentation updates (current phase) |
+| 1 -- Core Adapter Infrastructure | ✅ | Adapter registry, session manager, ZipRecruiter adapter, error hierarchy |
+| 2 -- RAG Foundation | ✅ | Ollama embeddings, ChromaDB vector store, resume/archetype indexing, semantic scoring |
+| 3 -- Scoring Pipeline | ✅ | Score fusion, cross-board dedup, LLM disqualifier, decision history |
+| 4 -- Export & Polish | ✅ | Markdown/CSV/JD file export, compensation scoring, context-length safety, operational resilience, interactive review, rejection reason learning, file identity refactor |
+| 5 -- Observability & Evaluation | ✅ | Structured session tracing, inference metrics, retrieval quality metrics, eval harness with Spearman correlation, model A/B comparison |
+| 6 -- Security & Data Hygiene | ✅ | Threat model, prompt injection defense (4 layers), input validation, decision audit, privacy verification test, ZipRecruiter Next.js rewrite |
+| 7 -- Cumulative Search | ✅ | Accumulate results across runs, parallel scoring loop, live/integration test automation |
+| 8 -- Config Externalization | ✅ | All persona-specific, operational, and tuning parameters moved from source to `settings.toml` |
+| 9 -- Portfolio Polish | 🔧 | Documentation updates (current phase) |
 
 **868+ tests** across 35 test files. 100% statement coverage on all core
 modules. CI validated on 3 OS × 3 Python versions.
 
 ## Responsible Use
 
-This tool performs **browser automation** — it loads pages exactly as a human
+This tool performs **browser automation** -- it loads pages exactly as a human
 would, navigates via visible links, and reads only data visible in your own
 authenticated session. It does not redistribute data, bypass access controls,
 or perform bulk harvesting.
@@ -291,4 +291,4 @@ Some practical guidelines:
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE) — free for personal use, learning, and noncommercial purposes.
+[PolyForm Noncommercial 1.0.0](LICENSE) -- free for personal use, learning, and noncommercial purposes.

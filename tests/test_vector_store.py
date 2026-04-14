@@ -1,5 +1,5 @@
 """
-VectorStore tests — ChromaDB collection management and querying.
+VectorStore tests -- ChromaDB collection management and querying.
 
 Maps to BDD specs: TestCollectionLifecycle, TestDocumentOperations,
 TestSimilarityQuery, TestStoreErrors
@@ -43,7 +43,7 @@ SAMPLE_METADATA = [
     {"source": "resume", "section": "skills"},
 ]
 
-# Fake embedding vectors — 5 dimensions is enough for tests.
+# Fake embedding vectors -- 5 dimensions is enough for tests.
 # Vectors are directionally meaningful so similarity tests work:
 #   doc-1 and doc-3 are somewhat similar (both about leadership)
 #   doc-2 points in a different direction (data engineering)
@@ -92,11 +92,11 @@ class TestCollectionLifecycle:
           (4) The system reports a document count of 3 after 3 documents are added to a collection.
           (5) The system drops all documents and reports a document count of zero when reset_collection is called on a populated collection.
           (6) The system performs a safe no-op without raising an exception when reset_collection is called for a nonexistent collection.
-    WHY: Stale or phantom collections lead to scoring against outdated data —
+    WHY: Stale or phantom collections lead to scoring against outdated data --
          a silent correctness bug that's hard to diagnose
 
     MOCK BOUNDARY:
-        Mock: nothing — uses real ChromaDB via tmpdir
+        Mock: nothing -- uses real ChromaDB via tmpdir
         Real: VectorStore, get_or_create_collection, reset_collection, collection_count
         Never: Patch ChromaDB internals
     """
@@ -169,7 +169,7 @@ class TestCollectionLifecycle:
         """
         GIVEN a collection name that doesn't exist
         WHEN reset_collection is called
-        THEN it is a safe no-op — no exception is raised.
+        THEN it is a safe no-op -- no exception is raised.
         """
         # When/Then: reset non-existent collection (should not raise)
         store.reset_collection("never_existed")
@@ -193,7 +193,7 @@ class TestDocumentOperations:
          prevents score explanation and debugging
 
     MOCK BOUNDARY:
-        Mock: nothing — uses real ChromaDB via tmpdir
+        Mock: nothing -- uses real ChromaDB via tmpdir
         Real: VectorStore.add_documents, get_documents, collection_count
         Never: Patch ChromaDB internals or embedding storage
     """
@@ -290,11 +290,11 @@ class TestSimilarityQuery:
           (3) The system limits the query output to one result when `n_results=1`.
           (4) The system returns an empty result for an empty collection instead of raising an error.
           (5) The system includes the original document text and metadata in the query results.
-    WHY: Incorrect similarity ordering would silently invert job rankings —
+    WHY: Incorrect similarity ordering would silently invert job rankings --
          the most dangerous class of bug in the system
 
     MOCK BOUNDARY:
-        Mock: nothing — uses real ChromaDB via tmpdir
+        Mock: nothing -- uses real ChromaDB via tmpdir
         Real: VectorStore.query, similarity ranking, distance computation
         Never: Patch ChromaDB query internals or distance functions
     """
@@ -400,11 +400,11 @@ class TestStoreErrors:
           (2) The system names the nonexistent collection and provides step-by-step guidance in the INDEX error when `query` is called.
           (3) The system raises an INDEX error with actionable guidance when `get_documents` is called on a nonexistent collection.
           (4) The system raises an INDEX error with actionable guidance when `collection_count` is called on a nonexistent collection.
-    WHY: Generic exceptions force operators to read stack traces —
+    WHY: Generic exceptions force operators to read stack traces --
          actionable errors tell them exactly what to fix
 
     MOCK BOUNDARY:
-        Mock: nothing — uses real ChromaDB via tmpdir
+        Mock: nothing -- uses real ChromaDB via tmpdir
         Real: VectorStore error paths, ActionableError classification
         Never: Patch error construction or ErrorType enum
     """
@@ -501,10 +501,10 @@ class TestMetadataQuery:
           (2) The system returns an empty result when no documents match the requested metadata value.
           (3) The system raises an actionable INDEX error when get_by_metadata is called on a nonexistent collection.
     WHY: The disqualifier prompt needs past 'no' reasons to learn the operator's
-         personal rejection patterns — metadata queries make this possible
+         personal rejection patterns -- metadata queries make this possible
 
     MOCK BOUNDARY:
-        Mock: nothing — uses real ChromaDB via tmpdir
+        Mock: nothing -- uses real ChromaDB via tmpdir
         Real: VectorStore.get_by_metadata, add_documents, metadata filtering
         Never: Patch ChromaDB metadata internals
     """

@@ -4,7 +4,7 @@ Individual JD markdown file export.
 Writes each ranked listing's full job description as a standalone
 Markdown file under ``output/jds/``.  Each file includes a YAML-style
 metadata header (title, company, board, score, URL, external ID)
-followed by the full JD text — ready for review in a Markdown editor,
+followed by the full JD text -- ready for review in a Markdown editor,
 browser, or AI assistant (e.g. Edge Copilot).
 
 Files are named ``{external_id}_{company}_{title}.md`` for stable
@@ -68,7 +68,7 @@ class JDFileExporter:
         for r in qualified:
             if not r.listing.full_text.strip():
                 logger.debug(
-                    "Skipping JD export for %s — no full_text",
+                    "Skipping JD export for %s -- no full_text",
                     r.listing.title,
                 )
                 continue

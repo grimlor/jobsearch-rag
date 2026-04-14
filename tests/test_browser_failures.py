@@ -2,10 +2,10 @@
 Browser failure mode tests.
 
 Spec classes:
-    TestAuthenticationFailures — session expiry, CAPTCHA, and auth recovery
-    TestRateLimitAndThrottling — human-like timing and jitter
-    TestPageExtractionFailures — 404s, empty text, selector misses
-    TestLinkedInDetectionResponse — bot detection and graceful halt
+    TestAuthenticationFailures -- session expiry, CAPTCHA, and auth recovery
+    TestRateLimitAndThrottling -- human-like timing and jitter
+    TestPageExtractionFailures -- 404s, empty text, selector misses
+    TestLinkedInDetectionResponse -- bot detection and graceful halt
 """
 
 from __future__ import annotations
@@ -85,10 +85,10 @@ class TestAuthenticationFailures:
           (5) The system persists successful authentication state to a storage file so later runs can skip login.
           (6) The system reports that no stored session state is available when the storage state file is missing instead of crashing.
     WHY: An unauthenticated scrape returns login-page HTML silently,
-         producing zero valid listings with no error — the worst failure mode
+         producing zero valid listings with no error -- the worst failure mode
 
     MOCK BOUNDARY:
-        Mock:  nothing — ActionableError factory methods are pure constructors
+        Mock:  nothing -- ActionableError factory methods are pure constructors
         Real:  ActionableError.authentication, SessionConfig, SessionManager
         Never: Patch error construction internals
     """
@@ -196,7 +196,7 @@ class TestAuthenticationFailures:
             viewport_height=900,
         )
 
-        # When/Then: no crash — just reports no stored state
+        # When/Then: no crash -- just reports no stored state
         assert not config.storage_state_path.exists(), "Session file should not exist"
         assert not SessionManager(config).has_storage_state(), "Should report no stored state"
 
@@ -220,7 +220,7 @@ class TestRateLimitAndThrottling:
          LinkedIn specifically monitors request cadence for ban enforcement
 
     MOCK BOUNDARY:
-        Mock:  nothing — throttle() uses random.uniform; we test output ranges
+        Mock:  nothing -- throttle() uses random.uniform; we test output ranges
         Real:  throttle, _FakeAdapter, rate_limit_seconds
         Never: Patch random.uniform or sleep internals
     """
@@ -342,10 +342,10 @@ class TestPageExtractionFailures:
           (6) The system tracks failed listings separately so the run summary reports success and failure counts.
           (7) The system preserves successful listings so partial results remain available for export.
     WHY: A single broken listing must not discard an entire search session's
-         results — partial output is better than no output
+         results -- partial output is better than no output
 
     MOCK BOUNDARY:
-        Mock:  nothing — ActionableError factory methods are pure constructors
+        Mock:  nothing -- ActionableError factory methods are pure constructors
         Real:  ActionableError.parse, ActionableError.connection, JobListing
         Never: Patch error construction internals
     """
@@ -485,7 +485,7 @@ class TestLinkedInDetectionResponse:
          the correct response is always stop, log, and wait
 
     MOCK BOUNDARY:
-        Mock:  Playwright page mock (browser I/O — page.url, page.title)
+        Mock:  Playwright page mock (browser I/O -- page.url, page.title)
         Real:  check_linkedin_detection, URL pattern matching, error construction
         Never: Patch check_linkedin_detection or URL parsing internals
     """
@@ -675,4 +675,4 @@ class TestLinkedInDetectionResponse:
         # When: detection check runs
         asyncio.run(check_linkedin_detection(page))
 
-        # Then: no error raised — implicit success
+        # Then: no error raised -- implicit success

@@ -1,11 +1,11 @@
 """
-CDP-based browser launch tests — SessionManager subprocess and cleanup.
+CDP-based browser launch tests -- SessionManager subprocess and cleanup.
 
 Spec classes:
-    TestSessionConfigCDP — config carries CDP channel selection
-    TestSessionManagerCDP — CDP launch, connect, cleanup, and fallback
-    TestSessionManagerEdgeCases — uninitialised manager and binary resolution
-    TestThrottle — rate-limiting sleep within configured bounds
+    TestSessionConfigCDP -- config carries CDP channel selection
+    TestSessionManagerCDP -- CDP launch, connect, cleanup, and fallback
+    TestSessionManagerEdgeCases -- uninitialised manager and binary resolution
+    TestThrottle -- rate-limiting sleep within configured bounds
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ class TestSessionConfigCDP:
          automation detection flags
 
     MOCK BOUNDARY:
-        Mock:  nothing — pure config construction
+        Mock:  nothing -- pure config construction
         Real:  SessionConfig dataclass
         Never: Patch SessionConfig internals
     """
@@ -122,7 +122,7 @@ class TestSessionConfigCDP:
 
 
 # ───────────────────────────────────────────────────────────────────
-# SessionManager CDP launch path — all through __aenter__ / __aexit__
+# SessionManager CDP launch path -- all through __aenter__ / __aexit__
 # ───────────────────────────────────────────────────────────────────
 
 
@@ -151,7 +151,7 @@ class TestSessionManagerCDP:
           (18) The session manager starts successfully and logs a warning when stealth mode is enabled but playwright-stealth is unavailable.
           (19) The session manager returns a new page from the active browser context when `new_page` is called after entry.
     WHY: Cloudflare detects Playwright's --enable-automation flag and
-         navigator.webdriver — CDP mode bypasses both
+         navigator.webdriver -- CDP mode bypasses both
 
     MOCK BOUNDARY:
         Mock:  subprocess.Popen (process I/O), urllib.request.urlopen
@@ -838,7 +838,7 @@ class TestSessionManagerCDP:
             _patch_playwright(mock_pw),
             patch("builtins.__import__", side_effect=_raise_import_error),
         ):
-            # When/Then: entering does not raise — stealth failure is graceful
+            # When/Then: entering does not raise -- stealth failure is graceful
             manager = SessionManager(config)
             await manager.__aenter__()
             await manager.__aexit__(None, None, None)

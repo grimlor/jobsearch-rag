@@ -2,10 +2,10 @@
 Adapter registration and IoC contract tests.
 
 Spec classes:
-    TestAdapterRegistration — self-registration and discovery by board name
-    TestAdapterContract — interface conformance for polymorphic adapter use
-    TestJobListingDataContract — canonical data contract across all boards
-    TestStubAdapterContract — behavioral specs for planned adapters (xfail until delivered)
+    TestAdapterRegistration -- self-registration and discovery by board name
+    TestAdapterContract -- interface conformance for polymorphic adapter use
+    TestJobListingDataContract -- canonical data contract across all boards
+    TestStubAdapterContract -- behavioral specs for planned adapters (xfail until delivered)
 """
 
 from __future__ import annotations
@@ -105,11 +105,11 @@ class TestAdapterRegistration:
           (3) The registry returns all registered board names when the system lists registered adapters.
           (4) The registry replaces the previously registered adapter class when the system registers a new class under the same board name.
           (5) The registry returns the original class unchanged when the system passes an adapter class through register().
-    WHY: The runner must not know concrete adapter classes — IoC requires
+    WHY: The runner must not know concrete adapter classes -- IoC requires
          that board name is the only coupling between config and implementation
 
     MOCK BOUNDARY:
-        Mock: nothing — pure registration logic
+        Mock: nothing -- pure registration logic
         Real: AdapterRegistry.register / get / list_registered
         Never: Patch registry internals or _registry dict
     """
@@ -218,7 +218,7 @@ class TestAdapterContract:
          any deviation from the contract breaks the pipeline silently
 
     MOCK BOUNDARY:
-        Mock: Playwright page (MagicMock) — browser I/O boundary
+        Mock: Playwright page (MagicMock) -- browser I/O boundary
         Real: JobBoardAdapter implementations, all interface methods
         Never: Patch adapter internals
     """
@@ -341,11 +341,11 @@ class TestJobListingDataContract:
           (4) The system assigns distinct external_id values to different listings within the same board.
           (5) The system defaults posted_at to None when it is missing without raising an error.
           (6) The system defaults metadata to an empty dictionary rather than None when it is missing.
-    WHY: Downstream components must not branch on board type —
+    WHY: Downstream components must not branch on board type --
          the listing is the abstraction that makes them board-agnostic
 
     MOCK BOUNDARY:
-        Mock: Playwright page (MagicMock) — browser I/O boundary
+        Mock: Playwright page (MagicMock) -- browser I/O boundary
         Real: JobListing construction, field defaults, extract_detail
         Never: Patch dataclass fields
     """
@@ -456,13 +456,13 @@ class TestStubAdapterContract:
           (3) The adapter verifies a valid browser session during `authenticate()` without raising an error.
           (4) The adapter returns a list of `JobListing` objects from `search()` for a query.
           (5) The adapter populates a listing's `full_text` when `extract_detail()` is called on a shallow listing.
-    WHY: These specs define the delivery contract — each adapter is
+    WHY: These specs define the delivery contract -- each adapter is
          expected to fail (xfail) until implementation is delivered,
          then the marks are removed and the specs become regression
          gates
 
     MOCK BOUNDARY:
-        Mock: Playwright page (MagicMock) — browser I/O boundary
+        Mock: Playwright page (MagicMock) -- browser I/O boundary
         Real: Adapter classes, board_name properties, method contracts
         Never: Patch adapter internals
     """

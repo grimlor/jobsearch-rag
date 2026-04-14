@@ -1,5 +1,5 @@
 """
-Rescore pipeline tests — JD file loading and re-scoring workflow.
+Rescore pipeline tests -- JD file loading and re-scoring workflow.
 
 Maps to BDD specs: TestJdFileLoading, TestRescoreWorkflow
 """
@@ -84,10 +84,10 @@ class TestJdFileLoading:
           (6) The system uses default values for missing metadata fields when a JD file provides only a body.
           (7) external_id can be extracted from the filename prefix for files using the new naming convention.
     WHY: Without correct JD loading, rescoring would fail silently or produce
-         garbled results — the operator would have to re-run full browser sessions
+         garbled results -- the operator would have to re-run full browser sessions
 
     MOCK BOUNDARY:
-        Mock: (none — pure function tests on load_jd_files)
+        Mock: (none -- pure function tests on load_jd_files)
         Real: load_jd_files, filesystem via tmp_path
         Never: Patch file I/O or markdown parsing internals
     """
@@ -419,11 +419,11 @@ class TestRescoreWorkflow:
           (3) The system counts failed listings and completes the run without crashing when required scoring data is missing.
           (4) The system initializes a fresh RescoreResult with zero and empty default field values.
     WHY: Without rescoring, the operator would need to re-run full browser
-         sessions after every archetype or rubric tweak — a 20-minute wait
+         sessions after every archetype or rubric tweak -- a 20-minute wait
          instead of seconds
 
     MOCK BOUNDARY:
-        Mock: Embedder I/O (embed, classify, health_check — Ollama HTTP)
+        Mock: Embedder I/O (embed, classify, health_check -- Ollama HTTP)
         Real: Scorer, VectorStore (ChromaDB in tmp_path), Ranker, Rescorer,
               load_jd_files, RescoreResult
         Never: Patch Scorer, Ranker, or Rescorer internals
@@ -515,7 +515,7 @@ class TestRescoreWorkflow:
         When the Rescorer processes it
         Then an empty RescoreResult is returned.
         """
-        # Given: scorer with populated store (irrelevant — no JDs to score)
+        # Given: scorer with populated store (irrelevant -- no JDs to score)
         self._populate_store(vector_store)
         scorer = self._make_scorer(vector_store, mock_embedder)
         ranker = self._make_ranker()

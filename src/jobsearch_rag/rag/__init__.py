@@ -1,1 +1,1 @@
-"""RAG pipeline — Ollama embeddings, ChromaDB storage, semantic scoring."""
+"""RAG pipeline -- Ollama embeddings, ChromaDB storage, semantic scoring."""

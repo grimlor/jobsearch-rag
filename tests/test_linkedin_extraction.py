@@ -1,13 +1,13 @@
 """
-LinkedIn adapter extraction tests — overnight mode, stealth, throttled.
+LinkedIn adapter extraction tests -- overnight mode, stealth, throttled.
 
 Spec classes:
-    TestLinkedInAuthenticate — session verification with bot-detection awareness
-    TestLinkedInSearch — job search pagination and listing extraction
-    TestLinkedInExtractDetail — full JD extraction from listing detail pages
+    TestLinkedInAuthenticate -- session verification with bot-detection awareness
+    TestLinkedInSearch -- job search pagination and listing extraction
+    TestLinkedInExtractDetail -- full JD extraction from listing detail pages
 
 All tests are xfail until the adapter is implemented. The specs define
-the delivery contract — each test becomes a regression gate once the
+the delivery contract -- each test becomes a regression gate once the
 adapter is delivered.
 
 LinkedIn specifics:
@@ -67,7 +67,7 @@ class TestLinkedInAuthenticate:
     WHAT: (1) The system completes authentication without error when the LinkedIn feed loads successfully.
           (2) The system raises an ActionableError that mentions authwall and suggests waiting 24 hours when LinkedIn redirects authentication to `/authwall`.
           (3) The system raises an ActionableError about session expiration when LinkedIn redirects authentication to `/login`.
-    WHY: LinkedIn's bot detection is aggressive — a detected session is
+    WHY: LinkedIn's bot detection is aggressive -- a detected session is
          locked for 24+ hours.  Failing fast with actionable advice
          prevents wasted retries that extend the lockout
 
@@ -153,7 +153,7 @@ class TestLinkedInSearch:
     WHAT: (1) The system returns a list of JobListings when LinkedIn search is called on job search results.
           (2) The system populates each returned LinkedIn listing with board, title, company, location, and url fields.
           (3) The system processes only the first page of LinkedIn results when search is called with max_pages set to 1.
-    WHY: LinkedIn is the highest-signal board for professional roles —
+    WHY: LinkedIn is the highest-signal board for professional roles --
          extraction must be reliable despite aggressive bot detection
 
     MOCK BOUNDARY:
@@ -246,7 +246,7 @@ class TestLinkedInExtractDetail:
     WHAT: (1) The system populates an empty full_text field with the job description body during detail extraction.
           (2) The system returns the listing unchanged when full_text is already populated.
           (3) The system returns the same listing object after mutating it in place during detail extraction.
-    WHY: Full JD text is required for embedding and scoring — without it
+    WHY: Full JD text is required for embedding and scoring -- without it
          the RAG pipeline cannot compute meaningful similarity
 
     MOCK BOUNDARY:

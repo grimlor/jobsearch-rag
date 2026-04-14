@@ -3,14 +3,14 @@ Playwright session manager with storage_state persistence and throttling.
 
 Two-layer architecture:
 
-**BrowserManager** — owns the Playwright instance and browser process.
+**BrowserManager** -- owns the Playwright instance and browser process.
 One per ``browser_channel`` per run.  Shared across multiple boards.
 
-**BoardSession** — owns a ``BrowserContext`` over a shared ``Browser``.
+**BoardSession** -- owns a ``BrowserContext`` over a shared ``Browser``.
 One per board.  Provides cookie isolation, stealth patches, and page
 management without launching another browser process.
 
-**SessionManager** — backward-compatible convenience wrapper that
+**SessionManager** -- backward-compatible convenience wrapper that
 composes ``BrowserManager`` + ``BoardSession`` for single-board callers.
 
 When ``browser_channel`` is set (e.g. ``msedge``), the browser manager
@@ -100,7 +100,7 @@ def _find_browser_binary(
     """
     Resolve a browser channel name to an executable path.
 
-    When *config_paths* is provided, only those paths are checked —
+    When *config_paths* is provided, only those paths are checked --
     neither ``_BROWSER_PATHS`` nor ``shutil.which()`` are consulted.
     When *config_paths* is ``None``, falls back to the module-level
     ``_BROWSER_PATHS`` dict and then ``shutil.which()``.
@@ -162,7 +162,7 @@ def _terminate_process(proc: subprocess.Popen[bytes]) -> None:
         proc.send_signal(signal.SIGTERM)
         proc.wait(timeout=5)
     except (OSError, subprocess.TimeoutExpired):
-        logger.warning("Browser subprocess did not exit cleanly — killing")
+        logger.warning("Browser subprocess did not exit cleanly -- killing")
         proc.kill()
         proc.wait(timeout=3)
 
@@ -192,7 +192,7 @@ async def throttle(
 
 
 # ---------------------------------------------------------------------------
-# Browser manager — owns Playwright instance and browser process
+# Browser manager -- owns Playwright instance and browser process
 # ---------------------------------------------------------------------------
 
 
@@ -206,7 +206,7 @@ class BrowserManager:
     Two launch modes:
 
     **Playwright-managed** (when ``browser_channel`` is ``None``):
-      ``playwright.chromium.launch()`` — Playwright starts its bundled
+      ``playwright.chromium.launch()`` -- Playwright starts its bundled
       Chromium.
 
     **CDP mode** (when ``browser_channel`` is set, e.g. ``"msedge"``):
@@ -327,7 +327,7 @@ class BrowserManager:
 
 
 # ---------------------------------------------------------------------------
-# Board session — per-board context over a shared browser
+# Board session -- per-board context over a shared browser
 # ---------------------------------------------------------------------------
 
 
@@ -361,7 +361,7 @@ class BoardSession:
             storage_state = str(storage_path)
         else:
             logger.info(
-                "No existing session state for %s — fresh session",
+                "No existing session state for %s -- fresh session",
                 self._config.board_name,
             )
 
@@ -381,7 +381,7 @@ class BoardSession:
                 await Stealth().apply_stealth_async(self._context)
                 logger.info("Stealth patches applied for %s", self._config.board_name)
             except ImportError:
-                logger.warning("playwright-stealth not installed — stealth mode unavailable")
+                logger.warning("playwright-stealth not installed -- stealth mode unavailable")
 
         return self
 
@@ -427,7 +427,7 @@ class BoardSession:
 
 
 # ---------------------------------------------------------------------------
-# Session manager — backward-compatible wrapper
+# Session manager -- backward-compatible wrapper
 # ---------------------------------------------------------------------------
 
 
@@ -497,6 +497,6 @@ class SessionManager:
     def has_storage_state(self) -> bool:
         """Check whether a persisted session exists for this board."""
         if self._board_session is None:
-            # Allow checking before entering — use config directly
+            # Allow checking before entering -- use config directly
             return self.config.storage_state_path.exists()
         return self._board_session.has_storage_state()

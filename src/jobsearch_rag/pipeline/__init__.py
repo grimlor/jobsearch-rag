@@ -1,1 +1,1 @@
-"""Pipeline orchestration — runner, ranker, score fusion."""
+"""Pipeline orchestration -- runner, ranker, score fusion."""

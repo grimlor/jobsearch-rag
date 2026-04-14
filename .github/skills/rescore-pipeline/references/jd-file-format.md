@@ -1,4 +1,4 @@
-# JD File Format — Parsing Rules & Edge Cases
+# JD File Format -- Parsing Rules & Edge Cases
 
 ## File Format
 
@@ -44,4 +44,4 @@ Files live in `output/jds/` with naming convention `{rank:03d}_{company_slug}_{t
 - Missing header field → skip file with warning (log filename)
 - Missing `## Job Description` marker → skip file with warning
 - Empty body after marker → skip file with warning
-- File rank prefix (`001_`) is ignored — rescore produces new rankings
+- File rank prefix (`001_`) is ignored -- rescore produces new rankings

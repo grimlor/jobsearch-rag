@@ -1,14 +1,14 @@
 """
-RAG pipeline tests — Ollama connectivity, resume/archetype indexing, negative scoring.
+RAG pipeline tests -- Ollama connectivity, resume/archetype indexing, negative scoring.
 
 Spec classes
 ------------
-* **TestOllamaConnectivity** — startup checks, retry/backoff, error guidance.
-* **TestResumeIndexing** — section chunking, re-indexing, empty collection errors.
-* **TestArchetypeIndexing** — TOML parsing, metadata, whitespace normalization.
-* **TestNegativeScoring** — continuous penalty via negative_signals collection.
-* **TestGlobalPositiveSignalIndexing** — rubric dimension → ChromaDB document.
-* **TestCultureScoring** — culture_score scoring axis, weight configuration.
+* **TestOllamaConnectivity** -- startup checks, retry/backoff, error guidance.
+* **TestResumeIndexing** -- section chunking, re-indexing, empty collection errors.
+* **TestArchetypeIndexing** -- TOML parsing, metadata, whitespace normalization.
+* **TestNegativeScoring** -- continuous penalty via negative_signals collection.
+* **TestGlobalPositiveSignalIndexing** -- rubric dimension → ChromaDB document.
+* **TestCultureScoring** -- culture_score scoring axis, weight configuration.
 """
 
 from __future__ import annotations
@@ -236,7 +236,7 @@ class TestResumeIndexing:
           (5) The system replaces previously indexed resume content instead of appending it when the same resume is indexed again.
           (6) The system returns the chunk count as 2 to confirm operator feedback when it indexes a resume with two ## sections.
     WHY: An empty resume collection silently produces zero fit_scores for all
-         roles — a harder bug to catch than an explicit missing-index error
+         roles -- a harder bug to catch than an explicit missing-index error
 
     MOCK BOUNDARY:
         Mock:  Embedder.embed (Ollama HTTP API via conftest mock_embedder)
@@ -453,7 +453,7 @@ class TestArchetypeIndexing:
           (3) The system raises a PARSE error that identifies the TOML syntax error and its file path with actionable guidance.
           (4) The system raises a VALIDATION error that tells the operator to add archetype entries before search with actionable guidance.
           (5) The system normalizes whitespace in the stored document text before embedding.
-    WHY: Missing or malformed archetypes silently score all roles equally —
+    WHY: Missing or malformed archetypes silently score all roles equally --
          the most insidious failure mode since ranking still appears to work
 
     MOCK BOUNDARY:
@@ -620,7 +620,7 @@ class TestNegativeScoring:
     WHAT: (1) The system sets negative_score to 0.0 when the negative_signals collection is missing.
           (2) The system sets negative_score to 0.0 when the negative_signals collection is empty.
           (3) The system returns a ScoreResult that includes negative_score with a value between 0.0 and 1.0 when a job description matches a negative signal.
-    WHY: Binary disqualification (yes/no via LLM) misses gradient cases —
+    WHY: Binary disqualification (yes/no via LLM) misses gradient cases --
          a role at a borderline-adtech company should rank lower, not be
          entirely hidden; the negative_score provides continuous penalization
 
@@ -638,7 +638,7 @@ class TestNegativeScoring:
         When scorer.score is called
         Then negative_score defaults to 0.0.
         """
-        # Given: populate resume and archetypes only — no negative_signals
+        # Given: populate resume and archetypes only -- no negative_signals
         store.add_documents(
             collection_name="resume",
             ids=["resume-summary"],
@@ -772,7 +772,7 @@ class TestGlobalPositiveSignalIndexing:
     """
     REQUIREMENT: Positive signals from the global rubric are indexed into
     a dedicated ChromaDB collection that the scorer queries to compute a
-    continuous culture score — orthogonal to archetype score.
+    continuous culture score -- orthogonal to archetype score.
 
     WHO: The scorer computing culture_score; the indexer building the
          global_positive_signals collection
@@ -1048,9 +1048,9 @@ signals_negative = ["equity-only compensation", "unpaid position"]
 class TestCultureScoring:
     """
     REQUIREMENT: culture_score continuously rewards roles whose environment
-    signals match global rubric positive dimensions — altitude, humane
+    signals match global rubric positive dimensions -- altitude, humane
     culture, domain alignment, scope, company maturity, ethics, and
-    ND compatibility — acting as a second scoring axis orthogonal to
+    ND compatibility -- acting as a second scoring axis orthogonal to
     archetype and fit.
 
     WHO: The ranker computing final_score; the operator who wants roles

@@ -58,7 +58,7 @@ bundled Chromium. This bypasses Cloudflare bot detection.
 | `negative_weight` | `float` | `0.4` | 0.0–1.0 | Penalty multiplier for negative signals |
 | `culture_weight` | `float` | `0.2` | 0.0–1.0 | Weight for culture/work-model alignment |
 | `base_salary` | `float` | `220000` | > 0 | Reference salary for compensation scoring |
-| `disqualify_on_llm_flag` | `bool` | `true` | — | Enable LLM-based disqualification |
+| `disqualify_on_llm_flag` | `bool` | `true` | -- | Enable LLM-based disqualification |
 | `min_score_threshold` | `float` | `0.45` | 0.0–1.0 | Exclude listings scoring below this |
 | `missing_comp_score` | `float` | `0.5` | 0.0–1.0 | Score when no salary data found (neutral) |
 | `chunk_overlap` | `int` | `2000` | > 0 | Character overlap between JD chunks |
@@ -70,14 +70,14 @@ multipliers in the fusion formula (see [SCORING_ENGINE.md](SCORING_ENGINE.md)).
 
 #### Weight Tuning Guidance
 
-- **`history_weight`** — Start at 0.2. After ~50 decisions, consider raising
+- **`history_weight`** -- Start at 0.2. After ~50 decisions, consider raising
   to 0.3. After ~200, the history collection may be your strongest signal.
-- **`culture_weight`** — Start at 0.2. Global positive signals encode
-  environment preferences that JDs express inconsistently — "async-first" and
+- **`culture_weight`** -- Start at 0.2. Global positive signals encode
+  environment preferences that JDs express inconsistently -- "async-first" and
   "remote-first" appear explicitly in some JDs and implicitly (or not at all)
   in others. The history signal eventually complements this as culture-based
   yes/no decisions accumulate.
-- **`negative_weight`** — Start at 0.4. A strong negative match (adtech,
+- **`negative_weight`** -- Start at 0.4. A strong negative match (adtech,
   surveillance, chaos culture) should meaningfully suppress ranking even when
   positive signals are present.
 
@@ -215,7 +215,7 @@ into a single embedding text. This creates richer vectors that capture both
 the narrative role description and concrete skill keywords.
 
 **Archetype ordering reflects priority:** Archetypes are listed in priority
-order — the first entry is treated as the primary career target. Order them
+order -- the first entry is treated as the primary career target. Order them
 from most desired to least desired role type.
 
 ---
@@ -252,23 +252,23 @@ signals_negative = [
 
 ### Current Dimensions
 
-1. **Role Scope** — cross-team influence, organizational reach
-2. **Technical Depth** — infrastructure, platform, distributed systems
-3. **Operational Burden** — on-call ownership vs. platform engineering
-4. **Industry Alignment** — devtools, climate, health-tech vs. adtech, gambling
-5. **Employment Structure** — direct hire vs. staffing agencies
-6. **Seniority Mismatch** — Staff/Principal expectations vs. offered level
-7. **Compensation Red Flags** — transparent range, market alignment
-8. **Culture & Work Model** — remote, async, autonomy, sustainability
-9. **Neurodivergence Compatibility** — clear communication, low context-switching
-10. **Ethical Alignment** — mission-driven, privacy-respecting
+1. **Role Scope** -- cross-team influence, organizational reach
+2. **Technical Depth** -- infrastructure, platform, distributed systems
+3. **Operational Burden** -- on-call ownership vs. platform engineering
+4. **Industry Alignment** -- devtools, climate, health-tech vs. adtech, gambling
+5. **Employment Structure** -- direct hire vs. staffing agencies
+6. **Seniority Mismatch** -- Staff/Principal expectations vs. offered level
+7. **Compensation Red Flags** -- transparent range, market alignment
+8. **Culture & Work Model** -- remote, async, autonomy, sustainability
+9. **Neurodivergence Compatibility** -- clear communication, low context-switching
+10. **Ethical Alignment** -- mission-driven, privacy-respecting
 
 #### Signal Authoring Guidance
 
 - **Use full sentences.** Signals like "Cross-team architectural influence
   and organizational scope" embed with significantly better cosine
   discrimination than short keyword phrases like "architecture ownership."
-  `nomic-embed-text` is a sentence-transformer — it produces richer vectors
+  `nomic-embed-text` is a sentence-transformer -- it produces richer vectors
   from complete thoughts.
 - **Neurodivergence Compatibility is the weakest signal.** JDs rarely use
   language like "low-meeting culture" directly. This dimension will
@@ -283,7 +283,7 @@ Plain Markdown file. The indexer splits on `##` headings, producing one
 ChromaDB document per section. `###` sub-headings are kept within their
 parent section.
 
-The `#` title heading (if present) is skipped — only `##` sections are indexed.
+The `#` title heading (if present) is skipped -- only `##` sections are indexed.
 
 ---
 

@@ -1,11 +1,11 @@
 """
-Compensation parsing tests — extraction, normalization, and source detection.
+Compensation parsing tests -- extraction, normalization, and source detection.
 
 Maps to BDD spec: TestCompensationParsing
 
 The comp parser extracts salary ranges from JD text via regex, normalizes
 hourly rates to annual (x2080), and records the source (employer-stated vs.
-board-estimated).  All extraction happens on raw text — no LLM involvement.
+board-estimated).  All extraction happens on raw text -- no LLM involvement.
 """
 
 from __future__ import annotations
@@ -48,11 +48,11 @@ class TestCompensationParsing:
           (21) The parser skips a salary range when both values fall below realistic salary bounds and returns None.
           (22) The parser skips a single dollar value when it falls below realistic salary bounds and returns None.
     WHY: Salary data is noisy and inconsistently formatted across boards;
-         incorrect parsing would silently distort comp_score rankings —
+         incorrect parsing would silently distort comp_score rankings --
          a wrong number is worse than a missing one
 
     MOCK BOUNDARY:
-        Mock:  nothing — pure text parsing, no I/O
+        Mock:  nothing -- pure text parsing, no I/O
         Real:  parse_compensation, CompResult
         Never: Patch regex internals or CompResult constructor
     """
@@ -364,7 +364,7 @@ class TestCompensationParsing:
         When both results are compared
         Then the JD-body result has comp_source='employer' for preference
         """
-        # Given: two parse results — one employer, one estimated
+        # Given: two parse results -- one employer, one estimated
         jd_result = parse_compensation(
             "Base salary: $200,000 - $250,000 per year",
             source="employer",

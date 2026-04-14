@@ -1,12 +1,12 @@
 """
-Export tests — Markdown, CSV, and browser tab opener.
+Export tests -- Markdown, CSV, and browser tab opener.
 
 Maps to BDD specs: TestMarkdownExport, TestCSVExport, TestBrowserTabOpener
 
 The export layer transforms ranked pipeline output into human-consumable
 formats: Markdown tables (primary), CSV (spreadsheet import), and browser
 tabs (immediate review).  All exporters receive ``RankedListing`` objects
-produced by the Ranker — no adapter or RAG dependencies exist here.
+produced by the Ranker -- no adapter or RAG dependencies exist here.
 
 Spec classes:
     TestMarkdownExport
@@ -154,11 +154,11 @@ class TestMarkdownExport:
           (9) The system includes a non-empty URL for every listing in the Markdown output.
           (10) The system produces a valid Markdown file with a summary and no listing table when the result set is empty.
           (11) The system omits total-found/scored/excluded/deduplicated stats when no summary is provided.
-    WHY: The ranked list is the primary product of every run —
+    WHY: The ranked list is the primary product of every run --
          missing fields or wrong sort order defeats the purpose
 
     MOCK BOUNDARY:
-        Mock: nothing — pure file I/O via tmp_path
+        Mock: nothing -- pure file I/O via tmp_path
         Real: MarkdownExporter.export(), RankedListing, RankSummary
         Never: Patch exporter internals or file writing
     """
@@ -446,10 +446,10 @@ class TestCSVExport:
           (8) The system includes a `negative_score` column in the CSV header.
           (9) The system includes the `external_id` column so downstream consumers can round-trip the adapter-assigned ID.
     WHY: A CSV with unescaped commas or missing headers silently corrupts
-         on import — the operator may not notice
+         on import -- the operator may not notice
 
     MOCK BOUNDARY:
-        Mock: nothing — pure file I/O via tmp_path
+        Mock: nothing -- pure file I/O via tmp_path
         Real: CSVExporter.export(), csv.reader round-trip
         Never: Patch CSV writer internals
     """
@@ -667,7 +667,7 @@ class TestBrowserTabOpener:
           (7) The system opens no tabs and logs an advisory message when all results have zero scores.
           (8) The system opens tabs in the default system browser instead of the Playwright automation session.
           (9) The system opens no tabs and raises no error when `--open-top` is set to 0.
-    WHY: The tab opener is the last mile of the workflow — an error here
+    WHY: The tab opener is the last mile of the workflow -- an error here
          that aborts remaining tabs wastes the entire run's value;
          opening in wrong order defeats the purpose of ranking
 
@@ -916,11 +916,11 @@ class TestJDFileExport:
           (13) The system removes stale JD files from the output directory that are not in the current result set.
     WHY:  Standalone files are easier to feed to AI assistants for red-flag
           analysis than a single large table.  Rank-based naming couples
-          identity to sort position, which changes every run — external_id
+          identity to sort position, which changes every run -- external_id
           is the only stable identifier that survives re-ranking.
 
     MOCK BOUNDARY:
-        Mock: nothing — pure file I/O via tmp_path
+        Mock: nothing -- pure file I/O via tmp_path
         Real: JDFileExporter.export(), file naming, sorting, filtering
         Never: Patch file writing internals
     """

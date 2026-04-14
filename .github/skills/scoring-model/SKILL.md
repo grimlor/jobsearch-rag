@@ -3,7 +3,7 @@ name: scoring-model
 description: "Scoring model covering ChromaDB collections, fusion formula, and embedding synthesis. Use when implementing or modifying the scoring pipeline: indexer embedding synthesis, scorer collection queries, ranker fusion formula, or export score breakdowns."
 ---
 
-# Scoring Model — Collections, Formula & Embedding Synthesis
+# Scoring Model -- Collections, Formula & Embedding Synthesis
 
 ## When This Skill Applies
 
@@ -24,8 +24,8 @@ scorer collection queries, ranker fusion formula, or export score breakdowns.
 
 ### Two Orthogonal Scoring Axes
 
-- **Right kind of role** — `role_archetypes` (archetype_score) + `resume` (fit_score)
-- **Right kind of environment** — `global_positive_signals` (culture_score) + `negative_signals` (negative_score)
+- **Right kind of role** -- `role_archetypes` (archetype_score) + `resume` (fit_score)
+- **Right kind of environment** -- `global_positive_signals` (culture_score) + `negative_signals` (negative_score)
 
 ---
 
@@ -40,7 +40,7 @@ for code patterns, the what-gets-embedded decision table, and non-semantic score
 One document per rubric dimension that has `signals_positive`:
 
 ```python
-# Pseudocode — see indexer.py for actual implementation
+# Pseudocode -- see indexer.py for actual implementation
 for dim in rubric["dimensions"]:
     if signals := dim.get("signals_positive"):
         text = f"{dim_name}: " + ", ".join(signals)
@@ -70,7 +70,7 @@ final_score = (
 ### Rules
 
 - Weights are read from `settings.toml`, never hardcoded
-- Weights do NOT need to sum to 1.0 — this is a weighted composite, not a probability
+- Weights do NOT need to sum to 1.0 -- this is a weighted composite, not a probability
 - If `final_score <= 0.0`, floor it at `0.0` (clean discard)
 - A disqualified role always scores `0.0` regardless of component values
 - Roles below `min_score_threshold` (default 0.45) are excluded from output
@@ -95,15 +95,15 @@ All six components shown. Separator is `·` (middle dot), not `|` (breaks Markdo
 |---|---|
 | `resume` | Auto-indexed before scoring via `_ensure_indexed()` |
 | `role_archetypes` | Auto-indexed before scoring via `_ensure_indexed()` |
-| `global_positive_signals` | Returns `0.0` culture_score — not an error |
-| `negative_signals` | Returns `0.0` (no penalty) — not an error |
-| `decisions` | Returns `0.0` history_score — not an error |
+| `global_positive_signals` | Returns `0.0` culture_score -- not an error |
+| `negative_signals` | Returns `0.0` (no penalty) -- not an error |
+| `decisions` | Returns `0.0` history_score -- not an error |
 
 ---
 
 ## Config Fields
 
-### `settings.toml` — `[scoring]` section
+### `settings.toml` -- `[scoring]` section
 
 | Field | Default | Range | Notes |
 |---|---|---|---|

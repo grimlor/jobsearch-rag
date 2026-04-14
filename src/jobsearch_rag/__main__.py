@@ -1,7 +1,7 @@
 """
 CLI entry point for the Job Search RAG Assistant.
 
-This module is a thin shim — all command logic lives in :mod:`jobsearch_rag.cli`.
+This module is a thin shim -- all command logic lives in :mod:`jobsearch_rag.cli`.
 """
 
 from __future__ import annotations

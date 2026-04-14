@@ -6,15 +6,15 @@ Provides a thin wrapper around ChromaDB's client, adding:
 - Collection lifecycle (create, count, reset, query)
 - Input validation for document operations
 
-ChromaDB is an **embedded** vector database — like SQLite for vectors.
+ChromaDB is an **embedded** vector database -- like SQLite for vectors.
 It stores documents alongside their embedding vectors and supports
 similarity queries: "give me the N documents most similar to this vector."
 
 Three collections serve distinct scoring purposes:
 
-  - ``resume``         — resume chunks for fit_score
-  - ``role_archetypes`` — ideal role descriptions for archetype_score
-  - ``decisions``       — past accept/reject choices for history_score
+  - ``resume``         -- resume chunks for fit_score
+  - ``role_archetypes`` -- ideal role descriptions for archetype_score
+  - ``decisions``       -- past accept/reject choices for history_score
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ class VectorStore:
         """
         Return the named ChromaDB collection, creating if necessary.
 
-        Uses cosine similarity as the distance function — the natural
+        Uses cosine similarity as the distance function -- the natural
         choice for comparing text embeddings.
         """
         collection = self._client.get_or_create_collection(
@@ -93,7 +93,7 @@ class VectorStore:
             self._client.delete_collection(name)
             logger.info("Collection '%s' deleted", name)
         except chromadb.errors.NotFoundError:
-            logger.debug("Collection '%s' does not exist — nothing to reset", name)
+            logger.debug("Collection '%s' does not exist -- nothing to reset", name)
         # Recreate empty so callers can immediately use the collection
         self.get_or_create_collection(name)
         logger.debug("Collection '%s' recreated empty", name)
@@ -252,7 +252,7 @@ class VectorStore:
         collection_name: str,
         *,
         query_embedding: list[float],
-        n_results: int,
+        n_results: int = 5,
     ) -> QueryResult:
         """
         Find the *n_results* most similar documents to *query_embedding*.

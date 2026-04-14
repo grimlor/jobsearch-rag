@@ -11,9 +11,9 @@
 Every error in this system is designed to be **immediately actionable** by
 three audiences:
 
-1. **The operator** — `suggestion` and `troubleshooting` steps in plain English
-2. **The calling code** — `error_type` for routing recovery logic
-3. **An AI assistant** — `ai_guidance` with concrete next actions, commands,
+1. **The operator** -- `suggestion` and `troubleshooting` steps in plain English
+2. **The calling code** -- `error_type` for routing recovery logic
+3. **An AI assistant** -- `ai_guidance` with concrete next actions, commands,
    and diagnostic checks
 
 The principle: **no error should require searching source code to resolve.**
@@ -96,7 +96,7 @@ at startup. This handles the first-run case transparently.
 | Weight outside [0.0, 1.0] | Config validation | `VALIDATION` | Fix value in `settings.toml` |
 | `base_salary ≤ 0` | Config validation | `VALIDATION` | Set positive value |
 | Invalid Ollama URL scheme | Config validation | `VALIDATION` | Use `http://` or `https://` |
-| `full_text` exceeds 250K chars | `JobListing.__post_init__` | `VALIDATION` | Adapter extraction bug — truncate |
+| `full_text` exceeds 250K chars | `JobListing.__post_init__` | `VALIDATION` | Adapter extraction bug -- truncate |
 | Empty text sent to embedder | `embed()` whitespace check | `VALIDATION` | Adapter returned empty `full_text` |
 
 ### Decision Failures
@@ -107,7 +107,7 @@ at startup. This handles the first-run case transparently.
 
 ### Extraction Failures (Graceful Degradation)
 
-These are not fatal errors — the pipeline continues with partial results:
+These are not fatal errors -- the pipeline continues with partial results:
 
 | Failure | Behavior | Logging |
 |---|---|---|
@@ -126,21 +126,21 @@ These are not fatal errors — the pipeline continues with partial results:
 
 LinkedIn has aggressive bot detection. The system handles this with:
 
-1. **CDP mode** — Uses real system browser (Edge/Chrome) instead of
+1. **CDP mode** -- Uses real system browser (Edge/Chrome) instead of
    Playwright's bundled Chromium, avoiding automation flags
-2. **Stealth patches** — `playwright-stealth` removes WebDriver indicators
-3. **Extended throttling** — 8–20 second random jitter between requests
+2. **Stealth patches** -- `playwright-stealth` removes WebDriver indicators
+3. **Extended throttling** -- 8–20 second random jitter between requests
    (vs. 1.5–3.5s for other boards)
-4. **Detection checks** — `check_linkedin_detection()` inspects page content
+4. **Detection checks** -- `check_linkedin_detection()` inspects page content
    for authwall redirects and challenge interstitials
-5. **Halt on detection** — No retries after detection. The run stops
+5. **Halt on detection** -- No retries after detection. The run stops
    immediately for that board. Partial results are preserved.
 
 ### ZipRecruiter Throttling
 
 After approximately 1.5 pages of results, ZipRecruiter starts returning
 "We encountered an error while loading this job" in the detail panel during
-card click-through — this is server-side rate limiting, not an adapter bug.
+card click-through -- this is server-side rate limiting, not an adapter bug.
 The adapter detects this via `is_throttle_response()` and retries with
 exponential backoff (`throttle_base_delay × 2^(n−1)`, e.g., 4 → 8 → 16 s
 with base 4.0) up to `throttle_max_retries` (both
@@ -194,7 +194,7 @@ Session logs capture failure context:
 - `session_summary` includes `failed_listings` count and `slow_llm_calls`
 
 The `retrieval_summary` event per collection includes:
-- `below_threshold` count — listings that scored below `min_score_threshold`
+- `below_threshold` count -- listings that scored below `min_score_threshold`
   for that specific collection
-- Score distribution (`min`, `p50`, `p90`, `max`) — helps identify if a
+- Score distribution (`min`, `p50`, `p90`, `max`) -- helps identify if a
   collection's embeddings are well-calibrated

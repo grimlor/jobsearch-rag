@@ -38,11 +38,11 @@ jobs:
           done
 
           if [ ${#FLAGGED[@]} -gt 0 ]; then
-            echo "::warning::⚠️ SECURITY-SENSITIVE PATHS MODIFIED — review required per CONTRIBUTING.md"
+            echo "::warning::⚠️ SECURITY-SENSITIVE PATHS MODIFIED -- review required per CONTRIBUTING.md"
             echo ""
             echo "The following security-sensitive files were changed:"
             for f in "${FLAGGED[@]}"; do
-              echo "::warning file=${f}::Security-sensitive path — see SECURITY.md threat model"
+              echo "::warning file=${f}::Security-sensitive path -- see SECURITY.md threat model"
               echo "  - $f"
             done
             echo ""

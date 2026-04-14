@@ -1,4 +1,4 @@
-"""LinkedIn adapter — overnight mode, stealth, throttled."""
+"""LinkedIn adapter -- overnight mode, stealth, throttled."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ async def check_linkedin_detection(page: Page) -> None:
     if "/authwall" in url:
         raise ActionableError.authentication(
             "linkedin",
-            "Redirected to /authwall — bot detection triggered",
+            "Redirected to /authwall -- bot detection triggered",
             suggestion="Wait at least 24 hours before the next LinkedIn run",
         )
 
@@ -41,7 +41,7 @@ async def check_linkedin_detection(page: Page) -> None:
     if "/login" in url or "/uas/login" in url:
         raise ActionableError.authentication(
             "linkedin",
-            "Session invalidated — redirected to login page",
+            "Session invalidated -- redirected to login page",
             suggestion="Re-authenticate manually, then wait before retrying",
         )
 

@@ -35,4 +35,4 @@ What actually happened. Include the full error message if applicable.
 
 ## Additional Context
 
-Any other context — logs, screenshots, or the fixture HTML if relevant.
+Any other context -- logs, screenshots, or the fixture HTML if relevant.

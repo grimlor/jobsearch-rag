@@ -1,17 +1,17 @@
 """
-WeWorkRemotely adapter extraction tests — remote-first job board.
+WeWorkRemotely adapter extraction tests -- remote-first job board.
 
 Spec classes:
-    TestWeWorkRemotelyAuthenticate — session or public-access verification
-    TestWeWorkRemotelySearch — job search and listing extraction
-    TestWeWorkRemotelyExtractDetail — full JD extraction from listing pages
+    TestWeWorkRemotelyAuthenticate -- session or public-access verification
+    TestWeWorkRemotelySearch -- job search and listing extraction
+    TestWeWorkRemotelyExtractDetail -- full JD extraction from listing pages
 
 All tests are xfail until the adapter is implemented. The specs define
-the delivery contract — each test becomes a regression gate once the
+the delivery contract -- each test becomes a regression gate once the
 adapter is delivered.
 
 WeWorkRemotely specifics:
-    - Remote-only job board — all listings are remote positions
+    - Remote-only job board -- all listings are remote positions
     - Simpler anti-bot measures than LinkedIn or Indeed
     - May support unauthenticated browsing for public listings
     - Category-based navigation (e.g., programming, devops)
@@ -66,7 +66,7 @@ class TestWeWorkRemotelyAuthenticate:
     WHO: The pipeline runner during the authenticate step
     WHAT: (1) The system completes authentication without error when WeWorkRemotely loads without blocking.
           (2) The system raises an ActionableError with a wait or retry suggestion when authentication encounters a rate-limit or block response.
-    WHY: Even lighter-touch boards can block automated access —
+    WHY: Even lighter-touch boards can block automated access --
          authenticate must verify access before search begins
 
     MOCK BOUNDARY:
@@ -127,7 +127,7 @@ class TestWeWorkRemotelySearch:
     WHAT: (1) The system returns a list of JobListing objects when it searches WeWorkRemotely results.
           (2) The system populates each returned WeWorkRemotely listing with the board, title, company, and url fields.
           (3) The system processes only the first page of WeWorkRemotely results when `max_pages` is set to 1.
-    WHY: WeWorkRemotely is the primary remote-only board — all listings
+    WHY: WeWorkRemotely is the primary remote-only board -- all listings
          are guaranteed remote positions, simplifying location filtering
 
     MOCK BOUNDARY:
@@ -220,7 +220,7 @@ class TestWeWorkRemotelyExtractDetail:
     WHAT: (1) The system populates full_text with the job description body when it extracts details for a listing whose full_text is empty.
           (2) The system leaves the listing unchanged when extract_detail is called on a listing whose full_text is already populated.
           (3) The system returns the same listing object when extract_detail is called and mutates it in place instead of creating a copy.
-    WHY: Full JD text is required for embedding and scoring — without it
+    WHY: Full JD text is required for embedding and scoring -- without it
          the RAG pipeline cannot compute meaningful similarity
 
     MOCK BOUNDARY:

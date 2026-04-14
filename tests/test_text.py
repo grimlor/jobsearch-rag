@@ -1,5 +1,5 @@
 """
-Tests for :mod:`jobsearch_rag.text` — shared text-processing utilities.
+Tests for :mod:`jobsearch_rag.text` -- shared text-processing utilities.
 
 Covers :class:`TestSlugify`.
 """
@@ -33,9 +33,9 @@ class TestSlugify:
          errors when one module writes a JD file and another tries to open it
 
     MOCK BOUNDARY:
-        Mock:  nothing — this class tests pure computation
+        Mock:  nothing -- this class tests pure computation
         Real:  slugify function
-        Never: Patch slugify internals — call the function directly
+        Never: Patch slugify internals -- call the function directly
     """
 
     def test_basic_title_is_lowercased_and_hyphenated(self) -> None:
@@ -63,7 +63,7 @@ class TestSlugify:
         # Given: text containing parentheses, em-dashes, and punctuation
 
         # When: the text is slugified
-        result = slugify("Senior Staff Engineer — Platform (Remote)", max_len=80)
+        result = slugify("Senior Staff Engineer -- Platform (Remote)", max_len=80)
 
         # Then: special characters are stripped
         assert result == "senior-staff-engineer-platform-remote", (
@@ -180,7 +180,7 @@ class TestSlugify:
         """
         # Given: realistic values from a job listing
         company = "Acme Corp."
-        title = "Staff Engineer — Platform"
+        title = "Staff Engineer -- Platform"
         external_id = "zr-42abc"
 
         # When: company and title are slugified into the JD filename pattern

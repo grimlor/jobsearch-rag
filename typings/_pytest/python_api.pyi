@@ -1,5 +1,5 @@
 """
-Type stub for ``_pytest.python_api`` — fills in Unknown parameter types on ``approx``.
+Type stub for ``_pytest.python_api`` -- fills in Unknown parameter types on ``approx``.
 
 Pytest's own inline types leave the ``approx`` parameters untyped, which causes
 ``reportUnknownMemberType`` under Pyright strict mode.  This stub provides the

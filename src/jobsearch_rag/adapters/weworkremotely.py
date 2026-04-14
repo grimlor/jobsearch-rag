@@ -1,4 +1,4 @@
-"""WeWorkRemotely adapter — auth, search pagination, JD extraction."""
+"""WeWorkRemotely adapter -- auth, search pagination, JD extraction."""
 
 from __future__ import annotations
 

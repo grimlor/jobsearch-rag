@@ -31,7 +31,7 @@ class BrowserTabOpener:
         qualified.sort(key=lambda r: r.final_score, reverse=True)
 
         if not qualified:
-            logger.info("No qualified results to open — 0 tabs opened.")
+            logger.info("No qualified results to open -- 0 tabs opened.")
             return
 
         to_open = qualified[:top_n]

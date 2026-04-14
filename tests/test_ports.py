@@ -6,28 +6,28 @@ VectorStorePort protocols are correctly defined, that concrete
 implementations satisfy them structurally, and that QueryResult/GetResult
 dataclasses provide typed access to vector store responses.
 
-Implements D1 of Feature — hexagonal-port-interfaces.
+Implements D1 of Feature -- hexagonal-port-interfaces.
 """
 
 # Public API surface (from src/jobsearch_rag/ports):
-#   EmbeddingPort  — Protocol: embed(text: str) -> list[float],
+#   EmbeddingPort  -- Protocol: embed(text: str) -> list[float],
 #                              classify(prompt: str) -> str
-#   HealthCheckable — Protocol: health_check() -> None
-#   MetricsProvider — Protocol: metrics -> InferenceMetrics (property)
-#   VectorStorePort — Protocol: add_documents, query, get_documents,
+#   HealthCheckable -- Protocol: health_check() -> None
+#   MetricsProvider -- Protocol: metrics -> InferenceMetrics (property)
+#   VectorStorePort -- Protocol: add_documents, query, get_documents,
 #                     get_by_metadata, get_all_documents, delete_by_id,
 #                     collection_count, reset_collection, close
-#   QueryResult — dataclass: ids, documents, metadatas, distances
-#   GetResult   — dataclass: ids, documents, metadatas
+#   QueryResult -- dataclass: ids, documents, metadatas, distances
+#   GetResult   -- dataclass: ids, documents, metadatas
 #
 # Public API surface (from src/jobsearch_rag/rag/embedder):
-#   InferenceMetrics — dataclass: embed_calls, embed_tokens_total, etc.
-#   Embedder(config: OllamaConfig) — satisfies EmbeddingPort,
+#   InferenceMetrics -- dataclass: embed_calls, embed_tokens_total, etc.
+#   Embedder(config: OllamaConfig) -- satisfies EmbeddingPort,
 #            HealthCheckable, MetricsProvider
 #
 # Public API surface (from src/jobsearch_rag/rag/store):
 #   VectorStore(persist_dir: str, distance_metric: str)
-#     — satisfies VectorStorePort
+#     -- satisfies VectorStorePort
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ import inspect
 from typing import Any, cast, get_type_hints
 from unittest.mock import patch
 
-# D1 imports — will be created in src/jobsearch_rag/ports.py
+# D1 imports -- will be created in src/jobsearch_rag/ports.py
 from jobsearch_rag.ports import (
     EmbeddingPort,
     GetResult,
@@ -57,7 +57,7 @@ from tests.conftest import make_test_ollama_config
 
 
 class _EmbedOnlyStub:
-    """Minimal stub satisfying only EmbeddingPort — no health_check, no metrics."""
+    """Minimal stub satisfying only EmbeddingPort -- no health_check, no metrics."""
 
     async def embed(self, text: str) -> list[float]:
         return [0.0]
@@ -77,7 +77,7 @@ class TestEmbeddingPortProtocol:
     embedding and LLM classification operations the domain calls on Embedder.
     Observability concerns (health_check, metrics) live in separate protocols.
 
-    WHO: Domain classes (Scorer, DecisionRecorder, Indexer) — they
+    WHO: Domain classes (Scorer, DecisionRecorder, Indexer) -- they
          depend on this protocol instead of the concrete Embedder class.
     WHAT: (1) EmbeddingPort is a typing.Protocol with @runtime_checkable.
           (2) It declares async method embed(text: str) -> list[float].
@@ -89,12 +89,12 @@ class TestEmbeddingPortProtocol:
     WHY: Without a protocol, domain classes import the concrete Embedder,
          coupling them to Ollama. Tests must mock at SDK internals.
          With the protocol, any implementation satisfying the contract
-         can be substituted — including test fakes. Keeping the port
+         can be substituted -- including test fakes. Keeping the port
          narrow (embed + classify only) means fakes don't need health
          or metrics stubs.
 
     MOCK BOUNDARY:
-        Mock:  Nothing — these are pure protocol/type contract tests
+        Mock:  Nothing -- these are pure protocol/type contract tests
         Real:  EmbeddingPort definition, Embedder class, isinstance checks
         Never: Mock the protocol itself
     """
@@ -223,7 +223,7 @@ class TestEmbeddingPortProtocol:
         instance = cast("object", embedder)
         result = isinstance(instance, EmbeddingPort)
 
-        # Then: structural conformance — no inheritance required
+        # Then: structural conformance -- no inheritance required
         assert result, (
             f"Embedder should satisfy EmbeddingPort structurally. "
             f"isinstance returned {result}. Embedder bases: {type(embedder).__mro__}"
@@ -240,13 +240,13 @@ class TestHealthCheckableProtocol:
     REQUIREMENT: HealthCheckable is a supplementary protocol for
     implementations that support pre-flight connectivity verification.
 
-    WHO: PipelineRunner.run() — uses isinstance guard to optionally
+    WHO: PipelineRunner.run() -- uses isinstance guard to optionally
          run health_check before pipeline execution.
     WHAT: (1) HealthCheckable is a typing.Protocol with @runtime_checkable.
           (2) It declares async method health_check() -> None.
           (3) Embedder satisfies HealthCheckable structurally.
           (4) An embed-only implementation does NOT satisfy HealthCheckable
-              (by design — fakes don't need observability).
+              (by design -- fakes don't need observability).
     WHY: health_check is an observability concern, not an embedding
          operation. Splitting it into a separate protocol keeps
          EmbeddingPort narrow and fakes minimal.
@@ -344,7 +344,7 @@ class TestMetricsProviderProtocol:
     REQUIREMENT: MetricsProvider is a supplementary protocol for
     implementations that expose inference metrics.
 
-    WHO: PipelineRunner.run() — uses isinstance guard to optionally
+    WHO: PipelineRunner.run() -- uses isinstance guard to optionally
          collect session metrics after pipeline execution.
     WHAT: (1) MetricsProvider is a typing.Protocol with @runtime_checkable.
           (2) It declares a read-only property metrics -> InferenceMetrics.
@@ -453,7 +453,7 @@ class TestVectorStorePortProtocol:
     vector storage operations the domain calls on VectorStore.
 
     WHO: Domain classes (Scorer, DecisionRecorder, Indexer, EvalRunner)
-         — they depend on this protocol instead of the concrete VectorStore.
+         -- they depend on this protocol instead of the concrete VectorStore.
     WHAT: (1) VectorStorePort is a typing.Protocol with @runtime_checkable.
           (2) It declares add_documents(collection_name, *, ids, documents,
               embeddings, metadatas=None) -> None.
@@ -473,10 +473,10 @@ class TestVectorStorePortProtocol:
     WHY: Without a protocol, domain classes import VectorStore which imports
          chromadb. Tests use real ChromaDB temp dirs or mock at SDK internals.
          With the protocol, InMemoryVectorStore can replace ChromaDB in unit
-         tests — no WAL isolation issues, no SDK mocking.
+         tests -- no WAL isolation issues, no SDK mocking.
 
     MOCK BOUNDARY:
-        Mock:  Nothing — pure protocol/type contract tests
+        Mock:  Nothing -- pure protocol/type contract tests
         Real:  VectorStorePort definition, VectorStore class, isinstance checks
         Never: Mock the protocol itself
     """
@@ -757,7 +757,7 @@ class TestVectorStorePortProtocol:
         finally:
             store.close()
 
-        # Then: structural conformance — no inheritance required
+        # Then: structural conformance -- no inheritance required
         assert result, (
             f"VectorStore should satisfy VectorStorePort structurally. "
             f"isinstance returned {result}"
@@ -774,7 +774,7 @@ class TestQueryResultDataclass:
     REQUIREMENT: QueryResult is a typed dataclass that replaces
     dict[str, Any] for VectorStorePort.query() return values.
 
-    WHO: Scorer._query_collection, Scorer._query_archetypes — they consume
+    WHO: Scorer._query_collection, Scorer._query_archetypes -- they consume
          query results and need typed attribute access instead of string-key
          dict access.
     WHAT: (1) QueryResult has field ids: list[list[str]].
@@ -789,7 +789,7 @@ class TestQueryResultDataclass:
          catch access errors at type-check time.
 
     MOCK BOUNDARY:
-        Mock:  Nothing — pure dataclass construction tests
+        Mock:  Nothing -- pure dataclass construction tests
         Real:  QueryResult dataclass
         Never: N/A
     """
@@ -889,7 +889,7 @@ class TestGetResultDataclass:
     dict[str, Any] for get_documents() and get_by_metadata() returns.
 
     WHO: DecisionRecorder.get_decision, Scorer._get_rejection_reasons,
-         EvalRunner._load_decisions — they consume get results.
+         EvalRunner._load_decisions -- they consume get results.
     WHAT: (1) GetResult has field ids: list[str].
           (2) GetResult has field documents: list[str | None].
           (3) GetResult has field metadatas: list[dict[str, Any]].
@@ -900,7 +900,7 @@ class TestGetResultDataclass:
          batch shape.
 
     MOCK BOUNDARY:
-        Mock:  Nothing — pure dataclass construction tests
+        Mock:  Nothing -- pure dataclass construction tests
         Real:  GetResult dataclass
         Never: N/A
     """

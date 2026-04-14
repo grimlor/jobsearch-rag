@@ -164,14 +164,14 @@ class TestSettingsValidation:
           (39) The system treats a non-list `overnight_boards` value as empty.
           (40) The system treats a non-list `archetypes` value as empty in the disqualifier prompt synthesizer.
     WHY: A mid-run config failure after 10 minutes of browser work is
-         far more costly than a startup validation failure — and an error
+         far more costly than a startup validation failure -- and an error
          that says "validation failed" without telling the operator what
          to fix is nearly as costly as a mid-run crash
 
     MOCK BOUNDARY:
-        Mock:  nothing — uses real filesystem via tempfile.TemporaryDirectory
+        Mock:  nothing -- uses real filesystem via tempfile.TemporaryDirectory
         Real:  load_settings, TOML parsing, validation, ActionableError
-        Never: Patch config internals — exercise the real validation stack
+        Never: Patch config internals -- exercise the real validation stack
     """
 
     def test_missing_boards_section_names_the_field_and_tells_operator_to_add_it(self) -> None:
@@ -1070,7 +1070,7 @@ searches = ["https://example.org/search"]
         Then settings.disqualifier defaults to no custom system_prompt
         """
         # Given: disqualifier is a string instead of a table (prepend
-        # so it stays at root level — appending would nest inside [security])
+        # so it stays at root level -- appending would nest inside [security])
         bad_toml = 'disqualifier = "not a table"\n' + _VALID_SETTINGS
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
@@ -1151,7 +1151,7 @@ searches = ["https://example.org/search"]
         """
         Given a settings file where overnight_boards is a string instead of a list
         When load_settings is called
-        Then the value is treated as empty — no overnight boards are configured.
+        Then the value is treated as empty -- no overnight boards are configured.
         """
         # Given: overnight_boards is a scalar instead of a list
         bad_toml = _VALID_SETTINGS.replace(
@@ -1291,7 +1291,7 @@ screen_prompt = "Review the following job description text."
 class TestCommittedConfigCompleteness:
     """
     REQUIREMENT: The committed config/settings.toml is the single source of
-    truth for all tunable values — no field may rely on a code-side default.
+    truth for all tunable values -- no field may rely on a code-side default.
 
     WHO: Any operator or developer who needs to understand or change a
          configuration value
@@ -1314,7 +1314,7 @@ class TestCommittedConfigCompleteness:
          a single authoritative config with test enforcement prevents drift
 
     MOCK BOUNDARY:
-        Mock:  nothing — uses real filesystem via tempfile and real config/settings.toml
+        Mock:  nothing -- uses real filesystem via tempfile and real config/settings.toml
         Real:  load_settings, TOML parsing, validation, committed config file
         Never: Patch config internals
     """
@@ -1351,7 +1351,7 @@ class TestCommittedConfigCompleteness:
         ]
         for field in required:
             assert field in scoring, (
-                f"Committed settings.toml is missing [scoring].{field} — "
+                f"Committed settings.toml is missing [scoring].{field} -- "
                 f"add it to config/settings.toml"
             )
 
@@ -1380,7 +1380,7 @@ class TestCommittedConfigCompleteness:
         ]
         for field in required:
             assert field in ollama, (
-                f"Committed settings.toml is missing [ollama].{field} — "
+                f"Committed settings.toml is missing [ollama].{field} -- "
                 f"add it to config/settings.toml"
             )
 
@@ -1403,7 +1403,7 @@ class TestCommittedConfigCompleteness:
         required = ["default_format", "output_dir", "open_top_n"]
         for field in required:
             assert field in output, (
-                f"Committed settings.toml is missing [output].{field} — "
+                f"Committed settings.toml is missing [output].{field} -- "
                 f"add it to config/settings.toml"
             )
 

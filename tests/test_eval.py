@@ -2,16 +2,16 @@
 BDD specs for the evaluation harness (Phase 5d).
 
 Covers:
-    TestEvalCommand             — CLI subcommand wiring and handler integration
-    TestEvalMetrics             — agreement rate, precision, recall computation
-    TestSpearmanCorrelation     — rank correlation between scores and verdicts
-    TestEvalReport              — Markdown report file generation
-    TestEvalHistory             — JSONL history append
-    TestEvalIntegration         — end-to-end handle_eval with report + history
-    TestModelComparisonResult   — delta computation between two EvalResults
-    TestCompareModelsFlag       — --compare-models CLI flag and dual-eval flow
-    TestLoadDecisionsResilience — graceful handling of corrupt/missing decision data
-    TestEvalSinglePath          — _handle_eval_single early-return on empty decisions
+    TestEvalCommand             -- CLI subcommand wiring and handler integration
+    TestEvalMetrics             -- agreement rate, precision, recall computation
+    TestSpearmanCorrelation     -- rank correlation between scores and verdicts
+    TestEvalReport              -- Markdown report file generation
+    TestEvalHistory             -- JSONL history append
+    TestEvalIntegration         -- end-to-end handle_eval with report + history
+    TestModelComparisonResult   -- delta computation between two EvalResults
+    TestCompareModelsFlag       -- --compare-models CLI flag and dual-eval flow
+    TestLoadDecisionsResilience -- graceful handling of corrupt/missing decision data
+    TestEvalSinglePath          -- _handle_eval_single early-return on empty decisions
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ if TYPE_CHECKING:
 #   build_parser() -> ArgumentParser
 #   handle_eval(args: Namespace) -> None
 
-# An embedding vector distant from EMBED_FAKE — produces cosine distance > 0
+# An embedding vector distant from EMBED_FAKE -- produces cosine distance > 0
 # when JD text is embedded with EMBED_FAKE.  This creates scores < 1.0 so
 # eval tests can distinguish above/below threshold behavior.
 _EMBED_DISTANT: list[float] = [0.9, 0.1, 0.9, 0.1, 0.9]
@@ -455,7 +455,7 @@ class TestEvalMetrics:
           (8) a yes-decision scoring below threshold is counted for recall
               denominator but not numerator (recall miss)
     WHY: Without closed-loop metrics, the operator cannot tell whether a
-         weight change made things better or worse — they are flying blind
+         weight change made things better or worse -- they are flying blind
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (embedding + LLM calls)
@@ -554,7 +554,7 @@ class TestEvalMetrics:
             for i in range(1, 4):
                 _seed_decision(store, job_id=str(i), verdict="no")
 
-            # When: evaluate runs — all score ~1.0 (above 0.1 threshold)
+            # When: evaluate runs -- all score ~1.0 (above 0.1 threshold)
             result = asyncio.run(runner.evaluate())
 
             # Then: pipeline says "above threshold" for all, human said "no" → 0 agreement
@@ -695,7 +695,7 @@ class TestEvalMetrics:
             _seed_decision(store, job_id="yes-1", verdict="yes")
             _seed_decision(store, job_id="no-1", verdict="no")
 
-            # When: evaluate runs — all score below 0.99 threshold
+            # When: evaluate runs -- all score below 0.99 threshold
             result = asyncio.run(runner.evaluate())
 
             # Then: the yes-decision scored below threshold → recall miss
@@ -724,11 +724,11 @@ class TestSpearmanCorrelation:
           (5) constant inputs (all same verdict or all same score) yield 0.0
           (6) the function uses only stdlib (no scipy, no numpy)
     WHY: Without a correlation metric the operator cannot tell whether pipeline
-         rank ordering matches human judgment — agreement rate alone doesn't
+         rank ordering matches human judgment -- agreement rate alone doesn't
          capture ordering quality
 
     MOCK BOUNDARY:
-        Mock:  nothing — pure computation, no I/O
+        Mock:  nothing -- pure computation, no I/O
         Real:  spearman_rank_correlation function
         Never: mock the correlation computation
     """
@@ -739,7 +739,7 @@ class TestSpearmanCorrelation:
         When spearman is computed
         Then correlation == 1.0
         """
-        # Given: distinct values — no tied ranks
+        # Given: distinct values -- no tied ranks
         scores = [0.1, 0.3, 0.5, 0.7, 0.9]
         verdicts = [1.0, 2.0, 3.0, 4.0, 5.0]
 
@@ -757,7 +757,7 @@ class TestSpearmanCorrelation:
         When spearman is computed
         Then correlation == -1.0
         """
-        # Given: distinct values — perfectly inverse order
+        # Given: distinct values -- perfectly inverse order
         scores = [0.1, 0.3, 0.5, 0.7, 0.9]
         verdicts = [5.0, 4.0, 3.0, 2.0, 1.0]
 
@@ -775,14 +775,14 @@ class TestSpearmanCorrelation:
         When spearman is computed
         Then correlation = 0.0 (tied ranks)
         """
-        # Given: all verdicts the same — ranks are all tied
+        # Given: all verdicts the same -- ranks are all tied
         scores = [0.9, 0.5, 0.1]
         verdicts = [2.0, 2.0, 2.0]
 
         # When: spearman is computed
         result = spearman_rank_correlation(scores, verdicts)
 
-        # Then: zero correlation — no ordering to compare
+        # Then: zero correlation -- no ordering to compare
         assert result == pytest.approx(0.0), f"Expected 0.0 for constant verdicts, got {result}"
 
     def test_single_decision_produces_zero_correlation(self) -> None:
@@ -791,14 +791,14 @@ class TestSpearmanCorrelation:
         When spearman is computed
         Then correlation = 0.0 (insufficient data)
         """
-        # Given: only one data point — correlation is undefined
+        # Given: only one data point -- correlation is undefined
         scores = [0.8]
         verdicts = [2.0]
 
         # When: spearman is computed
         result = spearman_rank_correlation(scores, verdicts)
 
-        # Then: zero — not enough data
+        # Then: zero -- not enough data
         assert result == pytest.approx(0.0), f"Expected 0.0 for single decision, got {result}"
 
     def test_mixed_verdicts_with_ordered_scores(self) -> None:
@@ -839,7 +839,7 @@ class TestEvalReport:
          beyond transient stdout output.
 
     MOCK BOUNDARY:
-        Mock:  nothing — uses tmp_path for filesystem
+        Mock:  nothing -- uses tmp_path for filesystem
         Real:  EvalReport.write(), file I/O via tmp_path
         Never: mock file operations
     """
@@ -1041,11 +1041,11 @@ class TestEvalHistory:
           (3) append() creates a non-existent file and parent directories
 
     WHY: Without a persistent history the operator loses the ability to
-         compare across runs — they can only see the latest eval, not the
+         compare across runs -- they can only see the latest eval, not the
          trend.
 
     MOCK BOUNDARY:
-        Mock:  nothing — uses tmp_path for filesystem
+        Mock:  nothing -- uses tmp_path for filesystem
         Real:  EvalHistory.append(), file I/O via tmp_path
         Never: mock file operations
     """
@@ -1253,11 +1253,11 @@ class TestModelComparisonResult:
           (5) ``model_a`` and ``model_b`` store the model names passed at construction
 
     WHY: Without correct deltas the operator cannot determine which model is
-         better — they would have to manually subtract metrics from two
+         better -- they would have to manually subtract metrics from two
          separate runs.
 
     MOCK BOUNDARY:
-        Mock:  nothing — pure dataclass, no I/O
+        Mock:  nothing -- pure dataclass, no I/O
         Real:  ModelComparisonResult construction and property access
         Never: mock the delta computation
     """
@@ -1414,7 +1414,7 @@ class TestCompareModelsFlag:
               history are NOT written (comparison is stdout-only)
 
     WHY: Without a dedicated flag the operator must run ``eval`` twice manually
-         with different config files and compute deltas by hand — error-prone
+         with different config files and compute deltas by hand -- error-prone
          and tedious.
 
     MOCK BOUNDARY:
@@ -1584,7 +1584,7 @@ class TestLoadDecisionsResilience:
           (3) a decision with an empty verdict is skipped with a warning
 
     WHY: A single corrupt decision entry should not prevent evaluation of
-         all other valid decisions — the pipeline must degrade gracefully.
+         all other valid decisions -- the pipeline must degrade gracefully.
 
     MOCK BOUNDARY:
         Mock:  ``store._client.get_or_create_collection`` (for exception test
@@ -1614,7 +1614,7 @@ class TestLoadDecisionsResilience:
             # When: evaluate() is called
             result = asyncio.run(runner.evaluate())
 
-        # Then: graceful degradation — 0 decisions, not a crash
+        # Then: graceful degradation -- 0 decisions, not a crash
         assert result.decisions_evaluated == 0, (
             f"Expected 0 decisions, got {result.decisions_evaluated}"
         )
@@ -1638,7 +1638,7 @@ class TestLoadDecisionsResilience:
             ids=["decision-corrupt-1"],
             documents=["A job with missing metadata"],
             embeddings=[EMBED_FAKE],
-            # no metadatas — ChromaDB stores None for this entry
+            # no metadatas -- ChromaDB stores None for this entry
         )
 
         # When: evaluate() is called

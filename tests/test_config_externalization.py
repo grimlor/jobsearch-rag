@@ -1,8 +1,8 @@
 """
-Config externalization tests — Phase 8a persona-specific values,
+Config externalization tests -- Phase 8a persona-specific values,
 Phase 8b/8c operational and deployment parameters.
 
-Maps to BDD spec: BDD Specifications — config-externalization.md
+Maps to BDD spec: BDD Specifications -- config-externalization.md
 Implements: TestDisqualifierPromptConfig, TestScreenPromptConfig,
             TestClassifierSystemPromptConfig, TestCompScoreCurveConfig,
             TestEmbedderConfigExternalization, TestOutputPathConfig,
@@ -15,18 +15,18 @@ for values that were previously hardcoded in source. All tests are expected
 to FAIL until Phase 3 implementation is complete.
 
 Spec classes:
-    TestDisqualifierPromptConfig — disqualifier prompt synthesis from archetypes
-    TestScreenPromptConfig — injection screening prompt from [security]
-    TestClassifierSystemPromptConfig — classifier system message from [ollama]
-    TestCompScoreCurveConfig — comp breakpoints and neutral score from [scoring]
-    TestEmbedderConfigExternalization — embedder tuning from [ollama]
-    TestOutputPathConfig — output paths from [output]
-    TestScoringTunablesConfig — scoring tunables from [scoring]
-    TestBoardBrowserConfig — browser/throttle settings from [boards]
-    TestEvalHistoryConfig — eval history path from [output]
-    TestLoginUrlConfig — per-board login URLs from [boards.<name>]
-    TestStealthConfig — per-board stealth flag from [boards.<name>]
-    TestAdaptersConfig — browser paths and CDP timeout from [adapters]
+    TestDisqualifierPromptConfig -- disqualifier prompt synthesis from archetypes
+    TestScreenPromptConfig -- injection screening prompt from [security]
+    TestClassifierSystemPromptConfig -- classifier system message from [ollama]
+    TestCompScoreCurveConfig -- comp breakpoints and neutral score from [scoring]
+    TestEmbedderConfigExternalization -- embedder tuning from [ollama]
+    TestOutputPathConfig -- output paths from [output]
+    TestScoringTunablesConfig -- scoring tunables from [scoring]
+    TestBoardBrowserConfig -- browser/throttle settings from [boards]
+    TestEvalHistoryConfig -- eval history path from [output]
+    TestLoginUrlConfig -- per-board login URLs from [boards.<name>]
+    TestStealthConfig -- per-board stealth flag from [boards.<name>]
+    TestAdaptersConfig -- browser paths and CDP timeout from [adapters]
 """
 
 # Public API surface (from src/jobsearch_rag/config):
@@ -289,9 +289,9 @@ class TestDisqualifierPromptConfig:
     """
     REQUIREMENT: The disqualifier prompt is synthesized from role_archetypes.toml
     when no freeform override is provided, so the LLM applies the correct
-    user's role criteria — not a hardcoded persona.
+    user's role criteria -- not a hardcoded persona.
 
-    WHO: Any user targeting a different role than the original developer — the
+    WHO: Any user targeting a different role than the original developer -- the
          prompt must reflect *their* archetypes, not "Principal/Staff Platform
          Architect"
     WHAT: (1) The system synthesizes a disqualifier prompt from archetype names and
@@ -311,14 +311,14 @@ class TestDisqualifierPromptConfig:
               as the system message for disqualification LLM calls.
 
     WHY: The hardcoded "Principal/Staff Platform Architect" prompt is the single
-         biggest barrier to other users — it would incorrectly disqualify roles
+         biggest barrier to other users -- it would incorrectly disqualify roles
          that are good fits for their target
 
     MOCK BOUNDARY:
         Mock:  ollama.AsyncClient (via conftest mock_embedder)
         Real:  synthesize_disqualifier_prompt(), load_settings(),
                Scorer.disqualify(), VectorStore (ChromaDB via tmp_path)
-        Never: Hardcode prompt text in tests — derive expected content from
+        Never: Hardcode prompt text in tests -- derive expected content from
                archetype fixture data; never mock the synthesis function itself
     """
 
@@ -483,7 +483,7 @@ class TestDisqualifierPromptConfig:
         # When: disqualify is called
         await scorer.disqualify("Some JD text")
 
-        # Then: the disqualifier classify call (2nd call — after screening)
+        # Then: the disqualifier classify call (2nd call -- after screening)
         # contains the synthesized prompt in the user message
         assert mock_embedder._client.chat.call_count >= 2, (  # type: ignore[union-attr]
             f"Expected at least 2 classify calls (screen + disqualify), "
@@ -786,9 +786,9 @@ class TestCompScoreCurveConfig:
          Architect" at $220K. The curve shape must adapt
 
     MOCK BOUNDARY:
-        Mock:  nothing — this tests pure computation and config validation
+        Mock:  nothing -- this tests pure computation and config validation
         Real:  load_settings(), compute_comp_score(), CompBand dataclass
-        Never: n/a — no I/O boundary
+        Never: n/a -- no I/O boundary
     """
 
     def test_custom_breakpoints_loaded_from_settings(self, tmp_path: Path) -> None:
@@ -1044,7 +1044,7 @@ score = 1.0
             comp_band_cls(ratio=0.60, score=0.0),
         ]
         base_salary = 200_000
-        comp_max = 250_000  # 125% of base — above highest breakpoint
+        comp_max = 250_000  # 125% of base -- above highest breakpoint
 
         # When: compute_comp_score is called
         score = compute_comp_score(
@@ -1070,7 +1070,7 @@ score = 1.0
             comp_band_cls(ratio=0.60, score=0.0),
         ]
         base_salary = 200_000
-        comp_max = 80_000  # 40% of base — below lowest breakpoint
+        comp_max = 80_000  # 40% of base -- below lowest breakpoint
 
         # When: compute_comp_score is called
         score = compute_comp_score(
@@ -1142,7 +1142,7 @@ class TestEmbedderConfigExternalization:
           (14) The system rejects missing [ollama] head_ratio.
           (15) The system rejects missing [ollama] retryable_status_codes.
     WHY: Different Ollama deployments need different retry settings and
-         token limits — these are operator concerns, not code concerns
+         token limits -- these are operator concerns, not code concerns
 
     MOCK BOUNDARY:
         Mock:  ollama.AsyncClient (via conftest make_mock_ollama_client)
@@ -1520,7 +1520,7 @@ class TestEmbedderConfigExternalization:
 
 
 # ---------------------------------------------------------------------------
-# Phase 8c — Remaining hardcoded defaults
+# Phase 8c -- Remaining hardcoded defaults
 # ---------------------------------------------------------------------------
 
 # _BASE_SETTINGS now includes all Phase 8c fields, so alias for clarity.
@@ -1679,7 +1679,7 @@ class TestScoringTunablesConfig:
           (5) The system rejects missing [scoring] chunk_overlap.
           (6) The system rejects missing [scoring] dedup_similarity_threshold.
     WHY: Different corpora and embedding models may need different overlap
-         and dedup sensitivity — these are operational concerns
+         and dedup sensitivity -- these are operational concerns
 
     MOCK BOUNDARY:
         Mock:  nothing for config tests; ollama client (I/O) for scorer wiring
@@ -1898,7 +1898,7 @@ class TestBoardBrowserConfig:
               need throttle backoff).
           (7) The system rejects missing [boards] session_storage_dir.
           (8) The system rejects missing rate_limit_range for an enabled board.
-    WHY: Anti-bot tuning is operational — different boards need different
+    WHY: Anti-bot tuning is operational -- different boards need different
          timing, and the cookie storage path must be operator-configurable
 
     MOCK BOUNDARY:
@@ -2039,7 +2039,7 @@ class TestBoardBrowserConfig:
 
 
 # ---------------------------------------------------------------------------
-# Phase 8b Remaining — Operational Config Externalization
+# Phase 8b Remaining -- Operational Config Externalization
 # ---------------------------------------------------------------------------
 
 
@@ -2054,11 +2054,11 @@ class TestEvalHistoryConfig:
     WHAT: (1) The system loads eval_history_path from [output].
           (2) The system rejects missing [output] eval_history_path.
     WHY: The hardcoded path prevents operators from controlling where
-         eval artifacts land — and the path uses forward slashes that
+         eval artifacts land -- and the path uses forward slashes that
          may behave unexpectedly on Windows
 
     MOCK BOUNDARY:
-        Mock:  nothing — pure config loading and validation
+        Mock:  nothing -- pure config loading and validation
         Real:  load_settings(), config validation
         Never: Mock config loading internals
     """
@@ -2117,12 +2117,12 @@ class TestLoginUrlConfig:
           (3) handle_login() uses the configured login_url when present.
           (4) handle_login() falls back to the generic URL pattern when
               login_url is absent from both config and _LOGIN_URLS.
-    WHY: Login URLs are deployment-specific — corporate SSO wrappers,
+    WHY: Login URLs are deployment-specific -- corporate SSO wrappers,
          regional domains, or custom auth flows require different endpoints
 
     MOCK BOUNDARY:
-        Mock:  async_playwright (I/O — launches browser),
-               builtins.input (I/O — terminal prompt)
+        Mock:  async_playwright (I/O -- launches browser),
+               builtins.input (I/O -- terminal prompt)
         Real:  handle_login() dispatch, BoardConfig, Settings construction
         Never: Mock load_settings or config loading internals
     """
@@ -2237,7 +2237,7 @@ class TestLoginUrlConfig:
         When handle_login(args) is called for that board
         Then page.goto receives "https://www.<board>.com"
         """
-        # Given: settings.toml with "unknownboard" — no login_url, not in _LOGIN_URLS
+        # Given: settings.toml with "unknownboard" -- no login_url, not in _LOGIN_URLS
         monkeypatch.chdir(tmp_path)
         toml = (
             _BASE_SETTINGS.replace(
@@ -2305,11 +2305,11 @@ class TestStealthConfig:
           (3) The runner passes the configured stealth value to SessionConfig
               instead of comparing board_name == "linkedin".
     WHY: Hardcoding stealth to a single board name couples detection-evasion
-         policy to source code — new boards requiring stealth need a code
+         policy to source code -- new boards requiring stealth need a code
          change instead of a config change
 
     MOCK BOUNDARY:
-        Mock:  SessionManager (I/O — launches browser)
+        Mock:  SessionManager (I/O -- launches browser)
         Real:  load_settings(), BoardConfig construction, SessionConfig construction
         Never: Mock config loading internals; never mock the runner to test config flow
     """
@@ -2439,7 +2439,7 @@ class TestStealthConfig:
             session_config = captured_configs[0]
             assert session_config.stealth is True, (
                 f"Expected stealth=True from board config, got {session_config.stealth!r}. "
-                f"Board name is 'testboard', not 'linkedin' — stealth must come from config."
+                f"Board name is 'testboard', not 'linkedin' -- stealth must come from config."
             )
 
 
@@ -2448,7 +2448,7 @@ class TestAdaptersConfig:
     REQUIREMENT: Browser binary paths and CDP timeout are configurable via
     settings.toml so operators on Windows and Linux can specify browser
     locations without code changes, and adjust CDP startup timing for
-    slower machines. All fields are required — there are no OS-specific
+    slower machines. All fields are required -- there are no OS-specific
     defaults or fallback paths.
 
     WHO: Operators on Windows (Edge at C:\Program Files\...\msedge.exe),
@@ -2471,16 +2471,16 @@ class TestAdaptersConfig:
               before raising TimeoutError on a slow CDP endpoint.
           (11) The system skips a non-existent config-provided browser path
               and uses the next valid path in the list.
-    WHY: _BROWSER_PATHS contains only macOS paths — Windows and Linux users
+    WHY: _BROWSER_PATHS contains only macOS paths -- Windows and Linux users
          cannot launch CDP browsers without editing source. Making all paths
          config-driven with no OS-specific defaults ensures every platform
          is a first-class citizen. The CDP timeout must also be explicit so
          slow machines and CI environments can set an appropriate value.
 
     MOCK BOUNDARY:
-        Mock:  subprocess.Popen (I/O — launches browser process),
-               urllib.request.urlopen (I/O — polls CDP endpoint),
-               playwright connect_over_cdp (I/O — connects to browser)
+        Mock:  subprocess.Popen (I/O -- launches browser process),
+               urllib.request.urlopen (I/O -- polls CDP endpoint),
+               playwright connect_over_cdp (I/O -- connects to browser)
         Real:  load_settings(), SessionManager.__aenter__(), SessionConfig,
                config validation, binary resolution logic
         Never: Call _find_browser_binary() or _launch_cdp() directly from tests;

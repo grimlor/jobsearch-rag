@@ -4,7 +4,7 @@
 
 This is a local, single-user system with no network-exposed API surface and
 no cloud egress. The threat model is therefore different from a cloud service
-— but not empty. The primary risks are prompt injection via adversarial JD
+ --  but not empty. The primary risks are prompt injection via adversarial JD
 content, path traversal via malformed job data, and context memory poisoning
 via the decisions collection.
 
@@ -12,22 +12,22 @@ via the decisions collection.
 
 | SAFE-MCP TTP | Attack Vector | Severity | Mitigation Status |
 |---|---|---|---|
-| SAFE-T1102 Prompt Injection | Adversarial JD text containing LLM instructions injected into the disqualifier prompt | Medium — attacker controls JD content on the board | **Implemented** — defense-in-depth (see below) |
-| SAFE-T2106 Context Memory Poisoning | A poisoned JD, once marked as a decision, enters ChromaDB and influences all future scoring via the `decisions` collection | Medium — persistent across sessions | **Implemented** — decision audit + surgical removal (Phase 6d) |
-| SAFE-T1104 Over-Privileged Tool Abuse | Playwright session has access to authenticated board session; a compromised adapter could exfiltrate cookies | Low — adapter code is local and auditable | Adapter code review policy (see CONTRIBUTING.md) |
-| SAFE-T1105 Path Traversal | JD title or company name containing `../` sequences used to construct export filenames | Low — file writes are scoped to `output/` | Phase 6c — input validation at adapter boundary |
-| SAFE-T1503 Env-Var Scraping | N/A — no API keys stored; Ollama runs unauthenticated on localhost | Not applicable | — |
+| SAFE-T1102 Prompt Injection | Adversarial JD text containing LLM instructions injected into the disqualifier prompt | Medium -- attacker controls JD content on the board | **Implemented** -- defense-in-depth (see below) |
+| SAFE-T2106 Context Memory Poisoning | A poisoned JD, once marked as a decision, enters ChromaDB and influences all future scoring via the `decisions` collection | Medium -- persistent across sessions | **Implemented** -- decision audit + surgical removal (Phase 6d) |
+| SAFE-T1104 Over-Privileged Tool Abuse | Playwright session has access to authenticated board session; a compromised adapter could exfiltrate cookies | Low -- adapter code is local and auditable | Adapter code review policy (see CONTRIBUTING.md) |
+| SAFE-T1105 Path Traversal | JD title or company name containing `../` sequences used to construct export filenames | Low -- file writes are scoped to `output/` | Phase 6c -- input validation at adapter boundary |
+| SAFE-T1503 Env-Var Scraping | N/A -- no API keys stored; Ollama runs unauthenticated on localhost | Not applicable | -- |
 | SAFE-T1801 Automated Data Harvesting | The system itself is the harvester; ToS compliance is the mitigation | By design | Rate limiting, headless mode caps, overnight mode |
 
 ### Not-Applicable Threats
 
 The following common AI system threats do not apply to this architecture:
 
-- **Cloud data exfiltration** — no external API calls; all LLM and embedding
+- **Cloud data exfiltration** -- no external API calls; all LLM and embedding
   inference runs on localhost via Ollama.
-- **API key leakage** — no API keys exist; Ollama is unauthenticated on
+- **API key leakage** -- no API keys exist; Ollama is unauthenticated on
   `localhost:11434`.
-- **Model supply chain** — Ollama pulls models from its own registry with
+- **Model supply chain** -- Ollama pulls models from its own registry with
   checksum verification. No custom model training or fine-tuning.
 
 ## Privacy Posture
@@ -54,7 +54,7 @@ future scoring. Mitigation is auditability and surgical removal:
   entry so the full history is replayable.
 - **ChromaDB is rebuildable.** The `decisions` collection in ChromaDB can
   be reconstructed from the JSONL audit log via `rescore`. Removing an
-  entry from ChromaDB does not destroy evidence — it only stops the entry
+  entry from ChromaDB does not destroy evidence -- it only stops the entry
   from influencing future scoring.
 - **Surgical removal:** `python -m jobsearch_rag decisions remove <job_id>`
   deletes a single entry from ChromaDB and logs the removal to JSONL.
@@ -68,7 +68,7 @@ future scoring. Mitigation is auditability and surgical removal:
 | File / Directory | Contains | Git-ignored? |
 |---|---|---|
 | `data/*_session.json` | Playwright authentication cookies per board | Yes |
-| `data/resume.md` | Professional background (PII risk) | Tracked — use `git update-index --skip-worktree` for local edits |
+| `data/resume.md` | Professional background (PII risk) | Tracked -- use `git update-index --skip-worktree` for local edits |
 | `data/decisions/` | Job preferences and verdict history | Yes |
 | `data/chroma_db/` | All embedded data (resume, archetypes, scores, decisions) | Yes |
 | `data/logs/` | Structured session logs with job IDs and scores | Yes |
@@ -89,17 +89,17 @@ Changes to these paths have security implications and require careful review:
 | `src/jobsearch_rag/adapters/` | Cookie exfiltration, session hijacking | Adapter code runs authenticated Playwright sessions |
 | `src/jobsearch_rag/adapters/session.py` | Session persistence, browser launch | Controls cookie storage and browser process spawning |
 | `src/jobsearch_rag/rag/scorer.py` | Prompt injection | Constructs the disqualifier LLM prompt from JD text |
-| `src/jobsearch_rag/adapters/base.py` | Input validation bypass | `JobListing` dataclass — the system's trust boundary |
+| `src/jobsearch_rag/adapters/base.py` | Input validation bypass | `JobListing` dataclass -- the system's trust boundary |
 | `src/jobsearch_rag/rag/decisions.py` | Context memory poisoning | Records and removes decisions that influence future scoring |
 | `src/jobsearch_rag/output/jd_files.py` | Path traversal | Constructs file paths from user-influenced data |
 
-CI enforces this via `security-paths-check` — any PR touching these paths
+CI enforces this via `security-paths-check` -- any PR touching these paths
 is flagged with a warning in the workflow output.
 
 ## Prompt Injection Defense-in-Depth
 
 No single technique defeats prompt injection. The disqualifier pipeline uses
-four layers — an attacker must bypass all of them simultaneously:
+four layers -- an attacker must bypass all of them simultaneously:
 
 | Layer | Mechanism | Catches | Fails When |
 |---|---|---|---|
@@ -109,7 +109,7 @@ four layers — an attacker must bypass all of them simultaneously:
 | Human review | Operator reviews qualifying JDs during `review` mode; verdict overrides pipeline | Everything the pipeline misses | Operator doesn't review (by design, they always do) |
 
 The screening layer sees the **original** JD text (unsanitized) so it can
-detect injection language. If suspicious, the disqualifier is **skipped** —
+detect injection language. If suspicious, the disqualifier is **skipped** --
 denying the injection its target prompt. If the screening layer itself fails
 (malformed JSON, exception), it defaults to **not suspicious** and the
 disqualifier proceeds normally.

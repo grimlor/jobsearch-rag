@@ -1,5 +1,5 @@
 """
-Interactive review session — batch decision recording.
+Interactive review session -- batch decision recording.
 
 Provides :class:`ReviewSession` which loads ranked listings, filters
 out already-decided jobs, and exposes methods for formatting display,

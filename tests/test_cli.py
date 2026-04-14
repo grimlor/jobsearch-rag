@@ -1,5 +1,5 @@
 """
-CLI handler tests — parser construction, command wiring, output formatting.
+CLI handler tests -- parser construction, command wiring, output formatting.
 
 Maps to BDD specs: TestParserConstruction, TestBoardsCommand, TestIndexCommand,
 TestSearchCommand, TestDecideCommand, TestDecisionsCommand, TestExportCommand,
@@ -419,7 +419,7 @@ signals_negative = ["bad indicator"]
 Test resume content for indexing.
 """)
 
-    # Mock Ollama client — the I/O boundary
+    # Mock Ollama client -- the I/O boundary
     mock_client = make_mock_ollama_client()
 
     return mock_client
@@ -493,7 +493,7 @@ class TestParserConstruction:
          the operator's workflow before any real work begins
 
     MOCK BOUNDARY:
-        Mock:  nothing — pure argparse construction, no I/O
+        Mock:  nothing -- pure argparse construction, no I/O
         Real:  build_parser, parse_args
         Never: Patch argparse internals
     """
@@ -745,7 +745,7 @@ class TestBoardsCommand:
     MOCK BOUNDARY:
         Mock:  AdapterRegistry.override(clear=True) to empty the registry in one test
         Real:  AdapterRegistry with its registered adapters, handle_boards()
-        Never: Patch AdapterRegistry or list_registered — use real registry state
+        Never: Patch AdapterRegistry or list_registered -- use real registry state
         Exception: test_handle_boards_empty_registry_prints_no_adapters uses
             AdapterRegistry.override({}, clear=True) because there is no public
             unregister API. This is the only way to reach the defensive
@@ -1241,7 +1241,7 @@ class TestDecideCommand:
         Never: Patch load_settings, Embedder, VectorStore, or DecisionRecorder
         Exception: test_missing_jd_text_exits_with_error patches
             chromadb.Collection.get at the ChromaDB I/O boundary to return a
-            None document — this defensive branch cannot occur with a healthy
+            None document -- this defensive branch cannot occur with a healthy
             ChromaDB instance because add_documents always stores the
             document text.
     """
@@ -1422,7 +1422,7 @@ class TestDecisionsCommand:
               reasons are empty.
           (7) An unknown subcommand exits with code 1 and prints usage.
     WHY: Each sub-handler formats output differently and has distinct
-         not-found branches — an untested handler means silent data loss
+         not-found branches -- an untested handler means silent data loss
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O)
@@ -1687,7 +1687,7 @@ class TestExportCommand:
          if the command failed or if there were no results
 
     MOCK BOUNDARY:
-        Mock:  nothing — handle_export only reads settings and files from disk
+        Mock:  nothing -- handle_export only reads settings and files from disk
         Real:  load_settings (real TOML parsing), filesystem reads via tmp_path
         Never: Patch load_settings or filesystem operations
     """
@@ -1792,17 +1792,17 @@ class TestLoginCommand:
           (2) The system navigates to the board-specific login URL for LinkedIn when handling login.
           (3) The system prints clear interactive login instructions that guide the operator through the login process.
           (4) The system connects to the requested browser through CDP instead of using the standard Playwright launch when the `--browser msedge` flag is provided.
-    WHY: Cloudflare bot protection blocks headless browsers — logging in
+    WHY: Cloudflare bot protection blocks headless browsers -- logging in
          interactively establishes cookies that may enable headless operation
 
     MOCK BOUNDARY:
-        Mock:  async_playwright (Playwright browser API — I/O boundary),
+        Mock:  async_playwright (Playwright browser API -- I/O boundary),
                builtins.input (terminal I/O boundary),
                subprocess.Popen + urllib.request.urlopen (CDP mode I/O),
-               shutil.which (filesystem lookup I/O — portability fallback),
+               shutil.which (filesystem lookup I/O -- portability fallback),
                tempfile.mkdtemp (temp directory creation I/O)
         Real:  SessionManager, SessionConfig, load_settings, handle_login wiring
-        Never: Patch SessionManager or load_settings — let them run for real
+        Never: Patch SessionManager or load_settings -- let them run for real
     """
 
     @staticmethod
@@ -2000,7 +2000,7 @@ class TestSearchBrowserFailure:
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O),
                async_playwright (Playwright browser I/O),
-               webbrowser.open (OS browser launch — the SUT),
+               webbrowser.open (OS browser launch -- the SUT),
                AdapterRegistry (test adapters via override context manager)
         Real:  load_settings, PipelineRunner (full pipeline: run, Scorer,
                Ranker, DecisionRecorder), output formatting
@@ -2064,7 +2064,7 @@ class TestExportMissing:
          know to run 'search' first
 
     MOCK BOUNDARY:
-        Mock:  nothing — handle_export only reads settings and files from disk
+        Mock:  nothing -- handle_export only reads settings and files from disk
         Real:  load_settings (real TOML parsing), filesystem reads via tmp_path
         Never: Patch load_settings or filesystem operations
     """
@@ -2116,7 +2116,7 @@ class TestResetCommand:
          the operator into reviewing outdated results
 
     MOCK BOUNDARY:
-        Mock:  nothing — handle_reset only uses load_settings, VectorStore,
+        Mock:  nothing -- handle_reset only uses load_settings, VectorStore,
                and filesystem operations, all backed by tmp_path
         Real:  load_settings (real TOML parsing), VectorStore (real ChromaDB),
                shutil.rmtree (real filesystem via tmp_path)
@@ -2363,7 +2363,7 @@ class TestReviewCommandHandler:
           (15) The system records the verdict with an empty reason when an `EOFError` occurs during the reason prompt.
           (16) The system reads external_id from CSV column, not URL derivation.
     WHY: The handler is the orchestration boundary between user input
-         and domain logic — untested wiring means the operator gets
+         and domain logic -- untested wiring means the operator gets
          silent failures, missing output, or wired-wrong dependencies
          that only surface in production
 
@@ -2746,7 +2746,7 @@ class TestReviewCommandHandler:
         # Then: short confirmation without reason suffix
         out = capsys.readouterr().out
         assert "Recorded: n" in out, f"Expected 'Recorded: n' in output, got: {out!r}"
-        assert "Recorded: n —" not in out, f"Expected no reason suffix in output, got: {out!r}"
+        assert "Recorded: n --" not in out, f"Expected no reason suffix in output, got: {out!r}"
 
     def test_invalid_input_reprints_help(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -2857,7 +2857,7 @@ class TestReviewCommandHandler:
         # Then: verdict recorded with empty reason
         out = capsys.readouterr().out
         assert "Recorded: y" in out, f"Expected 'Recorded: y' in output, got: {out!r}"
-        assert "Recorded: y —" not in out, f"Expected no reason suffix in output, got: {out!r}"
+        assert "Recorded: y --" not in out, f"Expected no reason suffix in output, got: {out!r}"
         # And: decision was persisted in ChromaDB with empty reason
         store: VectorStore = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
@@ -2888,7 +2888,7 @@ class TestReviewCommandHandler:
         jd_file = jd_dir / "81cb444f00994fff_acme-corp_staff-architect.md"
         jd_file.write_text("## Job Description\nSome JD content.")
 
-        # When: operator quits immediately — we just need to verify the listing was built
+        # When: operator quits immediately -- we just need to verify the listing was built
         with patch("builtins.input", side_effect=["y", ""]):
             handle_review(review["args"])
 
@@ -3020,7 +3020,7 @@ class TestRescoreCommand:
           (4) The system exports Markdown and CSV results to the output directory during rescoring.
           (5) The system re-exports JD files with updated scores and ranks during rescoring.
     WHY: Without a dedicated rescore command the operator must re-run full
-         browser sessions after every config change — minutes instead of seconds
+         browser sessions after every config change -- minutes instead of seconds
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O)
@@ -3070,7 +3070,7 @@ class TestRescoreCommand:
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
 
-        # Disable LLM disqualification — avoids needing chat mock responses
+        # Disable LLM disqualification -- avoids needing chat mock responses
         settings_path = tmp_path / "config" / "settings.toml"
         content = settings_path.read_text()
         content = content.replace(
@@ -3126,7 +3126,7 @@ class TestRescoreCommand:
         When handle_rescore runs
         Then the health check is invoked (client.list is called again)
         """
-        # Given: no JD files — health check runs regardless
+        # Given: no JD files -- health check runs regardless
         mock_client: AsyncMock = rescore["mock_client"]
         list_calls_before = mock_client.list.call_count
 

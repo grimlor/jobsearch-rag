@@ -22,4 +22,4 @@ Any other approaches you thought about and why they're less ideal.
 
 ## Additional Context
 
-Anything else — mockups, related issues, board-specific considerations.
+Anything else -- mockups, related issues, board-specific considerations.

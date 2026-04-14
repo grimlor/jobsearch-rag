@@ -1,5 +1,5 @@
 """
-Parallel scoring loop tests — concurrency orchestration, error isolation,
+Parallel scoring loop tests -- concurrency orchestration, error isolation,
 collection metric aggregation, and environment variable configuration.
 
 Maps to BDD specs: TestParallelScoringOrchestration, TestErrorIsolation,
@@ -100,7 +100,7 @@ def _make_runner_with_real_stack(
     """
     Create a PipelineRunner with real internals and mocked Ollama client.
 
-    Only ``ollama_sdk.AsyncClient`` is mocked — the I/O boundary.
+    Only ``ollama_sdk.AsyncClient`` is mocked -- the I/O boundary.
     Everything else (Embedder, Scorer, VectorStore, Ranker) runs for real.
     Collections are pre-populated so auto-indexing is skipped.
     """
@@ -222,7 +222,7 @@ async def _run_pipeline(
 
 
 # ---------------------------------------------------------------------------
-# B1 — TestParallelScoringOrchestration
+# B1 -- TestParallelScoringOrchestration
 # ---------------------------------------------------------------------------
 
 
@@ -247,7 +247,7 @@ class TestParallelScoringOrchestration:
         Mock:  ollama_sdk.AsyncClient (I/O boundary to Ollama)
         Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
                all aggregation logic
-        Never: Construct ScoreResult directly — always obtained via real
+        Never: Construct ScoreResult directly -- always obtained via real
                Scorer.score()
     """
 
@@ -405,7 +405,7 @@ class TestParallelScoringOrchestration:
 
 
 # ---------------------------------------------------------------------------
-# B2 — TestErrorIsolation
+# B2 -- TestErrorIsolation
 # ---------------------------------------------------------------------------
 
 
@@ -424,14 +424,14 @@ class TestErrorIsolation:
           (4) The session_summary log event reflects the correct
               failed_listings count
     WHY: The existing sequential loop catches errors per-listing and
-         continues. Parallelization must preserve this contract — a bad JD
+         continues. Parallelization must preserve this contract -- a bad JD
          should not poison the entire batch.
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (configured to raise on specific
                embed calls)
         Real:  PipelineRunner, Embedder, Scorer, error aggregation
-        Never: Mock the runner's error handling — test the real path
+        Never: Mock the runner's error handling -- test the real path
     """
 
     async def test_actionable_error_does_not_block_other_listings(self) -> None:
@@ -615,7 +615,7 @@ class TestErrorIsolation:
 
 
 # ---------------------------------------------------------------------------
-# B3 — TestCollectionScoreAggregation
+# B3 -- TestCollectionScoreAggregation
 # ---------------------------------------------------------------------------
 
 
@@ -636,7 +636,7 @@ class TestCollectionScoreAggregation:
         Mock:  ollama_sdk.AsyncClient
         Real:  Scorer.score(), Scorer._collection_scores accumulation,
                log_event calls
-        Never: Manually construct _collection_scores — must come from real
+        Never: Manually construct _collection_scores -- must come from real
                Scorer.score() calls
     """
 
@@ -685,7 +685,7 @@ class TestCollectionScoreAggregation:
 
 
 # ---------------------------------------------------------------------------
-# B4 — TestEnvironmentVariableConfig
+# B4 -- TestEnvironmentVariableConfig
 # ---------------------------------------------------------------------------
 
 

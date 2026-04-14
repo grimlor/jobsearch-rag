@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# Global Rubric — Universal evaluation dimensions and signals
+# Global Rubric -- Universal evaluation dimensions and signals
 # ---------------------------------------------------------------------------
 # These dimensions apply to ALL job listings regardless of archetype.
 # Each dimension defines signals that indicate structural misalignment
@@ -12,7 +12,7 @@
 #
 # The positive signals in each dimension are embedded into a
 # `global_positive_signals` ChromaDB collection and used to compute
-# a continuous culture score (culture_score) — an orthogonal axis
+# a continuous culture score (culture_score) -- an orthogonal axis
 # measuring environment and culture quality.
 # ---------------------------------------------------------------------------
 

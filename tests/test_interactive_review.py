@@ -1,9 +1,9 @@
 """
-Interactive review tests — batch decision recording on undecided listings.
+Interactive review tests -- batch decision recording on undecided listings.
 
 Spec classes:
-    TestInteractiveReview — ranked review workflow, verdict recording, progress
-    TestListingDisplayDisqualified — disqualification warning in review display
+    TestInteractiveReview -- ranked review workflow, verdict recording, progress
+    TestListingDisplayDisqualified -- disqualification warning in review display
 """
 
 from __future__ import annotations
@@ -443,7 +443,7 @@ class TestInteractiveReview:
         # When: record two verdicts then simulate quit
         await session.record_verdict(r1, "y")
         await session.record_verdict(r2, "n")
-        # Don't record r3 — simulates quitting
+        # Don't record r3 -- simulates quitting
 
         # Then: first two verdicts persist, third is absent
         assert decision_recorder.get_decision("keep-1") is not None, "First verdict should persist"
@@ -534,7 +534,7 @@ class TestListingDisplayDisqualified:
          time evaluating a role that was already flagged as unsuitable
 
     MOCK BOUNDARY:
-        Mock: nothing — pure display formatting
+        Mock: nothing -- pure display formatting
         Real: ReviewSession.format_listing, RankedListing construction
         Never: Patch format internals
     """

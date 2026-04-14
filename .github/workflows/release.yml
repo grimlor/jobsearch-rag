@@ -50,5 +50,5 @@ jobs:
               --generate-notes \
               --latest
           else
-            echo "No new version — no feat: or fix: commits since last tag"
+            echo "No new version -- no feat: or fix: commits since last tag"
           fi

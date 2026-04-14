@@ -1,4 +1,4 @@
-"""Adapter registry — IoC loader and factory for job board adapters."""
+"""Adapter registry -- IoC loader and factory for job board adapters."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ class AdapterRegistry:
 
     @classmethod
     def register(cls, adapter_class: type[_T]) -> type[_T]:
-        """Class decorator — registers an adapter by its ``board_name``."""
+        """Class decorator -- registers an adapter by its ``board_name``."""
         instance = adapter_class.__new__(adapter_class)
         cls._registry[instance.board_name] = adapter_class  # type: ignore[assignment]  # _T is a subtype of JobBoardAdapter
         return adapter_class

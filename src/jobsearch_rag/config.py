@@ -20,7 +20,7 @@ from typing import Any, cast
 
 from jobsearch_rag.errors import ActionableError
 
-# Type alias for TOML-parsed dicts — values are heterogeneous.
+# Type alias for TOML-parsed dicts -- values are heterogeneous.
 _TOMLDict = dict[str, Any]
 
 # ---------------------------------------------------------------------------
@@ -316,13 +316,13 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
         if value < 0.0:
             raise ActionableError.validation(
                 field_name=f"scoring.{weight_name}",
-                reason=f"is {value} — must be >= 0.0",
+                reason=f"is {value} -- must be >= 0.0",
                 suggestion=f"Set [scoring].{weight_name} to a value between 0.0 and 1.0",
             )
         if value > 1.0:
             raise ActionableError.validation(
                 field_name=f"scoring.{weight_name}",
-                reason=f"is {value} — must be <= 1.0",
+                reason=f"is {value} -- must be <= 1.0",
                 suggestion=f"Set [scoring].{weight_name} to a value between 0.0 and 1.0",
             )
 
@@ -330,7 +330,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if scoring.base_salary <= 0:
         raise ActionableError.validation(
             field_name="scoring.base_salary",
-            reason=f"is {scoring.base_salary} — must be > 0",
+            reason=f"is {scoring.base_salary} -- must be > 0",
             suggestion="Set [scoring].base_salary to a positive number",
         )
 
@@ -338,7 +338,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if not 0.0 <= scoring.missing_comp_score <= 1.0:
         raise ActionableError.validation(
             field_name="scoring.missing_comp_score",
-            reason=f"is {scoring.missing_comp_score} — must be in [0.0, 1.0]",
+            reason=f"is {scoring.missing_comp_score} -- must be in [0.0, 1.0]",
             suggestion="Set [scoring].missing_comp_score to a value between 0.0 and 1.0",
         )
 
@@ -347,7 +347,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if len(bands) < 2:
         raise ActionableError.validation(
             field_name="scoring.comp_bands",
-            reason=f"has {len(bands)} entry — at least 2 breakpoints are required",
+            reason=f"has {len(bands)} entry -- at least 2 breakpoints are required",
             suggestion="Add at least 2 [[scoring.comp_bands]] entries with ratio and score",
         )
     for i in range(1, len(bands)):
@@ -356,7 +356,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
                 field_name="scoring.comp_bands",
                 reason=(
                     f"ratio {bands[i].ratio} at index {i} is not less than "
-                    f"ratio {bands[i - 1].ratio} at index {i - 1} — "
+                    f"ratio {bands[i - 1].ratio} at index {i - 1} -- "
                     f"ratios must be monotonically decreasing"
                 ),
                 suggestion="Order [[scoring.comp_bands]] entries with ratios in decreasing order",
@@ -366,7 +366,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if scoring.top_k_retrieval < 1:
         raise ActionableError.validation(
             field_name="scoring.top_k_retrieval",
-            reason=f"is {scoring.top_k_retrieval} — must be >= 1",
+            reason=f"is {scoring.top_k_retrieval} -- must be >= 1",
             suggestion="Set [scoring].top_k_retrieval to a positive integer (e.g. 3)",
         )
 
@@ -374,7 +374,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if scoring.salary_floor < 0:
         raise ActionableError.validation(
             field_name="scoring.salary_floor",
-            reason=f"is {scoring.salary_floor} — must be >= 0",
+            reason=f"is {scoring.salary_floor} -- must be >= 0",
             suggestion="Set [scoring].salary_floor to a non-negative number (e.g. 10.0)",
         )
 
@@ -383,7 +383,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
         raise ActionableError.validation(
             field_name="scoring.salary_ceiling",
             reason=(
-                f"is {scoring.salary_ceiling} — must be greater than "
+                f"is {scoring.salary_ceiling} -- must be greater than "
                 f"salary_floor ({scoring.salary_floor})"
             ),
             suggestion="Set [scoring].salary_ceiling to a value greater than salary_floor",
@@ -393,7 +393,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if scoring.hours_per_year <= 0:
         raise ActionableError.validation(
             field_name="scoring.hours_per_year",
-            reason=f"is {scoring.hours_per_year} — must be > 0",
+            reason=f"is {scoring.hours_per_year} -- must be > 0",
             suggestion="Set [scoring].hours_per_year to a positive integer (e.g. 2080)",
         )
 
@@ -414,7 +414,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if not classify_system_prompt:
         raise ActionableError.validation(
             field_name="ollama.classify_system_prompt",
-            reason="is empty — must be a non-empty string",
+            reason="is empty -- must be a non-empty string",
             suggestion="Set [ollama].classify_system_prompt to a non-empty prompt string",
         )
 
@@ -451,7 +451,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if output.max_slug_length <= 0:
         raise ActionableError.validation(
             field_name="output.max_slug_length",
-            reason=f"is {output.max_slug_length} — must be > 0",
+            reason=f"is {output.max_slug_length} -- must be > 0",
             suggestion="Set [output].max_slug_length to a positive integer (e.g. 80)",
         )
 
@@ -469,7 +469,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
         raise ActionableError.validation(
             field_name="chroma.distance_metric",
             reason=(
-                f"is '{chroma.distance_metric}' — must be one of: "
+                f"is '{chroma.distance_metric}' -- must be one of: "
                 f"{', '.join(sorted(valid_metrics))}"
             ),
             suggestion="Set [chroma].distance_metric to 'cosine', 'l2', or 'ip'",
@@ -498,7 +498,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
         if not dq_prompt_str:
             raise ActionableError.validation(
                 field_name="disqualifier.system_prompt",
-                reason="is empty — must be a non-empty string or omitted to trigger synthesis",
+                reason="is empty -- must be a non-empty string or omitted to trigger synthesis",
                 suggestion=(
                     "Remove [disqualifier].system_prompt to use archetype synthesis, "
                     "or provide a non-empty prompt string"
@@ -514,7 +514,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if not screen_prompt:
         raise ActionableError.validation(
             field_name="security.screen_prompt",
-            reason="is empty — must be a non-empty string",
+            reason="is empty -- must be a non-empty string",
             suggestion="Set [security].screen_prompt to a non-empty prompt string",
         )
     security = SecurityConfig(screen_prompt=screen_prompt)
@@ -548,7 +548,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if cdp_timeout <= 0.0:
         raise ActionableError.validation(
             field_name="adapters.cdp_timeout",
-            reason=f"is {cdp_timeout} — must be > 0.0",
+            reason=f"is {cdp_timeout} -- must be > 0.0",
             suggestion="Set [adapters].cdp_timeout to a positive number (e.g. 15.0)",
         )
 
@@ -564,7 +564,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if adapters.max_full_text_chars <= 0:
         raise ActionableError.validation(
             field_name="adapters.max_full_text_chars",
-            reason=f"is {adapters.max_full_text_chars} — must be > 0",
+            reason=f"is {adapters.max_full_text_chars} -- must be > 0",
             suggestion="Set [adapters].max_full_text_chars to a positive integer (e.g. 250000)",
         )
 
@@ -572,13 +572,13 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     if adapters.viewport_width <= 0:
         raise ActionableError.validation(
             field_name="adapters.viewport_width",
-            reason=f"is {adapters.viewport_width} — must be > 0",
+            reason=f"is {adapters.viewport_width} -- must be > 0",
             suggestion="Set [adapters].viewport_width to a positive integer (e.g. 1440)",
         )
     if adapters.viewport_height <= 0:
         raise ActionableError.validation(
             field_name="adapters.viewport_height",
-            reason=f"is {adapters.viewport_height} — must be > 0",
+            reason=f"is {adapters.viewport_height} -- must be > 0",
             suggestion="Set [adapters].viewport_height to a positive integer (e.g. 900)",
         )
 

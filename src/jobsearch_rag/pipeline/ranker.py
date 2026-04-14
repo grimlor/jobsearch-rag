@@ -4,17 +4,17 @@ Score fusion, deduplication, and final ranking.
 The Ranker is the bridge between raw scoring outputs and the final ranked
 shortlist the operator reviews.  It performs three operations in sequence:
 
-1. **Score fusion** — combine fit / archetype / history / culture scores
+1. **Score fusion** -- combine fit / archetype / history / culture scores
    using configurable weights from ``settings.toml`` into a single
    ``final_score``.  Disqualified roles are zeroed.
 
-2. **Deduplication** — the same job often appears on multiple boards.
+2. **Deduplication** -- the same job often appears on multiple boards.
    Exact matches (same ``external_id`` + ``board``) are collapsed
    unconditionally.  Near-duplicates (cosine similarity > 0.95 on
    ``full_text`` embeddings) are collapsed, keeping the highest-scored
    instance and noting which other boards carried it.
 
-3. **Threshold filtering** — roles scoring below ``min_score_threshold``
+3. **Threshold filtering** -- roles scoring below ``min_score_threshold``
    are excluded from the final output entirely.
 """
 
@@ -125,7 +125,7 @@ class Ranker:
         """
         summary = RankSummary(total_found=len(listings))
 
-        # Step 1: Score fusion — compute final_score for each listing
+        # Step 1: Score fusion -- compute final_score for each listing
         ranked: list[RankedListing] = []
         for listing, scores in listings:
             final = self.compute_final_score(scores)
@@ -144,7 +144,7 @@ class Ranker:
         ranked = self._deduplicate_near(ranked, embeddings or {})
         summary.total_deduplicated = summary.total_scored - len(ranked)
 
-        # Step 3: Threshold filtering — exclude below min_score_threshold
+        # Step 3: Threshold filtering -- exclude below min_score_threshold
         before_filter = len(ranked)
         ranked = [r for r in ranked if r.final_score >= self.min_score_threshold]
         summary.total_excluded = before_filter - len(ranked)

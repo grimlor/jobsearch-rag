@@ -67,12 +67,12 @@ If the LLM disqualifier flags the listing: `final_score = 0.0`.
 
 | Weight | Default | Effect |
 |---|---|---|
-| `archetype_weight` | 0.5 | Strongest positive signal — is this the kind of role you want? |
-| `fit_weight` | 0.3 | Second — does your background actually match? |
-| `history_weight` | 0.2 | Third — pattern matching against past approvals |
+| `archetype_weight` | 0.5 | Strongest positive signal -- is this the kind of role you want? |
+| `fit_weight` | 0.3 | Second -- does your background actually match? |
+| `history_weight` | 0.2 | Third -- pattern matching against past approvals |
 | `comp_weight` | 0.15 | Modest boost/penalty for compensation alignment |
 | `culture_weight` | 0.2 | Environment and work-model alignment |
-| `negative_weight` | 0.4 | Subtractive — penalty for matched negative signals |
+| `negative_weight` | 0.4 | Subtractive -- penalty for matched negative signals |
 
 Weights are **not** normalized to sum to 1.0. The theoretical maximum
 `final_score` depends on the weight configuration. With defaults:
@@ -91,24 +91,24 @@ from export. The threshold is applied after fusion and deduplication.
 
 ## Compensation Scoring
 
-Compensation is scored via regex extraction — no LLM involved.
+Compensation is scored via regex extraction -- no LLM involved.
 
 ### Parsing Pipeline
 
-1. **Pattern matching** — Regex patterns detect salary formats:
+1. **Pattern matching** -- Regex patterns detect salary formats:
    - `$180,000 - $220,000` (annual range)
    - `$180K - $220K` (K-suffix, case-insensitive)
    - `$85/hr` or `$85 per hour` (hourly, converted via × 2,080 hours/year)
    - `$200,000 per year` or `$200,000 per annum`
    - Single values: `$180,000` (sets both min and max)
 
-2. **False-positive screening** — Context around the match is checked to
+2. **False-positive screening** -- Context around the match is checked to
    reject:
    - Employee counts ("500-1,000 employees")
    - Revenue figures ("$50M ARR", "$1B funding")
    - Non-salary dollar amounts in surrounding text
 
-3. **Source classification** — Employer-stated salary is preferred over
+3. **Source classification** -- Employer-stated salary is preferred over
    board-estimated salary. Source is tagged as `"employer"` or `"estimated"`.
 
 ### Comp Score Bands
@@ -117,12 +117,12 @@ The `comp_max` value is compared to the configurable `base_salary`:
 
 | Ratio (`comp_max / base_salary`) | Score Range | Interpolation |
 |---|---|---|
-| ≥ 100% | 1.0 | Flat — meets or exceeds target |
+| ≥ 100% | 1.0 | Flat -- meets or exceeds target |
 | 90–100% | 0.7–0.9 | Linear within band |
 | 77–90% | 0.4–0.7 | Linear within band |
 | 68–77% | 0.0–0.4 | Linear within band |
-| < 68% | 0.0 | Flat — too far below target |
-| Missing | 0.5 | Neutral — no data, don't penalize or reward |
+| < 68% | 0.0 | Flat -- too far below target |
+| Missing | 0.5 | Neutral -- no data, don't penalize or reward |
 
 The bands produce a continuous, piecewise-linear curve with no discontinuities
 at boundaries. The `0.5` default for missing data ensures unspecified
@@ -139,24 +139,24 @@ similarity alone can't detect.
 
 The disqualifier prompt instructs the LLM to flag listings that are:
 
-- **IC-disguised-as-architect** — titles say "architect" but responsibilities
+- **IC-disguised-as-architect** -- titles say "architect" but responsibilities
   are individual contributor work
-- **Primarily SRE on-call** — the role's primary function is incident response
+- **Primarily SRE on-call** -- the role's primary function is incident response
   and on-call rotation
-- **Staffing agency / vendor chain** — posted by a recruiting firm, not the
+- **Staffing agency / vendor chain** -- posted by a recruiting firm, not the
   actual employer
-- **Primarily full-stack web development** — frontend-heavy roles mislabeled
+- **Primarily full-stack web development** -- frontend-heavy roles mislabeled
   as platform/infrastructure
 
 ### Defense Layers
 
-1. **Prompt-injection screening** — A separate LLM call checks whether the
+1. **Prompt-injection screening** -- A separate LLM call checks whether the
    JD text contains language attempting to override system instructions
-2. **Regex sanitization** — Known injection patterns are stripped from the JD
+2. **Regex sanitization** -- Known injection patterns are stripped from the JD
    before it reaches the disqualifier prompt
-3. **Disqualifier prompt** — The sanitized JD is sent to `mistral:7b` with a
+3. **Disqualifier prompt** -- The sanitized JD is sent to `mistral:7b` with a
    system message requesting JSON output: `{"disqualified": bool, "reason": str}`
-4. **Safe default** — If JSON parsing fails, the listing is **not**
+4. **Safe default** -- If JSON parsing fails, the listing is **not**
    disqualified. False negatives (missing a bad listing) are preferred over
    false positives (rejecting a good one).
 
@@ -193,7 +193,7 @@ boards carried the same listing.
 
 On subsequent runs, the pipeline checks the `decisions` collection for each
 listing's `external_id`. If a decision (yes/no/maybe) exists, the listing is
-excluded from scoring entirely — it has already been reviewed.
+excluded from scoring entirely -- it has already been reviewed.
 
 The `--force-rescore` flag overrides this behavior, re-scoring all listings
 regardless of decision status. Useful after re-indexing or weight changes.

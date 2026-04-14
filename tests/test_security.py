@@ -2,10 +2,10 @@
 Input validation and security boundary tests.
 
 Spec classes:
-    TestJobListingValidation — construction rejects malformed input at the
+    TestJobListingValidation -- construction rejects malformed input at the
                                adapter boundary where untrusted web content
                                enters the system
-    TestDecisionAudit        — operator can inspect, audit, and surgically
+    TestDecisionAudit        -- operator can inspect, audit, and surgically
                                remove individual decisions without losing
                                the append-only audit trail
 """
@@ -37,7 +37,7 @@ from tests.conftest import make_mock_ollama_client, make_test_ollama_config
 #              comp_source=None, comp_text=None, metadata={})
 #   _sanitize_filename_field(value: str) -> str   (module-level helper)
 #
-# Public API surface (from src/jobsearch_rag/cli — Phase 6d):
+# Public API surface (from src/jobsearch_rag/cli -- Phase 6d):
 #   handle_decisions_show(args: argparse.Namespace) -> None
 #   handle_decisions_remove(args: argparse.Namespace) -> None
 #   handle_decisions_audit(args: argparse.Namespace) -> None
@@ -94,11 +94,11 @@ class TestJobListingValidation:
           (7) sanitisation does not affect optional fields, which remain at their defaults
     WHY: An oversized JD causes an Ollama out-of-memory crash with no
          actionable error. A title containing '../' can write files outside
-         the output directory — a path traversal vulnerability even in a
+         the output directory -- a path traversal vulnerability even in a
          local single-user context
 
     MOCK BOUNDARY:
-        Mock:  nothing — JobListing is a data class with validation in __init__
+        Mock:  nothing -- JobListing is a data class with validation in __init__
         Real:  JobListing constructor called with explicit field values
         Never: Bypass the constructor; test all validation paths through
                JobListing(...) with adversarial input strings
@@ -337,7 +337,7 @@ class TestDecisionAudit:
         When audit_decisions() is called
         Then only the decision with a reason appears in the result.
         """
-        # Given: two decisions — one with reason, one without
+        # Given: two decisions -- one with reason, one without
         await _record_decision(
             _recorder, job_id="zr_001", verdict="yes", reason="Great culture fit"
         )
@@ -388,7 +388,7 @@ class TestDecisionAudit:
         # When: audit decisions
         results = _recorder.audit_decisions()
 
-        # Then: no results — caller renders advisory
+        # Then: no results -- caller renders advisory
         assert results == [], "audit must return empty list when no decisions have reasons"
 
     @pytest.mark.asyncio

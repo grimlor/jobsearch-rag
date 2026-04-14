@@ -1,11 +1,11 @@
 """
-Embedder tests — Ollama wrapper with retry and error handling.
+Embedder tests -- Ollama wrapper with retry and error handling.
 
 Spec classes:
-    TestEmbedding — text-to-vector embedding via Ollama
-    TestClassification — LLM classification prompts via Ollama chat
-    TestHealthCheck — Ollama reachability and model availability
-    TestRetryLogic — transient failure retry with exponential backoff
+    TestEmbedding -- text-to-vector embedding via Ollama
+    TestClassification -- LLM classification prompts via Ollama chat
+    TestHealthCheck -- Ollama reachability and model availability
+    TestRetryLogic -- transient failure retry with exponential backoff
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ def ollama_mock() -> Iterator[MagicMock]:
 
 @pytest.fixture
 def embedder(ollama_mock: MagicMock) -> Embedder:
-    """An Embedder configured for testing — ollama calls go to ollama_mock."""
+    """An Embedder configured for testing -- ollama calls go to ollama_mock."""
     return Embedder(
         OllamaConfig(
             base_url=BASE_URL,
@@ -105,10 +105,10 @@ class TestEmbedding:
           (7) The system preserves both the beginning and the end of truncated text and inserts an ellipsis marker between them.
           (8) The system passes text through unchanged when it fits within the context window limit.
     WHY: Wrong model or mangled vectors would silently corrupt all similarity
-         scores — the entire scoring pipeline depends on correct embeddings
+         scores -- the entire scoring pipeline depends on correct embeddings
 
     MOCK BOUNDARY:
-        Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) — Ollama HTTP API
+        Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) -- Ollama HTTP API
         Real: Embedder.embed, truncation logic, whitespace handling, validation
         Never: Patch Embedder internals or bypass embed()
     """
@@ -296,10 +296,10 @@ class TestClassification:
           (3) The system sends the classification prompt as a single user message in the chat conversation.
           (4) The system raises an EMBEDDING error when Ollama returns None content.
     WHY: The disqualifier must receive unmodified LLM output to make
-         accept/reject decisions — any transformation could flip the result
+         accept/reject decisions -- any transformation could flip the result
 
     MOCK BOUNDARY:
-        Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) — Ollama HTTP API
+        Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) -- Ollama HTTP API
         Real: Embedder.classify, message formatting, model selection
         Never: Patch classify() or message construction
     """
@@ -409,7 +409,7 @@ class TestHealthCheck:
          time and risks rate limiting; fail fast at startup
 
     MOCK BOUNDARY:
-        Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) — Ollama HTTP API
+        Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) -- Ollama HTTP API
         Real: Embedder.health_check, model validation, error classification
         Never: Patch health_check() or error construction
     """
@@ -514,11 +514,11 @@ class TestRetryLogic:
           (4) The system retries `classify()` after a transient 503 error and returns the classification on the second attempt.
           (5) The system retries `embed()` after a `ConnectionError` and returns the embedding on the second attempt.
           (6) The system raises an `EMBEDDING` error with the retry count and Ollama guidance after persistent `ConnectionError` failures exhaust all retries.
-    WHY: Ollama can be slow under load — a single timeout shouldn't abort
+    WHY: Ollama can be slow under load -- a single timeout shouldn't abort
          a scoring run that's already invested browser-scraping time
 
     MOCK BOUNDARY:
-        Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) — Ollama HTTP API
+        Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) -- Ollama HTTP API
         Real: Embedder retry logic, error classification, backoff timing
         Never: Patch retry internals or backoff delays directly
     """

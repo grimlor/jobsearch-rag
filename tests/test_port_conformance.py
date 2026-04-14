@@ -1,5 +1,5 @@
 """
-BDD specs for port conformance — contract tests run against both real
+BDD specs for port conformance -- contract tests run against both real
 and fake implementations.
 
 Covers: TestPortConformance (D4).
@@ -20,13 +20,13 @@ Public API surface (from src/jobsearch_rag/rag/store):
     store.close()
 
 Public API surface (from src/jobsearch_rag/ports):
-    EmbeddingPort — Protocol
-    VectorStorePort — Protocol
-    QueryResult — dataclass
-    GetResult — dataclass
+    EmbeddingPort -- Protocol
+    VectorStorePort -- Protocol
+    QueryResult -- dataclass
+    GetResult -- dataclass
 
 Public API surface (from src/jobsearch_rag/rag/embedder):
-    Embedder(ollama_config) — concrete EmbeddingPort impl
+    Embedder(ollama_config) -- concrete EmbeddingPort impl
 """
 
 from __future__ import annotations
@@ -113,9 +113,9 @@ def embedder_impl(request: pytest.FixtureRequest) -> object:
 class TestPortConformance:
     """
     REQUIREMENT: Both real and fake implementations satisfy the same
-    port behavioral contracts — a contract test suite run against each.
+    port behavioral contracts -- a contract test suite run against each.
 
-    WHO: The port system as a whole — ensures fakes don't diverge from
+    WHO: The port system as a whole -- ensures fakes don't diverge from
          real implementations.
     WHAT: (1) VectorStorePort implementations pass add → get roundtrip.
           (2) VectorStorePort implementations return query results ranked

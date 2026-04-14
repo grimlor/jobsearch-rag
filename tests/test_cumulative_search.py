@@ -1,5 +1,5 @@
 """
-Cumulative search — merge-on-export behavior for the search command.
+Cumulative search -- merge-on-export behavior for the search command.
 
 Maps to BDD specs: TestAccumulateMode, TestFreshMode, TestCSVRoundTrip,
 TestJDFilePreservation, TestRescoreAccumulatedSet, TestDecisionExclusionAccumulated
@@ -155,7 +155,7 @@ def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
     """
     Create a mock Playwright I/O boundary.
 
-    Mocks ``async_playwright`` — the edge where our system ends and the
+    Mocks ``async_playwright`` -- the edge where our system ends and the
     Playwright library begins.
 
     Returns ``(mock_async_playwright, mock_page)``.
@@ -379,7 +379,7 @@ def _seed_decision(
 
 
 # ---------------------------------------------------------------------------
-# B1 — Accumulate Mode (Default)
+# B1 -- Accumulate Mode (Default)
 # ---------------------------------------------------------------------------
 
 
@@ -395,7 +395,7 @@ class TestAccumulateMode:
           (3) Prior-only listings (not in the current run) are preserved
           (4) The merged list is sorted by final_score descending
           (5) Markdown summary reflects the merged set totals
-    WHY: Decouples search frequency from review cadence — run searches
+    WHY: Decouples search frequency from review cadence -- run searches
          unattended during the week, review accumulated results on the weekend
 
     MOCK BOUNDARY:
@@ -557,7 +557,7 @@ class TestAccumulateMode:
 
 
 # ---------------------------------------------------------------------------
-# B2 — Fresh Mode Override
+# B2 -- Fresh Mode Override
 # ---------------------------------------------------------------------------
 
 
@@ -569,7 +569,7 @@ class TestFreshMode:
     WHAT: (1) When --fresh is set, handle_search skips merge entirely
           (2) Exporters receive only the current run's results
           (3) Stale JD file cleanup proceeds normally (Phase 6h behavior)
-    WHY: After re-indexing or weight changes, prior scores are stale —
+    WHY: After re-indexing or weight changes, prior scores are stale --
          the operator needs a way to start fresh
 
     MOCK BOUNDARY:
@@ -678,7 +678,7 @@ class TestFreshMode:
 
 
 # ---------------------------------------------------------------------------
-# B3 — CSV Round-Trip Fidelity
+# B3 -- CSV Round-Trip Fidelity
 # ---------------------------------------------------------------------------
 
 
@@ -879,7 +879,7 @@ class TestCSVRoundTrip:
 
 
 # ---------------------------------------------------------------------------
-# B4 — JD File Preservation in Accumulate Mode
+# B4 -- JD File Preservation in Accumulate Mode
 # ---------------------------------------------------------------------------
 
 
@@ -961,7 +961,7 @@ class TestJDFilePreservation:
 
 
 # ---------------------------------------------------------------------------
-# B5 — Rescore Handles Accumulated Set
+# B5 -- Rescore Handles Accumulated Set
 # ---------------------------------------------------------------------------
 
 
@@ -971,12 +971,12 @@ class TestRescoreAccumulatedSet:
     accumulation.
 
     WHO: Operator re-scoring after config changes
-    WHAT: (1) load_jd_files reads all .md files in jds/ — existing behavior
+    WHAT: (1) load_jd_files reads all .md files in jds/ -- existing behavior
               works unchanged over accumulated files from multiple runs
     WHY: Validate that the existing rescore path handles accumulated files
 
     MOCK BOUNDARY:
-        Mock:  nothing — this class tests pure filesystem I/O via tmp_path
+        Mock:  nothing -- this class tests pure filesystem I/O via tmp_path
         Real:  load_jd_files, JDFileExporter, tmp_path filesystem
         Never: Patch load_jd_files internals
     """
@@ -1019,7 +1019,7 @@ class TestRescoreAccumulatedSet:
 
 
 # ---------------------------------------------------------------------------
-# B6 — Decision Exclusion in Accumulate Mode
+# B6 -- Decision Exclusion in Accumulate Mode
 # ---------------------------------------------------------------------------
 
 

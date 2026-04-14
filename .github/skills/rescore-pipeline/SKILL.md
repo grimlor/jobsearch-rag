@@ -3,7 +3,7 @@ name: rescore-pipeline
 description: "Rescore pipeline for re-scoring existing JDs from disk. Use when implementing or modifying the rescore CLI subcommand, Rescorer class, or JD file parsing back into JobListing objects."
 ---
 
-# Rescore Pipeline — Re-Score Existing JDs From Disk
+# Rescore Pipeline -- Re-Score Existing JDs From Disk
 
 ## When This Skill Applies
 
@@ -72,7 +72,7 @@ python -m jobsearch_rag rescore --force-rescore
 
 ## Module Location
 
-`pipeline/rescorer.py` — standalone module, not bolted onto `runner.py`.
+`pipeline/rescorer.py` -- standalone module, not bolted onto `runner.py`.
 
 Shares with runner:
 - `Scorer`, `Ranker`, `Embedder`, `VectorStore`, `DecisionRecorder`

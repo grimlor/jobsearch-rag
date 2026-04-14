@@ -1,4 +1,4 @@
-# Embedding Synthesis — Code Patterns & Field Reference
+# Embedding Synthesis -- Code Patterns & Field Reference
 
 ## Archetype Embedding Synthesis
 
@@ -52,11 +52,11 @@ def build_negative_embedding_texts(global_rubric: dict, archetypes: list[dict]) 
 | `description` | Yes | `role_archetypes` | Core semantic content |
 | `signals_positive` | Yes | `role_archetypes` + `global_positive_signals` | Strengthens archetype/culture discrimination |
 | `signals_negative` | Yes | `negative_signals` | Provides continuous penalty signal |
-| `minimum_target` | **No** | — | Numeric metadata — adds noise to cosine similarity |
-| `weight_*` fields | **No** | — | Scoring config — not semantic content |
-| `description` in rubric | **No** | — | Human reference only |
+| `minimum_target` | **No** | -- | Numeric metadata -- adds noise to cosine similarity |
+| `weight_*` fields | **No** | -- | Scoring config -- not semantic content |
+| `description` in rubric | **No** | -- | Human reference only |
 
 ## Non-Semantic Scores (Not From ChromaDB)
 
-- **`comp_score`** — regex-parsed from JD text by `comp_parser.py`; relative to `base_salary`
-- **Disqualifier** — binary LLM gate via Ollama; augmented by past "no" rejection reasons
+- **`comp_score`** -- regex-parsed from JD text by `comp_parser.py`; relative to `base_salary`
+- **Disqualifier** -- binary LLM gate via Ollama; augmented by past "no" rejection reasons

@@ -10,14 +10,14 @@
 
 The following assumptions are baked into the current design:
 
-1. **One resume** — `data/resume.md` is a single file
-2. **One set of preferences** — archetypes, rubric, and weights reflect one
+1. **One resume** -- `data/resume.md` is a single file
+2. **One set of preferences** -- archetypes, rubric, and weights reflect one
    person's priorities
-3. **One ChromaDB instance** — embedded (SQLite), local, single-writer
-4. **One decision history** — verdicts are from one reviewer's perspective
-5. **One machine** — Ollama, ChromaDB, and Playwright all run locally
-6. **No concurrent writes** — no locking or conflict resolution
-7. **JSONL audit logs** — append-only, no indexing or querying beyond `grep`
+3. **One ChromaDB instance** -- embedded (SQLite), local, single-writer
+4. **One decision history** -- verdicts are from one reviewer's perspective
+5. **One machine** -- Ollama, ChromaDB, and Playwright all run locally
+6. **No concurrent writes** -- no locking or conflict resolution
+7. **JSONL audit logs** -- append-only, no indexing or querying beyond `grep`
 
 ---
 
@@ -28,11 +28,11 @@ The following assumptions are baked into the current design:
 The embedded ChromaDB (SQLite file) cannot support concurrent writers. With
 a team:
 
-- **Upgrade to ChromaDB server mode** — run ChromaDB as a separate service
+- **Upgrade to ChromaDB server mode** -- run ChromaDB as a separate service
   with an HTTP API
 - **Or replace** with a managed vector store (Pinecone, Weaviate, PGVector)
 - **Connection string** replaces `persist_dir` in `ChromaConfig`
-- **Multi-tenancy** — each user's decisions go into partitioned
+- **Multi-tenancy** -- each user's decisions go into partitioned
   sub-collections or use metadata filtering. Shared collections (resume,
   archetypes, rubric) remain common.
 
@@ -56,7 +56,7 @@ that Bob rejected?"
 
 | Config | Current | Team |
 |---|---|---|
-| `settings.toml` (boards, Ollama) | Shared | Shared — infrastructure config |
+| `settings.toml` (boards, Ollama) | Shared | Shared -- infrastructure config |
 | `role_archetypes.toml` | Single-user | Per-user or per-team profiles |
 | `global_rubric.toml` | Single-user | Base rubric shared; per-user overrides |
 | Scoring weights | Single-user | Per-user profiles |
@@ -81,7 +81,7 @@ base_salary = 180000
 
 ChromaDB collections would need user prefixes or metadata:
 
-- `resume_alice`, `resume_bob` — or a single `resume` collection with
+- `resume_alice`, `resume_bob` -- or a single `resume` collection with
   `user_id` metadata filtering
 - `decisions` collection would need `user_id` metadata on every document
 - Negative signals and global rubric might stay shared (team values) with
@@ -108,11 +108,11 @@ async def score(jd_text: str, user_id: str) -> ScoreResult:
 
 Currently, `history_score` reflects one person's preferences. With a team:
 
-- **Option A:** Per-user history — each person's "yes" verdicts only
+- **Option A:** Per-user history -- each person's "yes" verdicts only
   influence their own scores. Most isolated.
-- **Option B:** Team history — all "yes" verdicts feed one collection.
+- **Option B:** Team history -- all "yes" verdicts feed one collection.
   Creates a team consensus signal.
-- **Option C:** Weighted team history — weight your own verdicts higher
+- **Option C:** Weighted team history -- weight your own verdicts higher
   than teammates'. Most complex but most useful.
 
 ### Disqualifier Personalization
@@ -133,22 +133,22 @@ Running Ollama locally per user is wasteful. With a team:
 - **Or switch to API-based inference** (OpenAI, Anthropic) with appropriate
   key management and cost allocation
 - The `OllamaConfig.base_url` already supports pointing to a remote server
-- **Rate limiting** becomes necessary — multiple users embedding concurrently
+- **Rate limiting** becomes necessary -- multiple users embedding concurrently
 
 ### Browser Automation → Proxy or API
 
 Playwright running on each user's machine doesn't scale:
 
-- **Centralized scraping service** — one instance per board, shared results
+- **Centralized scraping service** -- one instance per board, shared results
 - **Job board APIs** where available (Indeed, LinkedIn APIs have access tiers)
-- **Proxy rotation** — shared IP pool to avoid per-user rate limiting
+- **Proxy rotation** -- shared IP pool to avoid per-user rate limiting
 - Session cookies become per-user secrets requiring secure storage
 
 ### Observability
 
-- **Centralized logging** — session logs aggregate across users
-- **Dashboards** — scoring quality metrics per user, per board, over time
-- **Alerting** — detect when a board's adapter starts failing (selector
+- **Centralized logging** -- session logs aggregate across users
+- **Dashboards** -- scoring quality metrics per user, per board, over time
+- **Alerting** -- detect when a board's adapter starts failing (selector
   changes)
 
 ---
@@ -177,7 +177,7 @@ The pipeline would split into:
 
 The adapter layer is already the cleanest boundary for team scaling:
 
-- Adapters produce `JobListing` objects — this contract doesn't change
+- Adapters produce `JobListing` objects -- this contract doesn't change
 - A centralized search service would run adapters on a schedule and store
   raw listings in a database
 - Users would score and review from the shared listing pool
@@ -186,12 +186,12 @@ The adapter layer is already the cleanest boundary for team scaling:
 
 A realistic migration path for a team adoption:
 
-1. **Shared Ollama server** — lowest friction, change `base_url` only
-2. **Shared ChromaDB server** — move from embedded to server mode
-3. **Per-user profiles** — config system supports multiple users
-4. **Centralized scraping** — one search service, shared listing pool
-5. **Web UI** — replace CLI review with browser-based interface
-6. **API layer** — RESTful API over the pipeline for external integrations
+1. **Shared Ollama server** -- lowest friction, change `base_url` only
+2. **Shared ChromaDB server** -- move from embedded to server mode
+3. **Per-user profiles** -- config system supports multiple users
+4. **Centralized scraping** -- one search service, shared listing pool
+5. **Web UI** -- replace CLI review with browser-based interface
+6. **API layer** -- RESTful API over the pipeline for external integrations
 
 ---
 
@@ -199,16 +199,16 @@ A realistic migration path for a team adoption:
 
 The core abstractions hold up under team scaling:
 
-- **`JobListing` data contract** — board-agnostic, user-agnostic
-- **`ScoreResult` structure** — same six components, same fusion formula
-- **Adapter ABC + Registry** — board-specific logic stays encapsulated
-- **`ActionableError` hierarchy** — error design works for operators, UIs,
+- **`JobListing` data contract** -- board-agnostic, user-agnostic
+- **`ScoreResult` structure** -- same six components, same fusion formula
+- **Adapter ABC + Registry** -- board-specific logic stays encapsulated
+- **`ActionableError` hierarchy** -- error design works for operators, UIs,
   and AI agents
-- **Score fusion formula** — weights may differ per user but the formula
+- **Score fusion formula** -- weights may differ per user but the formula
   is universal
-- **Deduplication** — exact + near-dedup logic works regardless of who's
+- **Deduplication** -- exact + near-dedup logic works regardless of who's
   reviewing
-- **Eval metrics** — precision, recall, Spearman ρ are per-user measurements
+- **Eval metrics** -- precision, recall, Spearman ρ are per-user measurements
   that compose into team dashboards
 
 The architecture was designed around data contracts and clear boundaries.

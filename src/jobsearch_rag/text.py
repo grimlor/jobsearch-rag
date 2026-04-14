@@ -1,7 +1,7 @@
 """
 Shared text-processing utilities.
 
-Pure functions with no domain dependencies — safe to import from any
+Pure functions with no domain dependencies -- safe to import from any
 layer (CLI, pipeline, export, RAG).
 """
 
@@ -18,7 +18,7 @@ def slugify(text: str, *, max_len: int) -> str:
     collapses whitespace/underscores to single hyphens, and truncates
     to *max_len* characters.
 
-    >>> slugify("Senior Staff Engineer — Platform (Remote)")
+    >>> slugify("Senior Staff Engineer -- Platform (Remote)")
     'senior-staff-engineer-platform-remote'
     """
     slug = text.lower()

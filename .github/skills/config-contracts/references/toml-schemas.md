@@ -1,4 +1,4 @@
-# TOML Config Schemas — Full Structure Reference
+# TOML Config Schemas -- Full Structure Reference
 
 ## `config/global_rubric.toml`
 
@@ -6,7 +6,7 @@
 
 ```toml
 [global_rubric.altitude]
-description = """..."""            # Human reference only — NOT embedded
+description = """..."""            # Human reference only -- NOT embedded
 signals_positive = [               # Embedded into archetype synthesis (future)
   "architecture ownership",
   "platform strategy",
@@ -24,8 +24,8 @@ signals_negative = [               # Embedded into negative_signals collection
 
 ### Special Cases
 
-- `compensation` has `minimum_target` and `weight_*` fields — human reference only, never embedded
-- `nd_compatibility` has no `signals_negative` in some configurations — skip gracefully
+- `compensation` has `minimum_target` and `weight_*` fields -- human reference only, never embedded
+- `nd_compatibility` has no `signals_negative` in some configurations -- skip gracefully
 - A dimension with no `signals_negative` produces no document in the collection
 
 ---
@@ -37,7 +37,7 @@ Array of tables under `[[archetypes]]`:
 ```toml
 [[archetypes]]
 name = "Staff Platform Architect"
-description = """..."""           # Core identity — embedded as-is before signal synthesis
+description = """..."""           # Core identity -- embedded as-is before signal synthesis
 signals_positive = [              # Synthesized into archetype embedding text
   "platform strategy",
   "architecture ownership",
@@ -50,13 +50,13 @@ signals_negative = [              # Contributes to negative_signals collection
 
 ### Three Archetypes
 
-1. **Staff Platform Architect** — distributed systems, API governance, cross-team influence
-2. **Principal Data Platform Engineer** — data pipelines, governance, lakehouse, streaming
-3. **Developer Relations / Technical Evangelist** — engineering depth, community, SDKs
+1. **Staff Platform Architect** -- distributed systems, API governance, cross-team influence
+2. **Principal Data Platform Engineer** -- data pipelines, governance, lakehouse, streaming
+3. **Developer Relations / Technical Evangelist** -- engineering depth, community, SDKs
 
 ---
 
-## `config/settings.toml` — Scoring Section
+## `config/settings.toml` -- Scoring Section
 
 ```toml
 [scoring]
@@ -88,5 +88,5 @@ def _load_global_rubric(path: str) -> dict:
 ```
 
 The returned dict maps dimension names to dimension dicts. The indexer iterates
-dimensions and extracts `signals_negative` lists — everything else is ignored
+dimensions and extracts `signals_negative` lists -- everything else is ignored
 during embedding.

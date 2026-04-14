@@ -95,7 +95,7 @@ combine-as-imports = true
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
-    "PLC2701",  # import-private-name — testing internal state is intentional
+    "PLC2701",  # import-private-name -- testing internal state is intentional
     "D205",     # BDD Given/When/Then blocks aren't summary+body
     "D400",     # BDD steps don't end with periods
     "D415",     # same as D400
@@ -142,7 +142,7 @@ python_functions = ["test_*"]
 addopts = "-v --strict-markers -m 'not integration and not live'"
 log_cli = true
 log_cli_level = "INFO"
-log_cli_format = "%(asctime)s %(levelname)-8s %(name)s — %(message)s"
+log_cli_format = "%(asctime)s %(levelname)-8s %(name)s -- %(message)s"
 log_cli_date_format = "%H:%M:%S"
 markers = [
     "integration: marks tests requiring live services (Ollama, browser)",

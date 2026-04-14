@@ -20,16 +20,16 @@
 
 ## Design Principles
 
-1. **Local-first** — All processing (LLM inference, embeddings, vector storage)
+1. **Local-first** -- All processing (LLM inference, embeddings, vector storage)
    runs on your machine. Nothing leaves your network.
-2. **Board-agnostic pipeline** — Only the adapter layer knows about specific
+2. **Board-agnostic pipeline** -- Only the adapter layer knows about specific
    job boards. Everything downstream (scoring, ranking, export) works against
    the `JobListing` data contract.
-3. **Tests are the spec** — There is no separate requirements document. The
+3. **Tests are the spec** -- There is no separate requirements document. The
    test suite (868+ tests across 35 test files) is the living specification.
    Each test class documents WHO needs it, WHAT it proves, and WHY. If there
    isn't **100% test coverage**, then the implementation is underspecified.
-4. **Actionable errors** — Every error carries enough context for the operator
+4. **Actionable errors** -- Every error carries enough context for the operator
    (or an AI assistant) to resolve it without searching logs or source code.
 
 ---
@@ -66,7 +66,7 @@ CLI (12 subcommands)
 
 1. The CLI loads enabled boards from `config/settings.toml`
 2. The adapter registry resolves board names to adapter classes (IoC)
-3. Ollama health check — fail fast if models aren't pulled
+3. Ollama health check -- fail fast if models aren't pulled
 4. Auto-index if any ChromaDB collection is empty
 5. Each adapter uses Playwright to navigate search results and extract listings
 6. The scorer embeds each JD and queries six ChromaDB collections
@@ -82,7 +82,7 @@ CLI (12 subcommands)
 
 ### Data Contract: `JobListing`
 
-Every adapter produces `JobListing` instances — the single abstraction that
+Every adapter produces `JobListing` instances -- the single abstraction that
 makes the rest of the pipeline board-agnostic:
 
 ```python
@@ -163,15 +163,15 @@ Per-board rate limits and throttle parameters are configurable in `settings.toml
 `SessionManager` handles Playwright browser context lifecycle:
 
 - **Two launch modes:**
-  1. **Playwright-managed** (default) — `chromium.launch()` — simple, but
+  1. **Playwright-managed** (default) -- `chromium.launch()` -- simple, but
      Cloudflare detects automation flags
-  2. **CDP mode** — launches a real system browser (Edge/Chrome) as a subprocess
-     with `--remote-debugging-port`, then connects via `connect_over_cdp()` —
+  2. **CDP mode** -- launches a real system browser (Edge/Chrome) as a subprocess
+     with `--remote-debugging-port`, then connects via `connect_over_cdp()` --
      no automation flags, bypasses Cloudflare
-- **Storage state persistence** — Cookies are saved per board to
+- **Storage state persistence** -- Cookies are saved per board to
   `data/{board}_session.json` to avoid re-authentication on every run
-- **Stealth patches** — Optional `playwright-stealth` integration
-- **Throttling** — `throttle()` applies random jitter within the adapter's
+- **Stealth patches** -- Optional `playwright-stealth` integration
+- **Throttling** -- `throttle()` applies random jitter within the adapter's
   `rate_limit_seconds` range between every page navigation
 
 Board-specific detection logic (e.g., LinkedIn's authwall redirects and
@@ -235,7 +235,7 @@ The `Indexer` populates ChromaDB collections from source files:
 | `index_negative_signals()` | `negative_signals` | Merge global rubric + per-archetype `signals_negative` |
 | `index_global_positive_signals()` | `global_positive_signals` | One document per rubric dimension |
 
-All operations are idempotent — the collection is reset before re-indexing.
+All operations are idempotent -- the collection is reset before re-indexing.
 
 ### Scorer
 
@@ -244,7 +244,7 @@ For each JD:
 1. **Chunk** long JDs into overlapping segments (2000-char overlap) if they
    exceed the embedding model's context window
 2. **Embed** each chunk via `nomic-embed-text` through Ollama
-3. **Query** each collection — keep the best (max) score across all chunks
+3. **Query** each collection -- keep the best (max) score across all chunks
    per component
 4. **Distance → score:** `max(0.0, min(1.0, 1.0 - cosine_distance))`
 5. **Parse compensation** via regex (annual ranges, hourly→annual conversion,
@@ -276,8 +276,8 @@ All weights are configurable in `config/settings.toml`. Listings below
 
 The ranker collapses duplicates in two passes:
 
-1. **Exact** — same `(board, external_id)`
-2. **Near** — cosine similarity > 0.95 on `full_text` embeddings
+1. **Exact** -- same `(board, external_id)`
+2. **Near** -- cosine similarity > 0.95 on `full_text` embeddings
 
 The highest-scored instance is kept; other boards are noted in
 `duplicate_boards`.
@@ -321,12 +321,12 @@ on demand.
 
 `EvalRunner` compares pipeline scoring against human decisions:
 
-- **Agreement rate** — fraction where pipeline and human agree
-- **Precision** — of listings the pipeline would surface, how many did you
+- **Agreement rate** -- fraction where pipeline and human agree
+- **Precision** -- of listings the pipeline would surface, how many did you
   approve?
-- **Recall** — of listings you approved, how many did the pipeline surface?
-- **Spearman rank correlation** — ordinal alignment between verdicts and scores
-- **Model comparison** — `--compare-models A B` runs dual evaluation with
+- **Recall** -- of listings you approved, how many did the pipeline surface?
+- **Spearman rank correlation** -- ordinal alignment between verdicts and scores
+- **Model comparison** -- `--compare-models A B` runs dual evaluation with
   delta reporting
 
 Writes a Markdown report to `output/` and appends to `data/eval_history.jsonl`.
@@ -404,7 +404,7 @@ Structured JSONL session logs under `data/logs/`:
   `retrieval_summary` (per collection), `session_summary`
 - `InferenceMetrics` tracks embed/LLM call counts, token totals, latency,
   and slow-call counts (configurable threshold)
-- `session_summary` includes `wall_clock_ms` — end-to-end pipeline duration
+- `session_summary` includes `wall_clock_ms` -- end-to-end pipeline duration
 
 ---
 
@@ -497,12 +497,12 @@ class TestAuthenticationFailures:
 
 Key principles:
 
-- **Mock I/O boundaries, not implementation** — Tests use HTML fixtures, not
+- **Mock I/O boundaries, not implementation** -- Tests use HTML fixtures, not
   mocked method calls. When the adapter internals were rewritten from CSS
   selectors to JSON extraction, zero existing tests changed.
-- **Failure specs are as important as happy-path specs** — An unspecified
+- **Failure specs are as important as happy-path specs** -- An unspecified
   failure is an unhandled failure.
-- **Missing spec = missing requirement** — When a bug is found, step one is
+- **Missing spec = missing requirement** -- When a bug is found, step one is
   always "add the missing spec."
 
 ---
@@ -541,11 +541,11 @@ populated. The rest of the pipeline will pick it up automatically.
 
 ## Further Reading
 
-- [CONFIG.md](CONFIG.md) — Configuration schema, defaults, and validation
-- [SCORING_ENGINE.md](SCORING_ENGINE.md) — Scoring model, fusion formula, compensation, disqualification
-- [RAG_PIPELINE.md](RAG_PIPELINE.md) — Embedding, indexing, retrieval, vector store internals
-- [DATA_FLOW.md](DATA_FLOW.md) — End-to-end data lifecycle, persistence points, contracts
-- [FEEDBACK_LOOP.md](FEEDBACK_LOOP.md) — Decide → rescore → eval cycle, tuning workflow
-- [FAILURE_MODES.md](FAILURE_MODES.md) — Error catalog, recovery, bot detection, prompt injection defense
-- [EVOLUTION.md](EVOLUTION.md) — How the system grew from scraper to scoring pipeline
-- [TEAM_SCALING.md](TEAM_SCALING.md) — What would change with multiple users
+- [CONFIG.md](CONFIG.md) -- Configuration schema, defaults, and validation
+- [SCORING_ENGINE.md](SCORING_ENGINE.md) -- Scoring model, fusion formula, compensation, disqualification
+- [RAG_PIPELINE.md](RAG_PIPELINE.md) -- Embedding, indexing, retrieval, vector store internals
+- [DATA_FLOW.md](DATA_FLOW.md) -- End-to-end data lifecycle, persistence points, contracts
+- [FEEDBACK_LOOP.md](FEEDBACK_LOOP.md) -- Decide → rescore → eval cycle, tuning workflow
+- [FAILURE_MODES.md](FAILURE_MODES.md) -- Error catalog, recovery, bot detection, prompt injection defense
+- [EVOLUTION.md](EVOLUTION.md) -- How the system grew from scraper to scoring pipeline
+- [TEAM_SCALING.md](TEAM_SCALING.md) -- What would change with multiple users

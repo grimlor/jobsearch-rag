@@ -1,5 +1,5 @@
 """
-Throttle detection tests — ZipRecruiter rate-limit recognition and backoff.
+Throttle detection tests -- ZipRecruiter rate-limit recognition and backoff.
 
 Maps to BDD spec: TestThrottleDetection
 
@@ -104,7 +104,7 @@ def _patch_search_to_click_through(
     Builds a realistic HTML page containing server-rendered article elements
     and a JSON-LD block derived from *listings*.  Pure-computation functions
     (``extract_job_cards``, ``extract_json_ld_urls``, ``card_to_listing``)
-    run on **real data** — only I/O boundaries (page navigation, Playwright
+    run on **real data** -- only I/O boundaries (page navigation, Playwright
     locators) are stubbed.  ``_wait_for_cloudflare`` runs for real against a
     page whose title is "Jobs" (passes immediately).
 
@@ -178,7 +178,7 @@ class TestThrottleDetection:
                asyncio.sleep (time I/O)
         Real:  ZipRecruiterAdapter.search, _wait_for_cloudflare,
                is_throttle_response, extract_job_cards,
-               extract_json_ld_urls, card_to_listing —
+               extract_json_ld_urls, card_to_listing --
                all parsing/detection logic runs for real
         Never: Patch is_throttle_response or internal adapter methods
     """
@@ -289,7 +289,7 @@ class TestThrottleDetection:
             f"Expected at least 2 backoff waits, got {len(backoff_waits)}: {backoff_delays}"
         )
         assert backoff_waits[0] == backoff_waits[1], (
-            f"After reset, both listings should backoff at the base delay — "
+            f"After reset, both listings should backoff at the base delay -- "
             f"got {backoff_waits[0]} and {backoff_waits[1]}"
         )
 

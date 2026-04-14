@@ -40,9 +40,9 @@
 
 When you record a verdict, it enters the `decisions` ChromaDB collection:
 
-- **"yes" verdicts** have `scoring_signal=true` — they contribute to
+- **"yes" verdicts** have `scoring_signal=true` -- they contribute to
   `history_score` on future runs
-- **"no" and "maybe" verdicts** have `scoring_signal=false` — they are
+- **"no" and "maybe" verdicts** have `scoring_signal=false` -- they are
   stored for audit and cross-run dedup but do not influence scoring
 
 The scorer queries the `decisions` collection with
@@ -51,7 +51,7 @@ score higher on `history_score`.
 
 **Design rationale:** Only positive decisions are scoring signals because
 rejections are too diverse in their reasons. A "no" could mean wrong
-industry, wrong level, wrong comp, or wrong work model — these are
+industry, wrong level, wrong comp, or wrong work model -- these are
 already covered by dedicated collections (negative_signals, comp_score,
 culture_score). Mixing rejection reasons into a single history signal
 would add noise.
@@ -68,7 +68,7 @@ it to the JD text before embedding:
 This shifts the embedding vector toward the operator's conceptual framing.
 If you reject a listing reasoning "too much frontend work", future JDs with
 similar frontend emphasis will have higher cosine similarity to that
-decision — but since only "yes" decisions contribute to `history_score`,
+decision -- but since only "yes" decisions contribute to `history_score`,
 this reasoning augmentation primarily helps the disqualifier prompt (which
 receives past "no" reasons as examples).
 
@@ -140,9 +140,9 @@ This enables A/B testing of LLM models without affecting production data.
 
 ### Eval Artifacts
 
-- **Report:** `output/eval_YYYY-MM-DD.md` — summary metrics + disagreement
+- **Report:** `output/eval_YYYY-MM-DD.md` -- summary metrics + disagreement
   list (which listings you and the pipeline disagree on)
-- **History:** `data/eval_history.jsonl` — one line per eval run for tracking
+- **History:** `data/eval_history.jsonl` -- one line per eval run for tracking
   improvement over time
 
 ---
@@ -151,8 +151,8 @@ This enables A/B testing of LLM models without affecting production data.
 
 ### Improving Precision (too many bad listings surfaced)
 
-1. Run `eval` — check which "no" verdicts the pipeline scored above threshold
-2. Look at the disagreement list — what pattern do they share?
+1. Run `eval` -- check which "no" verdicts the pipeline scored above threshold
+2. Look at the disagreement list -- what pattern do they share?
 3. Options:
    - **Add negative signals** to `global_rubric.toml` if it's a universal pattern
    - **Add archetype `signals_negative`** if it's role-specific
@@ -163,8 +163,8 @@ This enables A/B testing of LLM models without affecting production data.
 
 ### Improving Recall (too many good listings missed)
 
-1. Run `eval` — check which "yes" verdicts the pipeline scored below threshold
-2. Look at the disagreement list — what's missing from the archetype?
+1. Run `eval` -- check which "yes" verdicts the pipeline scored below threshold
+2. Look at the disagreement list -- what's missing from the archetype?
 3. Options:
    - **Expand `signals_positive`** in the archetype that should match
    - **Add a new archetype** if none of the existing ones capture the pattern
@@ -191,9 +191,9 @@ Decisions also serve as a deduplication mechanism across runs:
 
 1. First run: you see listing X, decide "no"
 2. Second run: listing X appears again on the same or different board
-3. Pipeline checks `decisions` collection for `external_id` — finds your
+3. Pipeline checks `decisions` collection for `external_id` -- finds your
    prior "no"
-4. Listing X is **skipped** — you never see it again
+4. Listing X is **skipped** -- you never see it again
 
 This prevents decision fatigue from seeing the same listings repeatedly.
 The `--force-rescore` flag overrides this when you want to re-evaluate

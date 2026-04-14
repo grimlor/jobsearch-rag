@@ -1,26 +1,26 @@
 """
-Shared browser session tests — BrowserManager, BoardSession, and orchestration.
+Shared browser session tests -- BrowserManager, BoardSession, and orchestration.
 
-Maps to BDD spec: BDD Specifications — shared-browser-session.md
+Maps to BDD spec: BDD Specifications -- shared-browser-session.md
 
 Spec classes:
-    TestBrowserManager — browser process lifecycle, CDP launch, cleanup
-    TestBoardSession — per-board context, cookies, stealth, page management
-    TestSharedBrowserOrchestration — channel grouping, shared browser, backward compat
+    TestBrowserManager -- browser process lifecycle, CDP launch, cleanup
+    TestBoardSession -- per-board context, cookies, stealth, page management
+    TestSharedBrowserOrchestration -- channel grouping, shared browser, backward compat
 
 Public API surface (from src/jobsearch_rag/adapters/session):
-    NOTE: BrowserManager and BoardSession do not exist yet — these tests
+    NOTE: BrowserManager and BoardSession do not exist yet -- these tests
     specify their expected API. Implementation follows in Phase 3.
 
-    BrowserManager(config: SessionConfig) — async context manager
+    BrowserManager(config: SessionConfig) -- async context manager
         .browser: Browser  (available after __aenter__)
 
-    BoardSession(browser: Browser, config: SessionConfig) — async context manager
+    BoardSession(browser: Browser, config: SessionConfig) -- async context manager
         .new_page() -> Page
         .save_storage_state() -> Path
         .has_storage_state() -> bool
 
-    SessionManager(config: SessionConfig) — backward-compatible wrapper
+    SessionManager(config: SessionConfig) -- backward-compatible wrapper
         .new_page() -> Page
         .save_storage_state() -> Path
         .has_storage_state() -> bool
@@ -853,7 +853,7 @@ class TestBoardSession:
          state are per-board concerns that must not affect other boards
 
     MOCK BOUNDARY:
-        Mock:  async_playwright (browser API — provides the Browser object)
+        Mock:  async_playwright (browser API -- provides the Browser object)
         Real:  BoardSession (full lifecycle via context manager, including
                page creation, storage state, and cookie persistence)
         Never: Patch BoardSession internals; mock the Browser.new_context
@@ -1005,7 +1005,7 @@ class TestBoardSession:
             return original_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=_raise_import_error):
-            # When/Then: entering does not raise — stealth failure is graceful
+            # When/Then: entering does not raise -- stealth failure is graceful
             async with BoardSession(mock_browser, config):
                 pass
 
@@ -1221,7 +1221,7 @@ class TestBoardSession:
 
 
 # ---------------------------------------------------------------------------
-# TestSharedBrowserOrchestration — helpers
+# TestSharedBrowserOrchestration -- helpers
 # ---------------------------------------------------------------------------
 
 
@@ -1260,7 +1260,7 @@ def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
     """
     Create a mock Playwright I/O boundary for real SessionManager.
 
-    Mocks ``async_playwright`` — the edge where our system ends and the
+    Mocks ``async_playwright`` -- the edge where our system ends and the
     Playwright library begins. SessionManager/BrowserManager/BoardSession
     run for real on top.
 
@@ -1361,7 +1361,7 @@ class TestSharedBrowserOrchestration:
               that composes BrowserManager + BoardSession for single-board
               callers.
           (8) The SessionManager wrapper opens a headed browser, creates a
-              context, and produces a page — backward-compatible with
+              context, and produces a page -- backward-compatible with
               handle_login tests.
     WHY: Per-board browser launches waste resources and steal macOS focus
          N times per run; grouping by channel collapses that to one launch
@@ -1421,7 +1421,7 @@ class TestSharedBrowserOrchestration:
             await runner.run()
 
             # Then: exactly two groups were formed (msedge + None)
-            # pw.start() is called once per BrowserManager — 2 groups = 2 calls
+            # pw.start() is called once per BrowserManager -- 2 groups = 2 calls
             pw_cm = mock_pw_fn.return_value
             assert pw_cm.start.call_count == 2, (
                 f"Expected 2 BrowserManager instances (msedge + None), "
@@ -1710,7 +1710,7 @@ class TestSharedBrowserOrchestration:
         Given a SessionConfig with headless=False and browser_channel="msedge"
         When SessionManager is used as a context manager (handle_login style)
         Then the browser is launched headed, a page is produced, and storage
-             state can be saved — matching current handle_login behavior
+             state can be saved -- matching current handle_login behavior
         """
         # Given: headed CDP config
         fake_binary = tmp_path / "edge"

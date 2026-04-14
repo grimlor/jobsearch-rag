@@ -80,11 +80,11 @@ class TestDecisionRecording:
           (15) The system returns 0 from history_count() when the decisions collection is missing instead of raising an error.
           (16) The system returns an empty list from audit_decisions() when the decisions collection is missing instead of raising an error.
     WHY: If 'no' decisions contributed to scoring, roles similar to rejected ones
-         would score lower — but the signal we want is 'what did I like',
+         would score lower -- but the signal we want is 'what did I like',
          not 'what did I reject' (rejections have too many confounding reasons)
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O — the only I/O boundary)
+        Mock:  ollama.AsyncClient (Ollama HTTP I/O -- the only I/O boundary)
         Real:  Embedder (embed, retry, truncation, metrics), DecisionRecorder,
                VectorStore (via tmpdir), JSONL file I/O
         Never: Patch Embedder methods, DecisionRecorder internals, or verdict
@@ -143,7 +143,7 @@ class TestDecisionRecording:
         """
         Given a verdict with no reason provided
         When the decision is recorded
-        Then an empty string is stored — the field is always present.
+        Then an empty string is stored -- the field is always present.
         """
         # When: record a verdict without a reason
         await recorder.record(
@@ -192,7 +192,7 @@ class TestDecisionRecording:
         """
         Given a verdict with no reason
         When the decision is recorded
-        Then the embedder receives only the bare JD text — no enrichment suffix.
+        Then the embedder receives only the bare JD text -- no enrichment suffix.
         """
         # Given: a JD with no reason
         jd = "Staff Platform Architect role at Acme Corp."
@@ -215,7 +215,7 @@ class TestDecisionRecording:
         """
         Given a 'no' verdict
         When the decision is recorded
-        Then it is stored for audit but excluded from history_score — rejections have confounding reasons.
+        Then it is stored for audit but excluded from history_score -- rejections have confounding reasons.
         """
         # When: record a 'no' verdict
         await recorder.record(
@@ -239,7 +239,7 @@ class TestDecisionRecording:
         """
         Given a 'maybe' verdict
         When the decision is recorded
-        Then it is stored but excluded from scoring — only clear 'yes' signals are useful.
+        Then it is stored but excluded from scoring -- only clear 'yes' signals are useful.
         """
         # When: record a 'maybe' verdict
         await recorder.record(

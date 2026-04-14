@@ -1,5 +1,5 @@
 """
-Rescore pipeline — re-score existing JDs without browser automation.
+Rescore pipeline -- re-score existing JDs without browser automation.
 
 The Rescorer loads previously exported JD files from ``output/jds/``,
 re-scores each through the current RAG collections (which may have
@@ -106,7 +106,7 @@ def load_jd_files(
         body = _extract_jd_body(content)
 
         if not body:
-            logger.debug("Skipping %s — no JD body found", md_file.name)
+            logger.debug("Skipping %s -- no JD body found", md_file.name)
             continue
 
         title = meta.get("title", md_file.stem)

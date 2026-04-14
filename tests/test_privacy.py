@@ -1,9 +1,9 @@
 """
-Privacy verification tests — executable proof that the scoring pipeline
+Privacy verification tests -- executable proof that the scoring pipeline
 makes no external network calls.
 
 Spec classes:
-    TestPrivacyGuarantee — the scoring pipeline makes no network calls
+    TestPrivacyGuarantee -- the scoring pipeline makes no network calls
                            to hosts other than localhost during scoring,
                            embedding, and decision recording
 """
@@ -108,7 +108,7 @@ def _store(tmp_path: Path) -> VectorStore:  # pyright: ignore[reportUnusedFuncti
 @pytest.fixture
 def _mock_ollama_client() -> AsyncMock:  # pyright: ignore[reportUnusedFunction]
     """
-    Stubbed ``ollama.AsyncClient`` — the I/O boundary.
+    Stubbed ``ollama.AsyncClient`` -- the I/O boundary.
 
     Returns realistic response objects for ``embed`` and ``chat`` so that
     all Embedder logic (retry, truncation, metrics, token counting) runs
@@ -127,8 +127,8 @@ def _embedder(  # pyright: ignore[reportUnusedFunction]
     Real Embedder instance with the ollama client stubbed at the I/O boundary.
 
     Patches ``ollama_sdk.AsyncClient`` at import time so ``Embedder.__init__``
-    receives the mock.  All Embedder logic — retry, truncation, metrics,
-    token counting — runs for real.
+    receives the mock.  All Embedder logic -- retry, truncation, metrics,
+    token counting -- runs for real.
     """
     with patch(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
@@ -204,7 +204,7 @@ class TestPrivacyGuarantee:
                monkeypatched to reject non-localhost connections
         Real:  Embedder (embed, classify, retry, truncation, metrics),
                Scorer, DecisionRecorder, ChromaDB via VectorStore (all local)
-        Never: Replace Embedder.embed() or classify() — the point is to
+        Never: Replace Embedder.embed() or classify() -- the point is to
                verify the full call chain from public API to I/O boundary
     """
 

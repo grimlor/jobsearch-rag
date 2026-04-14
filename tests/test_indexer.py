@@ -1,13 +1,13 @@
 """
-Indexer tests — resume chunking, archetype ingestion, and negative signal indexing.
+Indexer tests -- resume chunking, archetype ingestion, and negative signal indexing.
 
 Spec classes:
-    TestResumeChunking — resume split on ## headings for semantic coherence
-    TestResumeIndexing — resume embedded and stored in ChromaDB
-    TestArchetypeIndexing — TOML archetypes loaded and embedded
-    TestArchetypeEmbeddingSynthesis — description + signals combined
-    TestGlobalRubricLoading — rubric TOML parsed for negative signals
-    TestNegativeSignalIndexing — rubric + archetype negatives combined
+    TestResumeChunking -- resume split on ## headings for semantic coherence
+    TestResumeIndexing -- resume embedded and stored in ChromaDB
+    TestArchetypeIndexing -- TOML archetypes loaded and embedded
+    TestArchetypeEmbeddingSynthesis -- description + signals combined
+    TestGlobalRubricLoading -- rubric TOML parsed for negative signals
+    TestNegativeSignalIndexing -- rubric + archetype negatives combined
 """
 
 from __future__ import annotations
@@ -53,14 +53,14 @@ SAMPLE_RESUME = textwrap.dedent("""\
 
     ## Experience
 
-    ### Acme Corp — Staff Engineer
+    ### Acme Corp -- Staff Engineer
 
     _Remote | Jan 2023 - Present_
 
     - Led platform architecture for streaming data systems.
     - Mentored junior engineers on system design.
 
-    ### Beta Inc — Senior Engineer
+    ### Beta Inc -- Senior Engineer
 
     _Remote | Jun 2020 - Dec 2022_
 
@@ -68,7 +68,7 @@ SAMPLE_RESUME = textwrap.dedent("""\
 
     ## Earlier Roles
 
-    - Previous Company — Engineer (2018-2020)
+    - Previous Company -- Engineer (2018-2020)
 """)
 
 SAMPLE_ARCHETYPES_TOML = textwrap.dedent("""\
@@ -211,7 +211,7 @@ class TestResumeChunking:
           (5) The system preserves all sentences in a section chunk without mid-sentence truncation.
           (6) The system excludes the # title line and creates chunks only for ## sections.
           (7) The system produces zero chunks for a resume with no ## section headings.
-    WHY: Chunking at section boundaries preserves semantic coherence —
+    WHY: Chunking at section boundaries preserves semantic coherence --
          embedding a mix of "Core Strengths" and "Experience" dilutes both
 
     MOCK BOUNDARY:
@@ -362,7 +362,7 @@ class TestResumeIndexing:
           (4) The system records "resume" in each chunk's source metadata for traceability.
           (5) The system raises a CONFIG error that tells the operator to create the missing resume file.
     WHY: An empty resume collection silently produces zero fit_scores for all
-         roles — a harder bug to catch than an explicit missing-index error
+         roles -- a harder bug to catch than an explicit missing-index error
 
     MOCK BOUNDARY:
         Mock:  ollama.AsyncClient (Ollama HTTP I/O)
@@ -474,7 +474,7 @@ class TestArchetypeIndexing:
           (6) The system raises a VALIDATION error with actionable guidance when the archetypes TOML file contains no entries.
           (7) The system raises a CONFIG error with actionable guidance when the archetypes file path does not exist.
           (8) The system replaces previously indexed archetypes during reindexing instead of duplicating them.
-    WHY: Missing or malformed archetypes silently score all roles equally —
+    WHY: Missing or malformed archetypes silently score all roles equally --
          the most insidious failure mode since ranking still appears to work
 
     MOCK BOUNDARY:
@@ -659,7 +659,7 @@ class TestArchetypeEmbeddingSynthesis:
           (4) The system returns only the description when the archetype has an empty positive signals list.
           (5) The system stores synthesized archetype text that includes both description and positive signal content during indexing.
     WHY: Pure prose descriptions embed well for general similarity but miss
-         specific keyword anchors the scorer needs to distinguish roles —
+         specific keyword anchors the scorer needs to distinguish roles --
          e.g. "cross-team architecture ownership" as a distinct signal
 
     MOCK BOUNDARY:
@@ -782,7 +782,7 @@ class TestGlobalRubricLoading:
           (2) The system raises a CONFIG error with actionable guidance when the rubric file is missing.
           (3) The system raises a PARSE error with actionable guidance when the rubric file contains invalid TOML syntax.
     WHY: The global rubric defines universal evaluation criteria that
-         apply to all listings regardless of archetype — without it,
+         apply to all listings regardless of archetype -- without it,
          negative scoring is incomplete
 
     MOCK BOUNDARY:
@@ -878,7 +878,7 @@ class TestNegativeSignalIndexing:
           (7) The system raises a PARSE error that names the file and suggests a fix when the archetypes TOML is malformed.
           (8) The system returns 0 indexed negative signals and leaves the collection empty when both sources provide none.
     WHY: A JD about adtech should score high on negative signals regardless
-         of which archetype it matches — the global rubric catches universal
+         of which archetype it matches -- the global rubric catches universal
          dealbreakers while archetype negatives catch role-specific mismatches
 
     MOCK BOUNDARY:
