@@ -41,6 +41,8 @@ import pytest
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.logging import log_event as _real_log_event
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
+from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
 
@@ -138,7 +140,12 @@ def _make_runner_with_real_stack(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=mock_client,
     ):
-        runner = PipelineRunner(settings)
+        embedder = Embedder(settings.ollama)
+    store = VectorStore(
+        persist_dir=settings.chroma.persist_dir,
+        distance_metric=settings.chroma.distance_metric,
+    )
+    runner = PipelineRunner(settings, store=store, embedder=embedder)
 
     # Populate required collections so auto-indexing is skipped
     store = runner.store

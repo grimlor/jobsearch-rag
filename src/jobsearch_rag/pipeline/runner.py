@@ -39,10 +39,8 @@ from jobsearch_rag.pipeline.ranker import RankedListing, Ranker, RankSummary
 from jobsearch_rag.ports import EmbeddingPort, HealthCheckable, MetricsProvider, VectorStorePort
 from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
 from jobsearch_rag.rag.decisions import DecisionRecorder
-from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
-from jobsearch_rag.rag.store import VectorStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -82,22 +80,19 @@ class PipelineRunner:
         self,
         settings: Settings,
         *,
-        store: VectorStorePort | None = None,
-        embedder: EmbeddingPort | None = None,
+        store: VectorStorePort,
+        embedder: EmbeddingPort,
     ) -> None:
         """
         Initialize pipeline components from application settings.
 
-        When *store* and *embedder* are provided, they are used directly
-        (constructor injection). When omitted, concrete implementations
-        are constructed from *settings* (backward-compatible default).
+        Requires explicit *store* and *embedder* port implementations.
+        Use :func:`create_pipeline` to construct a runner wired to
+        production infrastructure.
         """
         self._settings = settings
-        self._embedder: EmbeddingPort = embedder or Embedder(settings.ollama)
-        self._store: VectorStorePort = store or VectorStore(
-            persist_dir=settings.chroma.persist_dir,
-            distance_metric=settings.chroma.distance_metric,
-        )
+        self._embedder = embedder
+        self._store = store
         # Resolve disqualifier prompt: freeform override takes precedence,
         # otherwise synthesize from archetypes.
         disqualifier_prompt: str | None = None
@@ -671,6 +666,9 @@ def create_pipeline(settings: Settings) -> PipelineRunner:
     tests can bypass this entirely by injecting fakes via the
     ``PipelineRunner`` constructor.
     """
+    from jobsearch_rag.rag.embedder import Embedder  # noqa: PLC0415
+    from jobsearch_rag.rag.store import VectorStore  # noqa: PLC0415
+
     embedder = Embedder(settings.ollama)
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
