@@ -95,11 +95,10 @@ from jobsearch_rag.rag.comp_parser import compute_comp_score
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
 from tests.conftest import adapter_override, make_mock_ollama_client, make_test_settings
+from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from jobsearch_rag.rag.store import VectorStore
 
 
 def _import_synthesize() -> Callable[..., str]:
@@ -454,8 +453,6 @@ class TestDisqualifierPromptConfig:
     async def test_scorer_receives_synthesized_prompt_as_system_message(
         self,
         tmp_path: Path,
-        mock_embedder: Embedder,
-        vector_store: VectorStore,
     ) -> None:
         """
         Given a Scorer constructed with a synthesized prompt from archetypes
@@ -470,9 +467,21 @@ class TestDisqualifierPromptConfig:
         prompt = synthesize(arch_path)
 
         # Given: a Scorer constructed with the synthesized prompt
+        fake_embedder = FakeEmbedder(
+            classify_response='{"disqualified": false, "reason": null}',
+        )
+        store = InMemoryVectorStore()
+        store.add_documents("resume", ids=["r1"], documents=["Resume"], embeddings=[[0.1] * 8])
+        store.add_documents(
+            "role_archetypes",
+            ids=["a1"],
+            documents=["Architect"],
+            embeddings=[[0.2] * 8],
+            metadatas=[{"name": "Architect"}],
+        )
         scorer = Scorer(
-            store=vector_store,
-            embedder=mock_embedder,
+            store=store,
+            embedder=fake_embedder,
             disqualify_on_llm_flag=False,
             disqualifier_prompt=prompt,
             screen_prompt="test screen prompt",
@@ -485,25 +494,14 @@ class TestDisqualifierPromptConfig:
 
         # Then: the disqualifier classify call (2nd call -- after screening)
         # contains the synthesized prompt in the user message
-        assert mock_embedder._client.chat.call_count >= 2, (  # type: ignore[union-attr]
+        assert fake_embedder.classify_call_count >= 2, (
             f"Expected at least 2 classify calls (screen + disqualify), "
-            f"got {mock_embedder._client.chat.call_count}"  # type: ignore[union-attr]
+            f"got {fake_embedder.classify_call_count}"
         )
-        disqualify_call = mock_embedder._client.chat.call_args_list[1]  # type: ignore[union-attr]
-        call_kwargs = cast("dict[str, Any]", disqualify_call.kwargs)  # type: ignore[reportUnknownMemberType]
-        call_args = cast("tuple[Any, ...]", disqualify_call.args)  # type: ignore[reportUnknownMemberType]
-        messages: list[dict[str, Any]] = call_kwargs.get(
-            "messages",
-            cast("dict[str, Any]", call_args[1]).get("messages", []) if len(call_args) > 1 else [],
-        )
-        user_messages: list[dict[str, Any]] = [m for m in messages if m["role"] == "user"]
-        assert len(user_messages) == 1, (
-            f"Expected 1 user message in disqualify call, got {len(user_messages)}"
-        )
-        user_content: str = user_messages[0]["content"]
-        assert prompt in user_content, (
-            f"User message should contain the synthesized prompt.\n"
-            f"Expected to find: {prompt[:100]}...\nGot: {user_content[:200]}..."
+        disqualify_prompt = fake_embedder.classify_calls[1]
+        assert prompt in disqualify_prompt, (
+            f"Disqualify prompt should contain the synthesized prompt.\n"
+            f"Expected to find: {prompt[:100]}...\nGot: {disqualify_prompt[:200]}..."
         )
 
 
@@ -582,8 +580,6 @@ class TestScreenPromptConfig:
     async def test_scorer_sends_configured_screen_prompt_to_llm(
         self,
         tmp_path: Path,
-        mock_embedder: Embedder,
-        vector_store: VectorStore,
     ) -> None:
         """
         Given a Scorer constructed with a custom screen_prompt from config
@@ -592,9 +588,21 @@ class TestScreenPromptConfig:
         """
         # Given: a Scorer with a custom screen prompt
         custom_prompt = "Custom injection screening prompt with examples"
+        fake_embedder = FakeEmbedder(
+            classify_response='{"suspicious": false}',
+        )
+        store = InMemoryVectorStore()
+        store.add_documents("resume", ids=["r1"], documents=["Resume"], embeddings=[[0.1] * 8])
+        store.add_documents(
+            "role_archetypes",
+            ids=["a1"],
+            documents=["Architect"],
+            embeddings=[[0.2] * 8],
+            metadatas=[{"name": "Architect"}],
+        )
         scorer = Scorer(
-            store=vector_store,
-            embedder=mock_embedder,
+            store=store,
+            embedder=fake_embedder,
             disqualify_on_llm_flag=False,
             disqualifier_prompt="test disqualifier prompt",
             screen_prompt=custom_prompt,
@@ -606,22 +614,10 @@ class TestScreenPromptConfig:
         await scorer.disqualify("Some JD text to screen")
 
         # Then: the first classify call (screening) contains the custom prompt
-        # in the user message
-        first_call_args = mock_embedder._client.chat.call_args_list[0]  # type: ignore[union-attr]
-        call_kwargs = cast("dict[str, Any]", first_call_args.kwargs)  # type: ignore[reportUnknownMemberType]
-        call_args = cast("tuple[Any, ...]", first_call_args.args)  # type: ignore[reportUnknownMemberType]
-        messages: list[dict[str, Any]] = call_kwargs.get(
-            "messages",
-            cast("dict[str, Any]", call_args[1]).get("messages", []) if len(call_args) > 1 else [],
-        )
-        user_messages: list[dict[str, Any]] = [m for m in messages if m["role"] == "user"]
-        assert len(user_messages) == 1, (
-            f"Expected 1 user message in screening call, got {len(user_messages)}"
-        )
-        user_content: str = user_messages[0]["content"]
-        assert custom_prompt in user_content, (
-            f"User message should contain the custom screen prompt.\n"
-            f"Expected to find: {custom_prompt}\nGot: {user_content[:200]}"
+        screening_prompt = fake_embedder.classify_calls[0]
+        assert custom_prompt in screening_prompt, (
+            f"Screening prompt should contain the custom screen prompt.\n"
+            f"Expected to find: {custom_prompt}\nGot: {screening_prompt[:200]}"
         )
 
 
@@ -1732,8 +1728,6 @@ class TestScoringTunablesConfig:
 
     async def test_scorer_uses_config_chunk_overlap(
         self,
-        mock_embedder: Embedder,
-        vector_store: VectorStore,
     ) -> None:
         """
         Given a Scorer with chunk_overlap = 50 and embedder.max_embed_chars = 100
@@ -1741,34 +1735,37 @@ class TestScoringTunablesConfig:
         Then the embedder receives 4 embed calls (4 overlapping chunks)
         """
         # Given: Scorer with custom chunk_overlap; embedder max_embed_chars = 100
-        mock_embedder.max_embed_chars = 100  # type: ignore[misc]
+        fake_embedder = FakeEmbedder(
+            embed_vector=[0.1] * 8,
+            classify_response='{"disqualified": false, "reason": null}',
+            max_embed_chars=100,
+        )
+        store = InMemoryVectorStore()
+        for coll_name in ("resume", "role_archetypes"):
+            store.add_documents(
+                coll_name,
+                ids=[f"{coll_name}-seed"],
+                documents=[f"Seed document for {coll_name}"],
+                embeddings=[[0.1] * 8],
+                metadatas=[{"name": coll_name}] if coll_name == "role_archetypes" else None,
+            )
         scorer = Scorer(
-            store=vector_store,
-            embedder=mock_embedder,
+            store=store,
+            embedder=fake_embedder,
             disqualify_on_llm_flag=False,
             disqualifier_prompt="test disqualifier prompt",
             screen_prompt="test screen prompt",
             chunk_overlap=50,
             top_k_retrieval=3,
         )
-        # Seed required collections so score() doesn't raise
-        # Use 5-dim to match EMBED_FAKE from mock_embedder
-        for coll_name in ("resume", "role_archetypes"):
-            vector_store.add_documents(
-                coll_name,
-                ids=[f"{coll_name}-seed"],
-                documents=[f"Seed document for {coll_name}"],
-                embeddings=[[0.1] * 5],
-            )
 
         # When: score a 200-char JD (should produce 4 chunks with step=50)
         text = "A" * 200
         await scorer.score(text)
 
         # Then: embedder.embed was called 4 times (once per chunk)
-        embed_calls = mock_embedder._client.embed.call_count  # type: ignore[union-attr]
-        assert embed_calls == 4, (
-            f"Expected 4 embed calls (200 chars / step 50 = 4 chunks), got {embed_calls}"
+        assert fake_embedder.embed_call_count == 4, (
+            f"Expected 4 embed calls (200 chars / step 50 = 4 chunks), got {fake_embedder.embed_call_count}"
         )
 
     def test_ranker_dedup_uses_config_threshold(self) -> None:

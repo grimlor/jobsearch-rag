@@ -33,9 +33,7 @@ ScoreResult, score explanation, CSV export, JD file metadata, and review display
 from __future__ import annotations
 
 import csv
-import tempfile
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -46,13 +44,11 @@ from jobsearch_rag.export.jd_files import JDFileExporter
 from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.review import ReviewSession
 from jobsearch_rag.rag.decisions import DecisionRecorder
-from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
-from jobsearch_rag.rag.store import VectorStore
-from tests.conftest import make_mock_ollama_client, make_test_ollama_config
+from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Fake 5D embeddings with directional meaning for archetype similarity tests.
@@ -71,19 +67,21 @@ EMBED_UNRELATED_JD = [0.0, 0.0, 0.1, 0.9, 0.9]  # far from everything
 # ---------------------------------------------------------------------------
 
 
-def _set_embed_response(embedder: Embedder, vector: list[float]) -> None:
-    """Change the embedding vector returned by the mock ollama client."""
-    response = MagicMock()
-    response.embeddings = [vector]
-    response.prompt_eval_count = 42
-    embedder._client.embed.return_value = response  # type: ignore[union-attr]
+def _set_embed_response(embedder: FakeEmbedder, vector: list[float]) -> None:
+    """Change the embedding vector returned by the fake embedder."""
+    embedder.embed_vector = vector
+    embedder.embed_side_effect = None
 
 
-def _set_embed_side_effect(embedder: Embedder, vectors: list[list[float]]) -> None:
+def _set_embed_side_effect(embedder: FakeEmbedder, vectors: list[list[float]]) -> None:
     """Set a sequence of different embedding vectors for successive embed calls."""
-    embedder._client.embed.side_effect = [  # type: ignore[union-attr]
-        MagicMock(embeddings=[v], prompt_eval_count=42) for v in vectors
-    ]
+    it = iter(vectors)
+
+    def _next_vector(text: str) -> list[float]:
+        _ = text
+        return next(it)
+
+    embedder.embed_side_effect = _next_vector
 
 
 def _make_listing(
@@ -160,31 +158,23 @@ def _make_ranked(
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
-    """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
-        yield s
-        s.close()
+def store() -> InMemoryVectorStore:
+    """An InMemoryVectorStore for test isolation."""
+    return InMemoryVectorStore()
 
 
 @pytest.fixture
-def mock_embedder() -> Embedder:
-    """Real Embedder with ollama client stubbed at the I/O boundary."""
-    mock_client = make_mock_ollama_client(
+def mock_embedder() -> FakeEmbedder:
+    """FakeEmbedder with default arch-jd embedding and approving classify."""
+    return FakeEmbedder(
         embed_vector=EMBED_ARCH_JD,
         classify_response='{"disqualified": false, "reason": null}',
     )
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
-    ):
-        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
 
 @pytest.fixture
-def populated_store(store: VectorStore) -> VectorStore:
-    """A VectorStore with resume and two archetypes seeded."""
+def populated_store(store: InMemoryVectorStore) -> InMemoryVectorStore:
+    """An InMemoryVectorStore with resume and two archetypes seeded."""
     # Resume collection
     store.add_documents(
         collection_name="resume",
@@ -211,8 +201,8 @@ def populated_store(store: VectorStore) -> VectorStore:
 
 
 @pytest.fixture
-def scorer(populated_store: VectorStore, mock_embedder: Embedder) -> Scorer:
-    """A Scorer wired to a populated VectorStore and mocked Embedder."""
+def scorer(populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder) -> Scorer:
+    """A Scorer wired to a populated InMemoryVectorStore and FakeEmbedder."""
     return Scorer(
         store=populated_store,
         embedder=mock_embedder,
@@ -260,8 +250,8 @@ class TestBestArchetypeMatch:
          ChromaDB but currently discarded.
 
     MOCK BOUNDARY:
-        Mock:  mock_embedder fixture (Ollama HTTP -- the only I/O boundary)
-        Real:  Scorer instance, VectorStore (ChromaDB in temp dir),
+        Mock:  FakeEmbedder (port-level I/O fake for embed + classify)
+        Real:  Scorer instance, InMemoryVectorStore (dict-backed),
                RankedListing, CSVExporter, JDFileExporter, ReviewSession
         Never: Construct ScoreResult directly for scorer tests (scenarios 1-4)
                - always obtain via scorer.score(); never mock the Scorer itself
@@ -274,7 +264,7 @@ class TestBestArchetypeMatch:
     # --- Scorer: best_archetype surfaces through scorer.score() ---
 
     async def test_score_result_includes_best_archetype_name(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a role_archetypes collection with 'AI Systems Engineer' and 'Data Platform Lead'
@@ -295,7 +285,7 @@ class TestBestArchetypeMatch:
         )
 
     async def test_best_archetype_is_closest_match_when_multiple_exist(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a role_archetypes collection with multiple archetypes
@@ -316,7 +306,7 @@ class TestBestArchetypeMatch:
         )
 
     async def test_multi_chunk_jd_selects_archetype_from_best_scoring_chunk(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a JD that is long enough to be split into multiple chunks
@@ -351,7 +341,7 @@ class TestBestArchetypeMatch:
         )
 
     async def test_single_archetype_collection_always_selects_that_archetype(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a role_archetypes collection with exactly one archetype
@@ -533,7 +523,8 @@ class TestBestArchetypeMatch:
     # --- Review display ---
 
     def test_review_display_shows_best_archetype(
-        self, vector_store: VectorStore, mock_embedder: Embedder
+        self,
+        tmp_path: Path,
     ) -> None:
         """
         Given a RankedListing with best_archetype='AI Systems Engineer'
@@ -543,10 +534,12 @@ class TestBestArchetypeMatch:
         # Given: a review session with a ranked listing that has a best archetype
         ranked = _make_ranked(archetype=0.81, best_archetype="AI Systems Engineer")
 
+        store = InMemoryVectorStore()
+        fake_embedder = FakeEmbedder()
         recorder = DecisionRecorder(
-            store=vector_store,
-            embedder=mock_embedder,
-            decisions_dir=tempfile.mkdtemp(),
+            store=store,
+            embedder=fake_embedder,
+            decisions_dir=str(tmp_path / "decisions"),
         )
         session = ReviewSession(ranked_listings=[ranked], recorder=recorder, max_slug_length=80)
 
@@ -589,7 +582,7 @@ class TestBestArchetypeMatch:
     # --- Archetype without metadata falls back ---
 
     async def test_archetype_without_metadata_falls_back_to_none(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a role_archetypes document was added without metadata
@@ -632,7 +625,7 @@ class TestBestArchetypeMatch:
     # --- Empty archetypes collection error path ---
 
     async def test_empty_archetypes_collection_raises_index_error(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a resume collection is populated but role_archetypes is empty

@@ -57,11 +57,12 @@ class FakeEmbedder:
         llm_model: str = "fake-model",
     ) -> None:
         """Initialise the fake with configurable return values and side effects."""
-        self._embed_vector = embed_vector if embed_vector is not None else [0.0] * 8
-        self._classify_response = classify_response
-        self._embed_side_effect = embed_side_effect
-        self._classify_side_effect = classify_side_effect
+        self.embed_vector = embed_vector if embed_vector is not None else [0.0] * 8
+        self.classify_response = classify_response
+        self.embed_side_effect = embed_side_effect
+        self.classify_side_effect = classify_side_effect
         self.embed_calls: list[str] = []
+        self.classify_calls: list[str] = []
         self.embed_call_count: int = 0
         self.classify_call_count: int = 0
         self.max_embed_chars: int = max_embed_chars
@@ -71,16 +72,17 @@ class FakeEmbedder:
         """Return the configured vector (or side_effect result) for *text*."""
         self.embed_calls.append(text)
         self.embed_call_count += 1
-        if self._embed_side_effect is not None:
-            return self._embed_side_effect(text)
-        return list(self._embed_vector)
+        if self.embed_side_effect is not None:
+            return self.embed_side_effect(text)
+        return list(self.embed_vector)
 
     async def classify(self, prompt: str) -> str:
         """Return the configured response (or side_effect result) for *prompt*."""
+        self.classify_calls.append(prompt)
         self.classify_call_count += 1
-        if self._classify_side_effect is not None:
-            return self._classify_side_effect(prompt)
-        return self._classify_response
+        if self.classify_side_effect is not None:
+            return self.classify_side_effect(prompt)
+        return self.classify_response
 
 
 # ============================================================================
@@ -114,6 +116,10 @@ class InMemoryVectorStore:
         """Initialise an empty in-memory store."""
         # collection_name -> {doc_id -> _DocRecord}
         self._collections: dict[str, dict[str, _DocRecord]] = {}
+
+    def get_or_create_collection(self, name: str) -> dict[str, _DocRecord]:
+        """Ensure a collection exists (creating an empty one if needed) and return it."""
+        return self._collections.setdefault(name, {})
 
     def _require_collection(self, name: str) -> dict[str, _DocRecord]:
         """Return the collection dict, raising ActionableError if absent."""
@@ -234,10 +240,9 @@ class InMemoryVectorStore:
             coll.pop(doc_id, None)
 
     def collection_count(self, name: str) -> int:
-        """Return the document count for collection *name*."""
-        if name not in self._collections:
-            return 0
-        return len(self._collections[name])
+        """Return the document count for collection *name*, raising if absent."""
+        coll = self._require_collection(name)
+        return len(coll)
 
     def reset_collection(self, name: str) -> None:
         """Drop all documents in the named collection."""

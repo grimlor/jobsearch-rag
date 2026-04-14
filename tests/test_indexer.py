@@ -12,21 +12,16 @@ Spec classes:
 
 from __future__ import annotations
 
-import tempfile
 import textwrap
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 
 from jobsearch_rag.errors import ActionableError, ErrorType
-from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer, build_archetype_embedding_text
-from jobsearch_rag.rag.store import VectorStore
-from tests.conftest import make_mock_ollama_client, make_test_ollama_config
+from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -137,28 +132,20 @@ SAMPLE_RUBRIC_TOML = textwrap.dedent("""\
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
-    """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
-        yield s
-        s.close()
+def store() -> InMemoryVectorStore:
+    """An InMemoryVectorStore for test isolation."""
+    return InMemoryVectorStore()
 
 
 @pytest.fixture
-def mock_embedder() -> Embedder:
-    """Real Embedder with ollama client stubbed at the I/O boundary."""
-    mock_client = make_mock_ollama_client(embed_vector=FAKE_EMBEDDING)
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
-    ):
-        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
+def mock_embedder() -> FakeEmbedder:
+    """FakeEmbedder with default test embedding."""
+    return FakeEmbedder(embed_vector=FAKE_EMBEDDING)
 
 
 @pytest.fixture
-def indexer(store: VectorStore, mock_embedder: Embedder) -> Indexer:
-    """An Indexer wired to a real VectorStore and a mocked Embedder."""
+def indexer(store: InMemoryVectorStore, mock_embedder: FakeEmbedder) -> Indexer:
+    """An Indexer wired to an InMemoryVectorStore and a FakeEmbedder."""
     return Indexer(store=store, embedder=mock_embedder)
 
 
@@ -215,9 +202,9 @@ class TestResumeChunking:
          embedding a mix of "Core Strengths" and "Experience" dilutes both
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O)
-        Real:  Indexer.index_resume, _chunk_resume, Embedder (embed, retry,
-               truncation), VectorStore (real temp dir)
+        Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
+               (dict-backed, cosine similarity)
+        Real:  Indexer.index_resume, _chunk_resume
         Never: Patch chunking logic, Embedder methods, or VectorStore internals
     """
 
@@ -236,7 +223,7 @@ class TestResumeChunking:
         assert count == 4, f"Expected 4 chunks, got {count}"
 
     async def test_each_chunk_starts_with_section_heading(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, resume_path: Path
     ) -> None:
         """
         Given a resume indexed into chunks
@@ -257,7 +244,7 @@ class TestResumeChunking:
         )
 
     async def test_nested_headings_stay_with_parent_section(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, resume_path: Path
     ) -> None:
         """
         Given a resume with ### sub-headings under ## Experience
@@ -277,7 +264,7 @@ class TestResumeChunking:
         assert "### Beta Inc" in doc, "Sub-heading '### Beta Inc' should be in experience chunk"
 
     async def test_chunk_ids_are_derived_from_heading(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, resume_path: Path
     ) -> None:
         """
         Given a resume indexed into chunks
@@ -294,7 +281,7 @@ class TestResumeChunking:
         assert len(result.documents) == 2, f"Expected 2 chunks by ID, got {len(result.documents)}"
 
     async def test_chunks_contain_at_least_one_complete_sentence(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, resume_path: Path
     ) -> None:
         """
         Given a resume section with multiple sentences
@@ -314,7 +301,7 @@ class TestResumeChunking:
         assert "cloud architectures" in doc, "Second sentence content should be present"
 
     async def test_title_line_is_excluded_from_chunks(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, resume_path: Path
     ) -> None:
         """
         Given a resume with a # Name title line
@@ -328,7 +315,7 @@ class TestResumeChunking:
         assert count == 4, f"Expected 4 chunks (title excluded), got {count}"
 
     async def test_resume_with_no_section_headings_returns_zero_chunks(
-        self, indexer: Indexer, store: VectorStore, tmp_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, tmp_path: Path
     ) -> None:
         """
         Given a resume with no ## headings
@@ -365,14 +352,14 @@ class TestResumeIndexing:
          roles -- a harder bug to catch than an explicit missing-index error
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O)
-        Real:  Indexer.index_resume, Embedder (embed, retry, truncation),
-               VectorStore (real temp dir)
+        Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
+               (dict-backed, cosine similarity)
+        Real:  Indexer.index_resume
         Never: Patch Embedder methods or VectorStore internals
     """
 
     async def test_embedder_is_called_for_each_chunk(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, resume_path: Path
     ) -> None:
         """
         Given a resume with multiple sections
@@ -389,7 +376,7 @@ class TestResumeIndexing:
         )
 
     async def test_reindex_replaces_previous_content(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, resume_path: Path
     ) -> None:
         """
         Given a resume already indexed
@@ -420,7 +407,7 @@ class TestResumeIndexing:
         assert count > 0, "Should produce at least one chunk"
 
     async def test_chunk_metadata_records_source(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, resume_path: Path
     ) -> None:
         """
         Given a resume indexed into chunks
@@ -478,14 +465,14 @@ class TestArchetypeIndexing:
          the most insidious failure mode since ranking still appears to work
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O)
-        Real:  Indexer.index_archetypes, TOML parsing, Embedder (embed, retry,
-               truncation), VectorStore (real temp dir)
+        Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
+               (dict-backed, cosine similarity)
+        Real:  Indexer.index_archetypes, TOML parsing
         Never: Patch TOML parsing, Embedder methods, or VectorStore internals
     """
 
     async def test_each_toml_archetype_produces_one_chroma_document(
-        self, indexer: Indexer, store: VectorStore, archetypes_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, archetypes_path: Path
     ) -> None:
         """
         Given a TOML file with two archetype entries
@@ -502,7 +489,7 @@ class TestArchetypeIndexing:
         )
 
     async def test_archetype_name_is_stored_as_document_metadata(
-        self, indexer: Indexer, store: VectorStore, archetypes_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, archetypes_path: Path
     ) -> None:
         """
         Given an indexed archetype collection
@@ -521,7 +508,7 @@ class TestArchetypeIndexing:
         )
 
     async def test_archetype_description_is_the_document_text(
-        self, indexer: Indexer, store: VectorStore, archetypes_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, archetypes_path: Path
     ) -> None:
         """
         Given an indexed archetype
@@ -541,7 +528,7 @@ class TestArchetypeIndexing:
         assert "Cloud-native" in doc, "Description should contain 'Cloud-native'"
 
     async def test_archetype_description_whitespace_is_normalized(
-        self, indexer: Indexer, mock_embedder: Embedder, archetypes_path: Path
+        self, indexer: Indexer, mock_embedder: FakeEmbedder, archetypes_path: Path
     ) -> None:
         """
         Given archetype descriptions with extra whitespace
@@ -552,8 +539,7 @@ class TestArchetypeIndexing:
         await indexer.index_archetypes(str(archetypes_path))
 
         # Then: all embedded texts are normalized
-        for call in mock_embedder._client.embed.call_args_list:  # type: ignore[union-attr]
-            text = str(call.kwargs.get("input", ""))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        for text in mock_embedder.embed_calls:
             assert text == text.strip(), f"Leading/trailing whitespace found: {text!r}"
             assert "  " not in text, f"Double spaces found: {text!r}"
             assert "\n\n" not in text, f"Double newlines found: {text!r}"
@@ -623,7 +609,7 @@ class TestArchetypeIndexing:
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
     async def test_reindex_replaces_previous_archetypes(
-        self, indexer: Indexer, store: VectorStore, archetypes_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, archetypes_path: Path
     ) -> None:
         """
         Given archetypes already indexed
@@ -663,9 +649,9 @@ class TestArchetypeEmbeddingSynthesis:
          e.g. "cross-team architecture ownership" as a distinct signal
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O, for index_archetypes test)
-        Real:  build_archetype_embedding_text, Indexer.index_archetypes,
-               Embedder (embed, retry, truncation), VectorStore (real temp dir)
+        Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
+               (dict-backed, cosine similarity) -- for index_archetypes test
+        Real:  build_archetype_embedding_text, Indexer.index_archetypes
         Never: Patch synthesis logic or whitespace normalization
     """
 
@@ -746,7 +732,7 @@ class TestArchetypeEmbeddingSynthesis:
         assert result == "A role.", f"Expected description only for empty signals, got: {result!r}"
 
     async def test_index_archetypes_uses_synthesized_text(
-        self, indexer: Indexer, store: VectorStore, archetypes_with_signals_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, archetypes_with_signals_path: Path
     ) -> None:
         """
         Given archetypes with positive signals defined
@@ -786,16 +772,16 @@ class TestGlobalRubricLoading:
          negative scoring is incomplete
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O)
-        Real:  Indexer.index_negative_signals, TOML parsing, Embedder (embed,
-               retry, truncation), VectorStore
+        Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
+               (dict-backed, cosine similarity)
+        Real:  Indexer.index_negative_signals, TOML parsing
         Never: Patch TOML parsing, Embedder methods, or signal extraction
     """
 
     async def test_rubric_signals_are_loaded_and_indexed(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: InMemoryVectorStore,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
@@ -882,16 +868,16 @@ class TestNegativeSignalIndexing:
          dealbreakers while archetype negatives catch role-specific mismatches
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O)
-        Real:  Indexer.index_negative_signals, signal combining logic,
-               Embedder (embed, retry, truncation), VectorStore (real temp dir)
+        Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
+               (dict-backed, cosine similarity)
+        Real:  Indexer.index_negative_signals, signal combining logic
         Never: Patch signal extraction, Embedder methods, or VectorStore internals
     """
 
     async def test_rubric_and_archetype_negatives_are_combined(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: InMemoryVectorStore,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
@@ -914,7 +900,7 @@ class TestNegativeSignalIndexing:
     async def test_each_signal_is_individually_embedded(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: InMemoryVectorStore,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
@@ -937,7 +923,7 @@ class TestNegativeSignalIndexing:
     async def test_signal_metadata_records_source(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: InMemoryVectorStore,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
@@ -950,9 +936,8 @@ class TestNegativeSignalIndexing:
         await indexer.index_negative_signals(str(rubric_path), str(archetypes_with_signals_path))
 
         # When: retrieve all metadata
-        collection = store.get_or_create_collection("negative_signals")
-        result = collection.get(include=["metadatas"])
-        metadatas = result["metadatas"]
+        result = store.get_all_documents("negative_signals")
+        metadatas = result.metadatas
 
         # Then: each has correct source prefix
         assert metadatas is not None, "Expected metadatas in collection result"
@@ -965,7 +950,7 @@ class TestNegativeSignalIndexing:
     async def test_reindex_replaces_previous_signals(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: InMemoryVectorStore,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
@@ -993,7 +978,7 @@ class TestNegativeSignalIndexing:
     async def test_empty_rubric_dimensions_indexes_only_archetype_negatives(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: InMemoryVectorStore,
         tmp_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
@@ -1056,7 +1041,7 @@ class TestNegativeSignalIndexing:
         )
 
     async def test_zero_signals_from_both_sources_returns_empty_collection(
-        self, indexer: Indexer, store: VectorStore, tmp_path: Path
+        self, indexer: Indexer, store: InMemoryVectorStore, tmp_path: Path
     ) -> None:
         """
         Given a rubric and archetypes with no negative signals

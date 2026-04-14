@@ -13,31 +13,23 @@ Spec classes:
     TestCrossBoardDeduplication
 
 The Scorer orchestrates VectorStore (similarity queries) and Embedder
-(embedding + LLM classification).  VectorStore is tested with a real
-temp-directory instance; Embedder is mocked since it requires live Ollama.
+(embedding + LLM classification).  Tests use port-level fakes
+(InMemoryVectorStore + FakeEmbedder) for full isolation from ChromaDB/Ollama.
 ScoreFusion and CrossBoardDeduplication specs test the Ranker (Phase 3).
 """
 
 from __future__ import annotations
 
 import logging
-import tempfile
-from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
 
-import chromadb
 import pytest
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
-from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.ports import QueryResult
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
-from jobsearch_rag.rag.store import VectorStore
-from tests.conftest import make_mock_ollama_client, make_test_ollama_config
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
+from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 # ---------------------------------------------------------------------------
 # Helpers & fixtures
@@ -52,80 +44,67 @@ EMBED_ARCH_JD = [0.85, 0.15, 0.25, 0.05, 0.28]  # close to ARCHITECT
 EMBED_UNRELATED_JD = [0.0, 0.0, 0.1, 0.9, 0.9]  # far from everything
 
 
-def _set_embed_response(embedder: Embedder, vector: list[float]) -> None:
-    """Change the embedding vector returned by the mock ollama client."""
-    response = MagicMock()
-    response.embeddings = [vector]
-    response.prompt_eval_count = 42
-    embedder._client.embed.return_value = response  # type: ignore[union-attr]
+def _set_embed_response(embedder: FakeEmbedder, vector: list[float]) -> None:
+    """Change the embedding vector returned by the fake embedder."""
+    embedder.embed_vector = vector
+    embedder.embed_side_effect = None
 
 
-def _set_classify_response(embedder: Embedder, content: str) -> None:
-    """Change the classify (chat) response returned by the mock ollama client."""
-    message = MagicMock()
-    message.content = content
-    response = MagicMock()
-    response.message = message
-    response.prompt_eval_count = 100
-    response.eval_count = 20
-    embedder._client.chat.return_value = response  # type: ignore[union-attr]
+def _set_classify_response(embedder: FakeEmbedder, content: str) -> None:
+    """Change the classify response returned by the fake embedder."""
+    embedder.classify_response = content
+    embedder.classify_side_effect = None
 
 
-def _set_embed_side_effect(embedder: Embedder, vectors: list[list[float]]) -> None:
+def _set_embed_side_effect(embedder: FakeEmbedder, vectors: list[list[float]]) -> None:
     """Set a sequence of different embedding vectors for successive embed calls."""
-    embedder._client.embed.side_effect = [  # type: ignore[union-attr]
-        MagicMock(embeddings=[v], prompt_eval_count=42) for v in vectors
-    ]
+    it = iter(vectors)
+
+    def _next_vector(text: str) -> list[float]:
+        return next(it)
+
+    embedder.embed_side_effect = _next_vector
 
 
 def _set_classify_side_effect(
-    embedder: Embedder,
+    embedder: FakeEmbedder,
     responses: list[str | Exception],
 ) -> None:
     """Set a sequence of classify responses (strings or exceptions) for successive calls."""
-    side_effects: list[MagicMock | Exception] = []
-    for r in responses:
+    it = iter(responses)
+
+    def _next(prompt: str) -> str:
+        r = next(it)
         if isinstance(r, Exception):
-            side_effects.append(r)
-        else:
-            msg = MagicMock()
-            msg.content = r
-            side_effects.append(MagicMock(message=msg, prompt_eval_count=100, eval_count=20))
-    embedder._client.chat.side_effect = side_effects  # type: ignore[union-attr]
+            raise r
+        return r
+
+    embedder.classify_side_effect = _next
 
 
-def _chat_user_prompt(embedder: Embedder, call_index: int = -1) -> str:
-    """Extract the user-role prompt from a specific chat call on the mock client."""
-    calls = embedder._client.chat.call_args_list  # type: ignore[union-attr]
-    return calls[call_index].kwargs["messages"][1]["content"]  # type: ignore[reportUnknownMemberType, reportUnknownVariableType]
+def _chat_user_prompt(embedder: FakeEmbedder, call_index: int = -1) -> str:
+    """Extract the prompt from a specific classify call on the fake embedder."""
+    return embedder.classify_calls[call_index]
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
-    """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
-        yield s
-        s.close()
+def store() -> InMemoryVectorStore:
+    """An InMemoryVectorStore for test isolation."""
+    return InMemoryVectorStore()
 
 
 @pytest.fixture
-def mock_embedder() -> Embedder:
-    """Real Embedder with ollama client stubbed at the I/O boundary."""
-    mock_client = make_mock_ollama_client(
+def mock_embedder() -> FakeEmbedder:
+    """FakeEmbedder with default arch-jd embedding and approving classify."""
+    return FakeEmbedder(
         embed_vector=EMBED_ARCH_JD,
         classify_response='{"disqualified": false, "reason": null}',
     )
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
-    ):
-        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
 
 @pytest.fixture
-def populated_store(store: VectorStore) -> VectorStore:
-    """A VectorStore with resume and archetype collections pre-populated."""
+def populated_store(store: InMemoryVectorStore) -> InMemoryVectorStore:
+    """An InMemoryVectorStore with resume and archetype collections pre-populated."""
     # Resume collection -- 2 chunks
     store.add_documents(
         collection_name="resume",
@@ -160,8 +139,8 @@ def populated_store(store: VectorStore) -> VectorStore:
 
 
 @pytest.fixture
-def scorer(populated_store: VectorStore, mock_embedder: Embedder) -> Scorer:
-    """A Scorer wired to a populated VectorStore and mocked Embedder."""
+def scorer(populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder) -> Scorer:
+    """A Scorer wired to a populated InMemoryVectorStore and FakeEmbedder."""
     return Scorer(
         store=populated_store,
         embedder=mock_embedder,
@@ -174,7 +153,9 @@ def scorer(populated_store: VectorStore, mock_embedder: Embedder) -> Scorer:
 
 
 @pytest.fixture
-def scorer_empty_history(populated_store: VectorStore, mock_embedder: Embedder) -> Scorer:
+def scorer_empty_history(
+    populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
+) -> Scorer:
     """A Scorer with resume+archetypes but no decisions collection."""
     return Scorer(
         store=populated_store,
@@ -212,12 +193,12 @@ class TestSemanticScoring:
          would produce a randomly-ordered shortlist disguised as a ranking
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O via conftest mock_embedder)
-               chromadb.Collection.query (patched in test_query_returning_no_distances
-               to return empty distances for the resume collection -- ChromaDB cannot
+        Mock:  FakeEmbedder (port-level I/O fake for embed + classify)
+               InMemoryVectorStore.query (patched in test_query_returning_no_distances
+               to return empty distances for the resume collection -- the store cannot
                naturally return empty distances from a populated collection, so
                interception is needed to exercise _distance_to_score([]) → 0.0)
-        Real:  Scorer.score, Embedder.embed + Embedder.classify, VectorStore (ChromaDB via tmp_path), ScoreResult
+        Real:  Scorer.score, InMemoryVectorStore (dict-backed), ScoreResult
         Never: Construct ScoreResult directly -- always obtain via scorer.score()
     """
 
@@ -246,7 +227,7 @@ class TestSemanticScoring:
         )
 
     async def test_matching_jd_scores_higher_archetype_than_non_matching(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a JD matching an archetype and an unrelated JD
@@ -268,7 +249,7 @@ class TestSemanticScoring:
         )
 
     async def test_skill_matching_jd_scores_higher_fit_than_non_matching(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a JD matching resume skills and one without overlap
@@ -334,8 +315,8 @@ class TestSemanticScoring:
 
     async def test_query_returning_no_distances_produces_zero_score(
         self,
-        populated_store: VectorStore,
-        mock_embedder: Embedder,
+        populated_store: InMemoryVectorStore,
+        mock_embedder: FakeEmbedder,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
@@ -343,30 +324,33 @@ class TestSemanticScoring:
         When score() is called
         Then the resulting score component is 0.0.
         """
-        # Given: patch chromadb.Collection.query to return empty distances
-        # for the resume collection (I/O boundary)
-        _original_collection_query = chromadb.Collection.query
+        # Given: patch InMemoryVectorStore.query to return empty distances
+        # for the resume collection
+        _original_query = InMemoryVectorStore.query
 
         def _query_empty_distances(
-            self_collection: chromadb.Collection,
+            store_self: InMemoryVectorStore,
+            collection_name: str,
             *,
-            query_embeddings: Any = None,
-            query_texts: Any = None,
-            n_results: int = 10,
-            where: Any = None,
-            include: Any = None,
-        ) -> dict[str, Any]:
-            result = _original_collection_query(
-                self_collection,
-                query_embeddings=query_embeddings,
+            query_embedding: list[float],
+            n_results: int = 5,
+        ) -> QueryResult:
+            result = _original_query(
+                store_self,
+                collection_name,
+                query_embedding=query_embedding,
                 n_results=n_results,
-                include=include,
             )
-            if self_collection.name == "resume":
-                result["distances"] = [[]]
+            if collection_name == "resume":
+                result = QueryResult(
+                    ids=result.ids,
+                    documents=result.documents,
+                    metadatas=result.metadatas,
+                    distances=[[]],
+                )
             return result
 
-        monkeypatch.setattr(chromadb.Collection, "query", _query_empty_distances)
+        monkeypatch.setattr(InMemoryVectorStore, "query", _query_empty_distances)
         scorer = Scorer(
             store=populated_store,
             embedder=mock_embedder,
@@ -386,80 +370,74 @@ class TestSemanticScoring:
         )
 
     async def test_missing_resume_collection_tells_operator_to_run_index(
-        self, mock_embedder: Embedder
+        self, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given no resume collection exists
         When score() is called
         Then an ActionableError of type INDEX is raised with guidance.
         """
-        # Given: an empty VectorStore with no resume collection
-        with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
-            scorer = Scorer(
-                store=empty_store,
-                embedder=mock_embedder,
-                disqualify_on_llm_flag=False,
-                disqualifier_prompt="test disqualifier prompt",
-                screen_prompt="test screen prompt",
-                chunk_overlap=50,
-                top_k_retrieval=3,
-            )
+        # Given: an empty InMemoryVectorStore with no resume collection
+        empty_store = InMemoryVectorStore()
+        scorer = Scorer(
+            store=empty_store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
-            # When: a JD is scored
-            with pytest.raises(ActionableError) as exc_info:
-                await scorer.score("Any JD text")
+        # When: a JD is scored
+        with pytest.raises(ActionableError) as exc_info:
+            await scorer.score("Any JD text")
 
-            # Then: the error tells the operator to run the index command
-            err = exc_info.value
-            assert err.error_type == ErrorType.INDEX, (
-                f"Expected INDEX error type, got {err.error_type}"
-            )
-            assert err.suggestion is not None, "Error should include a suggestion"
-            assert err.troubleshooting is not None, "Error should include troubleshooting"
-            assert len(err.troubleshooting.steps) > 0, (
-                "Troubleshooting should have at least one step"
-            )
+        # Then: the error tells the operator to run the index command
+        err = exc_info.value
+        assert err.error_type == ErrorType.INDEX, (
+            f"Expected INDEX error type, got {err.error_type}"
+        )
+        assert err.suggestion is not None, "Error should include a suggestion"
+        assert err.troubleshooting is not None, "Error should include troubleshooting"
+        assert len(err.troubleshooting.steps) > 0, "Troubleshooting should have at least one step"
 
     async def test_empty_resume_collection_tells_operator_to_run_index(
-        self, mock_embedder: Embedder
+        self, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a resume collection with 0 documents
         When score() is called
         Then an ActionableError of type INDEX is raised with guidance.
         """
-        # Given: a VectorStore with an empty resume collection
-        with tempfile.TemporaryDirectory() as tmpdir:
-            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
-            store.reset_collection("resume")
-            scorer = Scorer(
-                store=store,
-                embedder=mock_embedder,
-                disqualify_on_llm_flag=False,
-                disqualifier_prompt="test disqualifier prompt",
-                screen_prompt="test screen prompt",
-                chunk_overlap=50,
-                top_k_retrieval=3,
-            )
+        # Given: an InMemoryVectorStore with an empty resume collection
+        store = InMemoryVectorStore()
+        store.reset_collection("resume")
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
 
-            # When: a JD is scored
-            with pytest.raises(ActionableError) as exc_info:
-                await scorer.score("Any JD text")
+        # When: a JD is scored
+        with pytest.raises(ActionableError) as exc_info:
+            await scorer.score("Any JD text")
 
-            # Then: the error tells the operator to run the index command
-            err = exc_info.value
-            assert err.error_type == ErrorType.INDEX, (
-                f"Expected INDEX error type, got {err.error_type}"
-            )
-            assert err.suggestion is not None, "Error should include a suggestion"
-            assert err.troubleshooting is not None, "Error should include troubleshooting"
-            assert len(err.troubleshooting.steps) > 0, (
-                "Troubleshooting should have at least one step"
-            )
+        # Then: the error tells the operator to run the index command
+        err = exc_info.value
+        assert err.error_type == ErrorType.INDEX, (
+            f"Expected INDEX error type, got {err.error_type}"
+        )
+        assert err.suggestion is not None, "Error should include a suggestion"
+        assert err.troubleshooting is not None, "Error should include troubleshooting"
+        assert len(err.troubleshooting.steps) > 0, "Troubleshooting should have at least one step"
 
     async def test_existing_but_empty_decisions_returns_zero_history(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a decisions collection that exists but is empty
@@ -487,7 +465,7 @@ class TestSemanticScoring:
         )
 
     async def test_history_score_uses_decisions_when_populated(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a decisions collection with documents
@@ -521,7 +499,7 @@ class TestSemanticScoring:
         )
 
     async def test_disqualify_on_llm_flag_false_skips_disqualifier(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given disqualify_on_llm_flag is set to False
@@ -576,13 +554,13 @@ class TestJDChunking:
          coding role
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O via conftest mock_embedder)
-        Real:  Scorer.score (chunking logic), Embedder.embed + Embedder.classify, VectorStore (ChromaDB via tmp_path)
+        Mock:  FakeEmbedder (port-level I/O fake for embed + classify)
+        Real:  Scorer.score (chunking logic), InMemoryVectorStore (dict-backed)
         Never: Construct ScoreResult directly -- always obtain via scorer.score()
     """
 
     async def test_short_jd_produces_valid_score(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a short JD that fits in one chunk
@@ -599,7 +577,7 @@ class TestJDChunking:
         assert result.is_valid, f"Short JD should produce a valid ScoreResult, got {result}"
 
     async def test_long_jd_is_chunked_and_best_score_wins(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a long JD where chunk 1 is weak and chunk 2 is strong
@@ -630,7 +608,7 @@ class TestJDChunking:
         )
 
     async def test_long_jd_weak_first_chunk_does_not_suppress_strong_tail(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a long JD with a weak head and strong tail
@@ -679,7 +657,7 @@ class TestJDChunking:
         )
 
     async def test_disqualifier_receives_full_text_not_chunks(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a long JD that triggers chunking
@@ -730,13 +708,13 @@ class TestParseDisqualifierResponse:
          false positives or crash the scoring pipeline
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O via conftest mock_embedder)
-        Real:  Scorer.disqualify (JSON parsing logic), Embedder.classify
+        Mock:  FakeEmbedder (port-level I/O fake for classify)
+        Real:  Scorer.disqualify (JSON parsing logic)
         Never: Parse disqualifier JSON directly -- always go through scorer.disqualify()
     """
 
     async def test_string_null_reason_is_normalised_to_none(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the LLM returns reason as the string 'null'
@@ -754,7 +732,7 @@ class TestParseDisqualifierResponse:
         assert reason is None, f"String 'null' should normalise to None, got {reason!r}"
 
     async def test_reason_none_json_returns_none(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the LLM returns JSON null for reason
@@ -772,7 +750,7 @@ class TestParseDisqualifierResponse:
         assert reason is None, f"JSON null should parse as None, got {reason!r}"
 
     async def test_numeric_reason_is_stringified(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the LLM returns a numeric reason
@@ -790,7 +768,7 @@ class TestParseDisqualifierResponse:
         assert reason == "42", f"Numeric reason should be stringified, got {reason!r}"
 
     async def test_missing_disqualified_key_defaults_to_false(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the LLM response is missing the 'disqualified' key
@@ -830,13 +808,13 @@ class TestDisqualifierClassification:
          a false disqualification silently removes a good role
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O via conftest mock_embedder)
-        Real:  Scorer.disqualify, Scorer.score, Embedder.classify, VectorStore (ChromaDB via tmp_path)
+        Mock:  FakeEmbedder (port-level I/O fake for classify)
+        Real:  Scorer.disqualify, Scorer.score, InMemoryVectorStore (dict-backed)
         Never: Inspect internal parsing -- test through public disqualify()/score() API
     """
 
     async def test_disqualified_jd_returns_true_with_reason(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the LLM flags a JD as disqualified with a reason
@@ -859,7 +837,7 @@ class TestDisqualifierClassification:
         )
 
     async def test_suitable_jd_returns_false(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the LLM approves a JD
@@ -877,7 +855,7 @@ class TestDisqualifierClassification:
         assert reason is None, f"Expected no reason, got {reason!r}"
 
     async def test_malformed_llm_json_falls_back_to_not_disqualified(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the LLM returns unparseable JSON
@@ -896,7 +874,7 @@ class TestDisqualifierClassification:
         )
 
     async def test_disqualifier_reason_is_preserved(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the LLM returns a disqualification with a specific reason
@@ -918,7 +896,7 @@ class TestDisqualifierClassification:
         )
 
     async def test_score_integrates_disqualifier_when_flagged(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the LLM flags the JD as disqualified
@@ -982,13 +960,13 @@ class TestRejectionReasonInjection:
          patterns -- the system should learn from past 'no' verdicts
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O via conftest mock_embedder)
-        Real:  Scorer.disqualify, Embedder.classify, VectorStore (ChromaDB decisions collection via tmp_path)
+        Mock:  FakeEmbedder (port-level I/O fake for classify)
+        Real:  Scorer.disqualify, InMemoryVectorStore (dict-backed decisions collection)
         Never: Bypass VectorStore when populating decisions -- always use add_documents()
     """
 
     async def test_rejection_reasons_appear_in_disqualifier_prompt(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given past 'no' verdicts with reasons in the decisions collection
@@ -1029,7 +1007,7 @@ class TestRejectionReasonInjection:
         )
 
     async def test_yes_verdicts_not_injected_into_disqualifier(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given 'yes' verdicts with reasons
@@ -1066,7 +1044,7 @@ class TestRejectionReasonInjection:
         )
 
     async def test_empty_reasons_are_omitted_from_prompt(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given 'no' verdicts where reason is empty
@@ -1101,7 +1079,7 @@ class TestRejectionReasonInjection:
         )
 
     async def test_duplicate_reasons_appear_once(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given multiple 'no' verdicts with the same reason
@@ -1139,7 +1117,7 @@ class TestRejectionReasonInjection:
         )
 
     async def test_missing_decisions_collection_returns_no_reasons(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given no decisions collection exists
@@ -1167,7 +1145,7 @@ class TestRejectionReasonInjection:
         )
 
     async def test_rejection_reasons_are_cached_per_scorer_instance(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a Scorer with cached rejection reasons
@@ -1235,13 +1213,13 @@ class TestPromptInjectionScreening:
          cannot anticipate, denying the injection its target prompt
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O via conftest mock_embedder)
-        Real:  Scorer.disqualify, Scorer._screen_jd_for_injection, Embedder.classify
+        Mock:  FakeEmbedder (port-level I/O fake for classify)
+        Real:  Scorer.disqualify, Scorer._screen_jd_for_injection
         Never: Construct screening results directly -- always go through scorer.disqualify()
     """
 
     async def test_screening_call_precedes_disqualifier(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a JD that passes screening (not suspicious)
@@ -1279,7 +1257,7 @@ class TestPromptInjectionScreening:
         )
 
     async def test_suspicious_jd_skips_disqualifier_and_returns_not_disqualified(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a JD flagged as suspicious by the screening layer
@@ -1318,8 +1296,8 @@ class TestPromptInjectionScreening:
 
     async def test_suspicious_jd_logs_prompt_injection_detected_event(
         self,
-        populated_store: VectorStore,
-        mock_embedder: Embedder,
+        populated_store: InMemoryVectorStore,
+        mock_embedder: FakeEmbedder,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """
@@ -1356,7 +1334,7 @@ class TestPromptInjectionScreening:
         )
 
     async def test_clean_jd_still_runs_disqualifier(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a JD that passes screening
@@ -1391,7 +1369,7 @@ class TestPromptInjectionScreening:
         assert reason == "SRE on-call role", f"Expected reason 'SRE on-call role', got {reason!r}"
 
     async def test_malformed_screening_json_defaults_to_not_suspicious(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the screening LLM returns malformed JSON
@@ -1427,7 +1405,7 @@ class TestPromptInjectionScreening:
         assert reason == "proves recovery", f"Expected reason from disqualifier, got {reason!r}"
 
     async def test_screening_exception_defaults_to_not_suspicious(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the screening LLM call raises an exception
@@ -1488,13 +1466,13 @@ class TestPromptInjectionMitigation:
          format still defaults to the safe outcome
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O via conftest mock_embedder)
-        Real:  Scorer.disqualify, Scorer._sanitize_jd_for_prompt, Embedder.classify
+        Mock:  FakeEmbedder (port-level I/O fake for classify)
+        Real:  Scorer.disqualify, Scorer._sanitize_jd_for_prompt
         Never: Call _sanitize_jd_for_prompt directly -- verify through disqualifier prompt content
     """
 
     async def test_ignore_instructions_pattern_stripped_from_disqualifier_prompt(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a JD containing 'ignore previous instructions'
@@ -1539,7 +1517,7 @@ class TestPromptInjectionMitigation:
         )
 
     async def test_embedded_json_blob_stripped_from_disqualifier_prompt(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a JD containing an embedded JSON blob with 'disqualified'
@@ -1586,7 +1564,7 @@ class TestPromptInjectionMitigation:
         )
 
     async def test_malformed_disqualifier_json_defaults_to_not_disqualified(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given the disqualifier LLM returns malformed JSON
@@ -1621,8 +1599,8 @@ class TestPromptInjectionMitigation:
 
     async def test_parse_failure_logs_warning_with_truncated_response(
         self,
-        populated_store: VectorStore,
-        mock_embedder: Embedder,
+        populated_store: InMemoryVectorStore,
+        mock_embedder: FakeEmbedder,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """
@@ -1671,7 +1649,7 @@ class TestPromptInjectionMitigation:
         )
 
     async def test_screening_sees_original_text_not_sanitized(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a JD with injection patterns

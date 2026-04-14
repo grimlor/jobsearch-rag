@@ -13,15 +13,12 @@ import json as json_mod
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.decisions import DecisionRecorder
-from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
-from tests.conftest import make_mock_ollama_client, make_test_ollama_config
+from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -30,27 +27,21 @@ EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
-    """Yield a temporary VectorStore for test isolation."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
-        yield s
-        s.close()
+def store() -> InMemoryVectorStore:
+    """An InMemoryVectorStore for test isolation."""
+    return InMemoryVectorStore()
 
 
 @pytest.fixture
-def mock_embedder() -> Embedder:
-    """Real Embedder with ollama client stubbed at the I/O boundary."""
-    mock_client = make_mock_ollama_client(embed_vector=EMBED_TEST)
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
-    ):
-        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
+def mock_embedder() -> FakeEmbedder:
+    """FakeEmbedder with default test embedding."""
+    return FakeEmbedder(embed_vector=EMBED_TEST)
 
 
 @pytest.fixture
-def recorder(store: VectorStore, mock_embedder: Embedder) -> Iterator[DecisionRecorder]:
+def recorder(
+    store: InMemoryVectorStore, mock_embedder: FakeEmbedder
+) -> Iterator[DecisionRecorder]:
     """Yield a DecisionRecorder backed by temporary storage."""
     with tempfile.TemporaryDirectory() as decisions_dir:
         # Ensure decisions collection exists
@@ -84,9 +75,10 @@ class TestDecisionRecording:
          not 'what did I reject' (rejections have too many confounding reasons)
 
     MOCK BOUNDARY:
-        Mock:  ollama.AsyncClient (Ollama HTTP I/O -- the only I/O boundary)
-        Real:  Embedder (embed, retry, truncation, metrics), DecisionRecorder,
-               VectorStore (via tmpdir), JSONL file I/O
+        Fake:  FakeEmbedder (port-level double -- records embed_calls, returns
+               configured vectors), InMemoryVectorStore (port-level double --
+               dict-backed, cosine similarity)
+        Real:  DecisionRecorder, JSONL file I/O
         Never: Patch Embedder methods, DecisionRecorder internals, or verdict
                classification logic
     """
@@ -161,7 +153,7 @@ class TestDecisionRecording:
         assert decision["reason"] == "", "Reason should default to empty string when not provided"
 
     async def test_reason_enriches_embedding_vector(
-        self, recorder: DecisionRecorder, mock_embedder: Embedder
+        self, recorder: DecisionRecorder, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a verdict with a reason
@@ -182,12 +174,12 @@ class TestDecisionRecording:
         )
 
         # Then: embedder receives enriched text
-        embed_input = mock_embedder._client.embed.call_args.kwargs["input"]  # type: ignore[union-attr]
+        embed_input = mock_embedder.embed_calls[-1]
         expected = f"{jd}\n\nOperator reasoning: {reason}"
         assert embed_input == expected, f"Expected enriched text {expected!r}, got {embed_input!r}"
 
     async def test_empty_reason_does_not_enrich_embedding(
-        self, recorder: DecisionRecorder, mock_embedder: Embedder
+        self, recorder: DecisionRecorder, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a verdict with no reason
@@ -206,7 +198,7 @@ class TestDecisionRecording:
         )
 
         # Then: embedder receives bare JD text only
-        embed_input = mock_embedder._client.embed.call_args.kwargs["input"]  # type: ignore[union-attr]
+        embed_input = mock_embedder.embed_calls[-1]
         assert embed_input == jd, f"Expected bare JD text {jd!r}, got {embed_input!r}"
 
     async def test_no_verdict_is_stored_but_excluded_from_scoring_signal(
@@ -376,7 +368,7 @@ class TestDecisionRecording:
         assert err.troubleshooting is not None, "Error should include troubleshooting steps"
 
     async def test_reason_is_written_to_jsonl_audit_log(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: InMemoryVectorStore, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a verdict with a reason
@@ -413,7 +405,7 @@ class TestDecisionRecording:
             )
 
     def test_get_decision_returns_none_when_collection_missing(
-        self, mock_embedder: Embedder
+        self, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a store with no decisions collection
@@ -421,17 +413,16 @@ class TestDecisionRecording:
         Then None is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
-            recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
+        empty_store = InMemoryVectorStore()
+        recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
-            # When/Then: get_decision returns None gracefully
-            assert recorder.get_decision("nonexistent-job") is None, (
-                "Should return None when collection is missing"
-            )
+        # When/Then: get_decision returns None gracefully
+        assert recorder.get_decision("nonexistent-job") is None, (
+            "Should return None when collection is missing"
+        )
 
     def test_get_decision_returns_none_when_no_results_found(
-        self, mock_embedder: Embedder
+        self, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a decisions collection that exists but has no matching document
@@ -439,18 +430,17 @@ class TestDecisionRecording:
         Then None is returned.
         """
         # Given: a store with an empty decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
-            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
-            store.get_or_create_collection("decisions")
-            recorder = DecisionRecorder(store=store, embedder=mock_embedder)
+        store = InMemoryVectorStore()
+        store.get_or_create_collection("decisions")
+        recorder = DecisionRecorder(store=store, embedder=mock_embedder)
 
-            # When/Then: get_decision returns None
-            assert recorder.get_decision("unknown-id") is None, (
-                "Should return None when no matching document exists"
-            )
+        # When/Then: get_decision returns None
+        assert recorder.get_decision("unknown-id") is None, (
+            "Should return None when no matching document exists"
+        )
 
     def test_history_count_returns_zero_when_collection_missing(
-        self, mock_embedder: Embedder
+        self, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a store where the decisions collection does not exist
@@ -458,15 +448,14 @@ class TestDecisionRecording:
         Then 0 is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
-            recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
+        empty_store = InMemoryVectorStore()
+        recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
-            # When/Then: history_count returns 0 gracefully
-            assert recorder.history_count() == 0, "Should return 0 when collection is missing"
+        # When/Then: history_count returns 0 gracefully
+        assert recorder.history_count() == 0, "Should return 0 when collection is missing"
 
     def test_audit_decisions_returns_empty_list_when_collection_missing(
-        self, mock_embedder: Embedder
+        self, mock_embedder: FakeEmbedder
     ) -> None:
         """
         Given a store where the decisions collection does not exist
@@ -474,14 +463,13 @@ class TestDecisionRecording:
         Then an empty list is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
-            recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
+        empty_store = InMemoryVectorStore()
+        recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
-            # When: audit_decisions is called
-            results = recorder.audit_decisions()
+        # When: audit_decisions is called
+        results = recorder.audit_decisions()
 
-            # Then: empty list returned gracefully
-            assert results == [], (
-                f"Should return empty list when collection is missing, got: {results}"
-            )
+        # Then: empty list returned gracefully
+        assert results == [], (
+            f"Should return empty list when collection is missing, got: {results}"
+        )
