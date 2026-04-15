@@ -22,6 +22,7 @@ from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import adapter_override
 from tests.constants import EMBED_FAKE
+from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
     from jobsearch_rag.config import Settings
@@ -139,6 +140,34 @@ def _make_runner_with_real_stack(
     return runner, mock_client
 
 
+def _make_runner(settings: Settings) -> PipelineRunner:
+    """
+    Create a PipelineRunner with FakeEmbedder and InMemoryVectorStore.
+
+    Uses port-level fakes -- no Ollama or ChromaDB dependency.
+    Collections are pre-populated so auto-indexing is skipped.
+    """
+    embedder = FakeEmbedder(embed_vector=EMBED_FAKE)
+    store = InMemoryVectorStore()
+    runner = PipelineRunner(settings, store=store, embedder=embedder)
+    _populate_store(runner.store)
+    return runner
+
+
+def _make_runner_with_distant_fakes(settings: Settings) -> PipelineRunner:
+    """
+    Create a PipelineRunner with FakeEmbedder and InMemoryVectorStore,
+    seeding collections with distant embeddings.
+
+    Produces non-trivial score distributions for retrieval_summary testing.
+    """
+    embedder = FakeEmbedder(embed_vector=EMBED_FAKE)
+    store = InMemoryVectorStore()
+    runner = PipelineRunner(settings, store=store, embedder=embedder)
+    _populate_store_with_distant_embeddings(runner.store)
+    return runner
+
+
 def _populate_store(store: VectorStorePort) -> None:
     """Seed the three required collections so auto-indexing is skipped."""
     for name in ("resume", "role_archetypes", "global_positive_signals"):
@@ -179,44 +208,6 @@ def _populate_store_with_distant_embeddings(store: VectorStorePort) -> None:
             documents=[f"Seed document for {name}"],
             embeddings=[_EMBED_DISTANT],
         )
-
-
-def _make_runner_with_distant_store(
-    settings: Settings,
-) -> tuple[PipelineRunner, AsyncMock]:
-    """
-    Like _make_runner_with_real_stack but seeds collections with distant embeddings.
-
-    Produces non-trivial score distributions for retrieval_summary testing.
-    """
-    mock_client = AsyncMock()
-
-    model_embed = MagicMock()
-    model_embed.model = settings.ollama.embed_model
-    model_llm = MagicMock()
-    model_llm.model = settings.ollama.llm_model
-    list_response = MagicMock()
-    list_response.models = [model_embed, model_llm]
-    mock_client.list.return_value = list_response
-
-    embed_response = MagicMock()
-    embed_response.embeddings = [EMBED_FAKE]
-    mock_client.embed.return_value = embed_response
-
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
-    ):
-        embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-    )
-    runner = PipelineRunner(settings, store=store, embedder=embedder)
-
-    _populate_store_with_distant_embeddings(runner.store)
-
-    return runner, mock_client
 
 
 def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
@@ -262,7 +253,7 @@ def _make_test_adapter(
 def _run_pipeline_and_read_logs(
     tmpdir: str,
     listings: list[JobListing],
-    mock_client: AsyncMock,
+    mock_client: AsyncMock | None,
     runner: PipelineRunner,
     *,
     exclude_files: set[str] | None = None,
@@ -280,18 +271,19 @@ def _run_pipeline_and_read_logs(
     *disqualifier_response* is the raw JSON string the LLM mock returns.
     *chat_latency_s* adds a sleep to the chat mock to simulate inference time.
     """
-    chat_response = MagicMock(
-        message=MagicMock(content=disqualifier_response),
-    )
-    if chat_latency_s > 0:
+    if mock_client is not None:
+        chat_response = MagicMock(
+            message=MagicMock(content=disqualifier_response),
+        )
+        if chat_latency_s > 0:
 
-        async def _slow_chat(**_kwargs: object) -> MagicMock:  # type: ignore[type-arg]
-            _time.sleep(chat_latency_s)
-            return chat_response
+            async def _slow_chat(**_kwargs: object) -> MagicMock:  # type: ignore[type-arg]
+                _time.sleep(chat_latency_s)
+                return chat_response
 
-        mock_client.chat.side_effect = _slow_chat
-    else:
-        mock_client.chat.return_value = chat_response
+            mock_client.chat.side_effect = _slow_chat
+        else:
+            mock_client.chat.return_value = chat_response
 
     mock_async_pw, _mock_page = _mock_playwright_boundary()
     adapter = _make_test_adapter(search_results=listings)
@@ -352,9 +344,11 @@ class TestSessionTracing:
          without a correlation key
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama HTTP); async_playwright
-               (Playwright I/O); asyncio.sleep for throttle bypass
-        Real:  PipelineRunner, logging infrastructure, log file in tmp_path
+        Mock:  FakeEmbedder (satisfies EmbeddingPort), InMemoryVectorStore
+               (satisfies VectorStorePort); async_playwright (Playwright I/O);
+               asyncio.sleep for throttle bypass
+        Real:  PipelineRunner, Scorer, Ranker, logging infrastructure,
+               log file in tmp_path
         Never: Mock the logger or inject session IDs directly; run the
                real pipeline and verify the session ID by parsing the
                actual log file written to tmp_path
@@ -370,14 +364,14 @@ class TestSessionTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner and two listings
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [
                 _make_listing(external_id="1", title="Engineer A"),
                 _make_listing(external_id="2", title="Engineer B"),
             ]
 
             # When: pipeline runs and log file is read
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: every entry has a 'session' field and all values match
             assert len(entries) > 0, "Expected at least one log entry"
@@ -398,11 +392,11 @@ class TestSessionTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with one listing
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: session_summary entry exists with matching session ID
             summaries = [e for e in entries if e.get("event") == "session_summary"]
@@ -422,18 +416,18 @@ class TestSessionTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with one listing, run twice
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing()]
 
             # When: two runs produce two sets of entries
-            entries_1 = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries_1 = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
             # Track files from run 1 so run 2 only reads its own
             log_dir = Path(tmpdir) / "logs"
             run1_files = {f.name for f in log_dir.glob("*.jsonl")}
             entries_2 = _run_pipeline_and_read_logs(
                 tmpdir,
                 listings,
-                mock_client,
+                None,
                 runner,
                 exclude_files=run1_files,
             )
@@ -456,7 +450,7 @@ class TestSessionTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with three listings
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [
                 _make_listing(external_id="1", title="Role A"),
                 _make_listing(external_id="2", title="Role B"),
@@ -464,7 +458,7 @@ class TestSessionTracing:
             ]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: exactly three score_computed entries
             score_entries = [e for e in entries if e.get("event") == "score_computed"]
@@ -482,11 +476,11 @@ class TestSessionTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with one listing
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: score_computed entry has all six numeric fields
             score_entries = [e for e in entries if e.get("event") == "score_computed"]
@@ -508,11 +502,11 @@ class TestSessionTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with tmp data dir
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: log file exists under logs/
             log_dir = Path(tmpdir) / "logs"
@@ -530,11 +524,11 @@ class TestSessionTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with one listing
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: every line in every log file is valid JSON
             log_dir = Path(tmpdir) / "logs"
@@ -1176,10 +1170,12 @@ class TestRetrievalMetrics:
          this visible
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama HTTP); async_playwright
-               (Playwright I/O); asyncio.sleep for throttle bypass
-        Real:  PipelineRunner, ChromaDB via VectorStore with real indexed
-               collections using distant embeddings, log file in tmp_path
+        Mock:  FakeEmbedder (satisfies EmbeddingPort), InMemoryVectorStore
+               (satisfies VectorStorePort) with distant embeddings;
+               async_playwright (Playwright I/O); asyncio.sleep for throttle
+               bypass
+        Real:  PipelineRunner, Scorer, Ranker, retrieval summary computation,
+               log file in tmp_path
         Never: Mock the retrieval summary computation; index real content
                via distant embeddings before running the pipeline so score
                distributions reflect genuine similarity queries
@@ -1194,11 +1190,11 @@ class TestRetrievalMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with distant embeddings (4 collections) and one listing
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_distant_store(settings)
+            runner = _make_runner_with_distant_fakes(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: exactly 4 retrieval_summary entries (one per collection)
             summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
@@ -1216,11 +1212,11 @@ class TestRetrievalMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with distant embeddings and one listing
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_distant_store(settings)
+            runner = _make_runner_with_distant_fakes(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: every retrieval_summary has a 'collection' field from _RETRIEVAL_COLLECTIONS
             summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
@@ -1242,14 +1238,14 @@ class TestRetrievalMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with distant embeddings and two listings
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_distant_store(settings)
+            runner = _make_runner_with_distant_fakes(settings)
             listings = [
                 _make_listing(external_id="1", title="Role A"),
                 _make_listing(external_id="2", title="Role B"),
             ]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: each retrieval_summary has distribution fields
             summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
@@ -1283,11 +1279,11 @@ class TestRetrievalMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: high threshold (0.9) -- distant embeddings produce scores < 0.9
             settings = _make_settings(tmpdir, min_score_threshold=0.9)
-            runner, mock_client = _make_runner_with_distant_store(settings)
+            runner = _make_runner_with_distant_fakes(settings)
             listings = [_make_listing(external_id=str(i), title=f"Role {i}") for i in range(1, 6)]
 
             # When: pipeline runs five listings
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: at least one collection has below_threshold == 5
             summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
@@ -1313,11 +1309,11 @@ class TestRetrievalMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with distant embeddings and exactly one listing
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_distant_store(settings)
+            runner = _make_runner_with_distant_fakes(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: retrieval_summary entries with valid numeric fields
             summaries = [e for e in entries if e.get("event") == "retrieval_summary"]
