@@ -17,10 +17,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.pipeline.runner import PipelineRunner
-from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
+from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -63,49 +62,25 @@ def _make_listing(
     )
 
 
-def _make_runner_with_real_stack(
+def _make_runner(
     settings: Settings,
     *,
     populate_store: bool = True,
-) -> tuple[PipelineRunner, AsyncMock]:
+) -> PipelineRunner:
     """
-    Create a PipelineRunner with real Embedder/Scorer and mocked Ollama client.
+    Create a PipelineRunner with FakeEmbedder and InMemoryVectorStore.
 
-    The only mock is ``ollama_sdk.AsyncClient`` -- the I/O boundary where
-    our system ends and the network begins.
-
-    Returns ``(runner, mock_client)``.
+    Uses port-level fakes -- no Ollama or ChromaDB dependency.
+    The Scorer, Ranker, and DecisionRecorder run for real on top of
+    the fakes.
     """
-    mock_client = AsyncMock()
-
-    # health_check calls client.list()
-    model_embed = MagicMock()
-    model_embed.model = settings.ollama.embed_model
-    model_llm = MagicMock()
-    model_llm.model = settings.ollama.llm_model
-    list_response = MagicMock()
-    list_response.models = [model_embed, model_llm]
-    mock_client.list.return_value = list_response
-
-    # embed() calls client.embed()
-    embed_response = MagicMock()
-    embed_response.embeddings = [EMBED_FAKE]
-    mock_client.embed.return_value = embed_response
-
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
-    ):
-        embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-    )
+    embedder = FakeEmbedder(embed_vector=EMBED_FAKE)
+    store = InMemoryVectorStore()
     runner = PipelineRunner(settings, store=store, embedder=embedder)
 
     if populate_store:
         _populate_store(runner.store)
-    return runner, mock_client
+    return runner
 
 
 def _populate_store(store: VectorStorePort) -> None:
@@ -201,10 +176,11 @@ class TestCrossRunDedup:
          wasting compute and operator time
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama API),
-               async_playwright (Playwright browser library)
-        Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
-               DecisionRecorder, AdapterRegistry, SessionManager, throttle
+        Mock:  async_playwright (Playwright browser library)
+        Real:  PipelineRunner, Scorer, Ranker, DecisionRecorder,
+               AdapterRegistry, SessionManager, throttle
+               (embedder and store use port-level fakes:
+               FakeEmbedder, InMemoryVectorStore)
         Never: Construct ScoreResult directly -- always obtained via real Scorer.score()
     """
 
@@ -219,7 +195,7 @@ class TestCrossRunDedup:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision for "already-decided"
             settings = _make_settings(tmpdir)
-            runner, _mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             _seed_decision(runner.store, "already-decided")
 
             decided_listing = _make_listing(external_id="already-decided", title="Old Role")
@@ -255,7 +231,7 @@ class TestCrossRunDedup:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision for "decided-1"
             settings = _make_settings(tmpdir)
-            runner, _mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             _seed_decision(runner.store, "decided-1")
 
             decided = _make_listing(external_id="decided-1", title="Old Role")
@@ -291,7 +267,7 @@ class TestCrossRunDedup:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
-            runner, _mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             _seed_decision(runner.store, "decided-1")
 
             decided = _make_listing(external_id="decided-1")
@@ -322,7 +298,7 @@ class TestCrossRunDedup:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with no decisions seeded
             settings = _make_settings(tmpdir)
-            runner, _mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             new_listing = _make_listing(external_id="never-seen", title="Fresh Role")
 
@@ -355,7 +331,7 @@ class TestCrossRunDedup:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
-            runner, _mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             _seed_decision(runner.store, "decided-1")
 
             decided = _make_listing(external_id="decided-1")
@@ -389,7 +365,7 @@ class TestCrossRunDedup:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with decision keyed by job_id
             settings = _make_settings(tmpdir)
-            runner, _mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             _seed_decision(runner.store, "canonical-id-123")
 
             # Listing uses external_id matching the decision, but different URL

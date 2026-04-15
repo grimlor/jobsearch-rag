@@ -42,6 +42,7 @@ the response shape, or ChromaDB alters its distance metric.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import csv as csv_mod
 import dataclasses
 import math
@@ -69,7 +70,6 @@ from jobsearch_rag.export.jd_files import JDFileExporter
 from jobsearch_rag.export.markdown import MarkdownExporter
 from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.pipeline.rescorer import Rescorer
-from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
@@ -1693,15 +1693,9 @@ class TestLiveDecisionExclusionAcrossRuns:
                redirect output and ChromaDB paths to ``tmp_path``.  CLI
                handlers call ``load_settings()`` without a path argument,
                so patching is the only way to avoid clobbering real data.
-        Workaround: ``PipelineRunner.run`` is monkeypatched to inject
-               decisions through the runner's **own**
-               ``_decision_recorder`` before scoring begins.  ChromaDB
-               ``PersistentClient`` instances don't reliably see writes
-               from prior client instances in the same process (SQLite WAL
-               isolation), so decisions must be written through the same
-               ``VectorStore`` that ``_score_one`` reads from.
         Real:  Browser, board adapter, Ollama, ChromaDB (decisions collection),
-               DecisionRecorder, all exporters, file system
+               DecisionRecorder, VectorStore, Embedder, all exporters,
+               file system
         Never: Mock anything else
     """
 
@@ -1751,52 +1745,34 @@ class TestLiveDecisionExclusionAcrossRuns:
         run1_jd_files = set(jd_dir.glob("*.md"))
         target_jd_candidates = [f for f in run1_jd_files if target_id in f.name]
 
-        # Given: prepare decision data for the target listing.
-        # Decisions are injected into run 2's own PipelineRunner to
-        # guarantee ChromaDB visibility (PersistentClient instances
-        # don't reliably see cross-client writes in the same process).
-        decision_data = [
-            {
-                "job_id": target_id,
-                "verdict": "no",
-                "jd_text": f"Test decision for {target_title}",
-                "board": target.get("board", "ziprecruiter"),
-                "title": target_title,
-                "company": target.get("company", ""),
-                "reason": "Integration test -- decision exclusion validation",
-            },
-        ]
-
-        # When: run 2 -- monkeypatch PipelineRunner.run to inject
-        # the decision through the runner's own store before scoring begins.
-        # We construct a separate DecisionRecorder using the runner's public
-        # store property (guaranteeing ChromaDB PersistentClient visibility).
-        _original_run = PipelineRunner.run
-
-        async def _run_with_decisions(
-            self_runner: PipelineRunner,
-            boards: list[str] | None = None,
-            *,
-            overnight: bool = False,
-            force_rescore: bool = False,
-            max_listings: int = 0,
-        ) -> RunResult:
+        # Given: record a "no" decision for the target listing.
+        # Uses a fresh VectorStore + Embedder so the decision is
+        # committed to ChromaDB before run 2 starts.  Sequential
+        # non-overlapping PersistentClient instances see each other's
+        # committed writes (WAL is flushed when the prior client closes).
+        async def _record_decision() -> None:
+            store = VectorStore(
+                persist_dir=live_settings.chroma.persist_dir,
+                distance_metric=live_settings.chroma.distance_metric,
+            )
             recorder = DecisionRecorder(
-                store=self_runner.store,
+                store=store,
                 embedder=Embedder(live_settings.ollama),
                 decisions_dir=live_settings.output.decisions_dir,
             )
-            for decision in decision_data:
-                await recorder.record(**decision)
-            return await _original_run(
-                self_runner,
-                boards=boards,
-                overnight=overnight,
-                force_rescore=force_rescore,
-                max_listings=max_listings,
+            await recorder.record(
+                job_id=target_id,
+                verdict="no",
+                jd_text=f"Test decision for {target_title}",
+                board=target.get("board", "ziprecruiter"),
+                title=target_title,
+                company=target.get("company", ""),
+                reason="Integration test -- decision exclusion validation",
             )
 
-        monkeypatch.setattr(PipelineRunner, "run", _run_with_decisions)
+        asyncio.run(_record_decision())
+
+        # When: run 2 -- fresh search picks up the decision from ChromaDB
         handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
         captured = capsys.readouterr()
 

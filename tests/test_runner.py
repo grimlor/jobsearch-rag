@@ -14,16 +14,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import ollama as ollama_sdk
-
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.config import DisqualifierConfig
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
-from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import adapter_override
 from tests.constants import EMBED_FAKE
+from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -31,7 +28,7 @@ if TYPE_CHECKING:
     import pytest
 
     from jobsearch_rag.config import Settings
-    from jobsearch_rag.ports import VectorStorePort
+    from jobsearch_rag.ports import EmbeddingPort, VectorStorePort
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -114,56 +111,47 @@ def _make_listing(
     )
 
 
-def _make_runner_with_real_stack(
+def _make_runner(
     settings: Settings,
     *,
     populate_store: bool = True,
-) -> tuple[PipelineRunner, AsyncMock]:
+    embedder: EmbeddingPort | None = None,
+) -> PipelineRunner:
     """
-    Create a PipelineRunner with real Embedder/Scorer and mocked Ollama client.
+    Create a PipelineRunner with FakeEmbedder and InMemoryVectorStore.
 
-    The only mock is ``ollama_sdk.AsyncClient`` -- the I/O boundary where
-    our system ends and the network begins.  Everything else (``Embedder``,
-    ``Scorer``, ``VectorStore``, ``Ranker``, ``DecisionRecorder``) runs
-    for real.
+    Uses port-level fakes -- no Ollama or ChromaDB dependency.
+    The Scorer, Ranker, and DecisionRecorder run for real on top of
+    the fakes.
 
     When *populate_store* is ``True`` (default), minimal documents are
     seeded into ``resume``, ``role_archetypes``, and
     ``global_positive_signals`` so auto-indexing is skipped.
 
-    Returns ``(runner, mock_client)``.
+    Pass a custom *embedder* to inject specific behaviors (e.g.,
+    a HealthCheckable embedder or one with ``embed_side_effect``).
     """
-    mock_client = AsyncMock()
-
-    # health_check calls client.list() -- needs models containing embed + llm names
-    model_embed = MagicMock()
-    model_embed.model = settings.ollama.embed_model
-    model_llm = MagicMock()
-    model_llm.model = settings.ollama.llm_model
-    list_response = MagicMock()
-    list_response.models = [model_embed, model_llm]
-    mock_client.list.return_value = list_response
-
-    # embed() calls client.embed() -- needs .embeddings[0]
-    embed_response = MagicMock()
-    embed_response.embeddings = [EMBED_FAKE]
-    mock_client.embed.return_value = embed_response
-
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
-    ):
-        embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-    )
+    if embedder is None:
+        embedder = FakeEmbedder(embed_vector=EMBED_FAKE)
+    store = InMemoryVectorStore()
     runner = PipelineRunner(settings, store=store, embedder=embedder)
 
     if populate_store:
         _populate_store(runner.store)
 
-    return runner, mock_client
+    return runner
+
+
+class _HealthCheckableEmbedder(FakeEmbedder):
+    """FakeEmbedder with HealthCheckable for health-check ordering tests."""
+
+    def __init__(self, *, call_log: list[str], embed_vector: list[float]) -> None:
+        super().__init__(embed_vector=embed_vector)
+        self._call_log = call_log
+
+    async def health_check(self) -> None:
+        """Record the health-check call in the shared log."""
+        self._call_log.append("health_check")
 
 
 def _populate_store(store: VectorStorePort) -> None:
@@ -259,10 +247,11 @@ class TestPipelineOrchestration:
          boards; an invalid RunResult crashes exporters downstream
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama API),
-               async_playwright (Playwright browser library)
-        Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
-               DecisionRecorder, AdapterRegistry, SessionManager, throttle
+        Mock:  async_playwright (Playwright browser library)
+        Real:  PipelineRunner, Scorer, Ranker, DecisionRecorder,
+               AdapterRegistry, SessionManager, throttle
+               (embedder and store use port-level fakes:
+               FakeEmbedder, InMemoryVectorStore)
         Never: Construct ScoreResult directly -- always obtained via real Scorer.score()
     """
 
@@ -273,18 +262,11 @@ class TestPipelineOrchestration:
         Then the Ollama health check (client.list) fires before any board I/O.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with real Embedder/Scorer, populated store
+            # Given: a runner with HealthCheckable embedder, populated store
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
-
             call_order: list[str] = []
-            original_list = mock_client.list
-
-            async def _tracked_list() -> object:
-                call_order.append("health_check")
-                return await original_list()
-
-            mock_client.list = _tracked_list
+            embedder = _HealthCheckableEmbedder(call_log=call_order, embed_vector=EMBED_FAKE)
+            runner = _make_runner(settings, embedder=embedder)
 
             mock_adapter = _make_test_adapter()
             original_auth = mock_adapter.authenticate
@@ -318,7 +300,7 @@ class TestPipelineOrchestration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two enabled boards
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             adapter_a = _make_test_adapter(board_name="board_a")
             adapter_b = _make_test_adapter(board_name="board_b")
@@ -349,7 +331,7 @@ class TestPipelineOrchestration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two enabled boards
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             adapter_a = _make_test_adapter(board_name="board_a")
             adapter_b = _make_test_adapter(board_name="board_b")
@@ -383,7 +365,7 @@ class TestPipelineOrchestration:
                 enabled_boards=["board_a"],
                 overnight_boards=["linkedin"],
             )
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             adapter_a = _make_test_adapter(board_name="board_a")
             adapter_linkedin = _make_test_adapter(board_name="linkedin")
@@ -412,7 +394,7 @@ class TestPipelineOrchestration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: one failing + one good board
             settings = _make_settings(tmpdir, enabled_boards=["failing_board", "good_board"])
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             # Failing board: authenticate raises ActionableError
             failing_adapter = MagicMock()
@@ -466,17 +448,17 @@ class TestPipelineOrchestration:
         Then failed_listings is incremented (real Scorer → real Embedder → mock client fails).
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: runner with populated store
+            # Given: runner with populated store, embedder that fails on embed
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+
+            def _fail_embed(_text: str) -> list[float]:
+                raise ActionableError.embedding("test", "Model not found")
+
+            embedder = FakeEmbedder(embed_vector=EMBED_FAKE, embed_side_effect=_fail_embed)
+            runner = _make_runner(settings, embedder=embedder)
 
             listing = _make_listing()
             mock_adapter = _make_test_adapter(search_results=[listing])
-
-            # Make embed fail with non-retryable 404 → immediate ActionableError
-            mock_client.embed.side_effect = ollama_sdk.ResponseError(
-                "Model not found", status_code=404
-            )
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
@@ -501,7 +483,7 @@ class TestPipelineOrchestration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: board returns no listings
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             mock_adapter = _make_test_adapter()
 
@@ -532,7 +514,7 @@ class TestPipelineOrchestration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: one listing available
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listing = _make_listing()
             mock_adapter = _make_test_adapter(search_results=[listing])
@@ -567,7 +549,7 @@ class TestPipelineOrchestration:
                 enabled_boards=["board_a"],
                 overnight_boards=["board_a"],
             )
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             adapter_a = _make_test_adapter(board_name="board_a")
 
@@ -603,7 +585,7 @@ class TestPipelineOrchestration:
                 archetypes_path=archetypes_path,
                 global_rubric_path=rubric_path,
             )
-            runner, _ = _make_runner_with_real_stack(settings, populate_store=False)
+            runner = _make_runner(settings, populate_store=False)
             store = runner.store
 
             # Seed resume and archetypes (leave positive_signals empty)
@@ -647,7 +629,7 @@ class TestPipelineOrchestration:
                 archetypes_path=archetypes_path,
                 global_rubric_path=rubric_path,
             )
-            runner, _ = _make_runner_with_real_stack(settings, populate_store=False)
+            runner = _make_runner(settings, populate_store=False)
             store = runner.store
 
             # Seed resume and positive_signals (leave archetypes empty)
@@ -687,7 +669,7 @@ class TestPipelineOrchestration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner + adapter returning 5 listings
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listings = [_make_listing(external_id=f"cap-{i}", title=f"Job {i}") for i in range(5)]
             mock_adapter = _make_test_adapter(search_results=listings)
@@ -724,7 +706,7 @@ class TestPipelineOrchestration:
             settings.disqualifier = DisqualifierConfig(
                 system_prompt="Custom freeform disqualifier prompt for testing",
             )
-            runner, _mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listing = _make_listing()
             mock_adapter = _make_test_adapter(search_results=[listing])
@@ -753,7 +735,7 @@ class TestPipelineOrchestration:
             settings = _make_settings(tmpdir)
             settings.boards["testboard"].throttle_max_retries = 5
             settings.boards["testboard"].throttle_base_delay = 2.0
-            runner, _mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             received_kwargs: dict[str, object] = {}
             mock_adapter = _make_test_adapter()
@@ -803,10 +785,11 @@ class TestBoardSearchDelegation:
          results from that board's search
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama API),
-               async_playwright (Playwright browser library)
-        Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
-               DecisionRecorder, AdapterRegistry, SessionManager, throttle
+        Mock:  async_playwright (Playwright browser library)
+        Real:  PipelineRunner, Scorer, Ranker, DecisionRecorder,
+               AdapterRegistry, SessionManager, throttle
+               (embedder and store use port-level fakes:
+               FakeEmbedder, InMemoryVectorStore)
         Never: Construct ScoreResult directly -- always obtained via real Scorer.score()
     """
 
@@ -819,7 +802,7 @@ class TestBoardSearchDelegation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner configured for 'testboard' only
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             # Register adapter so AdapterRegistry.get() succeeds -- but
             # settings.boards has no entry, so the runner skips it.
@@ -858,7 +841,7 @@ class TestBoardSearchDelegation:
             # board_cfg-is-None guard (make_test_settings creates configs for
             # all enabled_boards; we need ghost to be absent).
             del settings.boards["ghost"]
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listing = _make_listing(
                 board="testboard", external_id="mix-1", title="Mixed Group Role"
@@ -900,7 +883,7 @@ class TestBoardSearchDelegation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: adapter with lifecycle tracking
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             call_order: list[str] = []
             listing = JobListing(
@@ -962,7 +945,7 @@ class TestBoardSearchDelegation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: listing with pre-populated full_text
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             call_order: list[str] = []
             listing = _make_listing()
@@ -1013,7 +996,7 @@ class TestBoardSearchDelegation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: extraction produces whitespace-only text
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             search_listing = JobListing(
                 board="testboard",
@@ -1069,7 +1052,7 @@ class TestBoardSearchDelegation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two listings, one will fail extraction
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listing_good = JobListing(
                 board="testboard",
@@ -1137,7 +1120,7 @@ class TestBoardSearchDelegation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: extraction raises unexpected error
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listing = JobListing(
                 board="testboard",
@@ -1185,7 +1168,7 @@ class TestBoardSearchDelegation:
                 "https://testboard.com/search1",
                 "https://testboard.com/search2",
             ]
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listing = _make_listing()
             call_count = {"search": 0}
@@ -1243,11 +1226,11 @@ class TestAutoIndex:
          recovery -- the system should just do it
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama API),
-               async_playwright (Playwright browser library)
-        Real:  PipelineRunner, Embedder, Scorer, Indexer, VectorStore, Ranker,
-               DecisionRecorder, AdapterRegistry, SessionManager, throttle,
-               config files on disk
+        Mock:  async_playwright (Playwright browser library)
+        Real:  PipelineRunner, Scorer, Indexer, Ranker, DecisionRecorder,
+               AdapterRegistry, SessionManager, throttle, config files on disk
+               (embedder and store use port-level fakes:
+               FakeEmbedder, InMemoryVectorStore)
         Never: Construct Indexer directly or patch it -- always exercised through
                PipelineRunner._ensure_indexed()
     """
@@ -1267,7 +1250,7 @@ class TestAutoIndex:
                 archetypes_path=archetypes,
                 global_rubric_path=rubric,
             )
-            runner, _ = _make_runner_with_real_stack(settings, populate_store=False)
+            runner = _make_runner(settings, populate_store=False)
 
             mock_adapter = _make_test_adapter()
             mock_pw_fn, _ = _mock_playwright_boundary()
@@ -1300,7 +1283,7 @@ class TestAutoIndex:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: store already populated
             settings = _make_settings(tmpdir)
-            runner, _mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             store = runner.store
             resume_count_before = store.collection_count("resume")
@@ -1339,23 +1322,11 @@ class TestAutoIndex:
                 archetypes_path=archetypes,
                 global_rubric_path=rubric,
             )
-            runner, mock_client = _make_runner_with_real_stack(settings, populate_store=False)
+            embedder = FakeEmbedder(embed_vector=EMBED_FAKE)
+            runner = _make_runner(settings, populate_store=False, embedder=embedder)
 
             listing = _make_listing()
             mock_adapter = _make_test_adapter(search_results=[listing])
-
-            # Track embed calls -- auto-index embeds config content,
-            # then scoring embeds listing text
-            original_embed = mock_client.embed
-
-            call_sequence: list[str] = []
-
-            async def _tracking_embed(*args: object, **kwargs: object) -> object:
-                result = await original_embed(*args, **kwargs)
-                call_sequence.append("embed")
-                return result
-
-            mock_client.embed = _tracking_embed
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
@@ -1369,6 +1340,9 @@ class TestAutoIndex:
             # Then: auto-index ran (populated collections) and scoring ran too
             store = runner.store
             assert store.collection_count("resume") > 0, "resume should be populated by auto-index"
+            assert embedder.embed_call_count > 0, (
+                f"Expected embed calls from auto-indexing, got: {embedder.embed_call_count}"
+            )
             assert result.summary.total_scored >= 1, (
                 f"Expected at least 1 scored listing, got: {result.summary.total_scored}"
             )
@@ -1388,7 +1362,7 @@ class TestAutoIndex:
                 archetypes_path=archetypes,
                 global_rubric_path=rubric,
             )
-            runner, _ = _make_runner_with_real_stack(settings, populate_store=False)
+            runner = _make_runner(settings, populate_store=False)
 
             mock_adapter = _make_test_adapter()
             mock_pw_fn, _ = _mock_playwright_boundary()
@@ -1423,11 +1397,11 @@ class TestCompEnrichment:
          the JD contains salary data, making comp_score always neutral
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama API),
-               async_playwright (Playwright browser library)
-        Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
-               DecisionRecorder, AdapterRegistry, SessionManager, throttle,
-               parse_compensation
+        Mock:  async_playwright (Playwright browser library)
+        Real:  PipelineRunner, Scorer, Ranker, DecisionRecorder,
+               AdapterRegistry, SessionManager, throttle, parse_compensation
+               (embedder and store use port-level fakes:
+               FakeEmbedder, InMemoryVectorStore)
         Never: Construct ScoreResult directly -- always obtained via real Scorer.score()
     """
 
@@ -1440,7 +1414,7 @@ class TestCompEnrichment:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with real stack and a listing containing salary text
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listing = JobListing(
                 board="testboard",
@@ -1507,12 +1481,13 @@ class TestErrorSurfacing:
          are searched in a single run.
 
     MOCK BOUNDARY:
-        Mock:  Playwright I/O boundaries, ollama_sdk.AsyncClient (Ollama
-               network I/O -- embed and chat calls)
+        Mock:  Playwright I/O boundaries
         Real:  PipelineRunner error accumulation, RunResult construction,
-               Scorer, Embedder, CLI rendering logic
-        Never: Patch Scorer or Embedder methods directly -- inject errors at
-               the Ollama boundary instead
+               Scorer, CLI rendering logic
+               (embedder and store use port-level fakes:
+               FakeEmbedder, InMemoryVectorStore)
+        Never: Patch Scorer or Embedder methods directly -- inject errors
+               via FakeEmbedder.embed_side_effect
     """
 
     async def test_board_level_actionable_errors_are_appended_to_run_result_errors(
@@ -1527,7 +1502,7 @@ class TestErrorSurfacing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a board adapter whose authenticate raises ActionableError
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             auth_error = ActionableError.authentication("testboard", "session expired")
             mock_adapter = _make_test_adapter()
@@ -1566,7 +1541,7 @@ class TestErrorSurfacing:
             # Given: a listing with empty full_text so extract_detail is called,
             # and extract_detail raises ActionableError
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listing = JobListing(
                 board="testboard",
@@ -1620,15 +1595,15 @@ class TestErrorSurfacing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a listing that collects ok, but scoring fails with ActionableError
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+
+            def _fail_embed(_text: str) -> list[float]:
+                raise ActionableError.embedding("test", "Model not found")
+
+            embedder = FakeEmbedder(embed_vector=EMBED_FAKE, embed_side_effect=_fail_embed)
+            runner = _make_runner(settings, embedder=embedder)
 
             listing = _make_listing()
             mock_adapter = _make_test_adapter(search_results=[listing])
-
-            # Make embed fail with non-retryable 404 → Embedder wraps as ActionableError
-            mock_client.embed.side_effect = ollama_sdk.ResponseError(
-                "Model not found", status_code=404
-            )
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
@@ -1658,7 +1633,7 @@ class TestErrorSurfacing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two boards, each with a different failure mode
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             auth_error = ActionableError.authentication("board_a", "expired cookie")
             adapter_a = _make_test_adapter(board_name="board_a")
@@ -1812,7 +1787,7 @@ class TestErrorSurfacing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a clean run with one listing that succeeds
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listing = _make_listing()
             mock_adapter = _make_test_adapter(search_results=[listing])
@@ -1849,18 +1824,16 @@ class TestErrorSurfacing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a listing that collects ok, but scoring raises bare RuntimeError
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runtime_error = RuntimeError("unexpected CUDA out of memory")
+
+            def _fail_embed(_text: str) -> list[float]:
+                raise runtime_error
+
+            embedder = FakeEmbedder(embed_vector=EMBED_FAKE, embed_side_effect=_fail_embed)
+            runner = _make_runner(settings, embedder=embedder)
 
             listing = _make_listing()
             mock_adapter = _make_test_adapter(search_results=[listing])
-
-            runtime_error = RuntimeError("unexpected CUDA out of memory")
-
-            # Inject the error at the Ollama I/O boundary: embed() is the
-            # first network call inside Scorer.score(), so making the
-            # client raise RuntimeError exercises the real error propagation
-            # path: Ollama → Embedder → Scorer → Runner → ActionableError.
-            mock_client.embed.side_effect = runtime_error
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
@@ -1908,7 +1881,7 @@ class TestErrorSurfacing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two boards, each raises ActionableError on authenticate
             settings = _make_settings(tmpdir, enabled_boards=["board_x", "board_y"])
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             error_x = ActionableError.authentication("board_x", "captcha detected")
             adapter_x = _make_test_adapter(board_name="board_x")
@@ -1965,7 +1938,7 @@ class TestErrorSurfacing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a listing with empty full_text, extract_detail raises ActionableError
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
 
             listing = JobListing(
                 board="testboard",

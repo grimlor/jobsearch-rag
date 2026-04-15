@@ -51,9 +51,9 @@ from jobsearch_rag.adapters.session import (
 )
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner
-from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import adapter_override, make_test_settings
+from tests.constants import EMBED_FAKE
+from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1227,40 +1227,13 @@ class TestBoardSession:
 # ---------------------------------------------------------------------------
 
 
-def _make_runner_with_real_stack(
+def _make_runner(
     settings: Any,
-) -> tuple[PipelineRunner, AsyncMock]:
-    """Build a PipelineRunner with a mocked Ollama client; everything else real."""
-    from tests.constants import EMBED_FAKE  # noqa: PLC0415
-
-    mock_client = AsyncMock()
-
-    # health_check calls client.list()
-    model_embed = MagicMock()
-    model_embed.model = settings.ollama.embed_model
-    model_llm = MagicMock()
-    model_llm.model = settings.ollama.llm_model
-    list_response = MagicMock()
-    list_response.models = [model_embed, model_llm]
-    mock_client.list.return_value = list_response
-
-    # embed() calls client.embed()
-    embed_response = MagicMock()
-    embed_response.embeddings = [EMBED_FAKE]
-    mock_client.embed.return_value = embed_response
-
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
-    ):
-        embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-    )
-    runner = PipelineRunner(settings, store=store, embedder=embedder)
-
-    return runner, mock_client
+) -> PipelineRunner:
+    """Build a PipelineRunner with FakeEmbedder and InMemoryVectorStore."""
+    embedder = FakeEmbedder(embed_vector=EMBED_FAKE)
+    store = InMemoryVectorStore()
+    return PipelineRunner(settings, store=store, embedder=embedder)
 
 
 def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
@@ -1375,11 +1348,11 @@ class TestSharedBrowserOrchestration:
          per channel type
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama API),
-               async_playwright (Playwright browser library)
+        Mock:  async_playwright (Playwright browser library)
         Real:  PipelineRunner, BrowserManager, BoardSession, SessionManager,
-               Embedder, Scorer, VectorStore, Ranker, DecisionRecorder,
-               AdapterRegistry, throttle
+               Scorer, Ranker, DecisionRecorder, AdapterRegistry, throttle
+               (embedder and store use port-level fakes:
+               FakeEmbedder, InMemoryVectorStore)
         Never: Construct ScoreResult directly; mock BrowserManager or
                BoardSession internals
     """
@@ -1402,7 +1375,7 @@ class TestSharedBrowserOrchestration:
         settings.boards["edge_b"].browser_channel = "msedge"
         settings.boards["chromium_c"].browser_channel = None
 
-        runner, _ = _make_runner_with_real_stack(settings)
+        runner = _make_runner(settings)
 
         adapter_a = _make_test_adapter(board_name="edge_a")
         adapter_b = _make_test_adapter(board_name="edge_b")
@@ -1452,7 +1425,7 @@ class TestSharedBrowserOrchestration:
         settings.boards["board_a"].browser_channel = "msedge"
         settings.boards["board_b"].browser_channel = "msedge"
 
-        runner, _ = _make_runner_with_real_stack(settings)
+        runner = _make_runner(settings)
 
         browsers_seen: list[object] = []
 
@@ -1506,7 +1479,7 @@ class TestSharedBrowserOrchestration:
         settings.boards["board_x"].browser_channel = None
         settings.boards["board_y"].browser_channel = None
 
-        runner, _ = _make_runner_with_real_stack(settings)
+        runner = _make_runner(settings)
 
         adapter_x = _make_test_adapter(board_name="board_x")
         adapter_y = _make_test_adapter(board_name="board_y")
@@ -1550,7 +1523,7 @@ class TestSharedBrowserOrchestration:
         settings.boards["edge_board"].browser_channel = "msedge"
         settings.boards["chromium_board"].browser_channel = None
 
-        runner, _ = _make_runner_with_real_stack(settings)
+        runner = _make_runner(settings)
 
         adapter_edge = _make_test_adapter(board_name="edge_board")
         adapter_chrom = _make_test_adapter(board_name="chromium_board")
@@ -1597,7 +1570,7 @@ class TestSharedBrowserOrchestration:
         settings.boards["failing_board"].browser_channel = "msedge"
         settings.boards["good_board"].browser_channel = "msedge"
 
-        runner, _ = _make_runner_with_real_stack(settings)
+        runner = _make_runner(settings)
 
         failing_adapter = _make_test_adapter(board_name="failing_board")
         failing_adapter.authenticate = AsyncMock(
