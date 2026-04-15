@@ -35,16 +35,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import ollama as ollama_sdk
 import pytest
 
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
+from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import log_event as _real_log_event
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
-from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
+from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -96,68 +95,59 @@ def _make_listing(
     )
 
 
-def _make_runner_with_real_stack(
-    settings: Settings,
-) -> tuple[PipelineRunner, AsyncMock]:
+def _make_unique_embed_side_effect() -> Callable[[str], list[float]]:
     """
-    Create a PipelineRunner with real internals and mocked Ollama client.
+    Return a side effect that produces near-orthogonal vectors per call.
 
-    Only ``ollama_sdk.AsyncClient`` is mocked -- the I/O boundary.
-    Everything else (Embedder, Scorer, VectorStore, Ranker) runs for real.
-    Collections are pre-populated so auto-indexing is skipped.
+    Each call increments a counter and sets a different dimension to 1.0,
+    ensuring cosine similarity between consecutive embeddings stays below
+    the near-dedup threshold (0.95).
     """
-    mock_client = AsyncMock()
+    counter = 0
 
-    # health_check needs models list
-    model_embed = MagicMock()
-    model_embed.model = settings.ollama.embed_model
-    model_llm = MagicMock()
-    model_llm.model = settings.ollama.llm_model
-    list_response = MagicMock()
-    list_response.models = [model_embed, model_llm]
-    mock_client.list.return_value = list_response
-
-    # embed() returns unique embeddings per prompt so near-dedup won't merge them
-    _embed_counter = 0
-
-    async def _embed_side_effect(
-        *_args: object,
-        **kwargs: object,
-    ) -> MagicMock:
-        nonlocal _embed_counter
-        _embed_counter += 1
-        response = MagicMock()
-        # Each call returns a near-orthogonal vector so cosine sim < 0.95
+    def _side_effect(text: str) -> list[float]:
+        nonlocal counter
+        counter += 1
         vec = [0.01] * len(EMBED_FAKE)
-        vec[_embed_counter % len(vec)] = 1.0
-        response.embeddings = [vec]
-        response.prompt_eval_count = 42
-        return response
+        vec[counter % len(vec)] = 1.0
+        return vec
 
-    mock_client.embed = AsyncMock(side_effect=_embed_side_effect)
+    return _side_effect
 
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
-    ):
-        embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-    )
+
+def _make_runner(
+    settings: Settings,
+    *,
+    embedder: FakeEmbedder | None = None,
+) -> PipelineRunner:
+    """
+    Create a PipelineRunner with FakeEmbedder and InMemoryVectorStore.
+
+    Uses port-level fakes -- no Ollama or ChromaDB dependency.
+    The Scorer, Ranker, and DecisionRecorder run for real on top of
+    the fakes.  Collections are pre-populated so auto-indexing is skipped.
+
+    Pass a custom *embedder* to inject specific behaviors (e.g., one with
+    ``embed_side_effect`` for concurrency tracking or error injection).
+    """
+    if embedder is None:
+        embedder = FakeEmbedder(
+            embed_vector=EMBED_FAKE,
+            embed_side_effect=_make_unique_embed_side_effect(),
+        )
+    store = InMemoryVectorStore()
     runner = PipelineRunner(settings, store=store, embedder=embedder)
 
     # Populate required collections so auto-indexing is skipped
-    store = runner.store
     for name in ("resume", "role_archetypes", "global_positive_signals"):
-        store.add_documents(
+        runner.store.add_documents(
             name,
             ids=[f"{name}-seed"],
             documents=[f"Seed document for {name}"],
             embeddings=[EMBED_FAKE],
         )
 
-    return runner, mock_client
+    return runner
 
 
 def _make_test_adapter(
@@ -251,9 +241,9 @@ class TestParallelScoringOrchestration:
          semaphore prevents over-subscription that would exceed VRAM budget.
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (I/O boundary to Ollama)
-        Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
-               all aggregation logic
+        Mock:  FakeEmbedder (satisfies EmbeddingPort), InMemoryVectorStore
+               (satisfies VectorStorePort)
+        Real:  PipelineRunner, Scorer, Ranker, all aggregation logic
         Never: Construct ScoreResult directly -- always obtained via real
                Scorer.score()
     """
@@ -267,7 +257,7 @@ class TestParallelScoringOrchestration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with 4 listings and OLLAMA_NUM_PARALLEL=2
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing(external_id=str(i)) for i in range(4)]
 
             # When: pipeline runs with parallelism enabled
@@ -296,28 +286,32 @@ class TestParallelScoringOrchestration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner instrumented to track concurrency
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            embedder = FakeEmbedder(
+                embed_vector=EMBED_FAKE,
+                embed_side_effect=_make_unique_embed_side_effect(),
+            )
+            runner = _make_runner(settings, embedder=embedder)
             listings = [_make_listing(external_id=str(i)) for i in range(4)]
 
             max_concurrent = 0
             current_concurrent = 0
             lock = asyncio.Lock()
 
-            original_embed = mock_client.embed
+            original_embed = embedder.embed
 
-            async def _tracking_embed(*args: object, **kwargs: object) -> object:
+            async def _tracking_embed(text: str) -> list[float]:
                 nonlocal max_concurrent, current_concurrent
                 async with lock:
                     current_concurrent += 1
                     if current_concurrent > max_concurrent:
                         max_concurrent = current_concurrent
                 try:
-                    return await original_embed(*args, **kwargs)
+                    return await original_embed(text)
                 finally:
                     async with lock:
                         current_concurrent -= 1
 
-            mock_client.embed = _tracking_embed
+            embedder.embed = _tracking_embed  # type: ignore[assignment]
 
             # When: run with max_parallel=2
             await _run_pipeline(
@@ -347,7 +341,7 @@ class TestParallelScoringOrchestration:
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Given: identical runner and listings
                 settings = _make_settings(tmpdir)
-                runner, _ = _make_runner_with_real_stack(settings)
+                runner = _make_runner(settings)
 
                 # When: run at different parallelism levels
                 result = await _run_pipeline(
@@ -380,7 +374,7 @@ class TestParallelScoringOrchestration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with 5 listings
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing(external_id=str(i)) for i in range(5)]
 
             logged_events: list[dict[str, object]] = []
@@ -435,9 +429,9 @@ class TestErrorIsolation:
          should not poison the entire batch.
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (configured to raise on specific
-               embed calls)
-        Real:  PipelineRunner, Embedder, Scorer, error aggregation
+        Mock:  FakeEmbedder with embed_side_effect (raises on specific
+               calls), InMemoryVectorStore
+        Real:  PipelineRunner, Scorer, error aggregation
         Never: Mock the runner's error handling -- test the real path
     """
 
@@ -450,28 +444,25 @@ class TestErrorIsolation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: 3 listings, embed fails for external_id "bad"
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+
+            call_count = 0
+
+            def _failing_embed(text: str) -> list[float]:
+                nonlocal call_count
+                call_count += 1
+                if call_count == 3:
+                    raise ActionableError("embed failed", error_type="embedding", service="ollama")
+                # Unique embeddings so successful listings aren't near-deduped
+                vec = [0.01] * len(EMBED_FAKE)
+                vec[call_count % len(vec)] = 1.0
+                return vec
+
+            embedder = FakeEmbedder(embed_side_effect=_failing_embed)
+            runner = _make_runner(settings, embedder=embedder)
 
             good1 = _make_listing(external_id="good1", title="Good Job One")
             bad = _make_listing(external_id="bad", title="Bad Job")
             good2 = _make_listing(external_id="good2", title="Good Job Two")
-
-            call_count = 0
-
-            async def _failing_embed(*args: object, **kwargs: object) -> MagicMock:
-                nonlocal call_count
-                call_count += 1
-                if call_count == 3:
-                    raise ollama_sdk.ResponseError("embed failed")
-                resp = MagicMock()
-                # Unique embeddings so successful listings aren't near-deduped
-                vec = [0.01] * len(EMBED_FAKE)
-                vec[call_count % len(vec)] = 1.0
-                resp.embeddings = [vec]
-                resp.prompt_eval_count = 42
-                return resp
-
-            mock_client.embed = AsyncMock(side_effect=_failing_embed)
 
             # When: run with parallelism
             result = await _run_pipeline(
@@ -504,25 +495,22 @@ class TestErrorIsolation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: embed raises RuntimeError on 3rd call
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
 
             listings = [_make_listing(external_id=str(i)) for i in range(3)]
 
             call_count = 0
 
-            async def _runtime_error_embed(*args: object, **kwargs: object) -> MagicMock:
+            def _runtime_error_embed(text: str) -> list[float]:
                 nonlocal call_count
                 call_count += 1
                 if call_count == 3:
                     raise RuntimeError("unexpected GPU failure")
-                resp = MagicMock()
                 vec = [0.01] * len(EMBED_FAKE)
                 vec[call_count % len(vec)] = 1.0
-                resp.embeddings = [vec]
-                resp.prompt_eval_count = 42
-                return resp
+                return vec
 
-            mock_client.embed = AsyncMock(side_effect=_runtime_error_embed)
+            embedder = FakeEmbedder(embed_side_effect=_runtime_error_embed)
+            runner = _make_runner(settings, embedder=embedder)
 
             # When: run with parallelism
             result = await _run_pipeline(
@@ -549,12 +537,14 @@ class TestErrorIsolation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: embed always fails
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+
+            def _always_fail(text: str) -> list[float]:
+                raise ActionableError("model not found", error_type="embedding", service="ollama")
+
+            embedder = FakeEmbedder(embed_side_effect=_always_fail)
+            runner = _make_runner(settings, embedder=embedder)
 
             listings = [_make_listing(external_id="fail1")]
-            mock_client.embed = AsyncMock(
-                side_effect=ollama_sdk.ResponseError("model not found"),
-            )
 
             # When: run
             result = await _run_pipeline(
@@ -579,23 +569,20 @@ class TestErrorIsolation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: embed fails on calls 3 and 5 (2nd and 3rd listings' first embed)
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
 
             listings = [_make_listing(external_id=str(i)) for i in range(4)]
 
             call_count = 0
-            embed_response = MagicMock()
-            embed_response.embeddings = [EMBED_FAKE]
-            embed_response.prompt_eval_count = 42
 
-            async def _selective_fail(*args: object, **kwargs: object) -> object:
+            def _selective_fail(text: str) -> list[float]:
                 nonlocal call_count
                 call_count += 1
                 if call_count in (3, 5):
-                    raise ollama_sdk.ResponseError("overloaded")
-                return embed_response
+                    raise ActionableError("overloaded", error_type="embedding", service="ollama")
+                return list(EMBED_FAKE)
 
-            mock_client.embed = AsyncMock(side_effect=_selective_fail)
+            embedder = FakeEmbedder(embed_side_effect=_selective_fail)
+            runner = _make_runner(settings, embedder=embedder)
 
             logged_events: list[dict[str, object]] = []
 
@@ -640,7 +627,8 @@ class TestCollectionScoreAggregation:
          to serial execution.
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient
+        Mock:  FakeEmbedder (satisfies EmbeddingPort), InMemoryVectorStore
+               (satisfies VectorStorePort)
         Real:  Scorer.score(), Scorer._collection_scores accumulation,
                log_event calls
         Never: Manually construct _collection_scores -- must come from real
@@ -657,7 +645,7 @@ class TestCollectionScoreAggregation:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: 3 listings
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing(external_id=str(i)) for i in range(3)]
 
             logged_events: list[dict[str, object]] = []
@@ -729,7 +717,7 @@ class TestEnvironmentVariableConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: OLLAMA_NUM_PARALLEL=4
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing(external_id="1")]
 
             logged_events: list[dict[str, object]] = []
@@ -764,7 +752,7 @@ class TestEnvironmentVariableConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: env var not set
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing(external_id="1")]
 
             logged_events: list[dict[str, object]] = []
@@ -801,7 +789,7 @@ class TestEnvironmentVariableConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: invalid env var
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing(external_id="1")]
 
             logged_events: list[dict[str, object]] = []
@@ -837,7 +825,7 @@ class TestEnvironmentVariableConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: zero value
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing(external_id="1")]
 
             logged_events: list[dict[str, object]] = []
@@ -873,7 +861,7 @@ class TestEnvironmentVariableConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: negative value
             settings = _make_settings(tmpdir)
-            runner, _ = _make_runner_with_real_stack(settings)
+            runner = _make_runner(settings)
             listings = [_make_listing(external_id="1")]
 
             logged_events: list[dict[str, object]] = []
