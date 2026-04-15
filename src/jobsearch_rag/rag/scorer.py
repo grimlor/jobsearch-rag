@@ -3,11 +3,11 @@ Semantic scoring and LLM disqualifier classification.
 
 The Scorer bridges two RAG concerns:
 
-1. **Semantic similarity** -- embed the JD text, query VectorStore collections
+1. **Semantic similarity** -- embed the JD text, query vector store collections
    (resume, role_archetypes, decisions) and convert cosine distances to
    similarity scores in [0.0, 1.0].
 
-2. **LLM disqualification** -- send a structured prompt to the Embedder's
+2. **LLM disqualification** -- send a structured prompt to the embedder's
    ``classify()`` method asking the LLM whether the role is structurally
    unsuitable (e.g. IC-disguised-as-architect, SRE on-call ownership,
    staffing agency chain).  The response is expected as JSON; malformed
@@ -127,11 +127,11 @@ class Scorer:
     Parameters
     ----------
     store:
-        A VectorStore with (at minimum) ``resume`` and ``role_archetypes``
+        A VectorStorePort with (at minimum) ``resume`` and ``role_archetypes``
         collections.  A ``decisions`` collection is optional -- if absent or
         empty, the history score defaults to 0.0.
     embedder:
-        An Embedder instance used to embed the JD text and to call the
+        An EmbeddingPort used to embed the JD text and to call the
         LLM disqualifier.
     disqualify_on_llm_flag:
         Whether ``score()`` should run the disqualifier prompt.  When False

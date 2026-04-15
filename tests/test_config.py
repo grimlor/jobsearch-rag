@@ -108,6 +108,10 @@ msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
 
 [security]
 screen_prompt = "Review the following job description text."
+
+[ports]
+embedder = "jobsearch_rag.rag.embedder.OllamaEmbedder"
+vector_store = "jobsearch_rag.rag.store.ChromaDBStore"
 """
 
 
@@ -1285,6 +1289,10 @@ msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
 
 [security]
 screen_prompt = "Review the following job description text."
+
+[ports]
+embedder = "jobsearch_rag.rag.embedder.OllamaEmbedder"
+vector_store = "jobsearch_rag.rag.store.ChromaDBStore"
 """
 
 

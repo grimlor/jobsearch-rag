@@ -12,7 +12,7 @@ Spec classes:
     TestScoreFusion
     TestCrossBoardDeduplication
 
-The Scorer orchestrates VectorStore (similarity queries) and Embedder
+The Scorer orchestrates VectorStorePort (similarity queries) and EmbeddingPort
 (embedding + LLM classification).  Tests use port-level fakes
 (InMemoryVectorStore + FakeEmbedder) for full isolation from ChromaDB/Ollama.
 ScoreFusion and CrossBoardDeduplication specs test the Ranker (Phase 3).

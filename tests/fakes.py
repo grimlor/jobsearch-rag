@@ -22,6 +22,8 @@ from jobsearch_rag.ports import GetResult, QueryResult
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from jobsearch_rag.config import Settings
+
 
 class FakeEmbedder:
     """
@@ -84,6 +86,11 @@ class FakeEmbedder:
             return self.classify_side_effect(prompt)
         return self.classify_response
 
+    @classmethod
+    def from_settings(cls, settings: Settings) -> FakeEmbedder:
+        """Construct a default FakeEmbedder (ignores *settings*)."""
+        return cls()
+
 
 # ============================================================================
 # InMemoryVectorStore
@@ -116,6 +123,11 @@ class InMemoryVectorStore:
         """Initialise an empty in-memory store."""
         # collection_name -> {doc_id -> _DocRecord}
         self._collections: dict[str, dict[str, _DocRecord]] = {}
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> InMemoryVectorStore:
+        """Construct an empty InMemoryVectorStore (ignores *settings*)."""
+        return cls()
 
     def get_or_create_collection(self, name: str) -> dict[str, _DocRecord]:
         """Ensure a collection exists (creating an empty one if needed) and return it."""

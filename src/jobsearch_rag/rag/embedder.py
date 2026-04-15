@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, TypeVar
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from jobsearch_rag.config import OllamaConfig
+    from jobsearch_rag.config import OllamaConfig, Settings
 
 import ollama as ollama_sdk
 
@@ -47,13 +47,13 @@ class InferenceMetrics:
     slow_llm_calls: int = 0
 
 
-class Embedder:
+class OllamaEmbedder:
     """
     Wraps Ollama embedding and LLM calls with backoff and error handling.
 
     Usage::
 
-        embedder = Embedder(ollama_config)
+        embedder = OllamaEmbedder(ollama_config)
         await embedder.health_check()          # fail fast if Ollama is down
         vec = await embedder.embed("some text") # → list[float]
         answer = await embedder.classify("Is this role suitable?")
@@ -81,6 +81,11 @@ class Embedder:
         self._slow_llm_threshold_ms = config.slow_llm_threshold_ms
         self._classify_system_prompt = config.classify_system_prompt
         self._metrics = InferenceMetrics()
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> OllamaEmbedder:
+        """Construct from application :class:`Settings`."""
+        return cls(settings.ollama)
 
     # -- Public API ----------------------------------------------------------
 

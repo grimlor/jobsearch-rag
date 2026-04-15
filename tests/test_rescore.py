@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.rag.store import ChromaDBStore
 
 import pytest
 
@@ -423,14 +423,14 @@ class TestRescoreWorkflow:
          instead of seconds
 
     MOCK BOUNDARY:
-        Mock: Embedder I/O (embed, classify, health_check -- Ollama HTTP)
+        Mock: OllamaEmbedder I/O (embed, classify, health_check -- Ollama HTTP)
         Real: Scorer, VectorStore (ChromaDB in tmp_path), Ranker, Rescorer,
               load_jd_files, RescoreResult
         Never: Patch Scorer, Ranker, or Rescorer internals
     """
 
     @staticmethod
-    def _make_scorer(store: VectorStore, mock_embedder: object) -> Scorer:
+    def _make_scorer(store: ChromaDBStore, mock_embedder: object) -> Scorer:
         """Create a real Scorer wired to a populated store and I/O-stubbed embedder."""
         return Scorer(
             store=store,
@@ -443,7 +443,7 @@ class TestRescoreWorkflow:
         )
 
     @staticmethod
-    def _populate_store(store: VectorStore) -> None:
+    def _populate_store(store: ChromaDBStore) -> None:
         """Seed a VectorStore with resume and archetype collections."""
         store.add_documents(
             collection_name="resume",
@@ -475,7 +475,7 @@ class TestRescoreWorkflow:
         )
 
     async def test_rescore_returns_ranked_listings(
-        self, jd_dir: Path, vector_store: VectorStore, mock_embedder: object
+        self, jd_dir: Path, vector_store: ChromaDBStore, mock_embedder: object
     ) -> None:
         """
         Given a directory with valid JD files and a populated scoring stack
@@ -508,7 +508,7 @@ class TestRescoreWorkflow:
         assert result.failed_listings == 0, f"Expected 0 failures, got {result.failed_listings}"
 
     async def test_rescore_empty_directory_returns_empty_result(
-        self, tmp_path: Path, vector_store: VectorStore, mock_embedder: object
+        self, tmp_path: Path, vector_store: ChromaDBStore, mock_embedder: object
     ) -> None:
         """
         Given a non-existent JD directory
@@ -540,7 +540,7 @@ class TestRescoreWorkflow:
         )
 
     async def test_rescore_counts_failed_listings(
-        self, jd_dir: Path, vector_store: VectorStore, mock_embedder: object
+        self, jd_dir: Path, vector_store: ChromaDBStore, mock_embedder: object
     ) -> None:
         """
         Given a Scorer whose store lacks the required resume collection

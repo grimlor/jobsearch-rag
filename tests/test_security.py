@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 from unittest.mock import patch
 
 from jobsearch_rag.rag.decisions import DecisionRecorder
-from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.embedder import OllamaEmbedder
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.conftest import make_mock_ollama_client, make_test_ollama_config
 
 # Public API surface (from src/jobsearch_rag/adapters/base):
@@ -233,23 +233,23 @@ EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
 
 
 @pytest.fixture
-def _store() -> Iterator[VectorStore]:  # pyright: ignore[reportUnusedFunction]
+def _store() -> Iterator[ChromaDBStore]:  # pyright: ignore[reportUnusedFunction]
     """Yield a temporary VectorStore for test isolation."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = ChromaDBStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
 
 @pytest.fixture
 def _mock_embedder() -> object:  # pyright: ignore[reportUnusedFunction]
-    """Real Embedder with ollama client stubbed at the I/O boundary."""
+    """Real OllamaEmbedder with ollama client stubbed at the I/O boundary."""
     mock_client = make_mock_ollama_client(embed_vector=EMBED_TEST)
     with patch(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=mock_client,
     ):
-        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
+        return OllamaEmbedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
 
 @pytest.fixture
@@ -262,7 +262,7 @@ def _decisions_dir(tmp_path: object) -> object:  # pyright: ignore[reportUnusedF
 
 @pytest.fixture
 def _recorder(  # pyright: ignore[reportUnusedFunction]
-    _store: VectorStore,
+    _store: ChromaDBStore,
     _mock_embedder: object,
     _decisions_dir: object,
 ) -> DecisionRecorder:
@@ -321,7 +321,7 @@ class TestDecisionAudit:
 
     MOCK BOUNDARY:
         Mock:  ollama.AsyncClient (Ollama HTTP I/O via conftest make_mock_ollama_client)
-        Real:  DecisionRecorder, Embedder, ChromaDB via vector_store fixture,
+        Real:  DecisionRecorder, OllamaEmbedder, ChromaDB via vector_store fixture,
                JSONL audit log in tmp_path via output directory guard
         Never: Insert or delete ChromaDB documents directly; always use
                DecisionRecorder.record() to add decisions and verify removal

@@ -38,7 +38,7 @@ import jobsearch_rag.pipeline.eval as eval_module
 import tests.fakes as fakes_mod
 from jobsearch_rag.pipeline.eval import EvalRunner
 from jobsearch_rag.ports import GetResult, QueryResult
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.store import ChromaDBStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -55,16 +55,16 @@ EMBED_C = [0.7, 0.2, 0.3, 0.0, 0.4]
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
+def store() -> Iterator[ChromaDBStore]:
     """VectorStore backed by a temp directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = ChromaDBStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
 
 @pytest.fixture
-def populated_store(store: VectorStore) -> VectorStore:
+def populated_store(store: ChromaDBStore) -> ChromaDBStore:
     """VectorStore with 3 documents pre-loaded in 'test_collection'."""
     store.add_documents(
         collection_name="test_collection",
@@ -101,7 +101,7 @@ class TestVectorStoreReturnsTypedResults:
         Never: Mock VectorStore internals; never construct results manually
     """
 
-    def test_query_returns_query_result(self, populated_store: VectorStore) -> None:
+    def test_query_returns_query_result(self, populated_store: ChromaDBStore) -> None:
         """
         Given a VectorStore with documents in a collection
         When store.query() is called
@@ -125,7 +125,7 @@ class TestVectorStoreReturnsTypedResults:
             f"Expected 2 distances, got {len(result.distances[0])}"
         )
 
-    def test_get_documents_returns_get_result(self, populated_store: VectorStore) -> None:
+    def test_get_documents_returns_get_result(self, populated_store: ChromaDBStore) -> None:
         """
         Given a VectorStore with documents in a collection
         When store.get_documents() is called with known IDs
@@ -142,7 +142,7 @@ class TestVectorStoreReturnsTypedResults:
         )
         assert result.ids == ["doc-1"], f"Expected ids=['doc-1'], got {result.ids}"
 
-    def test_get_by_metadata_returns_get_result(self, populated_store: VectorStore) -> None:
+    def test_get_by_metadata_returns_get_result(self, populated_store: ChromaDBStore) -> None:
         """
         Given a VectorStore with documents containing metadata
         When store.get_by_metadata() is called with a where filter
@@ -165,7 +165,7 @@ class TestVectorStoreReturnsTypedResults:
             f"Expected 2 matching docs (verdict=yes), got {len(result.ids)}"
         )
 
-    def test_get_all_documents_returns_get_result(self, populated_store: VectorStore) -> None:
+    def test_get_all_documents_returns_get_result(self, populated_store: ChromaDBStore) -> None:
         """
         Given a VectorStore with documents in a collection
         When store.get_all_documents() is called
@@ -185,7 +185,7 @@ class TestVectorStoreReturnsTypedResults:
         )
         assert len(result.ids) == 3, f"Expected 3 documents, got {len(result.ids)}"
 
-    def test_query_empty_collection_returns_empty_query_result(self, store: VectorStore) -> None:
+    def test_query_empty_collection_returns_empty_query_result(self, store: ChromaDBStore) -> None:
         """
         Given a VectorStore with an empty collection
         When store.query() is called
@@ -231,7 +231,7 @@ class TestEvalRunnerAbstractionLeak:
     """
 
     async def test_evaluate_loads_decisions_through_port(
-        self, populated_store: VectorStore
+        self, populated_store: ChromaDBStore
     ) -> None:
         """
         Given an EvalRunner with decisions stored in a VectorStore
@@ -325,7 +325,7 @@ class TestEvalRunnerAbstractionLeak:
         runner = EvalRunner(
             scorer=scorer_stub,
             ranker=ranker_stub,
-            store=cast("VectorStore", store),
+            store=cast("ChromaDBStore", store),
         )
 
         # When: evaluate

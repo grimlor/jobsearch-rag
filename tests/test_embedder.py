@@ -1,5 +1,5 @@
 """
-Embedder tests -- Ollama wrapper with retry and error handling.
+OllamaEmbedder tests -- Ollama wrapper with retry and error handling.
 
 Spec classes:
     TestEmbedding -- text-to-vector embedding via Ollama
@@ -18,7 +18,7 @@ from ollama import ResponseError
 
 from jobsearch_rag.config import OllamaConfig
 from jobsearch_rag.errors import ActionableError, ErrorType
-from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.embedder import OllamaEmbedder
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -68,9 +68,9 @@ def ollama_mock() -> Iterator[MagicMock]:
 
 
 @pytest.fixture
-def embedder(ollama_mock: MagicMock) -> Embedder:
-    """An Embedder configured for testing -- ollama calls go to ollama_mock."""
-    return Embedder(
+def embedder(ollama_mock: MagicMock) -> OllamaEmbedder:
+    """An OllamaEmbedder configured for testing -- ollama calls go to ollama_mock."""
+    return OllamaEmbedder(
         OllamaConfig(
             base_url=BASE_URL,
             embed_model=EMBED_MODEL,
@@ -109,12 +109,12 @@ class TestEmbedding:
 
     MOCK BOUNDARY:
         Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) -- Ollama HTTP API
-        Real: Embedder.embed, truncation logic, whitespace handling, validation
-        Never: Patch Embedder internals or bypass embed()
+        Real: OllamaEmbedder.embed, truncation logic, whitespace handling, validation
+        Never: Patch OllamaEmbedder internals or bypass embed()
     """
 
     async def test_embed_returns_float_vector(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given text to embed
@@ -132,7 +132,7 @@ class TestEmbedding:
         assert all(isinstance(v, float) for v in result), "All values should be floats"
 
     async def test_embed_uses_configured_model(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given an embedder with a configured model
@@ -149,7 +149,7 @@ class TestEmbedding:
         ollama_mock.embed.assert_called_once_with(model=EMBED_MODEL, input="some text")
 
     async def test_embed_strips_whitespace_before_sending(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given text with leading/trailing whitespace
@@ -166,7 +166,7 @@ class TestEmbedding:
         ollama_mock.embed.assert_called_once_with(model=EMBED_MODEL, input="padded text")
 
     async def test_embed_empty_string_tells_caller_to_provide_content(
-        self, embedder: Embedder
+        self, embedder: OllamaEmbedder
     ) -> None:
         """
         Given an empty string
@@ -184,7 +184,7 @@ class TestEmbedding:
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
     async def test_embed_whitespace_only_tells_caller_to_provide_content(
-        self, embedder: Embedder
+        self, embedder: OllamaEmbedder
     ) -> None:
         """
         Given whitespace-only text
@@ -202,7 +202,7 @@ class TestEmbedding:
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
     async def test_embed_truncates_text_exceeding_context_window(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given text exceeding the model context window
@@ -225,7 +225,7 @@ class TestEmbedding:
         )
 
     async def test_embed_truncation_preserves_head_and_tail(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given text with distinctive head and tail content
@@ -260,7 +260,7 @@ class TestEmbedding:
         )
 
     async def test_embed_text_within_limit_is_not_truncated(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given text within the context window limit
@@ -300,12 +300,12 @@ class TestClassification:
 
     MOCK BOUNDARY:
         Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) -- Ollama HTTP API
-        Real: Embedder.classify, message formatting, model selection
+        Real: OllamaEmbedder.classify, message formatting, model selection
         Never: Patch classify() or message construction
     """
 
     async def test_classify_returns_llm_response_text(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given a classification prompt
@@ -324,7 +324,7 @@ class TestClassification:
         assert result == "DISQUALIFIED: requires clearance", "Should return raw LLM response"
 
     async def test_classify_uses_configured_llm_model(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given an embedder with a configured LLM model
@@ -342,7 +342,7 @@ class TestClassification:
         assert call_kwargs.kwargs["model"] == LLM_MODEL, "Should use configured LLM model"
 
     async def test_classify_sends_user_message(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given a classification prompt
@@ -365,7 +365,7 @@ class TestClassification:
         )
 
     async def test_classify_raises_embedding_error_when_ollama_returns_none_content(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given an Ollama chat response whose message content is None
@@ -410,12 +410,12 @@ class TestHealthCheck:
 
     MOCK BOUNDARY:
         Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) -- Ollama HTTP API
-        Real: Embedder.health_check, model validation, error classification
+        Real: OllamaEmbedder.health_check, model validation, error classification
         Never: Patch health_check() or error construction
     """
 
     async def test_health_check_passes_when_both_models_available(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given both embed and LLM models available in Ollama
@@ -429,7 +429,7 @@ class TestHealthCheck:
         await embedder.health_check()
 
     async def test_unreachable_ollama_provides_url_and_connectivity_steps(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given Ollama is unreachable
@@ -452,7 +452,7 @@ class TestHealthCheck:
         assert len(err.troubleshooting.steps) > 0, "Should have troubleshooting steps"
 
     async def test_missing_embed_model_suggests_ollama_pull(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given the embed model is not available in Ollama
@@ -475,7 +475,7 @@ class TestHealthCheck:
         assert len(err.troubleshooting.steps) > 0, "Should have troubleshooting steps"
 
     async def test_missing_llm_model_suggests_ollama_pull(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given the LLM model is not available in Ollama
@@ -519,12 +519,12 @@ class TestRetryLogic:
 
     MOCK BOUNDARY:
         Mock: ollama_sdk.AsyncClient (via ollama_mock fixture) -- Ollama HTTP API
-        Real: Embedder retry logic, error classification, backoff timing
+        Real: OllamaEmbedder retry logic, error classification, backoff timing
         Never: Patch retry internals or backoff delays directly
     """
 
     async def test_transient_error_is_retried(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given a transient 503 error on the first embed call
@@ -547,7 +547,7 @@ class TestRetryLogic:
         assert ollama_mock.embed.call_count == 2, "Should have called embed twice"
 
     async def test_max_retries_exhausted_advises_checking_system_resources(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given persistent 503 errors on every embed attempt
@@ -568,7 +568,7 @@ class TestRetryLogic:
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
     async def test_non_retryable_error_provides_model_guidance(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given a non-retryable 404 error (model not found)
@@ -592,7 +592,7 @@ class TestRetryLogic:
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
     async def test_classify_retries_on_transient_error(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given a transient 503 error on the first classify call
@@ -615,7 +615,7 @@ class TestRetryLogic:
         assert ollama_mock.chat.call_count == 2, "Should have called chat twice"
 
     async def test_connection_error_is_retried(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given a ConnectionError on the first embed call
@@ -638,7 +638,7 @@ class TestRetryLogic:
         assert ollama_mock.embed.call_count == 2, "Should have called embed twice"
 
     async def test_connection_error_exhaustion_advises_checking_ollama(
-        self, embedder: Embedder, ollama_mock: MagicMock
+        self, embedder: OllamaEmbedder, ollama_mock: MagicMock
     ) -> None:
         """
         Given persistent ConnectionError on every embed attempt

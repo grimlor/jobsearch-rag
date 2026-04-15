@@ -205,7 +205,7 @@ class TestResumeChunking:
         Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
                (dict-backed, cosine similarity)
         Real:  Indexer.index_resume, _chunk_resume
-        Never: Patch chunking logic, Embedder methods, or VectorStore internals
+        Never: Patch chunking logic, embedder methods, or vector store internals
     """
 
     async def test_resume_is_chunked_by_section_heading(
@@ -355,7 +355,7 @@ class TestResumeIndexing:
         Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
                (dict-backed, cosine similarity)
         Real:  Indexer.index_resume
-        Never: Patch Embedder methods or VectorStore internals
+        Never: Patch embedder methods or vector store internals
     """
 
     async def test_embedder_is_called_for_each_chunk(
@@ -468,7 +468,7 @@ class TestArchetypeIndexing:
         Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
                (dict-backed, cosine similarity)
         Real:  Indexer.index_archetypes, TOML parsing
-        Never: Patch TOML parsing, Embedder methods, or VectorStore internals
+        Never: Patch TOML parsing, embedder methods, or vector store internals
     """
 
     async def test_each_toml_archetype_produces_one_chroma_document(
@@ -775,7 +775,7 @@ class TestGlobalRubricLoading:
         Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
                (dict-backed, cosine similarity)
         Real:  Indexer.index_negative_signals, TOML parsing
-        Never: Patch TOML parsing, Embedder methods, or signal extraction
+        Never: Patch TOML parsing, embedder methods, or signal extraction
     """
 
     async def test_rubric_signals_are_loaded_and_indexed(
@@ -871,7 +871,7 @@ class TestNegativeSignalIndexing:
         Fake:  FakeEmbedder (port-level double), InMemoryVectorStore
                (dict-backed, cosine similarity)
         Real:  Indexer.index_negative_signals, signal combining logic
-        Never: Patch signal extraction, Embedder methods, or VectorStore internals
+        Never: Patch signal extraction, embedder methods, or vector store internals
     """
 
     async def test_rubric_and_archetype_negatives_are_combined(

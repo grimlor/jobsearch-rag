@@ -61,8 +61,8 @@ Spec classes:
 #   Scorer.score(jd_text) -> ScoreResult
 #
 # Public API surface (from src/jobsearch_rag/rag/embedder):
-#   Embedder(base_url, embed_model, llm_model, ..., classify_system_prompt)
-#   Embedder.classify(prompt) -> str
+#   OllamaEmbedder(base_url, embed_model, llm_model, ..., classify_system_prompt)
+#   OllamaEmbedder.classify(prompt) -> str
 #
 # Public API surface (from src/jobsearch_rag/rag/comp_parser):
 #   compute_comp_score(comp_max, base_salary, breakpoints, default_score) -> float
@@ -92,7 +92,7 @@ from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.pipeline.runner import PipelineRunner
 from jobsearch_rag.rag.comp_parser import compute_comp_score
-from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.embedder import OllamaEmbedder
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
 from tests.conftest import adapter_override, make_mock_ollama_client, make_test_settings
 from tests.fakes import FakeEmbedder, InMemoryVectorStore
@@ -215,6 +215,10 @@ viewport_height = 900
 [adapters.browser_paths]
 msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
 chrome = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
+
+[ports]
+embedder = "jobsearch_rag.rag.embedder.OllamaEmbedder"
+vector_store = "jobsearch_rag.rag.store.ChromaDBStore"
 """
 
 # Minimal valid role_archetypes.toml with 2 archetypes
@@ -637,14 +641,14 @@ class TestClassifierSystemPromptConfig:
     WHAT: (1) The system reads [ollama] classify_system_prompt from settings.toml
               when present.
           (2) The system uses the current default when the field is not set.
-          (3) The Embedder sends the configured system message in all classify()
+          (3) The OllamaEmbedder sends the configured system message in all classify()
               calls.
     WHY: The generic "job listing classifier" message works but users may
          want domain-specific framing
 
     MOCK BOUNDARY:
         Mock:  ollama.AsyncClient (via conftest mock_embedder)
-        Real:  load_settings(), Embedder.classify()
+        Real:  load_settings(), OllamaEmbedder.classify()
         Never: Mock the system message assembly separately from classify()
     """
 
@@ -704,7 +708,7 @@ class TestClassifierSystemPromptConfig:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            embedder = Embedder(
+            embedder = OllamaEmbedder(
                 OllamaConfig(
                     base_url="http://localhost:11434",
                     embed_model="nomic-embed-text",
@@ -1264,7 +1268,7 @@ class TestEmbedderConfigExternalization:
         )
 
         # When: Embedder is constructed from config
-        embedder = Embedder(config)
+        embedder = OllamaEmbedder(config)
 
         # Then: all config values are accessible
         assert embedder.base_url == "http://localhost:11434"
@@ -1298,7 +1302,7 @@ class TestEmbedderConfigExternalization:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            embedder = Embedder(config)
+            embedder = OllamaEmbedder(config)
 
         # When: embed long text
         await embedder.embed("x" * 500)
@@ -1334,7 +1338,7 @@ class TestEmbedderConfigExternalization:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            embedder = Embedder(config)
+            embedder = OllamaEmbedder(config)
 
         # When: embed text with distinct head ("H") and tail ("T") chars
         await embedder.embed("H" * 300 + "T" * 300)
@@ -1373,7 +1377,7 @@ class TestEmbedderConfigExternalization:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            embedder = Embedder(config)
+            embedder = OllamaEmbedder(config)
 
         # When / Then: 503 fails immediately (not retried)
         with pytest.raises(ActionableError):
@@ -1409,7 +1413,7 @@ class TestEmbedderConfigExternalization:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            embedder = Embedder(config)
+            embedder = OllamaEmbedder(config)
 
         # When / Then: all retries exhausted
         with pytest.raises(ActionableError):

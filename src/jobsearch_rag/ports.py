@@ -12,10 +12,15 @@ Protocols:
     HealthCheckable -- supplementary pre-flight connectivity check.
     MetricsProvider -- supplementary inference metrics exposure.
     VectorStorePort -- all vector storage operations.
+    PortFactory -- class-level ``from_settings`` construction contract.
 
 Result dataclasses:
     QueryResult -- typed replacement for dict[str, Any] query returns.
     GetResult -- typed replacement for dict[str, Any] get returns.
+
+Composition dataclass:
+    PipelinePorts -- named container holding the full set of ports the
+                     pipeline requires.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from jobsearch_rag.config import Settings
     from jobsearch_rag.rag.embedder import InferenceMetrics
 
 # ============================================================================
@@ -71,7 +77,7 @@ class EmbeddingPort(Protocol):
     Core embedding and LLM classification operations.
 
     Domain classes depend on this protocol instead of the concrete
-    :class:`~jobsearch_rag.rag.embedder.Embedder`.  Keeping the port
+    :class:`~jobsearch_rag.rag.embedder.OllamaEmbedder`.  Keeping the port
     narrow (embed + classify only) means test fakes don't need
     health-check or metrics stubs.
     """
@@ -138,7 +144,7 @@ class VectorStorePort(Protocol):
     All vector storage operations the domain requires.
 
     Domain classes depend on this protocol instead of the concrete
-    :class:`~jobsearch_rag.rag.store.VectorStore`.  Implementations
+    :class:`~jobsearch_rag.rag.store.ChromaDBStore`.  Implementations
     include the real ChromaDB-backed store and an in-memory test fake.
     """
 
@@ -212,3 +218,38 @@ class VectorStorePort(Protocol):
     def close(self) -> None:
         """Release resources held by the store."""
         ...
+
+
+# ============================================================================
+# Construction Protocol
+# ============================================================================
+
+
+@runtime_checkable
+class PortFactory(Protocol):
+    """
+    Class-level construction contract for port implementations.
+
+    Any class that can be built from a :class:`Settings` instance
+    should expose a ``from_settings`` classmethod.  The config-driven
+    port resolver (:func:`pipeline.runner._resolve`) uses this to
+    instantiate adapters without importing them directly.
+    """
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> PortFactory:
+        """Construct an instance from application settings."""
+        ...
+
+
+# ============================================================================
+# Pipeline Composition
+# ============================================================================
+
+
+@dataclass
+class PipelinePorts:
+    """Named container holding the full set of ports the pipeline requires."""
+
+    embedder: EmbeddingPort
+    store: VectorStorePort

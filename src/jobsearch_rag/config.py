@@ -139,6 +139,14 @@ class ChromaConfig:
 
 
 @dataclass
+class PortsConfig:
+    """Dotted-path adapter wiring from ``[ports]``."""
+
+    embedder: str
+    vector_store: str
+
+
+@dataclass
 class Settings:
     """Top-level validated configuration."""
 
@@ -155,6 +163,7 @@ class Settings:
     global_rubric_path: str
     session_storage_dir: str
     adapters: AdaptersConfig
+    ports: PortsConfig
     disqualifier: DisqualifierConfig | None = None
 
     def __post_init__(self) -> None:
@@ -585,6 +594,13 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     # -- session_storage_dir (from [boards]) ----------------------------------
     session_storage_dir = str(_require_field(boards_section, "session_storage_dir", "boards"))
 
+    # -- [ports] -- adapter dotted paths --------------------------------------
+    ports_data = _require_section(data, "ports", filepath)
+    ports = PortsConfig(
+        embedder=str(_require_field(ports_data, "embedder", "ports")),
+        vector_store=str(_require_field(ports_data, "vector_store", "ports")),
+    )
+
     return Settings(
         enabled_boards=list(enabled_boards),
         overnight_boards=list(overnight_boards),
@@ -594,6 +610,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
         output=output,
         chroma=chroma,
         adapters=adapters,
+        ports=ports,
         disqualifier=disqualifier,
         security=security,
         resume_path=resume_path,

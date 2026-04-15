@@ -22,11 +22,11 @@ Implements D1 of Feature -- hexagonal-port-interfaces.
 #
 # Public API surface (from src/jobsearch_rag/rag/embedder):
 #   InferenceMetrics -- dataclass: embed_calls, embed_tokens_total, etc.
-#   Embedder(config: OllamaConfig) -- satisfies EmbeddingPort,
+#   OllamaEmbedder(config: OllamaConfig) -- satisfies EmbeddingPort,
 #            HealthCheckable, MetricsProvider
 #
 # Public API surface (from src/jobsearch_rag/rag/store):
-#   VectorStore(persist_dir: str, distance_metric: str)
+#   ChromaDBStore(persist_dir: str, distance_metric: str)
 #     -- satisfies VectorStorePort
 
 from __future__ import annotations
@@ -44,8 +44,8 @@ from jobsearch_rag.ports import (
     QueryResult,
     VectorStorePort,
 )
-from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.embedder import OllamaEmbedder
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.conftest import make_test_ollama_config
 
 # ---------------------------------------------------------------------------
@@ -74,19 +74,19 @@ class _EmbedOnlyStub:
 class TestEmbeddingPortProtocol:
     """
     REQUIREMENT: EmbeddingPort defines a Protocol that captures the core
-    embedding and LLM classification operations the domain calls on Embedder.
+    embedding and LLM classification operations the domain calls on OllamaEmbedder.
     Observability concerns (health_check, metrics) live in separate protocols.
 
     WHO: Domain classes (Scorer, DecisionRecorder, Indexer) -- they
-         depend on this protocol instead of the concrete Embedder class.
+         depend on this protocol instead of the concrete OllamaEmbedder class.
     WHAT: (1) EmbeddingPort is a typing.Protocol with @runtime_checkable.
           (2) It declares async method embed(text: str) -> list[float].
           (3) It declares async method classify(prompt: str) -> str.
           (4) It does NOT declare health_check (belongs to HealthCheckable).
           (5) It does NOT declare metrics (belongs to MetricsProvider).
-          (6) The concrete Embedder class satisfies EmbeddingPort structurally
+          (6) The concrete OllamaEmbedder class satisfies EmbeddingPort structurally
               (isinstance check passes without inheritance).
-    WHY: Without a protocol, domain classes import the concrete Embedder,
+    WHY: Without a protocol, domain classes import the concrete OllamaEmbedder,
          coupling them to Ollama. Tests must mock at SDK internals.
          With the protocol, any implementation satisfying the contract
          can be substituted -- including test fakes. Keeping the port
@@ -95,7 +95,7 @@ class TestEmbeddingPortProtocol:
 
     MOCK BOUNDARY:
         Mock:  Nothing -- these are pure protocol/type contract tests
-        Real:  EmbeddingPort definition, Embedder class, isinstance checks
+        Real:  EmbeddingPort definition, OllamaEmbedder class, isinstance checks
         Never: Mock the protocol itself
     """
 
@@ -209,15 +209,15 @@ class TestEmbeddingPortProtocol:
 
     def test_embedder_satisfies_embedding_port(self) -> None:
         """
-        Given a real Embedder instance (with mocked ollama client at I/O boundary)
+        Given a real OllamaEmbedder instance (with mocked ollama client at I/O boundary)
         When isinstance(embedder, EmbeddingPort) is checked
         Then it returns True (structural conformance, no inheritance required)
         """
-        # Given: a real Embedder with the ollama client mocked at I/O boundary
+        # Given: a real OllamaEmbedder with the ollama client mocked at I/O boundary
         with patch(
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         ):
-            embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
+            embedder = OllamaEmbedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
         # When: checking isinstance (cast to object to test runtime conformance)
         instance = cast("object", embedder)
@@ -225,8 +225,8 @@ class TestEmbeddingPortProtocol:
 
         # Then: structural conformance -- no inheritance required
         assert result, (
-            f"Embedder should satisfy EmbeddingPort structurally. "
-            f"isinstance returned {result}. Embedder bases: {type(embedder).__mro__}"
+            f"OllamaEmbedder should satisfy EmbeddingPort structurally. "
+            f"isinstance returned {result}. OllamaEmbedder bases: {type(embedder).__mro__}"
         )
 
 
@@ -244,7 +244,7 @@ class TestHealthCheckableProtocol:
          run health_check before pipeline execution.
     WHAT: (1) HealthCheckable is a typing.Protocol with @runtime_checkable.
           (2) It declares async method health_check() -> None.
-          (3) Embedder satisfies HealthCheckable structurally.
+          (3) OllamaEmbedder satisfies HealthCheckable structurally.
           (4) An embed-only implementation does NOT satisfy HealthCheckable
               (by design -- fakes don't need observability).
     WHY: health_check is an observability concern, not an embedding
@@ -252,8 +252,8 @@ class TestHealthCheckableProtocol:
          EmbeddingPort narrow and fakes minimal.
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (for Embedder construction only)
-        Real:  HealthCheckable definition, Embedder, _EmbedOnlyStub, isinstance
+        Mock:  ollama_sdk.AsyncClient (for OllamaEmbedder construction only)
+        Real:  HealthCheckable definition, OllamaEmbedder, _EmbedOnlyStub, isinstance
         Never: Mock the protocol itself
     """
 
@@ -299,22 +299,24 @@ class TestHealthCheckableProtocol:
 
     def test_embedder_satisfies_health_checkable(self) -> None:
         """
-        Given a real Embedder instance (with mocked ollama client at I/O boundary)
+        Given a real OllamaEmbedder instance (with mocked ollama client at I/O boundary)
         When isinstance(embedder, HealthCheckable) is checked
         Then it returns True
         """
-        # Given: a real Embedder with I/O boundary mocked
+        # Given: a real OllamaEmbedder with I/O boundary mocked
         with patch(
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         ):
-            embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
+            embedder = OllamaEmbedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
         # When: checking isinstance (cast to object to test runtime conformance)
         instance = cast("object", embedder)
         result = isinstance(instance, HealthCheckable)
 
-        # Then: Embedder has health_check → satisfies HealthCheckable
-        assert result, f"Embedder should satisfy HealthCheckable. isinstance returned {result}"
+        # Then: OllamaEmbedder has health_check → satisfies HealthCheckable
+        assert result, (
+            f"OllamaEmbedder should satisfy HealthCheckable. isinstance returned {result}"
+        )
 
     def test_embed_only_does_not_satisfy_health_checkable(self) -> None:
         """
@@ -348,15 +350,15 @@ class TestMetricsProviderProtocol:
          collect session metrics after pipeline execution.
     WHAT: (1) MetricsProvider is a typing.Protocol with @runtime_checkable.
           (2) It declares a read-only property metrics -> InferenceMetrics.
-          (3) Embedder satisfies MetricsProvider structurally.
+          (3) OllamaEmbedder satisfies MetricsProvider structurally.
           (4) An embed-only implementation does NOT satisfy MetricsProvider
               (by design).
     WHY: Metrics are an observability concern. Splitting them into a
          separate protocol keeps EmbeddingPort narrow and fakes minimal.
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (for Embedder construction only)
-        Real:  MetricsProvider definition, Embedder, _EmbedOnlyStub, isinstance
+        Mock:  ollama_sdk.AsyncClient (for OllamaEmbedder construction only)
+        Real:  MetricsProvider definition, OllamaEmbedder, _EmbedOnlyStub, isinstance
         Never: Mock the protocol itself
     """
 
@@ -407,22 +409,24 @@ class TestMetricsProviderProtocol:
 
     def test_embedder_satisfies_metrics_provider(self) -> None:
         """
-        Given a real Embedder instance (with mocked ollama client at I/O boundary)
+        Given a real OllamaEmbedder instance (with mocked ollama client at I/O boundary)
         When isinstance(embedder, MetricsProvider) is checked
         Then it returns True
         """
-        # Given: a real Embedder with I/O boundary mocked
+        # Given: a real OllamaEmbedder with I/O boundary mocked
         with patch(
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         ):
-            embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
+            embedder = OllamaEmbedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
         # When: checking isinstance (cast to object to test runtime conformance)
         instance = cast("object", embedder)
         result = isinstance(instance, MetricsProvider)
 
-        # Then: Embedder has metrics property → satisfies MetricsProvider
-        assert result, f"Embedder should satisfy MetricsProvider. isinstance returned {result}"
+        # Then: OllamaEmbedder has metrics property → satisfies MetricsProvider
+        assert result, (
+            f"OllamaEmbedder should satisfy MetricsProvider. isinstance returned {result}"
+        )
 
     def test_embed_only_does_not_satisfy_metrics_provider(self) -> None:
         """
@@ -450,10 +454,10 @@ class TestMetricsProviderProtocol:
 class TestVectorStorePortProtocol:
     """
     REQUIREMENT: VectorStorePort defines a Protocol that captures all
-    vector storage operations the domain calls on VectorStore.
+    vector storage operations the domain calls on ChromaDBStore.
 
     WHO: Domain classes (Scorer, DecisionRecorder, Indexer, EvalRunner)
-         -- they depend on this protocol instead of the concrete VectorStore.
+         -- they depend on this protocol instead of the concrete ChromaDBStore.
     WHAT: (1) VectorStorePort is a typing.Protocol with @runtime_checkable.
           (2) It declares add_documents(collection_name, *, ids, documents,
               embeddings, metadatas=None) -> None.
@@ -468,16 +472,16 @@ class TestVectorStorePortProtocol:
           (8) It declares collection_count(name: str) -> int.
           (9) It declares reset_collection(name: str) -> None.
           (10) It declares close() -> None.
-          (11) The concrete VectorStore class satisfies VectorStorePort
+          (11) The concrete ChromaDBStore class satisfies VectorStorePort
                structurally (isinstance check passes without inheritance).
-    WHY: Without a protocol, domain classes import VectorStore which imports
+    WHY: Without a protocol, domain classes import ChromaDBStore which imports
          chromadb. Tests use real ChromaDB temp dirs or mock at SDK internals.
          With the protocol, InMemoryVectorStore can replace ChromaDB in unit
          tests -- no WAL isolation issues, no SDK mocking.
 
     MOCK BOUNDARY:
         Mock:  Nothing -- pure protocol/type contract tests
-        Real:  VectorStorePort definition, VectorStore class, isinstance checks
+        Real:  VectorStorePort definition, ChromaDBStore class, isinstance checks
         Never: Mock the protocol itself
     """
 
@@ -741,12 +745,12 @@ class TestVectorStorePortProtocol:
 
     def test_vector_store_satisfies_vector_store_port(self, tmp_path: Any) -> None:
         """
-        Given a real VectorStore instance (ChromaDB temp dir)
+        Given a real ChromaDBStore instance (ChromaDB temp dir)
         When isinstance(store, VectorStorePort) is checked
         Then it returns True (structural conformance, no inheritance required)
         """
-        # Given: a real VectorStore backed by a temp directory
-        store = VectorStore(
+        # Given: a real ChromaDBStore backed by a temp directory
+        store = ChromaDBStore(
             persist_dir=str(tmp_path / "chroma"),
             distance_metric="cosine",
         )
@@ -759,7 +763,7 @@ class TestVectorStorePortProtocol:
 
         # Then: structural conformance -- no inheritance required
         assert result, (
-            f"VectorStore should satisfy VectorStorePort structurally. "
+            f"ChromaDBStore should satisfy VectorStorePort structurally. "
             f"isinstance returned {result}"
         )
 

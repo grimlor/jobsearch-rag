@@ -445,7 +445,7 @@ class TestPipelineOrchestration:
         """
         Given a runner whose Ollama embed endpoint returns a non-retryable error,
         When a listing is collected and scoring is attempted,
-        Then failed_listings is incremented (real Scorer → real Embedder → mock client fails).
+        Then failed_listings is incremented (real Scorer → embedder I/O boundary → mock client fails).
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with populated store, embedder that fails on embed
@@ -2053,6 +2053,9 @@ def _setup_cli_env(
         "viewport_height = 900\n"
         "\n[adapters.browser_paths]\n"
         'msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]\n'
+        "\n[ports]\n"
+        'embedder = "jobsearch_rag.rag.embedder.OllamaEmbedder"\n'
+        'vector_store = "jobsearch_rag.rag.store.ChromaDBStore"\n'
     )
     (config_dir / "role_archetypes.toml").write_text(
         "[[archetypes]]\n"

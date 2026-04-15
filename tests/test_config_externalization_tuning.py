@@ -146,6 +146,10 @@ viewport_height = 900
 
 [adapters.browser_paths]
 msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+
+[ports]
+embedder = "jobsearch_rag.rag.embedder.OllamaEmbedder"
+vector_store = "jobsearch_rag.rag.store.ChromaDBStore"
 """
 
 
@@ -451,7 +455,7 @@ class TestDistanceMetricConfig:
         """
         from unittest.mock import patch  # noqa: PLC0415
 
-        from jobsearch_rag.rag.store import VectorStore  # noqa: PLC0415
+        from jobsearch_rag.rag.store import ChromaDBStore  # noqa: PLC0415
 
         # Given: a VectorStore with distance_metric = "l2"
         with patch("jobsearch_rag.rag.store.chromadb.PersistentClient") as mock_client_cls:
@@ -461,7 +465,7 @@ class TestDistanceMetricConfig:
             mock_client.get_or_create_collection.return_value = mock_collection
             mock_client_cls.return_value = mock_client
 
-            store = VectorStore(persist_dir=str(tmp_path), distance_metric="l2")
+            store = ChromaDBStore(persist_dir=str(tmp_path), distance_metric="l2")
 
             # When: create a collection
             store.get_or_create_collection("test_collection")

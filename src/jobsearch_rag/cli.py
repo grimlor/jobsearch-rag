@@ -33,10 +33,10 @@ from jobsearch_rag.pipeline.rescorer import Rescorer
 from jobsearch_rag.pipeline.review import ReviewSession
 from jobsearch_rag.pipeline.runner import create_pipeline
 from jobsearch_rag.rag.decisions import DecisionRecorder
-from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.embedder import OllamaEmbedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.store import ChromaDBStore
 from jobsearch_rag.text import slugify
 
 
@@ -214,8 +214,8 @@ def handle_boards() -> None:
 def handle_index(args: argparse.Namespace) -> None:
     """Index resume and/or archetypes into ChromaDB."""
     settings = load_settings()
-    embedder = Embedder(settings.ollama)
-    store = VectorStore(
+    embedder = OllamaEmbedder(settings.ollama)
+    store = ChromaDBStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
     )
@@ -372,8 +372,8 @@ def handle_search(args: argparse.Namespace) -> None:
 def handle_decide(args: argparse.Namespace) -> None:
     """Record a verdict on a job listing."""
     settings = load_settings()
-    embedder = Embedder(settings.ollama)
-    store = VectorStore(
+    embedder = OllamaEmbedder(settings.ollama)
+    store = ChromaDBStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
     )
@@ -426,8 +426,8 @@ def handle_decide(args: argparse.Namespace) -> None:
 def handle_decisions(args: argparse.Namespace) -> None:
     """Dispatch decisions subcommands: show, remove, audit."""
     settings = load_settings()
-    embedder = Embedder(settings.ollama)
-    store = VectorStore(
+    embedder = OllamaEmbedder(settings.ollama)
+    store = ChromaDBStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
     )
@@ -490,8 +490,8 @@ def handle_review(args: argparse.Namespace) -> None:
     verdict, s to skip, o to open the JD, or q to quit.
     """
     settings = load_settings()
-    embedder = Embedder(settings.ollama)
-    store = VectorStore(
+    embedder = OllamaEmbedder(settings.ollama)
+    store = ChromaDBStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
     )
@@ -614,8 +614,8 @@ def handle_rescore(args: argparse.Namespace) -> None:
     decisions), re-ranks, and re-exports all results.
     """
     settings = load_settings()
-    embedder = Embedder(settings.ollama)
-    store = VectorStore(
+    embedder = OllamaEmbedder(settings.ollama)
+    store = ChromaDBStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
     )
@@ -722,13 +722,13 @@ def handle_eval(args: argparse.Namespace) -> None:
 
 def _build_eval_stack(
     settings: Settings, *, llm_model: str | None = None
-) -> tuple[Embedder, EvalRunner]:
-    """Construct an Embedder + EvalRunner from settings."""
+) -> tuple[OllamaEmbedder, EvalRunner]:
+    """Construct an OllamaEmbedder + EvalRunner from settings."""
     ollama_cfg = settings.ollama
     if llm_model is not None:
         ollama_cfg = _dc_replace(ollama_cfg, llm_model=llm_model)
-    embedder = Embedder(ollama_cfg)
-    store = VectorStore(
+    embedder = OllamaEmbedder(ollama_cfg)
+    store = ChromaDBStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
     )
@@ -879,7 +879,7 @@ _COLLECTIONS = ["resume", "role_archetypes", "negative_signals", "decisions"]
 def handle_reset(args: argparse.Namespace) -> None:
     """Reset ChromaDB collections and optionally clear output files."""
     settings = load_settings()
-    store = VectorStore(
+    store = ChromaDBStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
     )

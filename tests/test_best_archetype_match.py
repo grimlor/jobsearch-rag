@@ -13,7 +13,7 @@ ScoreResult, score explanation, CSV export, JD file metadata, and review display
 # Public API surface (from src/jobsearch_rag/rag/scorer):
 #   ScoreResult(fit_score, archetype_score, history_score, disqualified,
 #               disqualifier_reason, comp_score, negative_score, culture_score)
-#   Scorer(store: VectorStore, embedder: Embedder, disqualify_on_llm_flag: bool)
+#   Scorer(store: VectorStorePort, embedder: EmbeddingPort, disqualify_on_llm_flag: bool)
 #   scorer.score(jd_text: str) -> ScoreResult
 #
 # Public API surface (from src/jobsearch_rag/pipeline/ranker):

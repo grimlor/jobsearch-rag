@@ -18,8 +18,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.pipeline.runner import PipelineRunner
-from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.embedder import OllamaEmbedder
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.conftest import adapter_override
 from tests.constants import EMBED_FAKE
 from tests.fakes import FakeEmbedder, InMemoryVectorStore
@@ -128,8 +128,8 @@ def _make_runner_with_real_stack(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=mock_client,
     ):
-        embedder = Embedder(settings.ollama)
-    store = VectorStore(
+        embedder = OllamaEmbedder(settings.ollama)
+    store = ChromaDBStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
     )
@@ -578,7 +578,7 @@ class TestOllamaCallTracing:
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama HTTP); async_playwright
                (Playwright I/O); asyncio.sleep for throttle bypass
-        Real:  PipelineRunner, Embedder, Scorer, logging infrastructure,
+        Real:  PipelineRunner, OllamaEmbedder, Scorer, logging infrastructure,
                log file in tmp_path
         Never: Mock the logger or log_event; run the real pipeline and
                verify events by parsing the actual log file

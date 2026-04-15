@@ -37,9 +37,9 @@ from jobsearch_rag.pipeline.eval import (
     spearman_rank_correlation,
 )
 from jobsearch_rag.pipeline.ranker import Ranker
-from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.embedder import OllamaEmbedder
 from jobsearch_rag.rag.scorer import Scorer
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.conftest import make_test_ollama_config, make_test_settings
 from tests.constants import EMBED_FAKE
 
@@ -173,6 +173,10 @@ viewport_width = 1440
 viewport_height = 900
 
 [adapters.browser_paths]
+
+[ports]
+embedder = "jobsearch_rag.rag.embedder.OllamaEmbedder"
+vector_store = "jobsearch_rag.rag.store.ChromaDBStore"
 """
 
 
@@ -208,9 +212,9 @@ def _make_settings(tmpdir: str, *, min_score_threshold: float = 0.45) -> Setting
 
 def _make_mock_embedder(
     embed_return: list[float] | None = None,
-) -> tuple[Embedder, AsyncMock]:
+) -> tuple[OllamaEmbedder, AsyncMock]:
     """
-    Create an Embedder with mocked Ollama I/O boundary.
+    Create an OllamaEmbedder with mocked Ollama I/O boundary.
 
     Returns (embedder, mock_client) so tests can configure per-call behavior.
     """
@@ -237,7 +241,7 @@ def _make_mock_embedder(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=mock_client,
     ):
-        embedder = Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
+        embedder = OllamaEmbedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
     return embedder, mock_client
 
@@ -246,10 +250,10 @@ def _make_eval_stack(
     settings: Settings,
     *,
     embed_return: list[float] | None = None,
-) -> tuple[EvalRunner, Scorer, Ranker, VectorStore, AsyncMock]:
+) -> tuple[EvalRunner, Scorer, Ranker, ChromaDBStore, AsyncMock]:
     """Build a full eval stack: EvalRunner + Scorer + Ranker + real VectorStore."""
     embedder, mock_client = _make_mock_embedder(embed_return=embed_return)
-    store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+    store = ChromaDBStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
     scorer = Scorer(
         store=store,
         embedder=embedder,
@@ -273,7 +277,7 @@ def _make_eval_stack(
     return runner, scorer, ranker, store, mock_client
 
 
-def _seed_required_collections(store: VectorStore, embedding: list[float]) -> None:
+def _seed_required_collections(store: ChromaDBStore, embedding: list[float]) -> None:
     """Seed resume and role_archetypes so the scorer doesn't raise on empty."""
     for name in ("resume", "role_archetypes"):
         store.add_documents(
@@ -285,7 +289,7 @@ def _seed_required_collections(store: VectorStore, embedding: list[float]) -> No
 
 
 def _seed_decision(
-    store: VectorStore,
+    store: ChromaDBStore,
     *,
     job_id: str,
     verdict: str,
@@ -1188,7 +1192,7 @@ class TestEvalIntegration:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="eval-1", verdict="yes")
         _seed_decision(store, job_id="eval-2", verdict="no", embedding=_EMBED_DISTANT)
@@ -1419,7 +1423,7 @@ class TestCompareModelsFlag:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (embedding + LLM calls)
-        Real:  argparse parsing, handle_eval control flow, Embedder/Scorer/
+        Real:  argparse parsing, handle_eval control flow, OllamaEmbedder/Scorer/
                Ranker/EvalRunner construction, ModelComparisonResult,
                load_settings (reads a real TOML file from tmp_path)
         Never: mock the comparison logic or delta computation
@@ -1456,7 +1460,7 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
@@ -1495,7 +1499,7 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
         _seed_decision(store, job_id="cmp-2", verdict="no", embedding=_EMBED_DISTANT)
@@ -1539,7 +1543,7 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
@@ -1714,7 +1718,7 @@ class TestEvalSinglePath:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
 
         _, mock_client = _make_mock_embedder()

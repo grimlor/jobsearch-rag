@@ -40,16 +40,29 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.config import load_settings
 from jobsearch_rag.pipeline.eval import EvalRunner
-from jobsearch_rag.pipeline.runner import PipelineRunner, create_pipeline
-from jobsearch_rag.ports import HealthCheckable, MetricsProvider
+from jobsearch_rag.pipeline.runner import (
+    PipelineRunner,
+    _resolve,  # pyright: ignore[reportPrivateUsage]  # testing private factory helpers
+    _resolve_ports,  # pyright: ignore[reportPrivateUsage]
+    create_pipeline,
+)
+from jobsearch_rag.ports import (
+    EmbeddingPort,
+    HealthCheckable,
+    MetricsProvider,
+    PipelinePorts,
+    VectorStorePort,
+)
 from jobsearch_rag.rag.decisions import DecisionRecorder
-from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.embedder import OllamaEmbedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.conftest import adapter_override
 from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
@@ -71,7 +84,7 @@ class TestConstructorInjection:
     injection instead of depending on concrete implementations.
 
     WHO: Scorer, DecisionRecorder, Indexer, EvalRunner, PipelineRunner
-         -- all domain classes that use VectorStore or Embedder.
+         -- all domain classes that use ChromaDBStore or OllamaEmbedder.
     WHAT: (1) Scorer.__init__ accepts store: VectorStorePort and
               embedder: EmbeddingPort.
           (2) DecisionRecorder.__init__ accepts store: VectorStorePort
@@ -81,8 +94,8 @@ class TestConstructorInjection:
           (4) EvalRunner.__init__ accepts store: VectorStorePort.
           (5) PipelineRunner.__init__ accepts store: VectorStorePort and
               embedder: EmbeddingPort as keyword arguments.
-          (6) PipelineRunner.__init__ does NOT construct Embedder or
-              VectorStore internally.
+          (6) PipelineRunner.__init__ does NOT construct OllamaEmbedder or
+              ChromaDBStore internally.
     WHY: Constructor injection is the mechanism that makes port protocols
          useful. Without it, protocols are defined but never used for
          substitution.
@@ -285,7 +298,7 @@ class TestObservabilityGuards:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            embedder = Embedder(settings.ollama)
+            embedder = OllamaEmbedder(settings.ollama)
 
         runner = PipelineRunner(settings, store=store, embedder=embedder)
 
@@ -338,7 +351,7 @@ class TestObservabilityGuards:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            embedder = Embedder(settings.ollama)
+            embedder = OllamaEmbedder(settings.ollama)
 
         assert isinstance(embedder, MetricsProvider), (
             "Real Embedder should satisfy MetricsProvider"
@@ -485,19 +498,19 @@ class TestCreatePipelineFactory:
     a PipelineRunner with production infrastructure wiring.
 
     WHO: CLI handlers (handle_search, handle_index, handle_decide, etc.)
-         -- the only callers that need concrete Embedder and VectorStore.
+         -- the only callers that need concrete OllamaEmbedder and ChromaDBStore.
     WHAT: (1) create_pipeline(settings) returns a PipelineRunner.
-          (2) The returned runner's store is a VectorStore configured
+          (2) The returned runner's store is a ChromaDBStore configured
               from settings.chroma (persist_dir, distance_metric).
-          (3) The returned runner's embedder is an Embedder configured
+          (3) The returned runner's embedder is an OllamaEmbedder configured
               from settings.ollama.
     WHY: Centralizes production wiring in one function. CLI handlers call
          create_pipeline() instead of constructing infrastructure themselves.
          Tests bypass the factory entirely by injecting fakes.
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama I/O boundary for Embedder construction),
-               chromadb.PersistentClient (ChromaDB I/O boundary for VectorStore)
+        Mock:  ollama_sdk.AsyncClient (Ollama I/O boundary for OllamaEmbedder construction),
+               chromadb.PersistentClient (ChromaDB I/O boundary for ChromaDBStore)
         Real:  create_pipeline function, PipelineRunner, Settings
         Never: Mock PipelineRunner.__init__
     """
@@ -527,7 +540,7 @@ class TestCreatePipelineFactory:
         """
         Given Settings with chroma.persist_dir and chroma.distance_metric
         When create_pipeline(settings) is called
-        Then the runner's store is a VectorStore with matching configuration
+        Then the runner's store is a ChromaDBStore with matching configuration
         """
         # Given: settings with chroma config
         settings = _make_settings()
@@ -541,13 +554,15 @@ class TestCreatePipelineFactory:
 
         # Then: store is a VectorStore
         store = runner._store  # pyright: ignore[reportPrivateUsage]
-        assert isinstance(store, VectorStore), f"Expected VectorStore, got {type(store).__name__}"
+        assert isinstance(store, ChromaDBStore), (
+            f"Expected ChromaDBStore, got {type(store).__name__}"
+        )
 
     def test_create_pipeline_wires_embedder(self) -> None:
         """
         Given Settings with ollama config
         When create_pipeline(settings) is called
-        Then the runner's embedder is an Embedder configured from settings.ollama
+        Then the runner's embedder is an OllamaEmbedder configured from settings.ollama
         """
         # Given: settings with ollama config
         settings = _make_settings()
@@ -561,7 +576,145 @@ class TestCreatePipelineFactory:
 
         # Then: embedder is an Embedder
         embedder = runner._embedder  # pyright: ignore[reportPrivateUsage]
-        assert isinstance(embedder, Embedder), f"Expected Embedder, got {type(embedder).__name__}"
+        assert isinstance(embedder, OllamaEmbedder), (
+            f"Expected OllamaEmbedder, got {type(embedder).__name__}"
+        )
+
+
+class TestConfigDrivenPortResolution:
+    """
+    REQUIREMENT: _resolve() and _resolve_ports() provide config-driven
+    port resolution -- loading adapter classes at runtime via dotted
+    paths in the [ports] config section.
+
+    WHO: create_pipeline() -- the sole caller of _resolve_ports().
+    WHAT: (1) _resolve() imports a class by dotted path, calls
+              from_settings, and validates the result against the
+              requested port type.
+          (2) _resolve_ports() builds a PipelinePorts from the [ports]
+              config section.
+          (3) Invalid dotted paths raise ImportError.
+          (4) Classes missing from_settings raise TypeError.
+          (5) Classes producing the wrong port type raise TypeError.
+    WHY: Decouples the pipeline factory from concrete imports -- new
+         adapter implementations can be wired in via config alone.
+
+    MOCK BOUNDARY:
+        Mock:  ollama_sdk.AsyncClient (Ollama I/O boundary)
+        Real:  _resolve, _resolve_ports, OllamaEmbedder, ChromaDBStore,
+               Settings, PortsConfig
+        Never: Mock importlib internals
+    """
+
+    def test_resolve_valid_embedder(self) -> None:
+        """
+        Given a dotted path pointing to OllamaEmbedder
+        When _resolve is called with EmbeddingPort as port_type
+        Then it returns an OllamaEmbedder instance
+        """
+        settings = _make_settings()
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=AsyncMock(),
+        ):
+            result = _resolve(
+                "jobsearch_rag.rag.embedder.OllamaEmbedder",
+                EmbeddingPort,
+                settings,
+            )
+        assert isinstance(result, OllamaEmbedder)
+
+    def test_resolve_valid_store(self) -> None:
+        """
+        Given a dotted path pointing to ChromaDBStore
+        When _resolve is called with VectorStorePort as port_type
+        Then it returns a ChromaDBStore instance
+        """
+        settings = _make_settings()
+        result = _resolve(
+            "jobsearch_rag.rag.store.ChromaDBStore",
+            VectorStorePort,
+            settings,
+        )
+        assert isinstance(result, ChromaDBStore)
+
+    def test_resolve_ports_returns_pipeline_ports(self) -> None:
+        """
+        Given valid Settings with [ports] section
+        When _resolve_ports is called
+        Then it returns a PipelinePorts with the correct adapter types
+        """
+        settings = _make_settings()
+        with patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=AsyncMock(),
+        ):
+            ports = _resolve_ports(settings)
+        assert isinstance(ports, PipelinePorts)
+        assert isinstance(ports.embedder, OllamaEmbedder)
+        assert isinstance(ports.store, ChromaDBStore)
+
+    def test_resolve_invalid_dotted_path_no_module(self) -> None:
+        """
+        Given a dotted path with no module separator
+        When _resolve is called
+        Then it raises ImportError
+        """
+        settings = _make_settings()
+        with pytest.raises(ImportError, match="Invalid dotted path"):
+            _resolve("NoModuleSeparator", EmbeddingPort, settings)
+
+    def test_resolve_nonexistent_module(self) -> None:
+        """
+        Given a dotted path pointing to a module that does not exist
+        When _resolve is called
+        Then it raises ImportError
+        """
+        settings = _make_settings()
+        with pytest.raises(ImportError):
+            _resolve("nonexistent.module.ClassName", EmbeddingPort, settings)
+
+    def test_resolve_nonexistent_class(self) -> None:
+        """
+        Given a dotted path pointing to a valid module but nonexistent class
+        When _resolve is called
+        Then it raises ImportError
+        """
+        settings = _make_settings()
+        with pytest.raises(ImportError, match="has no attribute"):
+            _resolve(
+                "jobsearch_rag.rag.embedder.NonexistentClass",
+                EmbeddingPort,
+                settings,
+            )
+
+    def test_resolve_class_without_port_factory(self) -> None:
+        """
+        Given a dotted path pointing to a class that does not implement PortFactory
+        When _resolve is called
+        Then it raises TypeError
+        """
+        settings = _make_settings()
+        with pytest.raises(TypeError, match="does not implement PortFactory"):
+            _resolve(
+                "jobsearch_rag.config.Settings",
+                EmbeddingPort,
+                settings,
+            )
+
+    def test_resolve_wrong_port_type(self) -> None:
+        """
+        Given a dotted path to ChromaDBStore (a VectorStorePort)
+        When _resolve is called with EmbeddingPort as port_type
+        Then it raises TypeError with a descriptive message
+        """
+        settings = _make_settings()
+        with pytest.raises(TypeError, match="expected EmbeddingPort"):
+            _resolve(
+                "jobsearch_rag.rag.store.ChromaDBStore",
+                EmbeddingPort,
+                settings,
+            )
 
 
 # ---------------------------------------------------------------------------

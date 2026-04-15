@@ -21,7 +21,7 @@ from jobsearch_rag.export.jd_files import JDFileExporter
 from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.rescorer import load_jd_files
 from jobsearch_rag.rag.scorer import ScoreResult
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.conftest import adapter_override, make_mock_ollama_client
 
 if TYPE_CHECKING:
@@ -321,6 +321,10 @@ viewport_height = 900
 
 [adapters.browser_paths]
 msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+
+[ports]
+embedder = "jobsearch_rag.rag.embedder.OllamaEmbedder"
+vector_store = "jobsearch_rag.rag.store.ChromaDBStore"
 """)
 
     (config_dir / "role_archetypes.toml").write_text("""\
@@ -359,7 +363,7 @@ def _seed_decision(
     company: str = "Acme Corp",
 ) -> None:
     """Pre-populate the ChromaDB decisions collection with a test record."""
-    store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+    store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
     store.get_or_create_collection("decisions")
     store.add_documents(
         collection_name="decisions",

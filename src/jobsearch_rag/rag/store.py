@@ -19,7 +19,7 @@ Three collections serve distinct scoring purposes:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import chromadb
 
@@ -27,14 +27,17 @@ from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
 from jobsearch_rag.ports import GetResult, QueryResult
 
+if TYPE_CHECKING:
+    from jobsearch_rag.config import Settings
 
-class VectorStore:
+
+class ChromaDBStore:
     """
     Manages ChromaDB collections for resume, archetypes, and decisions.
 
     Usage::
 
-        store = VectorStore(persist_dir="./data/chroma_db")
+        store = ChromaDBStore(persist_dir="./data/chroma_db")
         store.get_or_create_collection("resume")
         store.add_documents("resume", ids=[...], documents=[...], embeddings=[...])
         results = store.query("resume", query_embedding=[...], n_results=5)
@@ -46,6 +49,14 @@ class VectorStore:
         self._distance_metric = distance_metric
         self._client = chromadb.PersistentClient(path=persist_dir)
         logger.debug("ChromaDB client initialized at %s", persist_dir)
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> ChromaDBStore:
+        """Construct from application :class:`Settings`."""
+        return cls(
+            persist_dir=settings.chroma.persist_dir,
+            distance_metric=settings.chroma.distance_metric,
+        )
 
     def close(self) -> None:
         """

@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 from jobsearch_rag.errors import ActionableError, ErrorType
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.store import ChromaDBStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,16 +55,16 @@ SAMPLE_EMBEDDINGS = [EMBED_1, EMBED_2, EMBED_3]
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
+def store() -> Iterator[ChromaDBStore]:
     """Create a VectorStore backed by a temporary directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = ChromaDBStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
 
 @pytest.fixture
-def populated_store(store: VectorStore) -> VectorStore:
+def populated_store(store: ChromaDBStore) -> ChromaDBStore:
     """A VectorStore with three documents already added to 'test_collection'."""
     store.add_documents(
         collection_name="test_collection",
@@ -101,7 +101,7 @@ class TestCollectionLifecycle:
         Never: Patch ChromaDB internals
     """
 
-    def test_get_or_create_returns_collection(self, store: VectorStore) -> None:
+    def test_get_or_create_returns_collection(self, store: ChromaDBStore) -> None:
         """
         GIVEN an empty store
         WHEN get_or_create_collection is called
@@ -113,7 +113,7 @@ class TestCollectionLifecycle:
         # Then: collection is returned
         assert collection is not None, "Should return a usable collection"
 
-    def test_get_or_create_is_idempotent(self, store: VectorStore) -> None:
+    def test_get_or_create_is_idempotent(self, store: ChromaDBStore) -> None:
         """
         GIVEN a collection already created
         WHEN get_or_create_collection is called again with the same name
@@ -128,7 +128,7 @@ class TestCollectionLifecycle:
         # Then: same collection returned
         assert c1.name == c2.name, "Should return the same collection, not a duplicate"
 
-    def test_new_collection_has_zero_documents(self, store: VectorStore) -> None:
+    def test_new_collection_has_zero_documents(self, store: ChromaDBStore) -> None:
         """
         GIVEN a freshly created collection
         WHEN collection_count is checked
@@ -140,7 +140,9 @@ class TestCollectionLifecycle:
         # Then: count is zero
         assert store.collection_count("empty") == 0, "New collection should have zero documents"
 
-    def test_collection_count_reflects_added_documents(self, populated_store: VectorStore) -> None:
+    def test_collection_count_reflects_added_documents(
+        self, populated_store: ChromaDBStore
+    ) -> None:
         """
         GIVEN a collection with 3 documents added
         WHEN collection_count is checked
@@ -151,7 +153,7 @@ class TestCollectionLifecycle:
             "Count should match number of added documents"
         )
 
-    def test_reset_drops_all_documents(self, populated_store: VectorStore) -> None:
+    def test_reset_drops_all_documents(self, populated_store: ChromaDBStore) -> None:
         """
         GIVEN a populated collection
         WHEN reset_collection is called
@@ -165,7 +167,7 @@ class TestCollectionLifecycle:
             "Reset should drop all documents"
         )
 
-    def test_reset_nonexistent_collection_does_not_raise(self, store: VectorStore) -> None:
+    def test_reset_nonexistent_collection_does_not_raise(self, store: ChromaDBStore) -> None:
         """
         GIVEN a collection name that doesn't exist
         WHEN reset_collection is called
@@ -198,7 +200,7 @@ class TestDocumentOperations:
         Never: Patch ChromaDB internals or embedding storage
     """
 
-    def test_documents_are_retrievable_by_id(self, populated_store: VectorStore) -> None:
+    def test_documents_are_retrievable_by_id(self, populated_store: ChromaDBStore) -> None:
         """
         GIVEN a populated collection
         WHEN get_documents is called with a specific ID
@@ -213,7 +215,7 @@ class TestDocumentOperations:
         assert doc is not None, "Document should not be None"
         assert "Staff Platform Architect" in doc, "Returned document should match the original"
 
-    def test_metadata_is_preserved(self, populated_store: VectorStore) -> None:
+    def test_metadata_is_preserved(self, populated_store: ChromaDBStore) -> None:
         """
         GIVEN a document added with metadata
         WHEN retrieved by ID
@@ -227,7 +229,7 @@ class TestDocumentOperations:
             "Metadata should be preserved on retrieval"
         )
 
-    def test_add_with_duplicate_id_updates_document(self, populated_store: VectorStore) -> None:
+    def test_add_with_duplicate_id_updates_document(self, populated_store: ChromaDBStore) -> None:
         """
         GIVEN a document already in the collection
         WHEN add_documents is called with the same ID
@@ -252,7 +254,7 @@ class TestDocumentOperations:
         assert "Updated" in doc, "Document text should be updated"
 
     def test_add_documents_with_mismatched_lengths_names_the_mismatch(
-        self, store: VectorStore
+        self, store: ChromaDBStore
     ) -> None:
         """
         GIVEN mismatched lengths between IDs and documents
@@ -299,7 +301,9 @@ class TestSimilarityQuery:
         Never: Patch ChromaDB query internals or distance functions
     """
 
-    def test_query_returns_most_similar_document_first(self, populated_store: VectorStore) -> None:
+    def test_query_returns_most_similar_document_first(
+        self, populated_store: ChromaDBStore
+    ) -> None:
         """
         GIVEN a populated collection with directional embeddings
         WHEN querying with an architect-like vector
@@ -315,7 +319,7 @@ class TestSimilarityQuery:
         # Then: doc-1 (architect) is most similar
         assert results.ids[0][0] == "doc-1", "Architect document should be most similar"
 
-    def test_query_returns_similarity_distances(self, populated_store: VectorStore) -> None:
+    def test_query_returns_similarity_distances(self, populated_store: ChromaDBStore) -> None:
         """
         GIVEN a populated collection
         WHEN a similarity query is run
@@ -333,7 +337,7 @@ class TestSimilarityQuery:
         assert len(distances) == 2, "Should return 2 distance values"
         assert all(isinstance(d, float) for d in distances), "Distances should be floats"
 
-    def test_n_results_limits_output(self, populated_store: VectorStore) -> None:
+    def test_n_results_limits_output(self, populated_store: ChromaDBStore) -> None:
         """
         GIVEN a collection with 3 documents
         WHEN querying with n_results=1
@@ -349,7 +353,7 @@ class TestSimilarityQuery:
         # Then: exactly 1 result
         assert len(results.ids[0]) == 1, "Should return exactly 1 result"
 
-    def test_query_empty_collection_returns_empty(self, store: VectorStore) -> None:
+    def test_query_empty_collection_returns_empty(self, store: ChromaDBStore) -> None:
         """
         GIVEN an empty collection
         WHEN a similarity query is run
@@ -368,7 +372,9 @@ class TestSimilarityQuery:
         # Then: empty results
         assert results.ids[0] == [], "Empty collection should return empty results"
 
-    def test_query_includes_document_text_and_metadata(self, populated_store: VectorStore) -> None:
+    def test_query_includes_document_text_and_metadata(
+        self, populated_store: ChromaDBStore
+    ) -> None:
         """
         GIVEN a populated collection
         WHEN a similarity query is run
@@ -410,7 +416,7 @@ class TestStoreErrors:
     """
 
     def test_query_nonexistent_collection_tells_operator_to_run_index(
-        self, store: VectorStore
+        self, store: ChromaDBStore
     ) -> None:
         """
         GIVEN a collection that doesn't exist
@@ -432,7 +438,9 @@ class TestStoreErrors:
         assert err.troubleshooting is not None, "Should include troubleshooting"
         assert len(err.troubleshooting.steps) > 0, "Troubleshooting should have steps"
 
-    def test_index_error_names_collection_and_provides_guidance(self, store: VectorStore) -> None:
+    def test_index_error_names_collection_and_provides_guidance(
+        self, store: ChromaDBStore
+    ) -> None:
         """
         GIVEN a nonexistent collection
         WHEN query is called
@@ -453,7 +461,7 @@ class TestStoreErrors:
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
     def test_get_documents_nonexistent_collection_provides_guidance(
-        self, store: VectorStore
+        self, store: ChromaDBStore
     ) -> None:
         """
         GIVEN a nonexistent collection
@@ -470,7 +478,7 @@ class TestStoreErrors:
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
-    def test_collection_count_nonexistent_provides_guidance(self, store: VectorStore) -> None:
+    def test_collection_count_nonexistent_provides_guidance(self, store: ChromaDBStore) -> None:
         """
         GIVEN a nonexistent collection
         WHEN collection_count is called
@@ -510,7 +518,7 @@ class TestMetadataQuery:
     """
 
     def test_get_by_metadata_returns_matching_documents(
-        self, populated_store: VectorStore
+        self, populated_store: ChromaDBStore
     ) -> None:
         """
         GIVEN a collection with mixed metadata values
@@ -544,7 +552,7 @@ class TestMetadataQuery:
         assert "fully on-site" in reasons, "Second reason should match"
 
     def test_get_by_metadata_returns_empty_when_no_match(
-        self, populated_store: VectorStore
+        self, populated_store: ChromaDBStore
     ) -> None:
         """
         GIVEN a collection with documents
@@ -571,7 +579,7 @@ class TestMetadataQuery:
         assert len(results.ids) == 0, "Should return no matching documents"
 
     def test_get_by_metadata_nonexistent_collection_raises_index_error(
-        self, store: VectorStore
+        self, store: ChromaDBStore
     ) -> None:
         """
         GIVEN a nonexistent collection

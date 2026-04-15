@@ -21,7 +21,7 @@ from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.decisions import DecisionRecorder
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.rag.store import ChromaDBStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,7 +69,7 @@ def _make_ranked(
 
 
 def _seed_decisions(
-    store: VectorStore,
+    store: ChromaDBStore,
     decided_ids: set[str],
 ) -> None:
     """Pre-populate the decisions collection so ``get_decision`` finds them."""
@@ -158,7 +158,7 @@ class TestInteractiveReview:
 
     def test_already_decided_listings_are_excluded(
         self,
-        vector_store: VectorStore,
+        vector_store: ChromaDBStore,
         decision_recorder: DecisionRecorder,
     ) -> None:
         """
@@ -478,7 +478,7 @@ class TestInteractiveReview:
 
     def test_no_undecided_listings_prints_message_and_exits(
         self,
-        vector_store: VectorStore,
+        vector_store: ChromaDBStore,
         decision_recorder: DecisionRecorder,
     ) -> None:
         """

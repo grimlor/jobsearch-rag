@@ -17,9 +17,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from jobsearch_rag.rag.decisions import DecisionRecorder
-from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.embedder import OllamaEmbedder
 from jobsearch_rag.rag.scorer import Scorer
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.conftest import make_mock_ollama_client, make_test_ollama_config
 from tests.constants import EMBED_FAKE
 
@@ -28,11 +28,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 # Public API surface (from src/jobsearch_rag/rag/scorer):
-#   Scorer(store: VectorStore, embedder: Embedder, disqualify_on_llm_flag: bool)
+#   Scorer(store: ChromaDBStore, embedder: EmbeddingPort, disqualify_on_llm_flag: bool)
 #   scorer.score(jd_text: str) -> ScoreResult
 #
 # Public API surface (from src/jobsearch_rag/rag/embedder):
-#   Embedder(base_url, embed_model, llm_model, ...)
+#   OllamaEmbedder(base_url, embed_model, llm_model, ...)
 #   embedder.embed(text: str) -> list[float]
 #   embedder.classify(prompt: str) -> str
 #   embedder.health_check() -> None
@@ -80,9 +80,9 @@ def _network_guard(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[
 
 
 @pytest.fixture
-def _store(tmp_path: Path) -> VectorStore:  # pyright: ignore[reportUnusedFunction]
-    """Real ChromaDB VectorStore backed by a per-test temp directory."""
-    store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+def _store(tmp_path: Path) -> ChromaDBStore:  # pyright: ignore[reportUnusedFunction]
+    """Real ChromaDB ChromaDBStore backed by a per-test temp directory."""
+    store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
     # Pre-create and seed collections the scorer requires
     for name in ("resume", "role_archetypes", "decisions"):
         store.get_or_create_collection(name)
@@ -111,7 +111,7 @@ def _mock_ollama_client() -> AsyncMock:  # pyright: ignore[reportUnusedFunction]
     Stubbed ``ollama.AsyncClient`` -- the I/O boundary.
 
     Returns realistic response objects for ``embed`` and ``chat`` so that
-    all Embedder logic (retry, truncation, metrics, token counting) runs
+    all OllamaEmbedder logic (retry, truncation, metrics, token counting) runs
     for real.  Only the final HTTP call is replaced.
     """
     return make_mock_ollama_client(
@@ -122,27 +122,27 @@ def _mock_ollama_client() -> AsyncMock:  # pyright: ignore[reportUnusedFunction]
 @pytest.fixture
 def _embedder(  # pyright: ignore[reportUnusedFunction]
     _mock_ollama_client: AsyncMock,
-) -> Embedder:
+) -> OllamaEmbedder:
     """
-    Real Embedder instance with the ollama client stubbed at the I/O boundary.
+    Real OllamaEmbedder instance with the ollama client stubbed at the I/O boundary.
 
-    Patches ``ollama_sdk.AsyncClient`` at import time so ``Embedder.__init__``
-    receives the mock.  All Embedder logic -- retry, truncation, metrics,
+    Patches ``ollama_sdk.AsyncClient`` at import time so ``OllamaEmbedder.__init__``
+    receives the mock.  All OllamaEmbedder logic -- retry, truncation, metrics,
     token counting -- runs for real.
     """
     with patch(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=_mock_ollama_client,
     ):
-        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
+        return OllamaEmbedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
 
 @pytest.fixture
 def _scorer(  # pyright: ignore[reportUnusedFunction]
-    _store: VectorStore,
-    _embedder: Embedder,
+    _store: ChromaDBStore,
+    _embedder: OllamaEmbedder,
 ) -> Scorer:
-    """Real Scorer wired to real ChromaDB and stubbed Embedder."""
+    """Real Scorer wired to real ChromaDB and stubbed OllamaEmbedder."""
     return Scorer(
         store=_store,
         embedder=_embedder,
@@ -156,11 +156,11 @@ def _scorer(  # pyright: ignore[reportUnusedFunction]
 
 @pytest.fixture
 def _recorder(  # pyright: ignore[reportUnusedFunction]
-    _store: VectorStore,
-    _embedder: Embedder,
+    _store: ChromaDBStore,
+    _embedder: OllamaEmbedder,
     tmp_path: Path,
 ) -> DecisionRecorder:
-    """Real DecisionRecorder wired to real ChromaDB and stubbed Embedder."""
+    """Real DecisionRecorder wired to real ChromaDB and stubbed OllamaEmbedder."""
     return DecisionRecorder(
         store=_store,
         embedder=_embedder,
@@ -190,7 +190,7 @@ class TestPrivacyGuarantee:
     WHO: The operator who chose this tool specifically because it
          does not send personal data to external services
     WHAT: (1) During a complete scoring pipeline run covering Scorer,
-              Embedder, and VectorStore, the system makes no network
+              OllamaEmbedder, and ChromaDBStore, the system makes no network
               calls to any host other than localhost.
           (2) The system does not send any JD text, resume text, or
               scoring data to external servers during the pipeline run.
@@ -202,9 +202,9 @@ class TestPrivacyGuarantee:
         Mock:  ``patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient")``
                via ``_mock_ollama_client`` fixture; ``socket.create_connection``
                monkeypatched to reject non-localhost connections
-        Real:  Embedder (embed, classify, retry, truncation, metrics),
-               Scorer, DecisionRecorder, ChromaDB via VectorStore (all local)
-        Never: Replace Embedder.embed() or classify() -- the point is to
+        Real:  OllamaEmbedder (embed, classify, retry, truncation, metrics),
+               Scorer, DecisionRecorder, ChromaDB via ChromaDBStore (all local)
+        Never: Replace OllamaEmbedder.embed() or classify() -- the point is to
                verify the full call chain from public API to I/O boundary
     """
 
@@ -215,7 +215,7 @@ class TestPrivacyGuarantee:
         _scorer: Scorer,
     ) -> None:
         """
-        Given a complete pipeline run with Scorer, Embedder, and VectorStore
+        Given a complete pipeline run with Scorer, OllamaEmbedder, and ChromaDBStore
         When all outbound connections to non-localhost hosts are intercepted
         Then no such calls are made during scoring
         And the pipeline completes without error.

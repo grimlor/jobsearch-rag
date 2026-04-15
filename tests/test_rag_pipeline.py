@@ -23,10 +23,10 @@ import pytest
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
-from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.embedder import OllamaEmbedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.conftest import make_test_ollama_config
 from tests.constants import EMBED_FAKE
 
@@ -34,20 +34,20 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
-# mock_embedder is provided by conftest.py (Embedder.__new__ + stubbed I/O)
+# mock_embedder is provided by conftest.py (OllamaEmbedder.__new__ + stubbed I/O)
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
+def store() -> Iterator[ChromaDBStore]:
     """Yield a temporary VectorStore for test isolation."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = ChromaDBStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
 
 @pytest.fixture
-def indexer(store: VectorStore, mock_embedder: Embedder) -> Indexer:
+def indexer(store: ChromaDBStore, mock_embedder: OllamaEmbedder) -> Indexer:
     """Return an Indexer wired to the temporary store and mock embedder."""
     return Indexer(store=store, embedder=mock_embedder)
 
@@ -73,18 +73,18 @@ class TestOllamaConnectivity:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (for wrong-model and retry tests)
-        Real:  Embedder.health_check, Embedder.embed, error classification
-        Never: Patch the Embedder error-handling logic itself
+        Real:  OllamaEmbedder.health_check, OllamaEmbedder.embed, error classification
+        Never: Patch the OllamaEmbedder error-handling logic itself
     """
 
     async def test_unreachable_ollama_provides_url_and_connectivity_steps(self) -> None:
         """
-        Given an Embedder configured with an unreachable Ollama URL
+        Given an OllamaEmbedder configured with an unreachable Ollama URL
         When health_check() is called
         Then a CONNECTION error naming the URL with troubleshooting steps is raised.
         """
         # Given: unreachable URL
-        embedder = Embedder(make_test_ollama_config(base_url="http://localhost:59999"))
+        embedder = OllamaEmbedder(make_test_ollama_config(base_url="http://localhost:59999"))
 
         # When/Then: raises CONNECTION error
         with pytest.raises(ActionableError) as exc_info:
@@ -102,12 +102,12 @@ class TestOllamaConnectivity:
 
     async def test_startup_check_runs_before_browser_session_opens(self) -> None:
         """
-        Given an Embedder with an unreachable Ollama URL
+        Given an OllamaEmbedder with an unreachable Ollama URL
         When health_check() is called at startup
         Then a CONNECTION error with actionable guidance is raised before any browser work.
         """
         # Given: unreachable URL
-        embedder = Embedder(make_test_ollama_config(base_url="http://localhost:59999"))
+        embedder = OllamaEmbedder(make_test_ollama_config(base_url="http://localhost:59999"))
 
         # When/Then: raises CONNECTION error
         with pytest.raises(ActionableError) as exc_info:
@@ -125,7 +125,7 @@ class TestOllamaConnectivity:
         self,
     ) -> None:
         """
-        Given an Embedder with a model name not in Ollama's model list
+        Given an OllamaEmbedder with a model name not in Ollama's model list
         When health_check() is called
         Then an EMBEDDING error suggesting 'ollama pull' is raised.
         """
@@ -136,7 +136,7 @@ class TestOllamaConnectivity:
         mock_client.list = AsyncMock(return_value=mock_response)
 
         with patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client):
-            embedder = Embedder(
+            embedder = OllamaEmbedder(
                 make_test_ollama_config(
                     embed_model="nonexistent-model-xyz",
                     llm_model="also-nonexistent",
@@ -179,7 +179,7 @@ class TestOllamaConnectivity:
         mock_client.embed = _mock_embed
 
         with patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client):
-            embedder = Embedder(make_test_ollama_config(max_retries=3, base_delay=0.01))
+            embedder = OllamaEmbedder(make_test_ollama_config(max_retries=3, base_delay=0.01))
 
             # When: embed with retries
             result = await embedder.embed("test text")
@@ -203,7 +203,7 @@ class TestOllamaConnectivity:
         mock_client.embed = _always_fail
 
         with patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client):
-            embedder = Embedder(make_test_ollama_config(max_retries=2, base_delay=0.01))
+            embedder = OllamaEmbedder(make_test_ollama_config(max_retries=2, base_delay=0.01))
 
             # When/Then: raises EMBEDDING error
             with pytest.raises(ActionableError) as exc_info:
@@ -239,13 +239,13 @@ class TestResumeIndexing:
          roles -- a harder bug to catch than an explicit missing-index error
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API via conftest mock_embedder)
+        Mock:  OllamaEmbedder.embed (Ollama HTTP API via conftest mock_embedder)
         Real:  Indexer.index_resume, VectorStore (real temp dir), Scorer
         Never: Patch VectorStore internals or chunking logic
     """
 
     async def test_empty_resume_collection_tells_operator_to_run_index_command(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: ChromaDBStore, mock_embedder: OllamaEmbedder
     ) -> None:
         """
         Given an empty resume collection in ChromaDB
@@ -275,7 +275,7 @@ class TestResumeIndexing:
         assert len(err.troubleshooting.steps) > 0, "Should have troubleshooting steps"
 
     async def test_missing_collection_error_provides_step_by_step_setup_guidance(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: ChromaDBStore, mock_embedder: OllamaEmbedder
     ) -> None:
         """
         Given no resume collection in ChromaDB
@@ -305,7 +305,7 @@ class TestResumeIndexing:
         assert len(err.troubleshooting.steps) > 0, "Should have troubleshooting steps"
 
     async def test_resume_is_chunked_by_section_heading(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given a resume with three ## sections
@@ -347,7 +347,7 @@ Python, distributed systems, cloud platforms.
             assert expected in doc, f"Chunk {idx} should contain '{expected}'"
 
     async def test_each_chunk_contains_at_least_one_complete_sentence(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given a resume with multi-sentence sections
@@ -380,7 +380,7 @@ Led teams. Built platforms.
             assert "." in text, f"Chunk {doc_id} lacks complete sentence: {body!r}"
 
     async def test_reindex_replaces_previous_resume_content_not_appends(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given a resume already indexed
@@ -457,13 +457,13 @@ class TestArchetypeIndexing:
          the most insidious failure mode since ranking still appears to work
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API via conftest mock_embedder)
+        Mock:  OllamaEmbedder.embed (Ollama HTTP API via conftest mock_embedder)
         Real:  Indexer.index_archetypes, TOML parsing, VectorStore (real temp dir)
         Never: Patch TOML parsing or VectorStore internals
     """
 
     async def test_each_toml_archetype_produces_one_chroma_document(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given a TOML file with two archetypes
@@ -494,7 +494,7 @@ description = "Developer relations."
         )
 
     async def test_archetype_name_is_stored_as_document_metadata(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given an indexed archetype
@@ -574,7 +574,7 @@ description = "Defines tech strategy."
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
     async def test_archetype_description_whitespace_is_normalized_before_embedding(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given an archetype with excessive whitespace in its description
@@ -625,13 +625,13 @@ class TestNegativeScoring:
          entirely hidden; the negative_score provides continuous penalization
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API via conftest mock_embedder)
+        Mock:  OllamaEmbedder.embed (Ollama HTTP API via conftest mock_embedder)
         Real:  Scorer.score, VectorStore (real temp dir with pre-populated data)
         Never: Patch Scorer internals or distance-to-score conversion
     """
 
     async def test_negative_score_is_zero_when_collection_missing(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: ChromaDBStore, mock_embedder: OllamaEmbedder
     ) -> None:
         """
         Given a VectorStore with resume and archetypes but no negative_signals collection
@@ -672,7 +672,7 @@ class TestNegativeScoring:
         )
 
     async def test_negative_score_is_zero_when_collection_empty(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: ChromaDBStore, mock_embedder: OllamaEmbedder
     ) -> None:
         """
         Given a VectorStore with an empty negative_signals collection
@@ -714,7 +714,7 @@ class TestNegativeScoring:
         )
 
     async def test_negative_score_returned_in_score_result(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: ChromaDBStore, mock_embedder: OllamaEmbedder
     ) -> None:
         """
         Given a VectorStore with populated negative_signals
@@ -791,13 +791,13 @@ class TestGlobalPositiveSignalIndexing:
          scoring axes independent
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API via conftest mock_embedder)
+        Mock:  OllamaEmbedder.embed (Ollama HTTP API via conftest mock_embedder)
         Real:  Indexer.index_global_positive_signals, TOML parsing, VectorStore
         Never: Patch TOML parsing or VectorStore internals
     """
 
     async def test_one_document_per_rubric_dimension_with_positive_signals(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given a rubric TOML with two dimensions that have signals_positive
@@ -830,7 +830,7 @@ signals_negative = ["60-hour weeks"]
         )
 
     async def test_document_metadata_identifies_source_dimension(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given an indexed rubric dimension with signals_positive
@@ -860,7 +860,7 @@ signals_positive = ["strategic thinking", "cross-org influence"]
         )
 
     async def test_reindex_replaces_global_positive_collection_not_appends(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given an already-indexed global positive collection
@@ -890,7 +890,7 @@ signals_positive = ["strategic"]
         )
 
     async def test_dimension_without_signals_positive_produces_no_document(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given a rubric dimension with only signals_negative (no signals_positive)
@@ -931,7 +931,7 @@ signals_negative = ["equity-only compensation"]
         )
 
     async def test_archetypes_only_flag_rebuilds_global_positive_collection(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given a rubric TOML with a dimension having signals_positive
@@ -955,7 +955,7 @@ signals_positive = ["strategic vision"]
         assert n >= 1, "Global positive signals should be indexed during --archetypes-only"
 
     async def test_global_positive_collection_count_matches_contributing_dimensions(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given a rubric with 2 positive and 1 negative-only dimension
@@ -990,7 +990,7 @@ signals_negative = ["equity-only"]
         )
 
     async def test_compensation_dimension_produces_no_positive_document(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: ChromaDBStore
     ) -> None:
         """
         Given a dimension with only signals_negative (e.g., Compensation Red Flags)
@@ -1068,14 +1068,14 @@ class TestCultureScoring:
          answers "right kind of environment."
 
     MOCK BOUNDARY:
-        Mock:  Embedder.embed (Ollama HTTP API via conftest mock_embedder)
+        Mock:  OllamaEmbedder.embed (Ollama HTTP API via conftest mock_embedder)
         Real:  Scorer.score, Ranker.compute_final_score, VectorStore,
                RankedListing.score_explanation
         Never: Patch Scorer or Ranker internals
     """
 
     async def test_missing_global_positive_collection_returns_zero_not_error(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: ChromaDBStore, mock_embedder: OllamaEmbedder
     ) -> None:
         """
         Given a VectorStore without a global_positive_signals collection
@@ -1116,7 +1116,7 @@ class TestCultureScoring:
         )
 
     async def test_culture_score_is_float_between_zero_and_one(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: ChromaDBStore, mock_embedder: OllamaEmbedder
     ) -> None:
         """
         Given a VectorStore with populated global_positive_signals
@@ -1167,7 +1167,7 @@ class TestCultureScoring:
         )
 
     async def test_culture_score_returned_in_score_result(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: ChromaDBStore, mock_embedder: OllamaEmbedder
     ) -> None:
         """
         Given a VectorStore with required collections
@@ -1313,7 +1313,7 @@ class TestCultureScoring:
         )
 
     async def test_empty_global_positive_collection_returns_zero_culture_score(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: ChromaDBStore, mock_embedder: OllamaEmbedder
     ) -> None:
         """
         Given an empty global_positive_signals collection

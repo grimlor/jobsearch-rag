@@ -18,6 +18,7 @@ specialized components (adapters, scorer, ranker, exporters).
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import os
 import statistics
@@ -36,7 +37,14 @@ from jobsearch_rag.adapters.session import (
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import configure_session_logging, log_event, session_logger
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker, RankSummary
-from jobsearch_rag.ports import EmbeddingPort, HealthCheckable, MetricsProvider, VectorStorePort
+from jobsearch_rag.ports import (
+    EmbeddingPort,
+    HealthCheckable,
+    MetricsProvider,
+    PipelinePorts,
+    PortFactory,
+    VectorStorePort,
+)
 from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.indexer import Indexer
@@ -657,21 +665,52 @@ class PipelineRunner:
 # ============================================================================
 
 
+def _resolve(dotted_path: str, port_type: type, settings: Settings) -> PortFactory:
+    """
+    Import a class by dotted path and build it via ``from_settings``.
+
+    Raises :class:`ImportError` if the module/class cannot be found and
+    :class:`TypeError` if the resolved class does not satisfy
+    :class:`PortFactory` or the requested *port_type*.
+    """
+    module_path, _, class_name = dotted_path.rpartition(".")
+    if not module_path:
+        msg = f"Invalid dotted path (no module): {dotted_path!r}"
+        raise ImportError(msg)
+
+    module = importlib.import_module(module_path)
+    cls = getattr(module, class_name, None)
+    if cls is None:
+        msg = f"Module {module_path!r} has no attribute {class_name!r}"
+        raise ImportError(msg)
+
+    if not isinstance(cls, type) or not issubclass(cls, PortFactory):
+        msg = f"{dotted_path!r} does not implement PortFactory"
+        raise TypeError(msg)
+
+    instance = cls.from_settings(settings)
+    if not isinstance(instance, port_type):
+        msg = f"{dotted_path!r} produced {type(instance).__name__}, expected {port_type.__name__}"
+        raise TypeError(msg)
+    return instance
+
+
+def _resolve_ports(settings: Settings) -> PipelinePorts:
+    """Build a :class:`PipelinePorts` from the ``[ports]`` config section."""
+    embedder = _resolve(settings.ports.embedder, EmbeddingPort, settings)
+    store = _resolve(settings.ports.vector_store, VectorStorePort, settings)
+    return PipelinePorts(embedder=embedder, store=store)  # type: ignore[arg-type]
+
+
 def create_pipeline(settings: Settings) -> PipelineRunner:
     """
     Construct a :class:`PipelineRunner` with production infrastructure.
 
-    Centralizes the wiring of concrete ``Embedder`` and ``VectorStore``
-    so that CLI handlers only need ``create_pipeline(settings)`` and
+    Reads the ``[ports]`` config section to resolve concrete
+    ``EmbeddingPort`` and ``VectorStorePort`` implementations at
+    runtime, so callers only need ``create_pipeline(settings)`` and
     tests can bypass this entirely by injecting fakes via the
     ``PipelineRunner`` constructor.
     """
-    from jobsearch_rag.rag.embedder import Embedder  # noqa: PLC0415
-    from jobsearch_rag.rag.store import VectorStore  # noqa: PLC0415
-
-    embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-    )
-    return PipelineRunner(settings, store=store, embedder=embedder)
+    ports = _resolve_ports(settings)
+    return PipelineRunner(settings, store=ports.store, embedder=ports.embedder)

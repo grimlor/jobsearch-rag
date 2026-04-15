@@ -129,3 +129,7 @@ viewport_height = 900
 msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
 chrome = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
 chromium = ["/Applications/Chromium.app/Contents/MacOS/Chromium"]
+
+[ports]
+embedder = "jobsearch_rag.rag.embedder.OllamaEmbedder"
+vector_store = "jobsearch_rag.rag.store.ChromaDBStore"

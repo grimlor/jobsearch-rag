@@ -9,7 +9,7 @@ Public API surface (from tests/fakes):
     FakeEmbedder(embed_vector=..., classify_response=...)
 
 Public API surface (from src/jobsearch_rag/rag/store):
-    VectorStore(persist_dir: str, distance_metric: str)
+    ChromaDBStore(persist_dir: str, distance_metric: str)
     store.add_documents(collection_name, *, ids, documents, embeddings, metadatas=None)
     store.query(collection_name, *, query_embedding, n_results) -> QueryResult
     store.get_documents(collection_name, *, ids) -> GetResult
@@ -26,7 +26,7 @@ Public API surface (from src/jobsearch_rag/ports):
     GetResult -- dataclass
 
 Public API surface (from src/jobsearch_rag/rag/embedder):
-    Embedder(ollama_config) -- concrete EmbeddingPort impl
+    OllamaEmbedder(ollama_config) -- concrete EmbeddingPort impl
 """
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from jobsearch_rag.ports import EmbeddingPort
-from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.embedder import OllamaEmbedder
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
@@ -61,10 +61,10 @@ VEC_C = [0.7, 0.2, 0.3, 0.0, 0.4]
 
 
 @pytest.fixture
-def real_store() -> Iterator[VectorStore]:
-    """Real ChromaDB-backed VectorStore in a temp directory."""
+def real_store() -> Iterator[ChromaDBStore]:
+    """Real ChromaDB-backed ChromaDBStore in a temp directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = ChromaDBStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
@@ -78,9 +78,9 @@ def in_memory_store() -> InMemoryVectorStore:
 @pytest.fixture(params=["real", "in_memory"])
 def store_impl(
     request: pytest.FixtureRequest,
-    real_store: VectorStore,
+    real_store: ChromaDBStore,
     in_memory_store: InMemoryVectorStore,
-) -> VectorStore | InMemoryVectorStore:
+) -> ChromaDBStore | InMemoryVectorStore:
     """Parameterized fixture yielding each VectorStorePort implementation."""
     if request.param == "real":
         return real_store
@@ -91,7 +91,7 @@ def store_impl(
 def embedder_impl(request: pytest.FixtureRequest) -> object:
     """Parameterized fixture yielding each EmbeddingPort implementation."""
     if request.param == "real_embedder":
-        # Construct a real Embedder with mocked ollama client
+        # Construct a real OllamaEmbedder with mocked ollama client
         mock_config = MagicMock()
         mock_config.model = "test-model"
         mock_config.base_url = "http://localhost:11434"
@@ -99,7 +99,7 @@ def embedder_impl(request: pytest.FixtureRequest) -> object:
         mock_config.max_embed_chars = 8000
         mock_config.disqualifier_prompt = "test"
         mock_config.screen_prompt = "test"
-        embedder = Embedder(mock_config)
+        embedder = OllamaEmbedder(mock_config)
         embedder._client = AsyncMock()  # pyright: ignore[reportPrivateUsage]  # I/O boundary mock for contract test
         return embedder
     return FakeEmbedder()
@@ -123,20 +123,20 @@ class TestPortConformance:
           (3) VectorStorePort implementations filter by metadata correctly.
           (4) VectorStorePort implementations delete documents by ID.
           (5) VectorStorePort implementations reset collections to empty.
-          (6) Embedder and FakeEmbedder both satisfy EmbeddingPort
+          (6) OllamaEmbedder and FakeEmbedder both satisfy EmbeddingPort
               isinstance checks.
     WHY: Fakes that diverge from real implementations silently weaken
          the test suite. Contract tests ensure substitutability.
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (for real Embedder construction only)
-        Real:  VectorStore (ChromaDB temp dir), InMemoryVectorStore,
-               Embedder, FakeEmbedder
+        Mock:  ollama_sdk.AsyncClient (for real OllamaEmbedder construction only)
+        Real:  ChromaDBStore (ChromaDB temp dir), InMemoryVectorStore,
+               OllamaEmbedder, FakeEmbedder
         Never: Mock the contract test assertions themselves
     """
 
     def test_vector_store_contract_add_get_roundtrip(
-        self, store_impl: VectorStore | InMemoryVectorStore
+        self, store_impl: ChromaDBStore | InMemoryVectorStore
     ) -> None:
         """
         Given a VectorStorePort implementation (parameterized)
@@ -160,7 +160,7 @@ class TestPortConformance:
         assert len(result.documents) == 2, f"Expected 2 documents, got {len(result.documents)}"
 
     def test_vector_store_contract_query_ranking(
-        self, store_impl: VectorStore | InMemoryVectorStore
+        self, store_impl: ChromaDBStore | InMemoryVectorStore
     ) -> None:
         """
         Given a VectorStorePort implementation with documents at different angles
@@ -188,7 +188,7 @@ class TestPortConformance:
         )
 
     def test_vector_store_contract_metadata_filter(
-        self, store_impl: VectorStore | InMemoryVectorStore
+        self, store_impl: ChromaDBStore | InMemoryVectorStore
     ) -> None:
         """
         Given a VectorStorePort implementation with varied metadata
@@ -212,7 +212,7 @@ class TestPortConformance:
         assert set(result.ids) == {"d1", "d3"}, f"Expected d1, d3; got {result.ids}"
 
     def test_vector_store_contract_delete(
-        self, store_impl: VectorStore | InMemoryVectorStore
+        self, store_impl: ChromaDBStore | InMemoryVectorStore
     ) -> None:
         """
         Given a VectorStorePort implementation with documents
@@ -236,7 +236,7 @@ class TestPortConformance:
         )
 
     def test_vector_store_contract_reset(
-        self, store_impl: VectorStore | InMemoryVectorStore
+        self, store_impl: ChromaDBStore | InMemoryVectorStore
     ) -> None:
         """
         Given a VectorStorePort implementation with documents

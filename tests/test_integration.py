@@ -72,10 +72,10 @@ from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.pipeline.rescorer import Rescorer
 from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
 from jobsearch_rag.rag.decisions import DecisionRecorder
-from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.embedder import OllamaEmbedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.store import ChromaDBStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -118,16 +118,16 @@ def _make_integration_ollama_config(**overrides: object) -> OllamaConfig:
 
 
 @pytest.fixture
-def embedder() -> Embedder:
+def embedder() -> OllamaEmbedder:
     """A real Embedder pointed at localhost Ollama."""
-    return Embedder(_make_integration_ollama_config())
+    return OllamaEmbedder(_make_integration_ollama_config())
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
+def store() -> Iterator[ChromaDBStore]:
     """A VectorStore backed by a temporary directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = ChromaDBStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
@@ -202,7 +202,7 @@ class TestOllamaContract:
     """
 
     async def test_embed_returns_float_list_with_consistent_dimensions(
-        self, embedder: Embedder
+        self, embedder: OllamaEmbedder
     ) -> None:
         """
         GIVEN two different text inputs
@@ -219,7 +219,7 @@ class TestOllamaContract:
         assert all(isinstance(v, float) for v in vec1), "All elements should be floats"
         assert len(vec1) == len(vec2), f"Embedding dimensions differ: {len(vec1)} vs {len(vec2)}"
 
-    async def test_embed_vector_is_not_all_zeros(self, embedder: Embedder) -> None:
+    async def test_embed_vector_is_not_all_zeros(self, embedder: OllamaEmbedder) -> None:
         """
         GIVEN a meaningful text input
         WHEN embed() is called
@@ -231,7 +231,7 @@ class TestOllamaContract:
         # Then: not a zero vector
         assert any(v != 0.0 for v in vec), "Embedding should carry semantic information"
 
-    async def test_classify_returns_string(self, embedder: Embedder) -> None:
+    async def test_classify_returns_string(self, embedder: OllamaEmbedder) -> None:
         """
         GIVEN a simple classification prompt
         WHEN classify() is called
@@ -244,7 +244,9 @@ class TestOllamaContract:
         assert isinstance(result, str), f"Expected str, got {type(result)}"
         assert len(result) > 0, "Classification result should not be empty"
 
-    async def test_health_check_passes_with_required_models(self, embedder: Embedder) -> None:
+    async def test_health_check_passes_with_required_models(
+        self, embedder: OllamaEmbedder
+    ) -> None:
         """
         GIVEN an Ollama instance with required models pulled
         WHEN health_check() is called
@@ -260,7 +262,7 @@ class TestOllamaContract:
         THEN an EMBEDDING error with 'ollama pull' guidance is raised.
         """
         # Given: embedder with nonexistent model
-        embedder = Embedder(
+        embedder = OllamaEmbedder(
             _make_integration_ollama_config(embed_model="does-not-exist-model-xyz")
         )
 
@@ -285,7 +287,7 @@ class TestOllamaContract:
         THEN an EMBEDDING error with recovery guidance is raised.
         """
         # Given: embedder with nonexistent model
-        embedder = Embedder(
+        embedder = OllamaEmbedder(
             _make_integration_ollama_config(
                 embed_model="nonexistent-model-abc",
                 max_retries=1,
@@ -305,7 +307,7 @@ class TestOllamaContract:
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
-    async def test_similar_texts_produce_closer_embeddings(self, embedder: Embedder) -> None:
+    async def test_similar_texts_produce_closer_embeddings(self, embedder: OllamaEmbedder) -> None:
         """
         GIVEN three texts: one query, one semantically similar, one unrelated
         WHEN all three are embedded
@@ -360,7 +362,7 @@ class TestChromaDBContract:
     """
 
     async def test_identical_documents_have_near_zero_distance(
-        self, store: VectorStore, embedder: Embedder
+        self, store: ChromaDBStore, embedder: OllamaEmbedder
     ) -> None:
         """
         GIVEN a document indexed with its embedding
@@ -392,7 +394,7 @@ class TestChromaDBContract:
         )
 
     async def test_dissimilar_documents_have_higher_distance(
-        self, store: VectorStore, embedder: Embedder
+        self, store: ChromaDBStore, embedder: OllamaEmbedder
     ) -> None:
         """
         GIVEN an architecture doc and a cooking doc indexed together
@@ -429,7 +431,7 @@ class TestChromaDBContract:
         )
 
     async def test_query_results_contain_expected_keys(
-        self, store: VectorStore, embedder: Embedder
+        self, store: ChromaDBStore, embedder: OllamaEmbedder
     ) -> None:
         """
         GIVEN a document indexed with metadata
@@ -461,7 +463,7 @@ class TestChromaDBContract:
         assert isinstance(results.ids[0], list), "ids[0] should be a list"
         assert isinstance(results.distances[0], list), "distances[0] should be a list"
 
-    async def test_persistence_survives_client_restart(self, embedder: Embedder) -> None:
+    async def test_persistence_survives_client_restart(self, embedder: OllamaEmbedder) -> None:
         """
         GIVEN data indexed by one VectorStore client
         WHEN a new VectorStore client opens the same directory
@@ -469,7 +471,7 @@ class TestChromaDBContract:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: index with first client
-            store1 = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            store1 = ChromaDBStore(persist_dir=tmpdir, distance_metric="cosine")
             embedding = await embedder.embed("persistence test")
             store1.add_documents(
                 collection_name="test_persist",
@@ -481,7 +483,7 @@ class TestChromaDBContract:
             store1.close()
 
             # When: create new client against same directory
-            store2 = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            store2 = ChromaDBStore(persist_dir=tmpdir, distance_metric="cosine")
             count_after = store2.collection_count("test_persist")
 
             # Then: data persisted
@@ -523,8 +525,8 @@ class TestEndToEndScoring:
 
     async def test_index_and_score_produces_valid_result(
         self,
-        store: VectorStore,
-        embedder: Embedder,
+        store: ChromaDBStore,
+        embedder: OllamaEmbedder,
         sample_resume: Path,
         sample_archetypes: Path,
     ) -> None:
@@ -565,8 +567,8 @@ class TestEndToEndScoring:
 
     async def test_matching_jd_scores_higher_than_unrelated(
         self,
-        store: VectorStore,
-        embedder: Embedder,
+        store: ChromaDBStore,
+        embedder: OllamaEmbedder,
         sample_resume: Path,
         sample_archetypes: Path,
     ) -> None:
@@ -611,8 +613,8 @@ class TestEndToEndScoring:
 
     async def test_disqualifier_produces_parseable_json(
         self,
-        store: VectorStore,
-        embedder: Embedder,
+        store: ChromaDBStore,
+        embedder: OllamaEmbedder,
         sample_resume: Path,
         sample_archetypes: Path,
     ) -> None:
@@ -654,8 +656,8 @@ class TestEndToEndScoring:
 
     async def test_index_with_real_resume_file(
         self,
-        store: VectorStore,
-        embedder: Embedder,
+        store: ChromaDBStore,
+        embedder: OllamaEmbedder,
     ) -> None:
         """
         GIVEN the actual project resume.md file
@@ -685,8 +687,8 @@ class TestEndToEndScoring:
 
     async def test_index_with_real_archetypes_file(
         self,
-        store: VectorStore,
-        embedder: Embedder,
+        store: ChromaDBStore,
+        embedder: OllamaEmbedder,
     ) -> None:
         """
         GIVEN the actual project role_archetypes.toml file
@@ -742,22 +744,22 @@ class TestLiveZipRecruiterPipeline:
     MIN_LISTINGS = 5
 
     @pytest.fixture
-    def live_embedder(self) -> Embedder:
+    def live_embedder(self) -> OllamaEmbedder:
         """A real Embedder for live pipeline tests."""
-        return Embedder(_make_integration_ollama_config())
+        return OllamaEmbedder(_make_integration_ollama_config())
 
     @pytest.fixture
-    def live_store(self) -> Iterator[VectorStore]:
+    def live_store(self) -> Iterator[ChromaDBStore]:
         """A VectorStore in a temp directory for live pipeline tests."""
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-            s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            s = ChromaDBStore(persist_dir=tmpdir, distance_metric="cosine")
             yield s
             s.close()
 
     async def test_live_search_score_rank_export(
         self,
-        live_store: VectorStore,
-        live_embedder: Embedder,
+        live_store: ChromaDBStore,
+        live_embedder: OllamaEmbedder,
         sample_resume: Path,
         sample_archetypes: Path,
         tmp_path: Path,
@@ -1114,8 +1116,8 @@ class TestIntegrationRescoreAccumulatedJDs:
     async def test_rescore_discovers_and_scores_all_seeded_jd_files(
         self,
         require_ollama: None,
-        store: VectorStore,
-        embedder: Embedder,
+        store: ChromaDBStore,
+        embedder: OllamaEmbedder,
         sample_resume: Path,
         sample_archetypes: Path,
         tmp_path: Path,
@@ -1190,8 +1192,8 @@ class TestIntegrationRescoreAccumulatedJDs:
     async def test_rescore_produces_sorted_csv_matching_jd_count(
         self,
         require_ollama: None,
-        store: VectorStore,
-        embedder: Embedder,
+        store: ChromaDBStore,
+        embedder: OllamaEmbedder,
         sample_resume: Path,
         sample_archetypes: Path,
         tmp_path: Path,
@@ -1751,13 +1753,13 @@ class TestLiveDecisionExclusionAcrossRuns:
         # non-overlapping PersistentClient instances see each other's
         # committed writes (WAL is flushed when the prior client closes).
         async def _record_decision() -> None:
-            store = VectorStore(
+            store = ChromaDBStore(
                 persist_dir=live_settings.chroma.persist_dir,
                 distance_metric=live_settings.chroma.distance_metric,
             )
             recorder = DecisionRecorder(
                 store=store,
-                embedder=Embedder(live_settings.ollama),
+                embedder=OllamaEmbedder(live_settings.ollama),
                 decisions_dir=live_settings.output.decisions_dir,
             )
             await recorder.record(

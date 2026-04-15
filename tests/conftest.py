@@ -6,7 +6,7 @@ This conftest provides:
 1. **Output guard** -- makes the real ``output/`` directory read-only so
    tests that forget to use ``tmp_path`` get an immediate ``PermissionError``.
 
-2. **Shared I/O-boundary fixtures** -- ``mock_embedder`` (real Embedder with
+2. **Shared I/O-boundary fixtures** -- ``mock_embedder`` (real OllamaEmbedder with
    ollama client stubbed at the I/O boundary), ``mock_ollama_client`` (the
    raw mock), ``vector_store`` (real ChromaDB backed by ``tmp_path``), and
    ``decision_recorder`` (real recorder wired to the above).  Individual
@@ -40,13 +40,14 @@ from jobsearch_rag.config import (
     CompBand,
     OllamaConfig,
     OutputConfig,
+    PortsConfig,
     ScoringConfig,
     SecurityConfig,
     Settings,
 )
 from jobsearch_rag.rag.decisions import DecisionRecorder
-from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.embedder import OllamaEmbedder
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.constants import EMBED_FAKE as EMBED_FAKE  # re-export for fixtures below
 
 if TYPE_CHECKING:
@@ -263,6 +264,10 @@ def make_test_settings(
             viewport_width=1440,
             viewport_height=900,
         ),
+        ports=PortsConfig(
+            embedder="jobsearch_rag.rag.embedder.OllamaEmbedder",
+            vector_store="jobsearch_rag.rag.store.ChromaDBStore",
+        ),
     )
 
 
@@ -279,7 +284,7 @@ def make_mock_ollama_client(
     Build a stubbed ``ollama.AsyncClient`` -- the I/O boundary.
 
     Returns realistic response objects for ``embed`` and ``chat`` so that
-    all Embedder logic (retry, truncation, metrics, token counting) runs
+    all OllamaEmbedder logic (retry, truncation, metrics, token counting) runs
     for real.  Only the final HTTP call is replaced.
 
     The ``embed_vector`` defaults to ``EMBED_FAKE`` if not provided.
@@ -326,36 +331,36 @@ def mock_ollama_client() -> AsyncMock:  # pyright: ignore[reportUnusedFunction]
 
 
 @pytest.fixture
-def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
+def mock_embedder(mock_ollama_client: AsyncMock) -> OllamaEmbedder:
     """
-    Real Embedder with ollama client stubbed at the I/O boundary.
+    Real OllamaEmbedder with ollama client stubbed at the I/O boundary.
 
-    All Embedder logic -- retry, truncation, metrics, token counting --
+    All OllamaEmbedder logic -- retry, truncation, metrics, token counting --
     runs for real.  Only the ollama HTTP call is replaced.
     """
     with patch(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=mock_ollama_client,
     ):
-        return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
+        return OllamaEmbedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
 
 @pytest.fixture
-def vector_store(tmp_path: Path) -> Iterator[VectorStore]:
-    """Real ChromaDB VectorStore backed by a per-test temp directory."""
-    store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+def vector_store(tmp_path: Path) -> Iterator[ChromaDBStore]:
+    """Real ChromaDB ChromaDBStore backed by a per-test temp directory."""
+    store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
     yield store
     store.close()
 
 
 @pytest.fixture
 def decision_recorder(
-    vector_store: VectorStore,
-    mock_embedder: Embedder,
+    vector_store: ChromaDBStore,
+    mock_embedder: OllamaEmbedder,
     tmp_path: Path,
 ) -> DecisionRecorder:
     """
-    Real DecisionRecorder with real ChromaDB and stubbed Embedder.
+    Real DecisionRecorder with real ChromaDB and stubbed OllamaEmbedder.
 
     The ``decisions`` collection is pre-created so ``get_decision``
     works even before the first ``record()`` call.

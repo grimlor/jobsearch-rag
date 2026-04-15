@@ -45,7 +45,7 @@ from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.review import ReviewSession
 from jobsearch_rag.rag.scorer import ScoreResult
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.store import ChromaDBStore
 from tests.conftest import adapter_override, make_mock_ollama_client
 
 # ---------------------------------------------------------------------------
@@ -153,6 +153,10 @@ viewport_height = 900
 
 [adapters.browser_paths]
 msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+
+[ports]
+embedder = "jobsearch_rag.rag.embedder.OllamaEmbedder"
+vector_store = "jobsearch_rag.rag.store.ChromaDBStore"
 
 resume_path = "data/resume.md"
 archetypes_path = "config/role_archetypes.toml"
@@ -396,7 +400,12 @@ viewport_width = 1440
 viewport_height = 900
 
 [adapters.browser_paths]
-{bp_lines}""")
+{bp_lines}
+
+[ports]
+embedder = "jobsearch_rag.rag.embedder.OllamaEmbedder"
+vector_store = "jobsearch_rag.rag.store.ChromaDBStore"
+""")
 
     (config_dir / "role_archetypes.toml").write_text("""\
 [[archetypes]]
@@ -442,7 +451,7 @@ def _seed_decision(
     in settings, so that ``handle_decide`` finds the record when it
     constructs its own VectorStore.
     """
-    store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+    store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
     store.get_or_create_collection("decisions")
     store.add_documents(
         collection_name="decisions",
@@ -1261,7 +1270,7 @@ class TestDecideCommand:
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
         # Create the decisions collection (empty)
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
         store.get_or_create_collection("decisions")
 
         # When/Then: handle_decide exits with error
@@ -1475,7 +1484,7 @@ class TestDecisionsCommand:
         # Given: real environment with empty decisions collection
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
         store.get_or_create_collection("decisions")
 
         # When: handle_decisions dispatches to show
@@ -1539,7 +1548,7 @@ class TestDecisionsCommand:
         # Given: real environment with empty decisions collection
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
         store.get_or_create_collection("decisions")
 
         # When: handle_decisions dispatches to remove
@@ -1571,7 +1580,7 @@ class TestDecisionsCommand:
         # Given: real environment with a decision that has a reason
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
         store.get_or_create_collection("decisions")
         store.add_documents(
             collection_name="decisions",
@@ -1650,7 +1659,7 @@ class TestDecisionsCommand:
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
         # Ensure decisions collection exists so dispatcher gets past setup
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
         store.get_or_create_collection("decisions")
 
         # When/Then: unknown subcommand exits
@@ -2442,7 +2451,7 @@ class TestReviewCommandHandler:
         (out_dir / "jds").mkdir(exist_ok=True)
 
         # Pre-create decisions collection so get_decision works before first record
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
         store.get_or_create_collection("decisions")
 
         with patch(
@@ -2631,7 +2640,7 @@ class TestReviewCommandHandler:
         out = capsys.readouterr().out
         assert "Second Job" in out, f"Expected 'Second Job' in output after skip, got: {out!r}"
         # And: no decisions were recorded in ChromaDB
-        store: VectorStore = review["store"]
+        store: ChromaDBStore = review["store"]
         assert store.collection_count("decisions") == 0, (
             "Expected no decisions after skip, but found some"
         )
@@ -2659,7 +2668,7 @@ class TestReviewCommandHandler:
         assert "Recorded: y" in out, f"Expected 'Recorded: y' in output, got: {out!r}"
         assert "Good fit" in out, f"Expected reason 'Good fit' in output, got: {out!r}"
         # And: decision was persisted in ChromaDB
-        store: VectorStore = review["store"]
+        store: ChromaDBStore = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
         assert len(result.ids) == 1, f"Expected 1 decision in ChromaDB, got: {result.ids}"
         meta = result.metadatas[0]
@@ -2689,7 +2698,7 @@ class TestReviewCommandHandler:
             handle_review(review["args"])
 
         # Then: the JD body was stored as the document in ChromaDB
-        store: VectorStore = review["store"]
+        store: ChromaDBStore = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
         stored_doc = result.documents[0]
         assert stored_doc is not None, "Document should not be None"
@@ -2720,7 +2729,7 @@ class TestReviewCommandHandler:
             handle_review(review["args"])
 
         # Then: no decision was stored (empty jd_text rejected by validation)
-        store: VectorStore = review["store"]
+        store: ChromaDBStore = review["store"]
         assert store.collection_count("decisions") == 0, (
             "Expected no decision when JD marker is missing (empty jd_text)"
         )
@@ -2859,7 +2868,7 @@ class TestReviewCommandHandler:
         assert "Recorded: y" in out, f"Expected 'Recorded: y' in output, got: {out!r}"
         assert "Recorded: y --" not in out, f"Expected no reason suffix in output, got: {out!r}"
         # And: decision was persisted in ChromaDB with empty reason
-        store: VectorStore = review["store"]
+        store: ChromaDBStore = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
         assert len(result.ids) == 1, f"Expected 1 decision in ChromaDB, got: {result.ids}"
         meta = result.metadatas[0]
@@ -2893,7 +2902,7 @@ class TestReviewCommandHandler:
             handle_review(review["args"])
 
         # Then: decision was recorded using the CSV external_id, not URL-derived
-        store: VectorStore = review["store"]
+        store: ChromaDBStore = review["store"]
         result = store.get_documents(
             collection_name="decisions", ids=["decision-81cb444f00994fff"]
         )
@@ -2965,7 +2974,7 @@ class TestIndexArchetypesOnly:
         )
 
         # And: ChromaDB collections contain real data
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = ChromaDBStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
         assert store.collection_count("role_archetypes") == 1, "Expected 1 archetype in ChromaDB"
         assert store.collection_count("negative_signals") == 2, (
             "Expected 2 negative signals in ChromaDB"

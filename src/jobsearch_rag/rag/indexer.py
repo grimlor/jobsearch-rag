@@ -1,7 +1,7 @@
 """
 Resume, archetype, negative signal, and positive signal ingestion pipeline.
 
-The Indexer coordinates :class:`VectorStore` and :class:`Embedder` to
+The Indexer coordinates a :class:`~jobsearch_rag.ports.VectorStorePort` and :class:`~jobsearch_rag.ports.EmbeddingPort` to
 prepare documents for semantic scoring:
 
 1. **Resume indexing** -- splits ``resume.md`` on ``##`` headings, embeds
