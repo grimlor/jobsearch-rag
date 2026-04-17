@@ -125,11 +125,11 @@ class TestFakeEmbedder:
             f"FakeEmbedder should NOT satisfy HealthCheckable. isinstance returned {result}"
         )
 
-    def test_fake_embedder_does_not_satisfy_metrics_provider(self) -> None:
+    def test_fake_embedder_satisfies_metrics_provider(self) -> None:
         """
-        Given a FakeEmbedder instance
+        Given a FakeEmbedder instance (decorated with @observable)
         When isinstance(fake, MetricsProvider) is checked
-        Then it returns False
+        Then it returns True
         """
         # Given: a FakeEmbedder instance
 
@@ -138,9 +138,10 @@ class TestFakeEmbedder:
         # When: isinstance check against MetricsProvider
         result = isinstance(fake, MetricsProvider)
 
-        # Then: FakeEmbedder does NOT satisfy MetricsProvider
-        assert result is False, (
-            f"FakeEmbedder should NOT satisfy MetricsProvider. isinstance returned {result}"
+        # Then: FakeEmbedder satisfies MetricsProvider (via @observable)
+        assert result is True, (
+            f"FakeEmbedder should satisfy MetricsProvider (via @observable). "
+            f"isinstance returned {result}"
         )
 
     async def test_embed_returns_configured_vector(self) -> None:

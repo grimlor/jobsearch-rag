@@ -13,7 +13,7 @@ Implements D1 of Feature -- hexagonal-port-interfaces.
 #   EmbeddingPort  -- Protocol: embed(text: str) -> list[float],
 #                              classify(prompt: str) -> str
 #   HealthCheckable -- Protocol: health_check() -> None
-#   MetricsProvider -- Protocol: metrics -> InferenceMetrics (property)
+#   MetricsProvider -- Protocol: metrics -> MetricGroup (property)
 #   VectorStorePort -- Protocol: add_documents, query, get_documents,
 #                     get_by_metadata, get_all_documents, delete_by_id,
 #                     collection_count, reset_collection, close
@@ -21,7 +21,7 @@ Implements D1 of Feature -- hexagonal-port-interfaces.
 #   GetResult   -- dataclass: ids, documents, metadatas
 #
 # Public API surface (from src/jobsearch_rag/rag/embedder):
-#   InferenceMetrics -- dataclass: embed_calls, embed_tokens_total, etc.
+#   MetricGroup -- generic float metrics container (from observability)
 #   OllamaEmbedder(config: OllamaConfig) -- satisfies EmbeddingPort,
 #            HealthCheckable, MetricsProvider
 #
@@ -349,7 +349,7 @@ class TestMetricsProviderProtocol:
     WHO: PipelineRunner.run() -- uses isinstance guard to optionally
          collect session metrics after pipeline execution.
     WHAT: (1) MetricsProvider is a typing.Protocol with @runtime_checkable.
-          (2) It declares a read-only property metrics -> InferenceMetrics.
+          (2) It declares a read-only property metrics -> MetricGroup.
           (3) OllamaEmbedder satisfies MetricsProvider structurally.
           (4) An embed-only implementation does NOT satisfy MetricsProvider
               (by design).
@@ -384,7 +384,7 @@ class TestMetricsProviderProtocol:
         """
         Given the MetricsProvider protocol
         When its members are inspected
-        Then it declares a read-only property metrics -> InferenceMetrics
+        Then it declares a read-only property metrics -> MetricGroup
         """
         # Given: the MetricsProvider protocol
 
@@ -400,10 +400,10 @@ class TestMetricsProviderProtocol:
         assert fget is not None, "metrics property should have a getter"
         annotations = fget.__annotations__
 
-        # Then: metrics return is typed as InferenceMetrics
+        # Then: metrics return is typed as MetricGroup
         return_annotation = annotations.get("return", "")
-        assert "InferenceMetrics" in str(return_annotation), (
-            f"metrics property return type should be InferenceMetrics. "
+        assert "MetricGroup" in str(return_annotation), (
+            f"metrics property return type should be MetricGroup. "
             f"Got annotation: {return_annotation}"
         )
 

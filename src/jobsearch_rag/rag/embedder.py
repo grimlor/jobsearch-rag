@@ -16,8 +16,6 @@ with operator-friendly guidance.
 from __future__ import annotations
 
 import asyncio
-import time
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
@@ -28,25 +26,15 @@ if TYPE_CHECKING:
 import ollama as ollama_sdk
 
 from jobsearch_rag.errors import ActionableError
-from jobsearch_rag.logging import log_event, logger
+from jobsearch_rag.logging import logger
+from jobsearch_rag.observability import observable
 
 _T = TypeVar("_T")
 
 _TRUNCATION_MARKER = "\n[…]\n"
 
 
-@dataclass
-class InferenceMetrics:
-    """Accumulated inference metrics for a single session."""
-
-    embed_calls: int = 0
-    embed_tokens_total: int = 0
-    llm_calls: int = 0
-    llm_tokens_total: int = 0
-    llm_latency_ms_total: int = 0
-    slow_llm_calls: int = 0
-
-
+@observable
 class OllamaEmbedder:
     """
     Wraps Ollama embedding and LLM calls with backoff and error handling.
@@ -80,7 +68,8 @@ class OllamaEmbedder:
         self._client = ollama_sdk.AsyncClient(host=config.base_url)
         self._slow_llm_threshold_ms = config.slow_llm_threshold_ms
         self._classify_system_prompt = config.classify_system_prompt
-        self._metrics = InferenceMetrics()
+        self._last_embed_tokens: int = 0
+        self._last_classify_tokens: int = 0
 
     @classmethod
     def from_settings(cls, settings: Settings) -> OllamaEmbedder:
@@ -88,11 +77,6 @@ class OllamaEmbedder:
         return cls(settings.ollama)
 
     # -- Public API ----------------------------------------------------------
-
-    @property
-    def metrics(self) -> InferenceMetrics:
-        """Accumulated inference metrics for the current session."""
-        return self._metrics
 
     async def embed(self, text: str) -> list[float]:
         """
@@ -127,28 +111,15 @@ class OllamaEmbedder:
             tail_len = budget - head_len
             cleaned = cleaned[:head_len] + _TRUNCATION_MARKER + cleaned[-tail_len:]
 
-        embed_tokens = 0
-
         async def _call() -> list[float]:
-            nonlocal embed_tokens
             response = await self._client.embed(model=self.embed_model, input=cleaned)
             raw = getattr(response, "prompt_eval_count", None)
-            embed_tokens = raw if isinstance(raw, int) and raw > 0 else len(cleaned) // 4
+            self._last_embed_tokens = (
+                raw if isinstance(raw, int) and raw > 0 else len(cleaned) // 4
+            )
             return list(response.embeddings[0])
 
-        t0 = time.monotonic()
-        result = await self._with_retry(_call, operation="embed")
-        latency_ms = int((time.monotonic() - t0) * 1000)
-        self._metrics.embed_calls += 1
-        self._metrics.embed_tokens_total += embed_tokens
-        log_event(
-            "embed_call",
-            model=self.embed_model,
-            input_chars=len(cleaned),
-            latency_ms=latency_ms,
-            tokens=embed_tokens,
-        )
-        return result
+        return await self._with_retry(_call, operation="embed")
 
     async def classify(self, prompt: str) -> str:
         """
@@ -157,10 +128,8 @@ class OllamaEmbedder:
         Uses a system message to establish the classification role.
         Retries transient errors with exponential backoff.
         """
-        llm_tokens = 0
 
         async def _call() -> str:
-            nonlocal llm_tokens
             response = await self._client.chat(  # pyright: ignore[reportUnknownMemberType]
                 model=self.llm_model,
                 messages=[
@@ -175,7 +144,7 @@ class OllamaEmbedder:
             raw_eval = getattr(response, "eval_count", None)
             prompt_tokens = raw_prompt if isinstance(raw_prompt, int) else 0
             eval_tokens = raw_eval if isinstance(raw_eval, int) else 0
-            llm_tokens = (prompt_tokens + eval_tokens) or len(prompt) // 4
+            self._last_classify_tokens = (prompt_tokens + eval_tokens) or len(prompt) // 4
             content = response.message.content
             if content is None:
                 msg = f"Ollama returned empty content for model {self.llm_model}"
@@ -186,22 +155,7 @@ class OllamaEmbedder:
                 )
             return content
 
-        t0 = time.monotonic()
-        result = await self._with_retry(_call, operation="classify")
-        latency_ms = int((time.monotonic() - t0) * 1000)
-        self._metrics.llm_calls += 1
-        self._metrics.llm_tokens_total += llm_tokens
-        self._metrics.llm_latency_ms_total += latency_ms
-        if latency_ms > self._slow_llm_threshold_ms:
-            self._metrics.slow_llm_calls += 1
-        log_event(
-            "classify_call",
-            model=self.llm_model,
-            input_chars=len(prompt),
-            latency_ms=latency_ms,
-            tokens=llm_tokens,
-        )
-        return result
+        return await self._with_retry(_call, operation="classify")
 
     async def health_check(self) -> None:
         """

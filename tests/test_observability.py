@@ -18,13 +18,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.pipeline.runner import PipelineRunner
-from jobsearch_rag.rag.embedder import OllamaEmbedder
-from jobsearch_rag.rag.store import ChromaDBStore
 from tests.conftest import adapter_override
 from tests.constants import EMBED_FAKE
 from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from jobsearch_rag.config import Settings
     from jobsearch_rag.ports import VectorStorePort
 
@@ -102,44 +102,6 @@ def _make_listing(
     )
 
 
-def _make_runner_with_real_stack(
-    settings: Settings,
-) -> tuple[PipelineRunner, AsyncMock]:
-    """
-    Create a PipelineRunner with real stack and mocked Ollama client.
-
-    Only ``ollama_sdk.AsyncClient`` is mocked -- the I/O boundary.
-    """
-    mock_client = AsyncMock()
-
-    model_embed = MagicMock()
-    model_embed.model = settings.ollama.embed_model
-    model_llm = MagicMock()
-    model_llm.model = settings.ollama.llm_model
-    list_response = MagicMock()
-    list_response.models = [model_embed, model_llm]
-    mock_client.list.return_value = list_response
-
-    embed_response = MagicMock()
-    embed_response.embeddings = [EMBED_FAKE]
-    mock_client.embed.return_value = embed_response
-
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
-    ):
-        embedder = OllamaEmbedder(settings.ollama)
-    store = ChromaDBStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-    )
-    runner = PipelineRunner(settings, store=store, embedder=embedder)
-
-    _populate_store(runner.store)
-
-    return runner, mock_client
-
-
 def _make_runner(settings: Settings) -> PipelineRunner:
     """
     Create a PipelineRunner with FakeEmbedder and InMemoryVectorStore.
@@ -148,6 +110,52 @@ def _make_runner(settings: Settings) -> PipelineRunner:
     Collections are pre-populated so auto-indexing is skipped.
     """
     embedder = FakeEmbedder(embed_vector=EMBED_FAKE)
+    store = InMemoryVectorStore()
+    runner = PipelineRunner(settings, store=store, embedder=embedder)
+    _populate_store(runner.store)
+    return runner
+
+
+def _make_runner_with_observable_fakes(
+    settings: Settings,
+    *,
+    embed_tokens: int = 50,
+    classify_tokens: int = 50,
+    classify_response: str = "{}",
+    classify_side_effect: Callable[[str], str] | None = None,
+) -> PipelineRunner:
+    """
+    Create a PipelineRunner with an @observable FakeEmbedder that produces
+    structured log events (embed_call, classify_call) and accumulates
+    metrics via MetricGroup.
+
+    Uses port-level fakes -- no Ollama or ChromaDB dependency.
+
+    Parameters
+    ----------
+    settings:
+        Application settings (provides model names, thresholds).
+    embed_tokens:
+        Token count reported by each embed() call (default 50).
+    classify_tokens:
+        Token count reported by each classify() call (default 50).
+    classify_response:
+        Fixed string returned by classify() (default ``"{}"``).
+    classify_side_effect:
+        Optional callable to override FakeEmbedder.classify behaviour
+        (e.g. add latency via ``time.sleep``).
+
+    """
+    embedder = FakeEmbedder(
+        embed_vector=EMBED_FAKE,
+        embed_model=settings.ollama.embed_model,
+        llm_model=settings.ollama.llm_model,
+        embed_tokens=embed_tokens,
+        classify_tokens=classify_tokens,
+        slow_llm_threshold_ms=settings.ollama.slow_llm_threshold_ms,
+        classify_response=classify_response,
+        classify_side_effect=classify_side_effect,
+    )
     store = InMemoryVectorStore()
     runner = PipelineRunner(settings, store=store, embedder=embedder)
     _populate_store(runner.store)
@@ -576,9 +584,11 @@ class TestOllamaCallTracing:
          embedding calls -- the session summary alone is not enough
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama HTTP); async_playwright
-               (Playwright I/O); asyncio.sleep for throttle bypass
-        Real:  PipelineRunner, OllamaEmbedder, Scorer, logging infrastructure,
+        Mock:  FakeEmbedder (satisfies EmbeddingPort + MetricsProvider via
+               @observable), InMemoryVectorStore (satisfies VectorStorePort);
+               async_playwright (Playwright I/O); asyncio.sleep for
+               throttle bypass
+        Real:  PipelineRunner, Scorer, logging infrastructure,
                log file in tmp_path
         Never: Mock the logger or log_event; run the real pipeline and
                verify events by parsing the actual log file
@@ -595,11 +605,11 @@ class TestOllamaCallTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with one listing and disqualification off
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: at least one embed_call entry with model and input_chars
             embed_calls = [e for e in entries if e.get("event") == "embed_call"]
@@ -631,11 +641,11 @@ class TestOllamaCallTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs with disqualification
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: at least one disqualifier_call with model, input_chars, outcome
             dq_calls = [e for e in entries if e.get("event") == "disqualifier_call"]
@@ -666,16 +676,18 @@ class TestOllamaCallTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with disqualification enabled and a disqualifying response
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(
+                settings,
+                classify_response='{"disqualified": true, "reason": "staffing agency"}',
+            )
             listings = [_make_listing()]
 
             # When: pipeline runs with a disqualified=true LLM response
             entries = _run_pipeline_and_read_logs(
                 tmpdir,
                 listings,
-                mock_client,
+                None,
                 runner,
-                disqualifier_response='{"disqualified": true, "reason": "staffing agency"}',
             )
 
             # Then: the disqualifier_call outcome is 'disqualified'
@@ -697,11 +709,11 @@ class TestOllamaCallTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: all event types are present and share the same session ID
             embed_sessions = {e["session"] for e in entries if e.get("event") == "embed_call"}
@@ -726,7 +738,7 @@ class TestOllamaCallTracing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: three listings with disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [
                 _make_listing(external_id="1", title="Role A"),
                 _make_listing(external_id="2", title="Role B"),
@@ -734,7 +746,7 @@ class TestOllamaCallTracing:
             ]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: at least 3 embed_call and exactly 3 disqualifier_call entries
             embed_calls = [e for e in entries if e.get("event") == "embed_call"]
@@ -786,8 +798,10 @@ class TestInferenceMetrics:
          local inference
 
     MOCK BOUNDARY:
-        Mock:  ollama_sdk.AsyncClient (Ollama HTTP); async_playwright
-               (Playwright I/O); asyncio.sleep for throttle bypass
+        Mock:  FakeEmbedder (satisfies EmbeddingPort + MetricsProvider via
+               @observable), InMemoryVectorStore (satisfies VectorStorePort);
+               async_playwright (Playwright I/O); asyncio.sleep for
+               throttle bypass
         Real:  PipelineRunner, logging infrastructure, log file in tmp_path
         Never: Mock the metrics collection; verify by parsing the real
                session_summary entry from the log file written to tmp_path
@@ -803,11 +817,11 @@ class TestInferenceMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with one listing
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: exactly one session_summary entry, and it is the last entry
             summaries = [e for e in entries if e.get("event") == "session_summary"]
@@ -828,14 +842,14 @@ class TestInferenceMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with two listings
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [
                 _make_listing(external_id="1", title="Role A"),
                 _make_listing(external_id="2", title="Role B"),
             ]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: session_summary contains embed_calls >= 2
             summaries = [e for e in entries if e.get("event") == "session_summary"]
@@ -860,14 +874,14 @@ class TestInferenceMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with two listings and disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [
                 _make_listing(external_id="1", title="Role A"),
                 _make_listing(external_id="2", title="Role B"),
             ]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: session_summary contains llm_calls == 4
             # (2 listings x 2 classify calls each: injection screening + disqualifier)
@@ -888,11 +902,11 @@ class TestInferenceMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with one listing and disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: session_summary contains llm_latency_ms_total as non-negative int
             summaries = [e for e in entries if e.get("event") == "session_summary"]
@@ -921,14 +935,14 @@ class TestInferenceMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with two listings
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [
                 _make_listing(external_id="1", title="Role A"),
                 _make_listing(external_id="2", title="Role B"),
             ]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: session_summary contains embed_tokens_total as positive int
             summaries = [e for e in entries if e.get("event") == "session_summary"]
@@ -955,14 +969,14 @@ class TestInferenceMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with two listings and disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [
                 _make_listing(external_id="1", title="Role A"),
                 _make_listing(external_id="2", title="Role B"),
             ]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: session_summary contains llm_tokens_total as positive int
             summaries = [e for e in entries if e.get("event") == "session_summary"]
@@ -986,15 +1000,20 @@ class TestInferenceMetrics:
         Then 'slow_llm_calls' is greater than zero
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: threshold of 1ms with a chat mock that sleeps 5ms
+            # Given: threshold of 1ms with a classify side-effect that sleeps 5ms
+            def _slow_classify(prompt: str) -> str:
+                _time.sleep(0.005)
+                return "{}"
+
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True, slow_llm_threshold_ms=1)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(
+                settings,
+                classify_side_effect=_slow_classify,
+            )
             listings = [_make_listing()]
 
-            # When: pipeline runs with measurable chat latency
-            entries = _run_pipeline_and_read_logs(
-                tmpdir, listings, mock_client, runner, chat_latency_s=0.005
-            )
+            # When: pipeline runs with measurable classify latency
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: slow_llm_calls > 0
             summaries = [e for e in entries if e.get("event") == "session_summary"]
@@ -1021,11 +1040,11 @@ class TestInferenceMetrics:
                 disqualify_on_llm_flag=True,
                 slow_llm_threshold_ms=999_999_999,
             )
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: slow_llm_calls == 0
             summaries = [e for e in entries if e.get("event") == "session_summary"]
@@ -1047,15 +1066,25 @@ class TestInferenceMetrics:
         for the same underlying inference time
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: run 1 with threshold=1 (everything is slow) and 5ms chat latency
+            # Given: run 1 with threshold=1 (everything is slow) and 5ms classify latency
+            def _slow_classify(prompt: str) -> str:
+                _time.sleep(0.005)
+                return "{}"
+
             settings_low = _make_settings(
                 tmpdir, disqualify_on_llm_flag=True, slow_llm_threshold_ms=1
             )
-            runner_low, mock_client_low = _make_runner_with_real_stack(settings_low)
+            runner_low = _make_runner_with_observable_fakes(
+                settings_low,
+                classify_side_effect=_slow_classify,
+            )
             listings = [_make_listing()]
 
             entries_low = _run_pipeline_and_read_logs(
-                tmpdir, listings, mock_client_low, runner_low, chat_latency_s=0.005
+                tmpdir,
+                listings,
+                None,
+                runner_low,
             )
             summaries_low = [e for e in entries_low if e.get("event") == "session_summary"]
             assert len(summaries_low) == 1, "Expected 1 session_summary for low-threshold run"
@@ -1065,10 +1094,13 @@ class TestInferenceMetrics:
             settings_high = _make_settings(
                 tmpdir, disqualify_on_llm_flag=True, slow_llm_threshold_ms=999_999_999
             )
-            runner_high, mock_client_high = _make_runner_with_real_stack(settings_high)
+            runner_high = _make_runner_with_observable_fakes(settings_high)
 
             entries_high = _run_pipeline_and_read_logs(
-                tmpdir, listings, mock_client_high, runner_high
+                tmpdir,
+                listings,
+                None,
+                runner_high,
             )
             summaries_high = [e for e in entries_high if e.get("event") == "session_summary"]
             assert len(summaries_high) == 1, "Expected 1 session_summary for high-threshold run"
@@ -1090,11 +1122,11 @@ class TestInferenceMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with one listing
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: session_summary contains wall_clock_ms as non-negative int
             summaries = [e for e in entries if e.get("event") == "session_summary"]
@@ -1119,11 +1151,11 @@ class TestInferenceMetrics:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with no listings (board returns empty)
             settings = _make_settings(tmpdir)
-            runner, mock_client = _make_runner_with_real_stack(settings)
+            runner = _make_runner_with_observable_fakes(settings)
             listings: list[JobListing] = []
 
             # When: pipeline runs with no listings
-            entries = _run_pipeline_and_read_logs(tmpdir, listings, mock_client, runner)
+            entries = _run_pipeline_and_read_logs(tmpdir, listings, None, runner)
 
             # Then: session_summary still contains wall_clock_ms
             summaries = [e for e in entries if e.get("event") == "session_summary"]

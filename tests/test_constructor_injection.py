@@ -3,7 +3,7 @@ BDD specs for D5 -- constructor injection, observability guards,
 and create_pipeline factory.
 
 Covers: TestConstructorInjection (6 tests),
-        TestObservabilityGuards (4 tests),
+        TestObservabilityGuards (3 tests),
         TestCreatePipelineFactory (3 tests).
 
 Public API surface (from src/jobsearch_rag/pipeline/runner):
@@ -35,14 +35,11 @@ Public API surface (from tests/fakes):
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.config import load_settings
 from jobsearch_rag.pipeline.eval import EvalRunner
 from jobsearch_rag.pipeline.runner import (
@@ -63,13 +60,9 @@ from jobsearch_rag.rag.embedder import OllamaEmbedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
 from jobsearch_rag.rag.store import ChromaDBStore
-from tests.conftest import adapter_override
 from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from jobsearch_rag.adapters.base import JobBoardAdapter
     from jobsearch_rag.config import Settings
 
 
@@ -269,8 +262,6 @@ class TestObservabilityGuards:
               FakeEmbedder), pre-flight skips health_check silently.
           (3) When embedder satisfies MetricsProvider, metrics are
               collected during session summary.
-          (4) When embedder does NOT satisfy MetricsProvider (e.g.,
-              FakeEmbedder), session summary skips metrics silently.
     WHY: The isinstance guard pattern keeps the embedding port narrow
          while allowing production embedders to provide observability.
          Tests with FakeEmbedder skip observability automatically --
@@ -373,92 +364,6 @@ class TestObservabilityGuards:
         assert "embed_calls" in summary_kwargs, (
             "session_summary should include embed_calls from metrics"
         )
-
-    async def test_metrics_skipped_when_embedder_is_not_metrics_provider(self) -> None:
-        """
-        Given a PipelineRunner with a FakeEmbedder (does not satisfy MetricsProvider)
-        When run() completes
-        Then session summary omits metrics and no error is raised
-        """
-        # Given: FakeEmbedder does not satisfy MetricsProvider
-        settings = _make_settings()
-        store = InMemoryVectorStore()
-        _seed_required_collections(store)
-        embedder = FakeEmbedder()
-
-        assert not isinstance(embedder, MetricsProvider), (
-            "FakeEmbedder should NOT satisfy MetricsProvider"
-        )
-
-        runner = PipelineRunner(settings, store=store, embedder=embedder)
-
-        # When: run with a nonexistent board -- should not error
-        with patch("jobsearch_rag.pipeline.runner.log_event"):
-            result = await runner.run(boards=["nonexistent_board"])
-
-        # Then: completed without error (metrics were skipped)
-        assert result is not None, "run() should complete without error"
-
-    async def test_metrics_skipped_at_end_of_scored_run(self) -> None:
-        """
-        Given a PipelineRunner with a FakeEmbedder and actual listings scored
-        When run() completes the full scoring path
-        Then session summary omits metrics and no error is raised
-        """
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: FakeEmbedder with a classify response for disqualifier
-            settings = _make_settings_with_tmpdir(tmpdir, enabled_boards=["testboard"])
-            store = InMemoryVectorStore()
-            _seed_required_collections(store)
-            embedder = FakeEmbedder(
-                classify_response='{"disqualified": false, "reason": null}',
-            )
-
-            assert not isinstance(embedder, MetricsProvider), (
-                "FakeEmbedder should NOT satisfy MetricsProvider"
-            )
-
-            runner = PipelineRunner(settings, store=store, embedder=embedder)
-
-            # Given: a test adapter that returns one listing
-            listing = JobListing(
-                board="testboard",
-                external_id="test-1",
-                title="Staff Architect",
-                company="Acme",
-                location="Remote",
-                url="https://testboard.com/1",
-                full_text="A detailed job description.",
-                max_full_text_chars=250_000,
-            )
-            mock_adapter = _make_test_adapter(search_results=[listing])
-
-            mock_pw_fn, _ = _mock_playwright_boundary()
-
-            # When: full pipeline run with actual scoring
-            with (
-                adapter_override({"testboard": _adapt(mock_adapter)}, clear=True),
-                patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-                patch(
-                    "jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR",
-                    Path(tmpdir),
-                ),
-                patch("jobsearch_rag.pipeline.runner.log_event") as mock_log_event,
-            ):
-                result = await runner.run()
-
-            # Then: listings were scored and metrics were omitted
-            assert result.summary.total_scored >= 1, (
-                f"Expected at least 1 scored listing, got {result.summary.total_scored}"
-            )
-            summary_calls = [
-                c for c in mock_log_event.call_args_list if c.args[0] == "session_summary"
-            ]
-            assert len(summary_calls) >= 1, "Expected session_summary log event"
-            summary_kwargs = summary_calls[-1].kwargs
-            assert "embed_calls" not in summary_kwargs, (
-                "session_summary should NOT include embed_calls when embedder is not MetricsProvider"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -720,61 +625,3 @@ class TestConfigDrivenPortResolution:
 # ---------------------------------------------------------------------------
 # Pipeline integration helpers (for full-run coverage)
 # ---------------------------------------------------------------------------
-
-
-def _adapt(adapter: object) -> Callable[..., JobBoardAdapter]:
-    """Wrap an adapter/mock as a registry-compatible factory accepting any kwargs."""
-
-    def _factory(**_kwargs: object) -> JobBoardAdapter:
-        return cast("JobBoardAdapter", adapter)
-
-    return _factory
-
-
-def _make_test_adapter(
-    *,
-    search_results: list[JobListing] | None = None,
-) -> MagicMock:
-    """Create a mock adapter that returns the given search results."""
-    adapter = MagicMock()
-    adapter.board_name = "testboard"
-    adapter.authenticate = AsyncMock()
-    adapter.search = AsyncMock(return_value=search_results or [])
-    adapter.extract_detail = AsyncMock()
-    return adapter
-
-
-def _mock_playwright_boundary() -> tuple[MagicMock, MagicMock]:
-    """Mock async_playwright -- the Playwright I/O boundary."""
-    mock_page = MagicMock()
-
-    mock_context = MagicMock()
-    mock_context.new_page = AsyncMock(return_value=mock_page)
-    mock_context.storage_state = AsyncMock(return_value={"cookies": [], "origins": []})
-    mock_context.close = AsyncMock()
-
-    mock_browser = MagicMock()
-    mock_browser.new_context = AsyncMock(return_value=mock_context)
-    mock_browser.close = AsyncMock()
-
-    mock_pw = MagicMock()
-    mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
-    mock_pw.stop = AsyncMock()
-
-    mock_pw_cm = MagicMock()
-    mock_pw_cm.start = AsyncMock(return_value=mock_pw)
-
-    mock_async_pw = MagicMock(return_value=mock_pw_cm)
-
-    return mock_async_pw, mock_page
-
-
-def _make_settings_with_tmpdir(
-    tmpdir: str,
-    *,
-    enabled_boards: list[str] | None = None,
-) -> Settings:
-    """Create Settings with tmpdir-based paths for integration-style tests."""
-    from tests.conftest import make_test_settings  # noqa: PLC0415
-
-    return make_test_settings(tmpdir, enabled_boards=enabled_boards)

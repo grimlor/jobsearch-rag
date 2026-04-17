@@ -25,7 +25,7 @@ import statistics
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.session import (
@@ -313,16 +313,7 @@ class PipelineRunner:
                 "boards_searched": board_names,
                 "wall_clock_ms": int((time.perf_counter() - t0) * 1000),
             }
-            if isinstance(self._embedder, MetricsProvider):
-                m = self._embedder.metrics
-                summary_kwargs.update(
-                    embed_calls=m.embed_calls,
-                    embed_tokens_total=m.embed_tokens_total,
-                    llm_calls=m.llm_calls,
-                    llm_tokens_total=m.llm_tokens_total,
-                    llm_latency_ms_total=m.llm_latency_ms_total,
-                    slow_llm_calls=m.slow_llm_calls,
-                )
+            summary_kwargs.update(cast("MetricsProvider", self._embedder).metrics.as_dict())
             log_event("session_summary", **summary_kwargs)
             return RunResult(
                 boards_searched=board_names,
@@ -479,16 +470,7 @@ class PipelineRunner:
             "boards_searched": board_names,
             "wall_clock_ms": int((time.perf_counter() - t0) * 1000),
         }
-        if isinstance(self._embedder, MetricsProvider):
-            m = self._embedder.metrics
-            final_kwargs.update(
-                embed_calls=m.embed_calls,
-                embed_tokens_total=m.embed_tokens_total,
-                llm_calls=m.llm_calls,
-                llm_tokens_total=m.llm_tokens_total,
-                llm_latency_ms_total=m.llm_latency_ms_total,
-                slow_llm_calls=m.slow_llm_calls,
-            )
+        final_kwargs.update(cast("MetricsProvider", self._embedder).metrics.as_dict())
         log_event("session_summary", **final_kwargs)
 
         return RunResult(

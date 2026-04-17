@@ -6,7 +6,8 @@ protocols without depending on external services.
 
 Classes:
     FakeEmbedder -- satisfies :class:`~jobsearch_rag.ports.EmbeddingPort`
-        (but NOT HealthCheckable or MetricsProvider).
+        and :class:`~jobsearch_rag.ports.MetricsProvider` (via ``@observable``).
+        Does NOT satisfy :class:`~jobsearch_rag.ports.HealthCheckable`.
     InMemoryVectorStore -- satisfies :class:`~jobsearch_rag.ports.VectorStorePort`
         with dict-backed storage and cosine similarity. No ChromaDB dependency.
 """
@@ -17,6 +18,7 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from jobsearch_rag.errors import ActionableError
+from jobsearch_rag.observability import observable
 from jobsearch_rag.ports import GetResult, QueryResult
 
 if TYPE_CHECKING:
@@ -25,13 +27,14 @@ if TYPE_CHECKING:
     from jobsearch_rag.config import Settings
 
 
+@observable
 class FakeEmbedder:
     """
-    Deterministic test double satisfying :class:`EmbeddingPort`.
+    Deterministic test double satisfying :class:`EmbeddingPort` and
+    :class:`MetricsProvider` (via ``@observable``).
 
-    Does **not** satisfy :class:`HealthCheckable` or
-    :class:`MetricsProvider` -- validates the ``isinstance`` guard
-    pattern in :class:`PipelineRunner`.
+    Does **not** satisfy :class:`HealthCheckable` -- validates the
+    ``isinstance`` guard pattern in :class:`PipelineRunner`.
 
     Parameters
     ----------
@@ -57,6 +60,10 @@ class FakeEmbedder:
         classify_side_effect: Callable[[str], str] | None = None,
         max_embed_chars: int = 8192,
         llm_model: str = "fake-model",
+        embed_model: str = "fake-embed-model",
+        embed_tokens: int = 0,
+        classify_tokens: int = 0,
+        slow_llm_threshold_ms: int = 999_999_999,
     ) -> None:
         """Initialise the fake with configurable return values and side effects."""
         self.embed_vector = embed_vector if embed_vector is not None else [0.0] * 8
@@ -69,11 +76,16 @@ class FakeEmbedder:
         self.classify_call_count: int = 0
         self.max_embed_chars: int = max_embed_chars
         self.llm_model: str = llm_model
+        self.embed_model: str = embed_model
+        self._embed_tokens: int = embed_tokens
+        self._classify_tokens: int = classify_tokens
+        self._slow_llm_threshold_ms: int = slow_llm_threshold_ms
 
     async def embed(self, text: str) -> list[float]:
         """Return the configured vector (or side_effect result) for *text*."""
         self.embed_calls.append(text)
         self.embed_call_count += 1
+        self._last_embed_tokens = self._embed_tokens
         if self.embed_side_effect is not None:
             return self.embed_side_effect(text)
         return list(self.embed_vector)
@@ -82,6 +94,7 @@ class FakeEmbedder:
         """Return the configured response (or side_effect result) for *prompt*."""
         self.classify_calls.append(prompt)
         self.classify_call_count += 1
+        self._last_classify_tokens = self._classify_tokens
         if self.classify_side_effect is not None:
             return self.classify_side_effect(prompt)
         return self.classify_response

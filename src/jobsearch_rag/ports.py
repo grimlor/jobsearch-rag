@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from jobsearch_rag.config import Settings
-    from jobsearch_rag.rag.embedder import InferenceMetrics
+    from jobsearch_rag.observability import MetricGroup
 
 # ============================================================================
 # Result Dataclasses
@@ -128,7 +128,7 @@ class MetricsProvider(Protocol):
     """
 
     @property
-    def metrics(self) -> InferenceMetrics:
+    def metrics(self) -> MetricGroup:
         """Accumulated inference metrics for the current session."""
         ...
 
