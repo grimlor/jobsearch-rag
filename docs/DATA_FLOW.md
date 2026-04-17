@@ -20,8 +20,8 @@
          │ list[JobListing]
          ▼
   ┌──────────────┐
-  │   Scorer     │──▶ Embedder ──▶ Ollama (nomic-embed-text)
-  │              │──▶ VectorStore ──▶ ChromaDB (6 collections)
+  │   Scorer     │──▶ OllamaEmbedder ──▶ Ollama (nomic-embed-text)
+  │              │──▶ ChromaDBStore ──▶ ChromaDB (6 collections)
   │              │──▶ CompParser (regex)
   │              │──▶ Disqualifier ──▶ Ollama (mistral:7b)
   └──────┬───────┘
@@ -201,6 +201,6 @@ Each pipeline run emits structured JSONL events to `data/logs/`:
 | `prompt_injection_detected` | Injection screening | `job_id`, `pattern` |
 | `score_computed` | Per-listing scoring | `job_id`, all six scores, `disqualified` |
 | `retrieval_summary` | Per-collection stats | `collection`, `n_scored`, `score_min/p50/p90/max` |
-| `session_summary` | End of run | `InferenceMetrics` fields, listing counts |
+| `session_summary` | End of run | `MetricGroup` counters, listing counts |
 
 All events share the same `session_id` for correlation.

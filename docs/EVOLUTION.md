@@ -189,7 +189,8 @@ metrics.
 - One JSONL file per run with a session ID for correlation
 - Per-listing `score_computed` events show all six components
 - Per-collection `retrieval_summary` shows score distribution statistics
-- `InferenceMetrics` tracks call counts, tokens, and latency
+- `MetricGroup` (via the `@observable` decorator) accumulates call counts,
+  tokens, and latency using `MetricKey` constants
 - Slow LLM threshold is configurable -- flags calls that may indicate
   resource pressure
 
@@ -301,6 +302,40 @@ user who isn't the original author.
 - All code-side magic numbers removed -- `settings.toml` is the single
   source of truth
 - CI multiplatform matrix added (3 OS × 3 Python = 9 combos)
+
+---
+
+## Phase 16 -- Hexagonal Port Interfaces
+
+**Problem:** Domain classes (`Scorer`, `Indexer`, `PipelineRunner`,
+`DecisionRecorder`, `EvalRunner`) imported concrete infrastructure
+(`Embedder`, `VectorStore`, `chromadb`, `ollama`) directly. This
+created tight coupling: tests required mock-patching SDK internals,
+and swapping implementations meant editing every consumer.
+
+**Solution:** Extract protocol interfaces into `ports.py` and wire
+implementations via constructor injection + a config-driven factory.
+
+**Key decisions:**
+- **Ports as protocols** -- `EmbeddingPort`, `VectorStorePort`,
+  `HealthCheckable`, `MetricsProvider`, `PortFactory` defined in a
+  single `ports.py` module using `typing.Protocol`
+- **Rename for clarity** -- `Embedder` → `OllamaEmbedder`,
+  `VectorStore` → `ChromaDBStore` -- names now reveal the adapter, not
+  the abstraction
+- **`@observable` decorator** -- replaces the `InferenceMetrics` dataclass
+  with `MetricGroup` + `MetricKey` constants; automatically satisfies
+  `MetricsProvider` on any decorated class
+- **Constructor injection** -- `PipelineRunner.__init__` accepts
+  `store: VectorStorePort` and `embedder: EmbeddingPort` kwargs
+- **`create_pipeline()` factory** -- reads the `[ports]` section of
+  `settings.toml` to resolve implementation class paths at runtime
+- **Test fakes as first-class ports** -- `FakeEmbedder` and
+  `InMemoryVectorStore` satisfy the same protocols as production
+  adapters, eliminating all SDK mock patches
+- **`HealthCheckable` universal** -- all embedder implementations
+  (real and fake) satisfy `HealthCheckable`; the `isinstance` guard
+  is removed in favor of an unconditional call
 
 ---
 

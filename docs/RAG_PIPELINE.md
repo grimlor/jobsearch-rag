@@ -33,8 +33,9 @@ JD text ──▶ Embedder ──▶ query each collection ──▶ ScoreResult
 
 ## Embedder
 
-The `Embedder` class wraps Ollama's async client for both embedding and LLM
-classification.
+The `OllamaEmbedder` class (satisfying `EmbeddingPort`, `HealthCheckable`,
+and `MetricsProvider` via the `@observable` decorator) wraps Ollama's async
+client for both embedding and LLM classification.
 
 ### Embedding (`embed`)
 
@@ -94,16 +95,17 @@ Both `embed` and `classify` retry transient failures:
 
 ### Inference Metrics
 
-```python
-@dataclass
-class InferenceMetrics:
-    embed_calls: int = 0
-    embed_tokens_total: int = 0
-    llm_calls: int = 0
-    llm_tokens_total: int = 0
-    llm_latency_ms_total: int = 0
-    slow_llm_calls: int = 0       # calls exceeding slow_llm_threshold_ms
-```
+The `@observable` decorator accumulates a `MetricGroup` with counters
+identified by `MetricKey` constants:
+
+| MetricKey | Meaning |
+|---|---|
+| `embed_calls` | Number of embedding calls |
+| `embed_tokens_total` | Total tokens processed by embeddings |
+| `llm_calls` | Number of LLM classification calls |
+| `llm_tokens_total` | Total tokens processed by LLM |
+| `llm_latency_ms_total` | Cumulative LLM latency in milliseconds |
+| `slow_llm_calls` | Calls exceeding `slow_llm_threshold_ms` |
 
 Metrics are accumulated per run and emitted in the `session_summary` event.
 
@@ -111,8 +113,8 @@ Metrics are accumulated per run and emitted in the `session_summary` event.
 
 ## ChromaDB Collections
 
-All collections use cosine distance. The `VectorStore` class wraps ChromaDB's
-client with typed methods.
+All collections use cosine distance. The `ChromaDBStore` class (satisfying
+`VectorStorePort`) wraps ChromaDB's client with typed methods.
 
 | Collection | Documents | ID Pattern | Key Metadata |
 |---|---|---|---|

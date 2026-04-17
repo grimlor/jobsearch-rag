@@ -22,14 +22,18 @@
 
 1. **Local-first** -- All processing (LLM inference, embeddings, vector storage)
    runs on your machine. Nothing leaves your network.
-2. **Board-agnostic pipeline** -- Only the adapter layer knows about specific
+2. **Ports and adapters (hexagonal architecture)** -- Domain code depends on
+   protocol interfaces (`EmbeddingPort`, `VectorStorePort`, `HealthCheckable`,
+   `MetricsProvider`) defined in `ports.py`, never on concrete infrastructure.
+   Production wiring and test fakes both satisfy the same contracts.
+3. **Board-agnostic pipeline** -- Only the adapter layer knows about specific
    job boards. Everything downstream (scoring, ranking, export) works against
    the `JobListing` data contract.
-3. **Tests are the spec** -- There is no separate requirements document. The
-   test suite (868+ tests across 35 test files) is the living specification.
+4. **Tests are the spec** -- There is no separate requirements document. The
+   test suite (1 000+ tests across 35+ test files) is the living specification.
    Each test class documents WHO needs it, WHAT it proves, and WHY. If there
    isn't **100% test coverage**, then the implementation is underspecified.
-4. **Actionable errors** -- Every error carries enough context for the operator
+5. **Actionable errors** -- Every error carries enough context for the operator
    (or an AI assistant) to resolve it without searching logs or source code.
 
 ---
@@ -65,16 +69,19 @@ CLI (12 subcommands)
 ### Typical Search Run
 
 1. The CLI loads enabled boards from `config/settings.toml`
-2. The adapter registry resolves board names to adapter classes (IoC)
-3. Ollama health check -- fail fast if models aren't pulled
-4. Auto-index if any ChromaDB collection is empty
-5. Each adapter uses Playwright to navigate search results and extract listings
-6. The scorer embeds each JD and queries six ChromaDB collections
-7. The LLM disqualifier screens for structural red flags
-8. Compensation is parsed via regex and scored against a configurable base salary
-9. The ranker fuses all six component scores, deduplicates across boards, and
-   applies a minimum score threshold
-10. Results export as Markdown, CSV, individual JD files, and/or browser tabs
+2. `create_pipeline(settings)` resolves concrete port implementations from
+   the `[ports]` config section and injects them into `PipelineRunner`
+3. The adapter registry resolves board names to adapter classes (IoC)
+4. Ollama health check via `HealthCheckable.health_check()` -- fail fast
+   if models aren't pulled
+5. Auto-index if any ChromaDB collection is empty
+6. Each adapter uses Playwright to navigate search results and extract listings
+7. The scorer embeds each JD and queries six ChromaDB collections
+8. The LLM disqualifier screens for structural red flags
+9. Compensation is parsed via regex and scored against a configurable base salary
+10. The ranker fuses all six component scores, deduplicates across boards, and
+    applies a minimum score threshold
+11. Results export as Markdown, CSV, individual JD files, and/or browser tabs
 
 ---
 
@@ -209,6 +216,93 @@ keyword matching (e.g., "timeout" → `CONNECTION`, "not found" → `UNEXPECTED`
 
 ---
 
+## Port Architecture (Hexagonal / Ports-and-Adapters)
+
+The system uses a **ports-and-adapters** (hexagonal) architecture to
+decouple domain logic from infrastructure. The domain core (scoring,
+ranking, pipeline orchestration) depends only on protocol interfaces
+defined in `ports.py`. Concrete implementations are injected at runtime.
+
+### Why Ports and Adapters?
+
+Traditional layered architectures create direct dependencies from business
+logic to infrastructure (database clients, HTTP SDKs, etc.). This makes
+the code hard to test -- you end up mocking implementation details. With
+ports and adapters:
+
+- **Ports** are protocol interfaces that define *what* the domain needs
+  (e.g., "embed this text", "store this document")
+- **Adapters** are concrete implementations that fulfill those contracts
+  using real infrastructure (Ollama, ChromaDB)
+- **Test fakes** are alternative adapters that satisfy the same ports with
+  deterministic, in-memory behavior
+
+The domain never imports `ollama` or `chromadb` directly. It imports
+`EmbeddingPort` and `VectorStorePort`.
+
+### Port Definitions (`ports.py`)
+
+| Protocol | Purpose | Key Methods/Attributes |
+|---|---|---|
+| `EmbeddingPort` | Embedding + LLM classification | `embed()`, `classify()`, `max_embed_chars`, `llm_model` |
+| `VectorStorePort` | All vector storage operations | `add_documents()`, `query()`, `get_documents()`, `count()`, `reset_collection()` |
+| `HealthCheckable` | Pre-flight connectivity check | `health_check()` |
+| `MetricsProvider` | Inference metrics exposure | `metrics` property → `MetricGroup` |
+| `PortFactory` | Construction from settings | `from_settings(settings)` classmethod |
+
+All protocols are `@runtime_checkable`, enabling both static type checking
+(pyright) and runtime `isinstance` verification in tests.
+
+### Production Adapters
+
+| Port | Adapter | Infrastructure |
+|---|---|---|
+| `EmbeddingPort` + `HealthCheckable` + `MetricsProvider` | `OllamaEmbedder` | Ollama SDK (`AsyncClient`) |
+| `VectorStorePort` | `ChromaDBStore` | ChromaDB embedded client |
+
+### Test Fakes
+
+| Port | Fake | Behavior |
+|---|---|---|
+| `EmbeddingPort` + `HealthCheckable` + `MetricsProvider` | `FakeEmbedder` | Configurable fixed vectors, no-op health check |
+| `VectorStorePort` | `InMemoryVectorStore` | Dict-backed storage, cosine similarity |
+
+Both fakes satisfy the same protocols as production adapters. No mocking
+frameworks are needed -- the fakes *are* the test doubles.
+
+### Wiring: Constructor Injection + Factory
+
+`PipelineRunner` accepts `store: VectorStorePort` and `embedder: EmbeddingPort`
+as constructor arguments.  Production wiring goes through `create_pipeline()`:
+
+```python
+# Production: factory resolves adapters from config
+runner = create_pipeline(settings)
+
+# Tests: inject fakes directly
+runner = PipelineRunner(settings, store=InMemoryVectorStore(), embedder=FakeEmbedder())
+```
+
+`create_pipeline()` reads the `[ports]` section of `settings.toml` to resolve
+implementation class paths at runtime, keeping the runner decoupled from any
+concrete adapter.
+
+### Observability via `@observable` Decorator
+
+The `@observable` class decorator wraps any `EmbeddingPort` implementation
+with call tracing and metric accumulation:
+
+- Emits `embed_call` and `classify_call` structured log events
+- Accumulates `MetricGroup` counters (call counts, tokens, latency)
+- Makes the decorated class satisfy `MetricsProvider` automatically
+- Applied to both `OllamaEmbedder` and `FakeEmbedder`
+
+`PipelineRunner` reads metrics via `MetricsProvider.metrics` during the
+session summary. `HealthCheckable.health_check()` is called unconditionally
+before pipeline execution -- all embedder implementations provide it.
+
+---
+
 ## RAG Pipeline
 
 ### Six-Collection Scoring Model
@@ -293,14 +387,22 @@ on subsequent runs, unless `--force-rescore` is passed.
 
 ### Runner
 
-`PipelineRunner` owns all subsystems and coordinates the search flow:
+`PipelineRunner` accepts port implementations via constructor injection
+(`store: VectorStorePort`, `embedder: EmbeddingPort`) and coordinates
+the search flow:
 
 1. Start session logging (JSONL with `session_id`)
-2. Ollama health check (fail fast before launching browsers)
+2. Health check via `HealthCheckable.health_check()` (fail fast before
+   launching browsers)
 3. Auto-index empty collections
 4. Search all enabled boards concurrently
 5. Score, rank, and export
-6. Emit structured `session_summary` with inference metrics
+6. Collect metrics via `MetricsProvider.metrics` and emit structured
+   `session_summary`
+
+`create_pipeline(settings)` is the production factory -- it reads the
+`[ports]` config section to resolve concrete adapter classes and injects
+them.  Tests bypass the factory and inject fakes directly.
 
 Returns `RunResult` with ranked listings, summary statistics, failure
 counts, and any errors encountered.
@@ -400,10 +502,11 @@ Four output formats, all driven from ranked results:
 Structured JSONL session logs under `data/logs/`:
 
 - One file per run: `session_{id}_{timestamp}.jsonl`
-- Events: `score_computed` (per listing), `embed_call`, `disqualifier_call`,
+- Events: `score_computed` (per listing), `embed_call`, `classify_call`,
   `retrieval_summary` (per collection), `session_summary`
-- `InferenceMetrics` tracks embed/LLM call counts, token totals, latency,
-  and slow-call counts (configurable threshold)
+- The `@observable` decorator accumulates `MetricGroup` counters (`MetricKey`
+  constants: `embed_calls`, `embed_tokens_total`, `llm_calls`,
+  `llm_tokens_total`, `llm_latency_ms_total`, `slow_llm_calls`)
 - `session_summary` includes `wall_clock_ms` -- end-to-end pipeline duration
 
 ---
@@ -427,6 +530,8 @@ jobsearch-rag/
 │   ├── config.py                   # Settings/BoardConfig/ScoringConfig loaders
 │   ├── errors.py                   # ActionableError hierarchy + factories
 │   ├── logging.py                  # File + structured session logging
+│   ├── observability.py            # @observable decorator, MetricGroup, MetricKey
+│   ├── ports.py                    # Port protocols: EmbeddingPort, VectorStorePort, etc.
 │   ├── text.py                     # slugify, text normalization
 │   ├── adapters/
 │   │   ├── base.py                 # JobListing dataclass + JobBoardAdapter ABC
@@ -437,14 +542,14 @@ jobsearch-rag/
 │   │   ├── weworkremotely.py       # WeWorkRemotely HTML scraping
 │   │   └── linkedin.py             # LinkedIn overnight adapter (CDP + stealth)
 │   ├── rag/
-│   │   ├── embedder.py             # Ollama embed + classify + health check
-│   │   ├── store.py                # ChromaDB wrapper (6 collections)
+│   │   ├── embedder.py             # OllamaEmbedder (implements EmbeddingPort + HealthCheckable)
+│   │   ├── store.py                # ChromaDBStore (implements VectorStorePort)
 │   │   ├── indexer.py              # Resume/archetype/rubric → ChromaDB
 │   │   ├── scorer.py               # Semantic scoring + LLM disqualification
 │   │   ├── comp_parser.py          # Regex compensation extraction + scoring
 │   │   └── decisions.py            # Verdict recording + audit + removal
 │   ├── pipeline/
-│   │   ├── runner.py               # PipelineRunner orchestration
+│   │   ├── runner.py               # PipelineRunner orchestration + create_pipeline()
 │   │   ├── ranker.py               # Score fusion + dedup + threshold
 │   │   ├── rescorer.py             # Re-score JDs from disk
 │   │   ├── review.py               # Interactive batch review session
@@ -457,8 +562,9 @@ jobsearch-rag/
 ├── tests/
 │   ├── conftest.py                 # Shared fixtures
 │   ├── constants.py                # Test constants
+│   ├── fakes.py                    # FakeEmbedder + InMemoryVectorStore (test doubles)
 │   ├── fixtures/                   # HTML fixtures, sample JD JSON
-    └── test_*.py                   # 868+ BDD-style tests across 35 files
+    └── test_*.py                   # 1 000+ BDD-style tests across 35+ files
 └── docs/
     ├── ARCHITECTURE.md             # ← you are here
     ├── CONFIG.md                   # Configuration schema + validation
