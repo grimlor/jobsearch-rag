@@ -301,6 +301,28 @@ with call tracing and metric accumulation:
 session summary. `HealthCheckable.health_check()` is called unconditionally
 before pipeline execution -- all embedder implementations provide it.
 
+### Multi-Service Metrics Design
+
+`MetricGroup` is intentionally generic -- a string-keyed accumulator, not an
+embedder-specific structure. Each port implementation that satisfies
+`MetricsProvider` holds its own `MetricGroup` instance with domain-appropriate
+keys (e.g., `embed_calls` for the embedder, `query_calls` for a vector store).
+
+If `ChromaDBStore` (or a future database adapter) gains observability, it
+would satisfy `MetricsProvider` and publish its own `MetricGroup` with keys
+like `query_calls`, `query_latency_ms_total`, `add_calls`. Because each
+service owns a separate `MetricGroup` instance, key names are scoped per
+service without collision. The session summary would then collect metrics
+from both ports and emit them with a service discriminator:
+
+```json
+{"service": "ollama", "embed_calls": 42, "llm_calls": 12}
+{"service": "chromadb", "query_calls": 252, "query_latency_ms_total": 1830}
+```
+
+This design avoids prefixed key conventions (e.g., `chromadb.query_calls`)
+in favor of structural separation at the data model level.
+
 ---
 
 ## RAG Pipeline
