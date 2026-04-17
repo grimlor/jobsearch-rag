@@ -110,11 +110,9 @@ class TestObservableDecoratorProtocolConformance:
          decide whether to collect session metrics.
     WHAT: (1) A decorated FakeEmbedder satisfies EmbeddingPort.
           (2) A decorated FakeEmbedder satisfies MetricsProvider.
-          (3) A decorated FakeEmbedder still does NOT satisfy
-              HealthCheckable (decorator does not add health_check).
-          (4) A decorated FakeEmbedder retains its own max_embed_chars
+          (3) A decorated FakeEmbedder retains its own max_embed_chars
               attribute.
-          (5) A decorated FakeEmbedder retains its own llm_model
+          (4) A decorated FakeEmbedder retains its own llm_model
               attribute.
     WHY: Without MetricsProvider conformance, PipelineRunner's guard
          skips metrics collection even on production embedders.  The
@@ -160,24 +158,6 @@ class TestObservableDecoratorProtocolConformance:
         # Then: satisfies MetricsProvider via @observable
         assert result is True, (
             f"Expected decorated FakeEmbedder to satisfy MetricsProvider, got isinstance={result}"
-        )
-
-    def test_decorated_fake_does_not_satisfy_health_checkable(self) -> None:
-        """
-        Given a decorated FakeEmbedder instance
-        When isinstance(fake, HealthCheckable) is checked
-        Then it returns False (decorator does not add health_check)
-        """
-        # Given: a decorated FakeEmbedder
-        fake = FakeEmbedder()
-
-        # When: protocol check
-        result = isinstance(fake, HealthCheckable)
-
-        # Then: does not satisfy HealthCheckable
-        assert result is False, (
-            f"Expected decorated FakeEmbedder NOT to satisfy HealthCheckable, "
-            f"got isinstance={result}"
         )
 
     def test_decorated_fake_retains_max_embed_chars(self) -> None:

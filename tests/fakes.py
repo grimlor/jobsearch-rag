@@ -5,9 +5,9 @@ Provides deterministic, configurable test doubles that satisfy port
 protocols without depending on external services.
 
 Classes:
-    FakeEmbedder -- satisfies :class:`~jobsearch_rag.ports.EmbeddingPort`
-        and :class:`~jobsearch_rag.ports.MetricsProvider` (via ``@observable``).
-        Does NOT satisfy :class:`~jobsearch_rag.ports.HealthCheckable`.
+    FakeEmbedder -- satisfies :class:`~jobsearch_rag.ports.EmbeddingPort`,
+        :class:`~jobsearch_rag.ports.MetricsProvider` (via ``@observable``),
+        and :class:`~jobsearch_rag.ports.HealthCheckable` (no-op).
     InMemoryVectorStore -- satisfies :class:`~jobsearch_rag.ports.VectorStorePort`
         with dict-backed storage and cosine similarity. No ChromaDB dependency.
 """
@@ -30,11 +30,9 @@ if TYPE_CHECKING:
 @observable
 class FakeEmbedder:
     """
-    Deterministic test double satisfying :class:`EmbeddingPort` and
-    :class:`MetricsProvider` (via ``@observable``).
-
-    Does **not** satisfy :class:`HealthCheckable` -- validates the
-    ``isinstance`` guard pattern in :class:`PipelineRunner`.
+    Deterministic test double satisfying :class:`EmbeddingPort`,
+    :class:`MetricsProvider` (via ``@observable``), and
+    :class:`HealthCheckable` (no-op ``health_check``).
 
     Parameters
     ----------
@@ -98,6 +96,9 @@ class FakeEmbedder:
         if self.classify_side_effect is not None:
             return self.classify_side_effect(prompt)
         return self.classify_response
+
+    async def health_check(self) -> None:
+        """No-op -- fakes are always healthy."""
 
     @classmethod
     def from_settings(cls, settings: Settings) -> FakeEmbedder:

@@ -191,9 +191,8 @@ class PipelineRunner:
         t0 = time.perf_counter()
 
         # Step 1: Health check Ollama before any browser work
-        if isinstance(self._embedder, HealthCheckable):
-            await self._embedder.health_check()
-            logger.info("Ollama health check passed")
+        await cast("HealthCheckable", self._embedder).health_check()
+        logger.info("Ollama health check passed")
 
         # Step 1b: Auto-index if collections are empty (first run or post-reset)
         await self._ensure_indexed()

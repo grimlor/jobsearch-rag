@@ -50,7 +50,6 @@ from jobsearch_rag.pipeline.runner import (
 )
 from jobsearch_rag.ports import (
     EmbeddingPort,
-    HealthCheckable,
     MetricsProvider,
     PipelinePorts,
     VectorStorePort,
@@ -250,26 +249,23 @@ def _seed_required_collections(store: InMemoryVectorStore) -> None:
 
 class TestObservabilityGuards:
     """
-    REQUIREMENT: PipelineRunner.run() uses isinstance guards to
-    optionally invoke health_check and metrics on the injected embedder,
-    gracefully skipping when the implementation does not support them.
+    REQUIREMENT: PipelineRunner.run() calls health_check unconditionally
+    and collects metrics via cast on the injected embedder.
 
     WHO: PipelineRunner -- the orchestrator that runs the pipeline and
-         optionally collects observability data.
-    WHAT: (1) When embedder satisfies HealthCheckable, health_check()
-              is called during pre-flight.
-          (2) When embedder does NOT satisfy HealthCheckable (e.g.,
-              FakeEmbedder), pre-flight skips health_check silently.
-          (3) When embedder satisfies MetricsProvider, metrics are
+         collects observability data.
+    WHAT: (1) health_check() is called unconditionally during pre-flight
+              (all embedder implementations satisfy HealthCheckable).
+          (2) When embedder satisfies MetricsProvider, metrics are
               collected during session summary.
-    WHY: The isinstance guard pattern keeps the embedding port narrow
-         while allowing production embedders to provide observability.
-         Tests with FakeEmbedder skip observability automatically --
-         no stubs needed.
+    WHY: All embedder implementations (real and fake) satisfy
+         HealthCheckable, so the isinstance guard is removed.
+         health_check is called unconditionally -- fakes provide
+         a no-op, production embedders verify connectivity.
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (for real Embedder construction only)
-        Real:  PipelineRunner, isinstance guards, FakeEmbedder, Embedder
+        Real:  PipelineRunner, FakeEmbedder, OllamaEmbedder
         Never: Mock isinstance or the guard logic itself
     """
 
@@ -299,28 +295,24 @@ class TestObservabilityGuards:
         # Then: health_check called via client.list()
         mock_client.list.assert_awaited_once()
 
-    async def test_health_check_skipped_when_embedder_is_not_health_checkable(self) -> None:
+    async def test_health_check_called_with_fake_embedder(self) -> None:
         """
-        Given a PipelineRunner with a FakeEmbedder (does not satisfy HealthCheckable)
+        Given a PipelineRunner with a FakeEmbedder (satisfies HealthCheckable)
         When run() begins pre-flight
-        Then no health_check() call occurs and no error is raised
+        Then health_check() completes without error (no-op)
         """
-        # Given: FakeEmbedder does not satisfy HealthCheckable
+        # Given: FakeEmbedder satisfies HealthCheckable
         settings = _make_settings()
         store = InMemoryVectorStore()
         _seed_required_collections(store)
         embedder = FakeEmbedder()
 
-        assert not isinstance(embedder, HealthCheckable), (
-            "FakeEmbedder should NOT satisfy HealthCheckable"
-        )
-
         runner = PipelineRunner(settings, store=store, embedder=embedder)
 
-        # When: run with a nonexistent board -- should not error
+        # When: run with a nonexistent board
         result = await runner.run(boards=["nonexistent_board"])
 
-        # Then: completed without error (health_check was skipped)
+        # Then: completed without error (health_check was a no-op)
         assert result is not None, "run() should complete without error"
         assert result.boards_searched == ["nonexistent_board"], (
             f"Expected [nonexistent_board], got {result.boards_searched}"

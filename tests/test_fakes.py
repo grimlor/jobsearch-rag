@@ -59,15 +59,15 @@ from tests.fakes import FakeEmbedder, InMemoryVectorStore
 
 class TestFakeEmbedder:
     """
-    REQUIREMENT: FakeEmbedder is a test double that satisfies EmbeddingPort
-    (but NOT HealthCheckable or MetricsProvider) with configurable,
-    deterministic behavior and no Ollama dependency.
+    REQUIREMENT: FakeEmbedder is a test double that satisfies EmbeddingPort,
+    HealthCheckable (no-op), and MetricsProvider (via @observable) with
+    configurable, deterministic behavior and no Ollama dependency.
 
     WHO: All unit tests that need an embedder -- replaces the mock_embedder
          fixture backed by patched ollama_sdk.AsyncClient.
     WHAT: (1) FakeEmbedder satisfies EmbeddingPort (isinstance check).
-          (2) FakeEmbedder does NOT satisfy HealthCheckable.
-          (3) FakeEmbedder does NOT satisfy MetricsProvider.
+          (2) FakeEmbedder satisfies HealthCheckable (no-op health_check).
+          (3) FakeEmbedder satisfies MetricsProvider (via @observable).
           (4) embed() returns a configurable fixed vector.
           (5) classify() returns a configurable fixed response string.
           (6) embed() can be configured with a side_effect callable for
@@ -80,8 +80,8 @@ class TestFakeEmbedder:
          ~15 type: ignore[union-attr] suppressions from _client access.
          Tests express intent ("embedder returns this vector") instead of
          SDK internals ("mock_client.embed.return_value.embeddings = ...").
-         Not implementing HealthCheckable/MetricsProvider keeps the fake
-         minimal and validates the isinstance guard pattern in PipelineRunner.
+         Satisfying all three protocols lets PipelineRunner call
+         health_check and collect metrics unconditionally.
 
     MOCK BOUNDARY:
         Mock:  Nothing -- FakeEmbedder IS the test double
@@ -107,11 +107,11 @@ class TestFakeEmbedder:
             f"FakeEmbedder should satisfy EmbeddingPort. isinstance returned {result}"
         )
 
-    def test_fake_embedder_does_not_satisfy_health_checkable(self) -> None:
+    def test_fake_embedder_satisfies_health_checkable(self) -> None:
         """
         Given a FakeEmbedder instance
         When isinstance(fake, HealthCheckable) is checked
-        Then it returns False
+        Then it returns True
         """
         # Given: a FakeEmbedder instance
 
@@ -120,9 +120,9 @@ class TestFakeEmbedder:
         # When: isinstance check against HealthCheckable
         result = isinstance(fake, HealthCheckable)
 
-        # Then: FakeEmbedder does NOT satisfy HealthCheckable
-        assert result is False, (
-            f"FakeEmbedder should NOT satisfy HealthCheckable. isinstance returned {result}"
+        # Then: FakeEmbedder satisfies HealthCheckable (no-op health_check)
+        assert result is True, (
+            f"FakeEmbedder should satisfy HealthCheckable. isinstance returned {result}"
         )
 
     def test_fake_embedder_satisfies_metrics_provider(self) -> None:

@@ -107,10 +107,10 @@ class HealthCheckable(Protocol):
     """
     Pre-flight connectivity verification.
 
-    :class:`PipelineRunner` uses an ``isinstance`` guard to optionally
-    call :meth:`health_check` before pipeline execution.  Implementations
-    that do not support health checks (e.g. test fakes) simply don't
-    satisfy this protocol -- the guard is skipped silently.
+    :class:`PipelineRunner` calls :meth:`health_check` unconditionally
+    before pipeline execution.  All embedder implementations -- including
+    test fakes -- must satisfy this protocol.  Fakes provide a no-op
+    implementation; production embedders verify real connectivity.
     """
 
     async def health_check(self) -> None:
