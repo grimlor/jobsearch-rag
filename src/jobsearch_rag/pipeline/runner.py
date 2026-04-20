@@ -679,8 +679,10 @@ def _resolve(dotted_path: str, port_type: type, settings: Settings) -> PortFacto
 def _resolve_ports(settings: Settings) -> PipelinePorts:
     """Build a :class:`PipelinePorts` from the ``[ports]`` config section."""
     embedder = _resolve(settings.ports.embedder, EmbeddingPort, settings)
+    assert isinstance(embedder, EmbeddingPort)
     store = _resolve(settings.ports.vector_store, VectorStorePort, settings)
-    return PipelinePorts(embedder=embedder, store=store)  # type: ignore[arg-type]
+    assert isinstance(store, VectorStorePort)
+    return PipelinePorts(embedder=embedder, store=store)
 
 
 def create_pipeline(settings: Settings) -> PipelineRunner:
