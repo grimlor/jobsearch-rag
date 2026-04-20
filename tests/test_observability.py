@@ -1000,9 +1000,9 @@ class TestInferenceMetrics:
         Then 'slow_llm_calls' is greater than zero
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: threshold of 1ms with a classify side-effect that sleeps 5ms
+            # Given: threshold of 1ms with a classify side-effect that sleeps 50ms
             def _slow_classify(prompt: str) -> str:
-                _time.sleep(0.005)
+                _time.sleep(0.05)
                 return "{}"
 
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True, slow_llm_threshold_ms=1)

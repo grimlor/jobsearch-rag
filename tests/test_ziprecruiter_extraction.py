@@ -583,7 +583,7 @@ class TestRealWorldExtraction:
         THEN exactly 20 listings are produced.
         """
         # Given: real fixture
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         urls = extract_json_ld_urls(html)
 
@@ -602,7 +602,7 @@ class TestRealWorldExtraction:
         THEN the company is Anchorage Digital with a platform engineering title.
         """
         # Given: real fixture, first card
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
 
         # When: convert first
@@ -623,7 +623,7 @@ class TestRealWorldExtraction:
         THEN every listing has a non-empty unique external_id.
         """
         # Given: all real listings
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         listings = [card_to_listing(c, max_full_text_chars=250_000) for c in cards]
 
@@ -640,7 +640,7 @@ class TestRealWorldExtraction:
         THEN both produce exactly 20 items.
         """
         # Given: real fixture
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         urls = extract_json_ld_urls(html)
 
@@ -655,7 +655,7 @@ class TestRealWorldExtraction:
         THEN every URL starts with the ZipRecruiter base URL.
         """
         # Given: all real listings with URLs
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         urls = extract_json_ld_urls(html)
         for i, c in enumerate(cards):
@@ -674,7 +674,7 @@ class TestRealWorldExtraction:
         THEN salary_range includes $185,000-$240,000.
         """
         # Given: Pearly listing (3rd card)
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         listing = card_to_listing(cards[2], max_full_text_chars=250_000)
 

@@ -19,6 +19,7 @@ Three collections serve distinct scoring purposes:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import chromadb
@@ -45,10 +46,14 @@ class ChromaDBStore:
 
     def __init__(self, persist_dir: str, distance_metric: str) -> None:
         """Initialize ChromaDB client at *persist_dir*."""
-        self.persist_dir = persist_dir
+        # Normalize to platform-native path so ChromaDB's PersistentClient
+        # cache key is consistent regardless of slash direction (POSIX paths
+        # loaded from TOML on Windows would otherwise create cache misses).
+        native_path = str(Path(persist_dir))
+        self.persist_dir = native_path
         self._distance_metric = distance_metric
-        self._client = chromadb.PersistentClient(path=persist_dir)
-        logger.debug("ChromaDB client initialized at %s", persist_dir)
+        self._client = chromadb.PersistentClient(path=native_path)
+        logger.debug("ChromaDB client initialized at %s", native_path)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> ChromaDBStore:
