@@ -67,7 +67,7 @@ def _make_settings(  # pyright: ignore[reportUnusedFunction]  # test utility for
     that the production code would reject at startup.
     """
     if output_dir is None:
-        output_dir = str(Path(tmpdir) / "output")
+        output_dir = (Path(tmpdir) / "output").as_posix()
 
     toml_path = Path(tmpdir) / "settings.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
@@ -139,7 +139,7 @@ eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
 [chroma]
-persist_dir = "{tmpdir}"
+persist_dir = "{Path(tmpdir).as_posix()}"
 distance_metric = "cosine"
 
 [security]
@@ -322,9 +322,9 @@ rate_limit_range = [1.5, 3.5]
         bp_lines += f"{channel} = [{escaped}]\n"
 
     (config_dir / "settings.toml").write_text(f"""\
-resume_path = "{data_dir / "resume.md"}"
-archetypes_path = "{config_dir / "role_archetypes.toml"}"
-global_rubric_path = "{config_dir / "global_rubric.toml"}"
+resume_path = "{(data_dir / "resume.md").as_posix()}"
+archetypes_path = "{(config_dir / "role_archetypes.toml").as_posix()}"
+global_rubric_path = "{(config_dir / "global_rubric.toml").as_posix()}"
 
 [boards]
 enabled = {boards!r}
@@ -378,7 +378,7 @@ retryable_status_codes = [408, 429, 500, 502, 503, 504]
 
 [output]
 default_format = "markdown"
-output_dir = "{output_dir}"
+output_dir = "{output_dir.as_posix()}"
 open_top_n = {open_top_n}
 jd_dir = "output/jds"
 decisions_dir = "data/decisions"
@@ -387,7 +387,7 @@ eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
 [chroma]
-persist_dir = "{tmp_path / "chroma"}"
+persist_dir = "{(tmp_path / "chroma").as_posix()}"
 distance_metric = "cosine"
 
 [security]
