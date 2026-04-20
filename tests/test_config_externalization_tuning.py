@@ -169,7 +169,7 @@ def _write_config(
     rubric_path.write_text("", encoding="utf-8")
     content = content.replace(
         'global_rubric_path = "config/global_rubric.toml"',
-        f'global_rubric_path = "{rubric_path}"',
+        f'global_rubric_path = "{rubric_path.as_posix()}"',
     )
 
     settings_path = tmpdir / "settings.toml"

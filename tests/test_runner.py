@@ -2008,9 +2008,9 @@ def _setup_cli_env(
         )
 
     (config_dir / "settings.toml").write_text(
-        f'resume_path = "{data_dir / "resume.md"}"\n'
-        f'archetypes_path = "{config_dir / "role_archetypes.toml"}"\n'
-        f'global_rubric_path = "{config_dir / "global_rubric.toml"}"\n'
+        f'resume_path = "{(data_dir / "resume.md").as_posix()}"\n'
+        f'archetypes_path = "{(config_dir / "role_archetypes.toml").as_posix()}"\n'
+        f'global_rubric_path = "{(config_dir / "global_rubric.toml").as_posix()}"\n'
         "\n[boards]\n"
         f"enabled = {boards!r}\n"
         'session_storage_dir = "data"\n'
@@ -2036,14 +2036,14 @@ def _setup_cli_env(
         "max_retries = 3\nbase_delay = 1.0\n"
         "max_embed_chars = 8000\nhead_ratio = 0.6\n"
         "retryable_status_codes = [408, 429, 500, 502, 503, 504]\n"
-        f'\n[output]\ndefault_format = "markdown"\noutput_dir = "{output_dir}"\n'
+        f'\n[output]\ndefault_format = "markdown"\noutput_dir = "{output_dir.as_posix()}"\n'
         "open_top_n = 5\n"
         'jd_dir = "output/jds"\n'
         'decisions_dir = "data/decisions"\n'
         'log_dir = "data/logs"\n'
         'eval_history_path = "data/eval_history.jsonl"\n'
         "max_slug_length = 80\n"
-        f'\n[chroma]\npersist_dir = "{tmp_path / "chroma"}"\n'
+        f'\n[chroma]\npersist_dir = "{(tmp_path / "chroma").as_posix()}"\n'
         'distance_metric = "cosine"\n'
         '\n[security]\nscreen_prompt = "Review the following job description text."\n'
         "\n[adapters]\n"
