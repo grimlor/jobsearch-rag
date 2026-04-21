@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import chromadb
+from chromadb.api.shared_system_client import SharedSystemClient
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
@@ -69,8 +70,16 @@ class ChromaDBStore:
 
         Must be called before deleting the *persist_dir* on Windows,
         where POSIX unlink-while-open semantics are unavailable.
+
+        Uses the per-identifier stop-and-remove pattern rather than
+        ``clear_system_cache()`` which is a static wipe of the entire
+        class-level cache and would orphan HNSW handles from other clients.
         """
-        self._client.clear_system_cache()
+        cache_attr = "_identifier_to_system"
+        cache: dict[str, Any] = getattr(SharedSystemClient, cache_attr)
+        system = cache.pop(self.persist_dir, None)
+        if system is not None:
+            system.stop()
 
     # -- Collection lifecycle ------------------------------------------------
 

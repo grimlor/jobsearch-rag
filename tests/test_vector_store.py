@@ -597,3 +597,38 @@ class TestMetadataQuery:
         err = exc_info.value
         assert err.error_type == ErrorType.INDEX, "Error type should be INDEX"
         assert err.suggestion is not None, "Should include a suggestion"
+
+
+# ---------------------------------------------------------------------------
+# TestStoreClose
+# ---------------------------------------------------------------------------
+
+
+class TestStoreClose:
+    """
+    REQUIREMENT: Closing the store releases file handles without side-effects.
+
+    WHO: Test fixtures and CLI handlers tearing down a ChromaDB store
+    WHAT: (1) The system does not raise when close is called a second time on
+              an already-closed store.
+    WHY: Double-close can happen when fixture teardown runs after the test
+         already closed the store -- it must be a safe no-op.
+
+    MOCK BOUNDARY:
+        Mock: nothing -- uses real ChromaDB via tmpdir
+        Real: ChromaDBStore.close
+        Never: Patch ChromaDB internals
+    """
+
+    def test_double_close_is_safe_noop(self) -> None:
+        """
+        GIVEN a store that has already been closed
+        WHEN close is called again
+        THEN no exception is raised.
+        """
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            store = ChromaDBStore(persist_dir=tmpdir, distance_metric="cosine")
+
+            # When: close twice
+            store.close()
+            store.close()  # must not raise
