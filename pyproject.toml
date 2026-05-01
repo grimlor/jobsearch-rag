@@ -40,6 +40,7 @@ dev = [
     "pytest-xdist>=3,<4",
     "ruff>=0.8,<1",
     "taskipy>=1.14,<2",
+    "import-linter>=2.11,<3",
 ]
 
 [project.scripts]
@@ -55,7 +56,40 @@ type   = "uv run pyright src/ tests/"
 test   = "uv run pytest tests/ -v -n auto"
 cov    = "uv run pytest tests/ -n auto --cov=jobsearch_rag --cov-report=term-missing"
 live   = "uv run pytest tests/ -m \"live or integration\" -v"
-check  = "task format && task lint && task type && task test"
+imports = "uv run lint-imports"
+check  = "task format && task lint && task type && task imports"
+
+# ---------------------------------------------------------------------------
+# Import Linter
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_package = "jobsearch_rag"
+
+[[tool.importlinter.contracts]]
+id = "domain-does-not-import-adapters"
+name = "Domain and pipeline must not import adapters"
+type = "forbidden"
+source_modules = [
+    "jobsearch_rag.rag",
+    "jobsearch_rag.pipeline",
+    "jobsearch_rag.ports",
+]
+forbidden_modules = [
+    "jobsearch_rag.adapters",
+]
+
+[[tool.importlinter.contracts]]
+id = "ports-only-imports-models"
+name = "Ports must not import domain services"
+type = "forbidden"
+source_modules = [
+    "jobsearch_rag.ports",
+]
+forbidden_modules = [
+    "jobsearch_rag.rag",
+    "jobsearch_rag.pipeline",
+    "jobsearch_rag.adapters",
+]
 
 # ---------------------------------------------------------------------------
 # Ruff
