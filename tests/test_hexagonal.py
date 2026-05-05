@@ -560,8 +560,7 @@ class TestIndexerWithFakeInfrastructure:
         # Given: rubric with positive signal dimensions
         rubric = tmp_path / "global_rubric.toml"
         rubric.write_text(
-            '[[dimensions]]\nname = "Culture"\n'
-            'signals_positive = ["remote work", "equity"]\n'
+            '[[dimensions]]\nname = "Culture"\nsignals_positive = ["remote work", "equity"]\n'
         )
         fake_embedder = FakeEmbedder()
         fake_store = FakeVectorStore()
@@ -584,7 +583,9 @@ class TestIndexerWithFakeInfrastructure:
         """
         # Given: resume indexed once
         resume = tmp_path / "resume.md"
-        resume.write_text("# Resume\n\n## Section 1\nExperience in Python.\n\n## Section 2\nExperience in ML.\n")
+        resume.write_text(
+            "# Resume\n\n## Section 1\nExperience in Python.\n\n## Section 2\nExperience in ML.\n"
+        )
         fake_embedder = FakeEmbedder()
         fake_store = FakeVectorStore()
         indexer = Indexer(store=fake_store, embedder=fake_embedder)

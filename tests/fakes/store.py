@@ -44,9 +44,7 @@ class FakeVectorStore:
             self._collections[collection_name] = []
         existing = self._collections[collection_name]
         new_ids = {doc.id for doc in documents}
-        self._collections[collection_name] = [
-            d for d in existing if d.id not in new_ids
-        ]
+        self._collections[collection_name] = [d for d in existing if d.id not in new_ids]
         self._collections[collection_name].extend(documents)
 
     def get_documents(

@@ -128,7 +128,9 @@ class VectorStore:
                 suggestion="Compute embeddings before calling add_documents",
             )
         metadatas = [d.metadata for d in documents if d.metadata is not None]
-        metadatas_arg: list[dict[str, Any]] | None = metadatas if len(metadatas) == len(documents) else None
+        metadatas_arg: list[dict[str, Any]] | None = (
+            metadatas if len(metadatas) == len(documents) else None
+        )
 
         collection = self.get_or_create_collection(collection_name)
         collection.upsert(
