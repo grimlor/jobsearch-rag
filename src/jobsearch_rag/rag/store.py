@@ -25,6 +25,7 @@ import chromadb
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
+from jobsearch_rag.models import DocumentRecord, QueryMatch, QueryResult
 
 
 class VectorStore:
@@ -103,43 +104,38 @@ class VectorStore:
         self,
         collection_name: str,
         *,
-        ids: list[str],
-        documents: list[str],
-        embeddings: list[list[float]],
-        metadatas: list[dict[str, Any]] | None = None,
+        documents: list[DocumentRecord],
     ) -> None:
         """
         Add (or update) documents with pre-computed embeddings.
 
-        All list arguments must have the same length. Documents with
-        existing IDs are **upserted** (updated in place).
+        Documents with existing IDs are **upserted** (updated in place).
 
         Args:
             collection_name: Target collection (created if absent).
-            ids: Unique document identifiers.
-            documents: Raw text content.
-            embeddings: Pre-computed embedding vectors.
-            metadatas: Optional per-document metadata dicts.
+            documents: Document records with id, document text, embedding,
+                and optional metadata.
 
         """
-        # Validate lengths match
-        lengths = {"ids": len(ids), "documents": len(documents), "embeddings": len(embeddings)}
-        if metadatas is not None:
-            lengths["metadatas"] = len(metadatas)
-        unique_lengths = set(lengths.values())
-        if len(unique_lengths) > 1:
+        ids = [d.id for d in documents]
+        texts = [d.document for d in documents]
+        embeddings = [d.embedding for d in documents if d.embedding is not None]
+        if len(embeddings) != len(documents):
+            msg = "All documents must have non-None embeddings for storage"
             raise ActionableError.validation(
-                field_name="input_lengths",
-                reason=f"Mismatched input lengths: {lengths}",
-                suggestion="Ensure ids, documents, embeddings, and metadatas all have the same length",
+                field_name="embeddings",
+                reason=msg,
+                suggestion="Compute embeddings before calling add_documents",
             )
+        metadatas = [d.metadata for d in documents if d.metadata is not None]
+        metadatas_arg: list[dict[str, Any]] | None = metadatas if len(metadatas) == len(documents) else None
 
         collection = self.get_or_create_collection(collection_name)
         collection.upsert(
             ids=ids,
-            documents=documents,
+            documents=texts,
             embeddings=embeddings,
-            metadatas=metadatas,
+            metadatas=metadatas_arg,
         )
         logger.info(
             "Upserted %d documents into '%s' (total: %d)",
@@ -153,41 +149,38 @@ class VectorStore:
         collection_name: str,
         *,
         ids: list[str],
-    ) -> dict[str, Any]:
+    ) -> list[DocumentRecord]:
         """
         Retrieve documents by ID from a collection.
 
-        Returns a dict with ``ids``, ``documents``, ``metadatas`` keys
-        matching ChromaDB's native format.
+        Returns a list of DocumentRecord instances matching the requested
+        ids. Documents not found are omitted from the result.
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection does not exist.
         """
         collection = self._get_existing_collection(collection_name)
         result = collection.get(ids=ids, include=["documents", "metadatas"])
-        return dict(result)
+        return _chroma_get_to_records(result)
 
     def get_by_metadata(
         self,
         collection_name: str,
         *,
         where: dict[str, Any],
-        include: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> list[DocumentRecord]:
         """
         Retrieve documents matching a metadata filter.
 
         Uses ChromaDB's ``where`` filter syntax (e.g.
-        ``{"verdict": "no"}``).  Returns a dict with keys matching
-        ChromaDB's native format (``ids``, ``metadatas``, etc.).
+        ``{"verdict": "no"}``).
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection does not exist.
         """
         collection = self._get_existing_collection(collection_name)
-        include = include or ["metadatas"]
-        result = collection.get(where=where, include=include)
-        return dict(result)
+        result = collection.get(where=where, include=["documents", "metadatas"])
+        return _chroma_get_to_records(result)
 
     # -- Similarity query ----------------------------------------------------
 
@@ -222,13 +215,12 @@ class VectorStore:
         *,
         query_embedding: list[float],
         n_results: int,
-    ) -> dict[str, Any]:
+    ) -> QueryResult:
         """
         Find the *n_results* most similar documents to *query_embedding*.
 
-        Returns a dict with ``ids``, ``documents``, ``metadatas``,
-        ``distances`` keys. Distances are cosine distances (lower = more
-        similar; 0.0 = identical direction).
+        Returns a QueryResult with matches ordered by ascending distance
+        (lower = more similar; 0.0 = identical direction).
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection does not exist.
@@ -238,7 +230,7 @@ class VectorStore:
         # ChromaDB raises if n_results > count; clamp to available
         count = collection.count()
         if count == 0:
-            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+            return QueryResult(matches=[])
 
         effective_n = min(n_results, count)
         result = collection.query(
@@ -246,7 +238,7 @@ class VectorStore:
             n_results=effective_n,
             include=["documents", "metadatas", "distances"],
         )
-        return dict(result)
+        return _chroma_query_to_result(result)
 
     # -- Internal helpers ----------------------------------------------------
 
@@ -261,3 +253,50 @@ class VectorStore:
             return self._client.get_collection(name)
         except chromadb.errors.NotFoundError:
             raise ActionableError.index(name) from None
+
+
+# -- ChromaDB dict → typed model converters ----------------------------------
+
+
+def _chroma_get_to_records(result: dict[str, Any]) -> list[DocumentRecord]:
+    """Convert a ChromaDB ``get()`` result dict to a list of DocumentRecord."""
+    ids: list[str] = result.get("ids", [])
+    documents: list[str | None] = result.get("documents", [])
+    metadatas: list[dict[str, Any] | None] = result.get("metadatas", [])
+    records: list[DocumentRecord] = []
+    for i, doc_id in enumerate(ids):
+        doc_text = documents[i] if i < len(documents) else None
+        meta = metadatas[i] if i < len(metadatas) else None
+        records.append(
+            DocumentRecord(
+                id=doc_id,
+                document=doc_text or "",
+                metadata=meta,
+            )
+        )
+    return records
+
+
+def _chroma_query_to_result(result: dict[str, Any]) -> QueryResult:
+    """Convert a ChromaDB ``query()`` result dict to a QueryResult."""
+    ids_lists: list[list[str]] = result.get("ids", [[]])
+    doc_lists: list[list[str | None]] = result.get("documents", [[]])
+    meta_lists: list[list[dict[str, Any] | None]] = result.get("metadatas", [[]])
+    dist_lists: list[list[float]] = result.get("distances", [[]])
+
+    ids = ids_lists[0] if ids_lists else []
+    documents = doc_lists[0] if doc_lists else []
+    metadatas = meta_lists[0] if meta_lists else []
+    distances = dist_lists[0] if dist_lists else []
+
+    matches: list[QueryMatch] = []
+    for i, doc_id in enumerate(ids):
+        matches.append(
+            QueryMatch(
+                id=doc_id,
+                document=(documents[i] if i < len(documents) else None) or "",
+                distance=distances[i] if i < len(distances) else 1.0,
+                metadata=metadatas[i] if i < len(metadatas) else None,
+            )
+        )
+    return QueryResult(matches=matches)

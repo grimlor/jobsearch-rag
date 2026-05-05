@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from jobsearch_rag.errors import ActionableError, AIGuidance, ErrorType, Troubleshooting
+from jobsearch_rag.models import DocumentRecord
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.embedder import Embedder
@@ -147,20 +148,22 @@ class DecisionRecorder:
         # Upsert into ChromaDB decisions collection
         self._store.add_documents(
             collection_name="decisions",
-            ids=[f"decision-{job_id}"],
-            documents=[jd_text],
-            embeddings=[embedding],
-            metadatas=[
-                {
-                    "job_id": job_id,
-                    "verdict": verdict,
-                    "board": board,
-                    "title": title,
-                    "company": company,
-                    "scoring_signal": scoring_signal,
-                    "reason": reason,
-                    "recorded_at": datetime.now(UTC).isoformat(),
-                }
+            documents=[
+                DocumentRecord(
+                    id=f"decision-{job_id}",
+                    document=jd_text,
+                    embedding=embedding,
+                    metadata={
+                        "job_id": job_id,
+                        "verdict": verdict,
+                        "board": board,
+                        "title": title,
+                        "company": company,
+                        "scoring_signal": scoring_signal,
+                        "reason": reason,
+                        "recorded_at": datetime.now(UTC).isoformat(),
+                    },
+                )
             ],
         )
 
@@ -192,19 +195,18 @@ class DecisionRecorder:
         """
         doc_id = f"decision-{job_id}"
         try:
-            results = self._store.get_documents(
+            records = self._store.get_documents(
                 collection_name="decisions",
                 ids=[doc_id],
             )
         except ActionableError:
             return None
 
-        ids = results.get("ids", [])
-        metadatas = results.get("metadatas", [])
-        if not ids or not metadatas:
+        if not records:
             return None
 
-        return dict(metadatas[0]) if metadatas[0] else None
+        meta = records[0].metadata
+        return dict(meta) if meta else None
 
     def history_count(self) -> int:
         """Return the number of decisions in the history collection."""
@@ -222,23 +224,21 @@ class DecisionRecorder:
         decisions collection does not exist.
         """
         try:
-            results = self._store.get_by_metadata(
+            records = self._store.get_by_metadata(
                 "decisions",
                 where={"reason": {"$ne": ""}},
-                include=["metadatas"],
             )
         except ActionableError:
             return []
 
-        metadatas: list[dict[str, str]] = results.get("metadatas", [])
         return [
             {
-                "job_id": m.get("job_id", ""),
-                "verdict": m.get("verdict", ""),
-                "reason": m.get("reason", ""),
+                "job_id": record.metadata.get("job_id", ""),
+                "verdict": record.metadata.get("verdict", ""),
+                "reason": record.metadata.get("reason", ""),
             }
-            for m in metadatas
-            if m and m.get("reason")
+            for record in records
+            if record.metadata and record.metadata.get("reason")
         ]
 
     def remove_decision(self, job_id: str) -> bool:

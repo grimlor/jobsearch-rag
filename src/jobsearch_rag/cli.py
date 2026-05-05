@@ -325,10 +325,14 @@ def handle_search(args: argparse.Namespace) -> None:
                     # Filter out decided listings
                     try:
                         decision_ids = [f"decision-{r.listing.external_id}" for r in export_list]
-                        dec_results = runner.store.get_documents(
+                        dec_records = runner.store.get_documents(
                             collection_name="decisions", ids=decision_ids
                         )
-                        decided_set = {m["job_id"] for m in dec_results.get("metadatas", []) if m}
+                        decided_set = {
+                            record.metadata["job_id"]
+                            for record in dec_records
+                            if record.metadata and "job_id" in record.metadata
+                        }
                     except Exception:  # decisions collection may not exist
                         decided_set: set[str] = set()
                     export_list = [
@@ -386,13 +390,12 @@ def handle_decide(args: argparse.Namespace) -> None:
     existing = recorder.get_decision(args.job_id)
     if existing:
         # Re-recording with a new verdict — retrieve the stored document
-        results = store.get_documents(
+        records = store.get_documents(
             collection_name="decisions",
             ids=[f"decision-{args.job_id}"],
         )
-        documents = results.get("documents", [])
-        if documents and documents[0]:
-            jd_text = documents[0]
+        if records and records[0].document:
+            jd_text = records[0].document
         else:
             print(f"Error: Could not retrieve JD text for job '{args.job_id}'")
             sys.exit(1)

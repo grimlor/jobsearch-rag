@@ -369,12 +369,12 @@ class Scorer:
             raise ActionableError.index(msg)
 
         n_results = min(count, self._top_k_retrieval)
-        results = self._store.query(
+        result = self._store.query(
             collection_name=collection_name,
             query_embedding=embedding,
             n_results=n_results,
         )
-        distances: list[float] = results.get("distances", [[]])[0]
+        distances = [m.distance for m in result.matches]
         return _distance_to_score(distances)
 
     def _query_archetypes(self, embedding: list[float]) -> tuple[float, str | None]:
@@ -390,24 +390,20 @@ class Scorer:
             raise ActionableError.index(msg)
 
         n_results = min(count, self._top_k_retrieval)
-        results = self._store.query(
+        result = self._store.query(
             collection_name="role_archetypes",
             query_embedding=embedding,
             n_results=n_results,
         )
-        distances: list[float] = results.get("distances", [[]])[0]
+        distances = [m.distance for m in result.matches]
         score = _distance_to_score(distances)
 
         # Extract best archetype name from the closest match's metadata.
-        # The count > 0 guard above ensures the query returns non-empty,
-        # consistently-shaped results. ChromaDB returns None for entries added
-        # without metadata, so guard against non-dict items.
-        metadatas_raw: list[dict[str, str] | None] = results.get("metadatas", [[]])[0]
         best_name: str | None = None
-        best_idx = distances.index(min(distances))
-        meta = metadatas_raw[best_idx]
-        if meta is not None:
-            best_name = meta.get("name")
+        if result.matches:
+            best_match = min(result.matches, key=lambda m: m.distance)
+            if best_match.metadata is not None:
+                best_name = best_match.metadata.get("name")
 
         return score, best_name
 
@@ -420,12 +416,12 @@ class Scorer:
         if count == 0:
             return 0.0
         n_results = min(count, self._top_k_retrieval)
-        results = self._store.query(
+        result = self._store.query(
             collection_name=collection_name,
             query_embedding=embedding,
             n_results=n_results,
         )
-        distances: list[float] = results.get("distances", [[]])[0]
+        distances = [m.distance for m in result.matches]
         return _distance_to_score(distances)
 
     def _get_rejection_reasons(self) -> list[str]:
@@ -440,14 +436,13 @@ class Scorer:
 
         reasons: list[str] = []
         try:
-            results = self._store.get_by_metadata(
+            records = self._store.get_by_metadata(
                 "decisions",
                 where={"verdict": "no"},
-                include=["metadatas"],
             )
-            for meta in results.get("metadatas", []):
-                if meta and meta.get("reason"):
-                    reasons.append(str(meta["reason"]))
+            for record in records:
+                if record.metadata and record.metadata.get("reason"):
+                    reasons.append(str(record.metadata["reason"]))
         except ActionableError:
             pass  # No decisions collection yet — normal on first run
 

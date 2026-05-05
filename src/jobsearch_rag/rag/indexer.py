@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
+from jobsearch_rag.models import DocumentRecord
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.embedder import Embedder
@@ -155,34 +156,30 @@ class Indexer:
         # Reset collection for idempotent re-indexing
         self._store.reset_collection("resume")
 
-        ids: list[str] = []
-        documents: list[str] = []
-        embeddings: list[list[float]] = []
-        metadatas: list[dict[str, str]] = []
+        records: list[DocumentRecord] = []
 
         for doc_id, heading, body in chunks:
             embedding = await self._embedder.embed(body)
-            ids.append(doc_id)
-            documents.append(body)
-            embeddings.append(embedding)
-            metadatas.append(
-                {
-                    "source": "resume",
-                    "section": heading.lstrip("#").strip(),
-                }
+            records.append(
+                DocumentRecord(
+                    id=doc_id,
+                    document=body,
+                    embedding=embedding,
+                    metadata={
+                        "source": "resume",
+                        "section": heading.lstrip("#").strip(),
+                    },
+                )
             )
 
-        if ids:
+        if records:
             self._store.add_documents(
                 collection_name="resume",
-                ids=ids,
-                documents=documents,
-                embeddings=embeddings,
-                metadatas=metadatas,
+                documents=records,
             )
 
-        logger.info("Indexed %d resume chunks from %s", len(ids), resume_path)
-        return len(ids)
+        logger.info("Indexed %d resume chunks from %s", len(records), resume_path)
+        return len(records)
 
     # -- Archetype ingestion -------------------------------------------------
 
@@ -231,10 +228,7 @@ class Indexer:
         # Reset collection for idempotent re-indexing
         self._store.reset_collection("role_archetypes")
 
-        ids: list[str] = []
-        documents: list[str] = []
-        embeddings: list[list[float]] = []
-        metadatas: list[dict[str, str]] = []
+        records: list[DocumentRecord] = []
 
         for arch in archetypes:
             name = arch["name"]
@@ -243,21 +237,22 @@ class Indexer:
             doc_id = f"archetype-{slug}"
 
             embedding = await self._embedder.embed(description)
-            ids.append(doc_id)
-            documents.append(description)
-            embeddings.append(embedding)
-            metadatas.append({"name": name, "source": "role_archetypes"})
+            records.append(
+                DocumentRecord(
+                    id=doc_id,
+                    document=description,
+                    embedding=embedding,
+                    metadata={"name": name, "source": "role_archetypes"},
+                )
+            )
 
         self._store.add_documents(
             collection_name="role_archetypes",
-            ids=ids,
-            documents=documents,
-            embeddings=embeddings,
-            metadatas=metadatas,
+            documents=records,
         )
 
-        logger.info("Indexed %d archetypes from %s", len(ids), archetypes_path)
-        return len(ids)
+        logger.info("Indexed %d archetypes from %s", len(records), archetypes_path)
+        return len(records)
 
     # -- Negative signal ingestion -------------------------------------------
 
@@ -350,33 +345,31 @@ class Indexer:
             logger.info("No negative signals found — collection is empty")
             return 0
 
-        ids: list[str] = []
-        documents: list[str] = []
-        embeddings: list[list[float]] = []
-        metadatas: list[dict[str, str]] = []
+        records: list[DocumentRecord] = []
 
         for doc_id, text, source in signals:
             embedding = await self._embedder.embed(text)
-            ids.append(doc_id)
-            documents.append(text)
-            embeddings.append(embedding)
-            metadatas.append({"source": source, "signal": text})
+            records.append(
+                DocumentRecord(
+                    id=doc_id,
+                    document=text,
+                    embedding=embedding,
+                    metadata={"source": source, "signal": text},
+                )
+            )
 
         self._store.add_documents(
             collection_name="negative_signals",
-            ids=ids,
-            documents=documents,
-            embeddings=embeddings,
-            metadatas=metadatas,
+            documents=records,
         )
 
         logger.info(
             "Indexed %d negative signals from %s and %s",
-            len(ids),
+            len(records),
             rubric_path,
             archetypes_path,
         )
-        return len(ids)
+        return len(records)
 
     # -- Global positive signal ingestion ------------------------------------
 
@@ -422,10 +415,7 @@ class Indexer:
         # Reset collection for idempotent re-indexing
         self._store.reset_collection("global_positive_signals")
 
-        ids: list[str] = []
-        documents: list[str] = []
-        embeddings: list[list[float]] = []
-        metadatas: list[dict[str, str]] = []
+        records: list[DocumentRecord] = []
 
         for dim in dimensions:
             dim_name = dim.get("name", "unknown")
@@ -441,23 +431,24 @@ class Indexer:
             doc_id = f"pos-{slug}"
 
             embedding = await self._embedder.embed(doc_text)
-            ids.append(doc_id)
-            documents.append(doc_text)
-            embeddings.append(embedding)
-            metadatas.append({"source": dim_name, "signal_count": str(len(signals))})
+            records.append(
+                DocumentRecord(
+                    id=doc_id,
+                    document=doc_text,
+                    embedding=embedding,
+                    metadata={"source": dim_name, "signal_count": str(len(signals))},
+                )
+            )
 
-        if ids:
+        if records:
             self._store.add_documents(
                 collection_name="global_positive_signals",
-                ids=ids,
-                documents=documents,
-                embeddings=embeddings,
-                metadatas=metadatas,
+                documents=records,
             )
 
         logger.info(
             "Indexed %d global positive signal dimensions from %s",
-            len(ids),
+            len(records),
             rubric_path,
         )
-        return len(ids)
+        return len(records)

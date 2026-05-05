@@ -71,8 +71,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from jobsearch_rag.cli import handle_eval, handle_index, handle_rescore, handle_search
-from jobsearch_rag.composition import build_services
 from jobsearch_rag.errors import ActionableError
+from jobsearch_rag.models import DocumentRecord
 from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
 from jobsearch_rag.rag.decisions import DecisionRecorder
@@ -89,6 +89,42 @@ if TYPE_CHECKING:
 # Test helpers — supply full constructor args for classes that don't
 # exercise Scorer config or Ranker weights directly.
 # ---------------------------------------------------------------------------
+
+_DEFAULT_RESUME_EMBEDDING: list[float] = [0.9, 0.1, 0.0]
+_DEFAULT_ARCHETYPE_EMBEDDING: list[float] = [0.9, 0.1, 0.0]
+
+
+def _seed_store(
+    store: FakeVectorStore,
+    *,
+    resume_embedding: list[float] | None = None,
+    archetype_embedding: list[float] | None = None,
+) -> None:
+    """Populate a FakeVectorStore with minimum required collections for Scorer."""
+    r_emb = resume_embedding or _DEFAULT_RESUME_EMBEDDING
+    a_emb = archetype_embedding or _DEFAULT_ARCHETYPE_EMBEDDING
+    store.add_documents(
+        "resume",
+        documents=[
+            DocumentRecord(
+                id="resume-test",
+                document="Test resume section.",
+                embedding=r_emb,
+                metadata={"source": "resume", "section": "Test"},
+            ),
+        ],
+    )
+    store.add_documents(
+        "role_archetypes",
+        documents=[
+            DocumentRecord(
+                id="archetype-test",
+                document="Test archetype description.",
+                embedding=a_emb,
+                metadata={"name": "test-archetype", "source": "role_archetypes"},
+            ),
+        ],
+    )
 
 
 def _make_test_scorer(
@@ -200,6 +236,7 @@ class TestScorerWithFakeEmbedder:
         # Given: Scorer with fake infrastructure and populated collections
         fake_embedder = FakeEmbedder()
         fake_store = FakeVectorStore()
+        _seed_store(fake_store)
         scorer = Scorer(
             store=fake_store,
             embedder=fake_embedder,
@@ -228,6 +265,7 @@ class TestScorerWithFakeEmbedder:
         """
         # Given: FakeVectorStore with a known resume embedding
         fake_store = FakeVectorStore()
+        _seed_store(fake_store)
         close_embedder = FakeEmbedder(embed_vector=[0.85, 0.15, 0.05])
         far_embedder = FakeEmbedder(embed_vector=[0.0, 0.0, 1.0])
 
@@ -269,6 +307,7 @@ class TestScorerWithFakeEmbedder:
         """
         # Given: FakeVectorStore with a known archetype embedding
         fake_store = FakeVectorStore()
+        _seed_store(fake_store)
         close_embedder = FakeEmbedder(embed_vector=[0.85, 0.15, 0.05])
         far_embedder = FakeEmbedder(embed_vector=[0.0, 0.0, 1.0])
 
@@ -319,6 +358,7 @@ class TestScorerWithFakeEmbedder:
         jd = padding + best_content + padding
 
         fake_store = FakeVectorStore()
+        _seed_store(fake_store)
         # Per-call embedder: returns orthogonal for padding, close for best_content
         fake_embedder = FakeEmbedder(max_embed_chars=50)
 
@@ -365,6 +405,7 @@ class TestScorerWithFakeEmbedder:
             classify_response='{"disqualified": true, "reason": "staffing agency"}',
         )
         fake_store = FakeVectorStore()
+        _seed_store(fake_store)
 
         scorer = Scorer(
             store=fake_store,
@@ -431,9 +472,10 @@ class TestIndexerWithFakeInfrastructure:
         # Given: resume file with 3 markdown sections
         resume = tmp_path / "resume.md"
         resume.write_text(
-            "# Section 1\nExperience in Python.\n\n"
-            "# Section 2\nExperience in ML.\n\n"
-            "# Section 3\nExperience in DevOps.\n"
+            "# Resume\n\n"
+            "## Section 1\nExperience in Python.\n\n"
+            "## Section 2\nExperience in ML.\n\n"
+            "## Section 3\nExperience in DevOps.\n"
         )
         fake_embedder = FakeEmbedder()
         fake_store = FakeVectorStore()
@@ -445,13 +487,10 @@ class TestIndexerWithFakeInfrastructure:
         # Then: 3 documents in resume collection
         assert count == 3, f"Expected 3 indexed documents, got {count}"
         assert fake_store.collection_count("resume") == 3, (
-            f"Expected 3 docs in resume collection, got "
-            f"{fake_store.collection_count('resume')}"
+            f"Expected 3 docs in resume collection, got {fake_store.collection_count('resume')}"
         )
 
-    async def test_index_archetypes_populates_fake_store(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_index_archetypes_populates_fake_store(self, tmp_path: Path) -> None:
         """
         Given a role_archetypes.toml with 2 archetypes.
         When Indexer.index_archetypes() is called.
@@ -460,10 +499,12 @@ class TestIndexerWithFakeInfrastructure:
         # Given: archetypes TOML with 2 entries
         archetypes = tmp_path / "role_archetypes.toml"
         archetypes.write_text(
-            '[archetype.backend]\ntitle = "Backend Engineer"\n'
-            'keywords = ["python", "api"]\n\n'
-            '[archetype.ml]\ntitle = "ML Engineer"\n'
-            'keywords = ["pytorch", "transformers"]\n'
+            '[[archetypes]]\nname = "Backend Engineer"\n'
+            'description = "Builds backend services."\n'
+            'signals_positive = ["python", "api"]\n\n'
+            '[[archetypes]]\nname = "ML Engineer"\n'
+            'description = "Builds ML pipelines."\n'
+            'signals_positive = ["pytorch", "transformers"]\n'
         )
         fake_embedder = FakeEmbedder()
         fake_store = FakeVectorStore()
@@ -479,9 +520,7 @@ class TestIndexerWithFakeInfrastructure:
             f"{fake_store.collection_count('role_archetypes')}"
         )
 
-    async def test_index_negative_signals_populates_fake_store(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_index_negative_signals_populates_fake_store(self, tmp_path: Path) -> None:
         """
         Given a global_rubric.toml with negative signals.
         When Indexer.index_negative_signals() is called.
@@ -490,12 +529,14 @@ class TestIndexerWithFakeInfrastructure:
         # Given: rubric with negative signals and archetypes file
         rubric = tmp_path / "global_rubric.toml"
         rubric.write_text(
-            '[negative_signals]\nsignals = [\n'
-            '  "staffing agency",\n  "contract to hire"\n]\n'
+            '[[dimensions]]\nname = "Red Flags"\n'
+            'signals_negative = ["staffing agency", "contract to hire"]\n'
         )
         archetypes = tmp_path / "role_archetypes.toml"
         archetypes.write_text(
-            '[archetype.backend]\ntitle = "Backend"\nkeywords = ["python"]\n'
+            '[[archetypes]]\nname = "Backend"\n'
+            'description = "Backend dev."\n'
+            'signals_negative = ["php only"]\n'
         )
         fake_embedder = FakeEmbedder()
         fake_store = FakeVectorStore()
@@ -510,9 +551,7 @@ class TestIndexerWithFakeInfrastructure:
             "Expected non-empty negative_signals collection"
         )
 
-    async def test_index_positive_signals_populates_fake_store(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_index_positive_signals_populates_fake_store(self, tmp_path: Path) -> None:
         """
         Given a global_rubric.toml with positive signal dimensions.
         When Indexer.index_global_positive_signals() is called.
@@ -521,8 +560,8 @@ class TestIndexerWithFakeInfrastructure:
         # Given: rubric with positive signal dimensions
         rubric = tmp_path / "global_rubric.toml"
         rubric.write_text(
-            '[positive_signals]\ndimensions = [\n'
-            '  "remote work",\n  "equity"\n]\n'
+            '[[dimensions]]\nname = "Culture"\n'
+            'signals_positive = ["remote work", "equity"]\n'
         )
         fake_embedder = FakeEmbedder()
         fake_store = FakeVectorStore()
@@ -545,10 +584,7 @@ class TestIndexerWithFakeInfrastructure:
         """
         # Given: resume indexed once
         resume = tmp_path / "resume.md"
-        resume.write_text(
-            "# Section 1\nExperience in Python.\n\n"
-            "# Section 2\nExperience in ML.\n"
-        )
+        resume.write_text("# Resume\n\n## Section 1\nExperience in Python.\n\n## Section 2\nExperience in ML.\n")
         fake_embedder = FakeEmbedder()
         fake_store = FakeVectorStore()
         indexer = Indexer(store=fake_store, embedder=fake_embedder)
@@ -561,8 +597,7 @@ class TestIndexerWithFakeInfrastructure:
 
         # Then: count did not grow
         assert count_after_second == count_after_first, (
-            f"Expected idempotent reindex: first={count_after_first}, "
-            f"second={count_after_second}"
+            f"Expected idempotent reindex: first={count_after_first}, second={count_after_second}"
         )
 
 
@@ -629,9 +664,7 @@ class TestDecisionRecorderWithFakeInfrastructure:
             f"Expected verdict='yes', got '{decision.get('verdict')}'"
         )
 
-    async def test_no_verdict_excluded_from_scoring_signal(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_no_verdict_excluded_from_scoring_signal(self, tmp_path: Path) -> None:
         """
         Given a DecisionRecorder with FakeEmbedder and FakeVectorStore.
         When a "no" verdict is recorded.
@@ -657,14 +690,11 @@ class TestDecisionRecorderWithFakeInfrastructure:
         )
 
         # Then: metadata has scoring_signal="false"
-        docs = fake_store.get_by_metadata(
-            "decisions", where={"job_id": "x-456"}
-        )
+        docs = fake_store.get_by_metadata("decisions", where={"job_id": "x-456"})
         assert len(docs) == 1, f"Expected 1 decision doc, got {len(docs)}"
         assert docs[0].metadata is not None, "Expected metadata on decision doc"
         assert docs[0].metadata.get("scoring_signal") == "false", (
-            f"Expected scoring_signal='false', got "
-            f"'{docs[0].metadata.get('scoring_signal')}'"
+            f"Expected scoring_signal='false', got '{docs[0].metadata.get('scoring_signal')}'"
         )
 
     async def test_audit_log_written_to_disk(self, tmp_path: Path) -> None:
@@ -703,9 +733,7 @@ class TestDecisionRecorderWithFakeInfrastructure:
         assert len(lines) >= 1, "Expected at least 1 log entry"
         entry = lines[-1]
         assert "job_id" in entry, f"Expected 'job_id' field in log entry: {entry}"
-        assert entry["job_id"] == "x-789", (
-            f"Expected job_id='x-789', got '{entry.get('job_id')}'"
-        )
+        assert entry["job_id"] == "x-789", f"Expected job_id='x-789', got '{entry.get('job_id')}'"
 
     async def test_duplicate_decision_overwrites(self, tmp_path: Path) -> None:
         """
@@ -798,9 +826,7 @@ class TestPipelineRunnerWithInjectedServices:
         placeholder will fail at runtime.
     """
 
-    async def test_pipeline_returns_run_result_with_ranked_listings(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_pipeline_returns_run_result_with_ranked_listings(self, tmp_path: Path) -> None:
         """
         Given a PipelineRunner with FakeEmbedder, FakeVectorStore, real
         Scorer/Ranker, and a fake board adapter returning 2 listings.
@@ -830,16 +856,10 @@ class TestPipelineRunnerWithInjectedServices:
         result = await runner.run(boards=["testboard"])
 
         # Then: RunResult has ranked listings
-        assert isinstance(result, RunResult), (
-            f"Expected RunResult, got {type(result).__name__}"
-        )
-        assert len(result.ranked_listings) > 0, (
-            "Expected non-empty ranked_listings in RunResult"
-        )
+        assert isinstance(result, RunResult), f"Expected RunResult, got {type(result).__name__}"
+        assert len(result.ranked_listings) > 0, "Expected non-empty ranked_listings in RunResult"
 
-    async def test_ranked_listing_count_matches_above_threshold(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_ranked_listing_count_matches_above_threshold(self, tmp_path: Path) -> None:
         """
         Given a fake board adapter returning 5 listings and a FakeEmbedder
         configured so that exactly 3 produce scores above the Ranker's
@@ -874,9 +894,7 @@ class TestPipelineRunnerWithInjectedServices:
             f"Expected 3 above-threshold listings, got {len(result.ranked_listings)}"
         )
 
-    async def test_listings_below_threshold_excluded(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_listings_below_threshold_excluded(self, tmp_path: Path) -> None:
         """
         Given a Ranker with min_score_threshold=0.99 and a FakeEmbedder
         returning low-similarity vectors.
@@ -910,9 +928,7 @@ class TestPipelineRunnerWithInjectedServices:
             f"Expected 0 ranked listings, got {len(result.ranked_listings)}"
         )
 
-    async def test_health_check_failure_raises_actionable_error(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_health_check_failure_raises_actionable_error(self, tmp_path: Path) -> None:
         """
         Given a FakeEmbedder whose health_check() raises ConnectionError.
         When PipelineRunner.run() is called.
@@ -951,13 +967,9 @@ class TestPipelineRunnerWithInjectedServices:
             f"Expected __cause__ to be ConnectionError, got "
             f"{type(exc_info.value.__cause__).__name__}"
         )
-        assert exc_info.value.suggestion, (
-            "Expected non-empty suggestion on ActionableError"
-        )
+        assert exc_info.value.suggestion, "Expected non-empty suggestion on ActionableError"
 
-    async def test_run_result_summary_contains_searched_boards(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_run_result_summary_contains_searched_boards(self, tmp_path: Path) -> None:
         """
         Given a PipelineRunner configured for board "testboard".
         When run() completes.
@@ -1045,6 +1057,8 @@ class TestCompositionRootBuildsServices:
         Then the returned ScoreResult is valid (is_valid is True).
         """
         # Given: a wired Services namespace built from test settings
+        from jobsearch_rag.composition import build_services
+
         settings_toml = self._write_test_settings(tmp_path)
         services = build_services(settings_toml)
 
@@ -1068,6 +1082,8 @@ class TestCompositionRootBuildsServices:
             contains that many documents.
         """
         # Given: a wired Services namespace and a resume file
+        from jobsearch_rag.composition import build_services
+
         settings_toml = self._write_test_settings(tmp_path)
         resume = tmp_path / "resume.md"
         resume.write_text("## Skills\nPython, ML, DevOps.\n")
@@ -1077,17 +1093,13 @@ class TestCompositionRootBuildsServices:
         count = await services.indexer.index_resume(str(resume))
 
         # Then: non-zero count and store collection matches
-        assert count > 0, (
-            f"Expected non-zero document count from wired Indexer, got {count}"
-        )
+        assert count > 0, f"Expected non-zero document count from wired Indexer, got {count}"
         assert services.store.collection_count("resume") == count, (
             f"Expected store resume collection to contain {count} documents, "
             f"got {services.store.collection_count('resume')}"
         )
 
-    def test_invalid_class_path_raises_actionable_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_invalid_class_path_raises_actionable_error(self, tmp_path: Path) -> None:
         """
         Given a test settings.toml with [adapters] embedder pointing to
         a nonexistent class path.
@@ -1095,6 +1107,8 @@ class TestCompositionRootBuildsServices:
         Then ActionableError is raised with a non-empty suggestion.
         """
         # Given: a settings.toml with [adapters] embedder pointing to a nonexistent class path
+        from jobsearch_rag.composition import build_services
+
         settings_toml = tmp_path / "settings.toml"
         settings_toml.write_text(
             "[adapters]\n"
@@ -1273,9 +1287,7 @@ class TestCLIHandlersUseInjectedServices:
             '[negative_signals]\nsignals = ["staffing"]\n'
         )
         archetypes = tmp_path / "role_archetypes.toml"
-        archetypes.write_text(
-            '[archetype.backend]\ntitle = "Backend"\nkeywords = ["python"]\n'
-        )
+        archetypes.write_text('[archetype.backend]\ntitle = "Backend"\nkeywords = ["python"]\n')
 
         # When: handle_index is called with the resume and config files
         # Then: it completes without raising
