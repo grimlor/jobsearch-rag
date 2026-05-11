@@ -50,7 +50,7 @@ from jobsearch_rag.rag.store import VectorStore
 from tests.constants import EMBED_FAKE as EMBED_FAKE  # re-export for fixtures below
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator, Iterator
 
     from jobsearch_rag.adapters.base import JobBoardAdapter
 
@@ -95,7 +95,7 @@ def adapter_override(
     factories: dict[str, Callable[..., JobBoardAdapter]],
     *,
     clear: bool = False,
-) -> Iterator[None]:
+) -> Generator[None, None, None]:
     """
     Context manager that temporarily replaces AdapterRegistry entries.
 

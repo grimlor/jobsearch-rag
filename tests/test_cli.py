@@ -321,7 +321,7 @@ rate_limit_range = [1.5, 3.5]
         "msedge": ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
     }
     for channel, channel_paths in paths.items():
-        escaped = ", ".join(f'"{p}"' for p in channel_paths)
+        escaped = ", ".join(f'"{Path(p).as_posix()}"' for p in channel_paths)
         bp_lines += f"{channel} = [{escaped}]\n"
 
     (config_dir / "settings.toml").write_text(
