@@ -33,7 +33,7 @@ EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
 def store() -> Iterator[VectorStore]:
     """Yield a temporary VectorStore for test isolation."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=10)
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
         yield s
         s.close()
 
@@ -423,9 +423,7 @@ class TestDecisionRecording:
         """
         # Given: a fresh store with no decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(
-                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=10
-            )
+            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
             recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
             # When/Then: get_decision returns None gracefully
@@ -443,7 +441,7 @@ class TestDecisionRecording:
         """
         # Given: a store with an empty decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=10)
+            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
             store.get_or_create_collection("decisions")
             recorder = DecisionRecorder(store=store, embedder=mock_embedder)
 
@@ -462,9 +460,7 @@ class TestDecisionRecording:
         """
         # Given: a fresh store with no decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(
-                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=10
-            )
+            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
             recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
             # When/Then: history_count returns 0 gracefully
@@ -480,9 +476,7 @@ class TestDecisionRecording:
         """
         # Given: a fresh store with no decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(
-                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=10
-            )
+            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
             recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
             # When: audit_decisions is called

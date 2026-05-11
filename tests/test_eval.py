@@ -162,7 +162,6 @@ max_slug_length = 80
 [chroma]
 persist_dir = "./chroma"
 distance_metric = "cosine"
-sync_threshold = 100
 
 [security]
 screen_prompt = "Review the following job description text."
@@ -250,9 +249,7 @@ def _make_eval_stack(
 ) -> tuple[EvalRunner, Scorer, Ranker, VectorStore, AsyncMock]:
     """Build a full eval stack: EvalRunner + Scorer + Ranker + real VectorStore."""
     embedder, mock_client = _make_mock_embedder(embed_return=embed_return)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=10
-    )
+    store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
     scorer = Scorer(
         store=store,
         embedder=embedder,
@@ -1191,9 +1188,7 @@ class TestEvalIntegration:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(
-            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=10
-        )
+        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="eval-1", verdict="yes")
         _seed_decision(store, job_id="eval-2", verdict="no", embedding=_EMBED_DISTANT)
@@ -1461,9 +1456,7 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(
-            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=10
-        )
+        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
@@ -1502,9 +1495,7 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(
-            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=10
-        )
+        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
         _seed_decision(store, job_id="cmp-2", verdict="no", embedding=_EMBED_DISTANT)
@@ -1548,9 +1539,7 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(
-            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=10
-        )
+        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
@@ -1725,9 +1714,7 @@ class TestEvalSinglePath:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(
-            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=10
-        )
+        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
         _seed_required_collections(store, EMBED_FAKE)
 
         _, mock_client = _make_mock_embedder()

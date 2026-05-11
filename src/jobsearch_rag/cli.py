@@ -218,7 +218,6 @@ def handle_index(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
     )
     indexer = Indexer(store=store, embedder=embedder)
 
@@ -377,7 +376,6 @@ def handle_decide(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
     )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
@@ -432,7 +430,6 @@ def handle_decisions(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
     )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
@@ -497,7 +494,6 @@ def handle_review(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
     )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
@@ -622,7 +618,6 @@ def handle_rescore(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
     )
     scorer = Scorer(
         store=store,
@@ -736,7 +731,6 @@ def _build_eval_stack(
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
     )
     scorer = Scorer(
         store=store,
@@ -888,7 +882,6 @@ def handle_reset(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
     )
 
     collections = [args.collection] if args.collection else list(_COLLECTIONS)

@@ -2065,7 +2065,6 @@ def _setup_cli_env(
         "max_slug_length = 80\n"
         f'\n[chroma]\npersist_dir = "{(tmp_path / "chroma").as_posix()}"\n'
         'distance_metric = "cosine"\n'
-        "sync_threshold = 100\n"
         '\n[security]\nscreen_prompt = "Review the following job description text."\n'
         "\n[adapters]\n"
         "cdp_timeout = 15.0\n"

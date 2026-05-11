@@ -250,7 +250,6 @@ def make_test_settings(
         chroma=ChromaConfig(
             persist_dir=str(tmpdir_path / "chroma"),
             distance_metric="cosine",
-            sync_threshold=10,
         ),
         security=make_test_security_config(),
         resume_path=resume_path or "data/resume.md",
@@ -344,9 +343,7 @@ def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
 @pytest.fixture
 def vector_store(tmp_path: Path) -> Iterator[VectorStore]:
     """Real ChromaDB VectorStore backed by a per-test temp directory."""
-    store = VectorStore(
-        persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=10
-    )
+    store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
     yield store
     store.close()
 

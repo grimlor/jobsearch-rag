@@ -110,11 +110,6 @@ eval_history_path = "data/eval_history.jsonl"
 [chroma]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
-# HNSW sync_threshold: how many writes before the index flushes to disk.
-# ChromaDB default is 1000, but our collections are small (< 50 docs).
-# Lowering to 100 prevents "Nothing found on disk" errors on Windows
-# where queries can race ahead of the HNSW segment flush.
-sync_threshold = 100
 
 [security]
 screen_prompt = """\

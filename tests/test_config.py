@@ -96,7 +96,6 @@ max_slug_length = 80
 [chroma]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
-sync_threshold = 100
 
 [adapters]
 cdp_timeout = 15.0
@@ -758,7 +757,7 @@ rate_limit_range = [1.5, 3.5]
         """
         # Given: replace [chroma] section with a scalar
         bad_toml = _VALID_SETTINGS.replace(
-            '[chroma]\npersist_dir = "./data/chroma_db"\ndistance_metric = "cosine"\nsync_threshold = 100\n',
+            '[chroma]\npersist_dir = "./data/chroma_db"\ndistance_metric = "cosine"\n',
             "",
         )
         bad_toml = 'chroma = "not a dict"\n' + bad_toml
@@ -1274,7 +1273,6 @@ max_slug_length = 80
 [chroma]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
-sync_threshold = 100
 
 [adapters]
 cdp_timeout = 15.0
