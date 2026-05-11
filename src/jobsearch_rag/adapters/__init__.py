@@ -13,6 +13,7 @@ from jobsearch_rag.adapters import (
     ziprecruiter as _zr,  # noqa: F401  # pyright: ignore[reportUnusedImport]  # side-effect: triggers @register
 )
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
+from jobsearch_rag.adapters.ports import JobBoardPort
 from jobsearch_rag.adapters.registry import AdapterRegistry
 
-__all__ = ["AdapterRegistry", "JobBoardAdapter", "JobListing"]
+__all__ = ["AdapterRegistry", "JobBoardAdapter", "JobBoardPort", "JobListing"]

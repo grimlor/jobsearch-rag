@@ -43,7 +43,7 @@ from jobsearch_rag.logging import logger
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page, Playwright
 
-    from jobsearch_rag.adapters.base import JobBoardAdapter
+    from jobsearch_rag.adapters.ports import JobBoardPort
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ def _terminate_process(proc: subprocess.Popen[bytes]) -> None:
 
 
 async def throttle(
-    adapter: JobBoardAdapter,
+    adapter: JobBoardPort,
     rate_limit_range: tuple[float, float] | None = None,
 ) -> float:
     """

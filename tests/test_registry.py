@@ -23,6 +23,7 @@ import pytest
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.adapters.indeed import IndeedAdapter
 from jobsearch_rag.adapters.linkedin import LinkedInAdapter
+from jobsearch_rag.adapters.ports import JobBoardPort
 from jobsearch_rag.adapters.registry import AdapterRegistry
 from jobsearch_rag.adapters.weworkremotely import WeWorkRemotelyAdapter
 from tests.conftest import adapter_override
@@ -32,7 +33,7 @@ from tests.conftest import adapter_override
 # ---------------------------------------------------------------------------
 
 
-def _make_adapter_class(name: str) -> type[JobBoardAdapter]:
+def _make_adapter_class(name: str) -> type[JobBoardPort]:
     """Dynamically create a concrete adapter class for testing."""
 
     class _TestAdapter(JobBoardAdapter):
@@ -128,7 +129,7 @@ class TestAdapterRegistration:
         adapter = AdapterRegistry.get("ziprecruiter")
 
         # Then: returns a working adapter instance
-        assert isinstance(adapter, JobBoardAdapter), "Should return a JobBoardAdapter instance"
+        assert isinstance(adapter, JobBoardPort), "Should return a JobBoardPort instance"
         assert adapter.board_name == "ziprecruiter", "Board name should match"
 
     def test_retrieving_unregistered_board_name_raises_value_error_with_name(self) -> None:
@@ -467,7 +468,7 @@ class TestStubAdapterContract:
         Never: Patch adapter internals
     """
 
-    _STUB_BOARDS: typing.ClassVar[list[tuple[str, type[JobBoardAdapter]]]] = [
+    _STUB_BOARDS: typing.ClassVar[list[tuple[str, type[JobBoardPort]]]] = [
         ("linkedin", LinkedInAdapter),
         ("indeed", IndeedAdapter),
         ("weworkremotely", WeWorkRemotelyAdapter),
@@ -479,7 +480,7 @@ class TestStubAdapterContract:
         ids=["linkedin", "indeed", "weworkremotely"],
     )
     def test_stub_adapter_reports_correct_board_name(
-        self, expected_name: str, adapter_cls: type[JobBoardAdapter]
+        self, expected_name: str, adapter_cls: type[JobBoardPort]
     ) -> None:
         """
         GIVEN a stub adapter instance
@@ -521,7 +522,7 @@ class TestStubAdapterContract:
     )
     @pytest.mark.xfail(reason="Adapter not yet implemented")
     def test_stub_authenticate_completes_on_valid_session(
-        self, _name: str, adapter_cls: type[JobBoardAdapter]
+        self, _name: str, adapter_cls: type[JobBoardPort]
     ) -> None:
         """
         GIVEN a valid browser session
@@ -542,7 +543,7 @@ class TestStubAdapterContract:
     )
     @pytest.mark.xfail(reason="Adapter not yet implemented")
     def test_stub_search_returns_list_of_job_listings(
-        self, _name: str, adapter_cls: type[JobBoardAdapter]
+        self, _name: str, adapter_cls: type[JobBoardPort]
     ) -> None:
         """
         GIVEN a valid browser session
@@ -568,7 +569,7 @@ class TestStubAdapterContract:
     )
     @pytest.mark.xfail(reason="Adapter not yet implemented")
     def test_stub_extract_detail_populates_full_text(
-        self, _name: str, adapter_cls: type[JobBoardAdapter]
+        self, _name: str, adapter_cls: type[JobBoardPort]
     ) -> None:
         """
         GIVEN a shallow listing without full_text
