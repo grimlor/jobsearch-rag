@@ -203,6 +203,7 @@ max_slug_length = 80
 [chroma]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
+sync_threshold = 100
 
 [security]
 screen_prompt = "Review the following job description text."

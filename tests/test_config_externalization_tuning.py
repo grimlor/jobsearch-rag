@@ -133,6 +133,7 @@ max_slug_length = 80
 [chroma]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
+sync_threshold = 100
 
 [security]
 screen_prompt = "Review the following job description text."
@@ -456,7 +457,7 @@ class TestDistanceMetricConfig:
             mock_client.get_or_create_collection.return_value = mock_collection
             mock_client_cls.return_value = mock_client
 
-            store = VectorStore(persist_dir=str(tmp_path), distance_metric="l2")
+            store = VectorStore(persist_dir=str(tmp_path), distance_metric="l2", sync_threshold=10)
 
             # When: create a collection
             store.get_or_create_collection("test_collection")
@@ -467,6 +468,21 @@ class TestDistanceMetricConfig:
             assert metadata.get("hnsw:space") == "l2", (
                 f"Expected hnsw:space='l2', got metadata={metadata}"
             )
+
+    def test_sync_threshold_below_one_raises_actionable_error(self, tmp_path: Path) -> None:
+        """
+        Given settings.toml has [chroma] sync_threshold = 0
+        When load_settings() is called
+        Then ActionableError is raised naming 'chroma.sync_threshold'
+        """
+        # Given: sync_threshold = 0
+        toml = _replace_value(_BASE_SETTINGS, "sync_threshold", "0")
+        path = _write_config(tmp_path, toml)
+
+        # When / Then: validation rejects it
+        with pytest.raises(ActionableError, match="sync_threshold") as exc_info:
+            load_settings(path)
+        assert ">= 1" in str(exc_info.value), f"Error should mention '>= 1', got: {exc_info.value}"
 
 
 # ---------------------------------------------------------------------------

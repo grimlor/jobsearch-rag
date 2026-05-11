@@ -58,7 +58,7 @@ SAMPLE_EMBEDDINGS = [EMBED_1, EMBED_2, EMBED_3]
 def store() -> Iterator[VectorStore]:
     """Create a VectorStore backed by a temporary directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=10)
         yield s
         s.close()
 

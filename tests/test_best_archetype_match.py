@@ -163,7 +163,7 @@ def _make_ranked(
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=10)
         yield s
         s.close()
 

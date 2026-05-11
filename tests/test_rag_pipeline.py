@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 def store() -> Iterator[VectorStore]:
     """Yield a temporary VectorStore for test isolation."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=10)
         yield s
         s.close()
 

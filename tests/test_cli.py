@@ -146,6 +146,7 @@ max_slug_length = 80
 [chroma]
 persist_dir = "{_chroma_posix}"
 distance_metric = "cosine"
+sync_threshold = 100
 
 [security]
 screen_prompt = "Review the following job description text."
@@ -393,6 +394,7 @@ max_slug_length = 80
 [chroma]
 persist_dir = "{(tmp_path / "chroma").as_posix()}"
 distance_metric = "cosine"
+sync_threshold = 100
 
 [security]
 screen_prompt = "Review the following job description text."
@@ -461,7 +463,9 @@ def _seed_decision(
     in settings, so that ``handle_decide`` finds the record when it
     constructs its own VectorStore.
     """
-    store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+    store = VectorStore(
+        persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=10
+    )
     store.get_or_create_collection("decisions")
     store.add_documents(
         collection_name="decisions",
@@ -1280,7 +1284,9 @@ class TestDecideCommand:
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
         # Create the decisions collection (empty)
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=10
+        )
         store.get_or_create_collection("decisions")
 
         # When/Then: handle_decide exits with error
@@ -1494,7 +1500,9 @@ class TestDecisionsCommand:
         # Given: real environment with empty decisions collection
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=10
+        )
         store.get_or_create_collection("decisions")
 
         # When: handle_decisions dispatches to show
@@ -1558,7 +1566,9 @@ class TestDecisionsCommand:
         # Given: real environment with empty decisions collection
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=10
+        )
         store.get_or_create_collection("decisions")
 
         # When: handle_decisions dispatches to remove
@@ -1590,7 +1600,9 @@ class TestDecisionsCommand:
         # Given: real environment with a decision that has a reason
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=10
+        )
         store.get_or_create_collection("decisions")
         store.add_documents(
             collection_name="decisions",
@@ -1669,7 +1681,9 @@ class TestDecisionsCommand:
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
         # Ensure decisions collection exists so dispatcher gets past setup
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=10
+        )
         store.get_or_create_collection("decisions")
 
         # When/Then: unknown subcommand exits
@@ -2463,7 +2477,9 @@ class TestReviewCommandHandler:
         (out_dir / "jds").mkdir(exist_ok=True)
 
         # Pre-create decisions collection so get_decision works before first record
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=10
+        )
         store.get_or_create_collection("decisions")
 
         with patch(
@@ -2990,7 +3006,9 @@ class TestIndexArchetypesOnly:
         )
 
         # And: ChromaDB collections contain real data
-        store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=10
+        )
         assert store.collection_count("role_archetypes") == 1, "Expected 1 archetype in ChromaDB"
         assert store.collection_count("negative_signals") == 2, (
             "Expected 2 negative signals in ChromaDB"

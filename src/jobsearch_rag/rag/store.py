@@ -39,10 +39,11 @@ class VectorStore:
         results = store.query("resume", query_embedding=[...], n_results=5)
     """
 
-    def __init__(self, persist_dir: str, distance_metric: str) -> None:
+    def __init__(self, persist_dir: str, distance_metric: str, sync_threshold: int) -> None:
         """Initialize ChromaDB client at *persist_dir*."""
         self.persist_dir = persist_dir
         self._distance_metric = distance_metric
+        self._sync_threshold = sync_threshold
         self._client = chromadb.PersistentClient(path=persist_dir)
         logger.debug("ChromaDB client initialized at %s", persist_dir)
 
@@ -63,10 +64,18 @@ class VectorStore:
 
         Uses cosine similarity as the distance function — the natural
         choice for comparing text embeddings.
+
+        ``sync_threshold`` is set from the configured value so the HNSW
+        index flushes to disk promptly after writes.  The ChromaDB default
+        of 1000 can cause "Nothing found on disk" errors on Windows when
+        a query runs before the segment has been persisted.
         """
         collection = self._client.get_or_create_collection(
             name=name,
-            metadata={"hnsw:space": self._distance_metric},
+            metadata={
+                "hnsw:space": self._distance_metric,
+                "hnsw:sync_threshold": self._sync_threshold,
+            },
         )
         logger.debug("Collection '%s' ready (%d documents)", name, collection.count())
         return collection
