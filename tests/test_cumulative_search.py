@@ -236,9 +236,9 @@ def _setup_search_env(tmp_path: Path, *, open_top_n: int = 0) -> AsyncMock:
     output_dir.mkdir()
 
     (config_dir / "settings.toml").write_text(f"""\
-resume_path = "{data_dir / "resume.md"}"
-archetypes_path = "{config_dir / "role_archetypes.toml"}"
-global_rubric_path = "{config_dir / "global_rubric.toml"}"
+resume_path = "{(data_dir / "resume.md").as_posix()}"
+archetypes_path = "{(config_dir / "role_archetypes.toml").as_posix()}"
+global_rubric_path = "{(config_dir / "global_rubric.toml").as_posix()}"
 
 [boards]
 enabled = ["testboard"]
@@ -298,7 +298,7 @@ retryable_status_codes = [408, 429, 500, 502, 503, 504]
 
 [output]
 default_format = "markdown"
-output_dir = "{output_dir}"
+output_dir = "{output_dir.as_posix()}"
 open_top_n = {open_top_n}
 jd_dir = "output/jds"
 decisions_dir = "data/decisions"
@@ -307,7 +307,7 @@ eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
 [chroma]
-persist_dir = "{tmp_path / "chroma"}"
+persist_dir = "{(tmp_path / "chroma").as_posix()}"
 distance_metric = "cosine"
 
 [security]

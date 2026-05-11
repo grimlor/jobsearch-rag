@@ -185,11 +185,11 @@ def _write_test_settings_toml(base_dir: Path, *, min_score_threshold: float = 0.
     toml_text = _SETTINGS_TOML_TEMPLATE.format(min_score_threshold=min_score_threshold)
     toml_text = toml_text.replace(
         'persist_dir = "./chroma"',
-        f'persist_dir = "{base_dir / "chroma"}"',
+        f'persist_dir = "{(base_dir / "chroma").as_posix()}"',
     )
     toml_text = toml_text.replace(
         'output_dir = "./output"',
-        f'output_dir = "{base_dir / "output"}"',
+        f'output_dir = "{(base_dir / "output").as_posix()}"',
     )
     (config_dir / "settings.toml").write_text(toml_text, encoding="utf-8")
     (config_dir / "global_rubric.toml").write_text("# empty rubric for tests\n", encoding="utf-8")
