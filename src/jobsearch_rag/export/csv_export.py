@@ -54,7 +54,7 @@ class CSVExporter:
         qualified = [r for r in listings if not (r.scores.disqualified and r.final_score == 0.0)]
         qualified.sort(key=lambda r: r.final_score, reverse=True)
 
-        with open(output_path, "w", newline="") as f:
+        with open(output_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(_COLUMNS)
 

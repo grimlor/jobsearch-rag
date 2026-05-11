@@ -729,7 +729,7 @@ class TestSessionManagerCDP:
             # Then: session file exists on disk with correct cookie data
             assert result.exists(), "Storage state file should be written to disk"
 
-            saved = json.loads(result.read_text())
+            saved = json.loads(result.read_text(encoding="utf-8"))
             assert saved["cookies"][0]["name"] == "session", (
                 f"Expected cookie name 'session', got {saved['cookies'][0].get('name')}"
             )
@@ -748,7 +748,7 @@ class TestSessionManagerCDP:
         with patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", tmp_path):
             state_file = config.storage_state_path
             state_file.parent.mkdir(parents=True, exist_ok=True)
-            state_file.write_text("{}")
+            state_file.write_text("{}", encoding="utf-8")
 
             # When/Then: has_storage_state returns True
             manager = SessionManager(config)

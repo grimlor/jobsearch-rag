@@ -2192,7 +2192,7 @@ class TestLoginUrlConfig:
         _write_config(tmp_path / "config", settings_toml=toml)
         # Write resume so load_settings() doesn't fail on missing file
         (tmp_path / "data").mkdir(exist_ok=True)
-        (tmp_path / "data" / "resume.md").write_text("# Resume\n")
+        (tmp_path / "data" / "resume.md").write_text("# Resume\n", encoding="utf-8")
 
         # Given: mock Playwright at the I/O boundary
         mock_page = MagicMock()
@@ -2256,7 +2256,7 @@ class TestLoginUrlConfig:
         (tmp_path / "config").mkdir(exist_ok=True)
         _write_config(tmp_path / "config", settings_toml=toml)
         (tmp_path / "data").mkdir(exist_ok=True)
-        (tmp_path / "data" / "resume.md").write_text("# Resume\n")
+        (tmp_path / "data" / "resume.md").write_text("# Resume\n", encoding="utf-8")
 
         # Given: mock Playwright at the I/O boundary
         mock_page = MagicMock()

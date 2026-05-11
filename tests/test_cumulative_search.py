@@ -429,7 +429,7 @@ class TestAccumulateMode:
 
         # Then: exported CSV contains both listings
         csv_path = output_dir / "results.csv"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         ids = {row["external_id"] for row in rows}
         assert ids == {"prior-1", "new-1"}, (
@@ -460,7 +460,7 @@ class TestAccumulateMode:
 
         # Then: CSV has one copy with the pipeline-computed score (not the prior 0.60)
         csv_path = output_dir / "results.csv"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         shared_rows = [r for r in rows if r["external_id"] == "shared-1"]
         assert len(shared_rows) == 1, f"Expected 1 row for shared-1, got {len(shared_rows)}"
@@ -492,7 +492,7 @@ class TestAccumulateMode:
 
         # Then: all three listings in the exported CSV
         csv_path = output_dir / "results.csv"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         ids = {row["external_id"] for row in rows}
         assert ids == {"prior-a", "prior-b", "new-c"}, (
@@ -522,7 +522,7 @@ class TestAccumulateMode:
 
         # Then: CSV is sorted descending by final_score
         csv_path = output_dir / "results.csv"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         scores = [float(row["final_score"]) for row in rows]
         assert scores == sorted(scores, reverse=True), f"Expected descending sort, got {scores}"
@@ -551,7 +551,7 @@ class TestAccumulateMode:
 
         # Then: markdown file contains both listings in its table
         md_path = output_dir / "results.md"
-        md_text = md_path.read_text()
+        md_text = md_path.read_text(encoding="utf-8")
         assert "Prior MD Job" in md_text, "Expected prior listing in markdown summary"
         assert "New MD Job" in md_text, "Expected new listing in markdown summary"
 
@@ -606,7 +606,7 @@ class TestFreshMode:
         # Then: CSV contains only the new listing
         csv_path = output_dir / "results.csv"
         assert csv_path.exists(), "CSV file should exist"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
         ids = {row["external_id"] for row in rows}
@@ -670,7 +670,7 @@ class TestFreshMode:
 
         # Then: markdown contains only the new listing
         md_path = output_dir / "results.md"
-        md_text = md_path.read_text()
+        md_text = md_path.read_text(encoding="utf-8")
         assert "New Fresh" in md_text, "Expected new listing in fresh markdown summary"
         assert "Prior Fresh" not in md_text, (
             "Expected prior listing absent from fresh markdown summary"
@@ -734,7 +734,7 @@ class TestCSVRoundTrip:
 
         # Then: prior listing's columns are preserved
         csv_path = output_dir / "results.csv"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         prior_rows = [r for r in rows if r["external_id"] == "rt-1"]
         assert len(prior_rows) == 1, f"Expected 1 row for rt-1, got {len(prior_rows)}"
@@ -782,7 +782,7 @@ class TestCSVRoundTrip:
 
         # Then: one entry with the new title
         csv_path = output_dir / "results.csv"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         key_rows = [r for r in rows if r["external_id"] == "merge-key-1"]
         assert len(key_rows) == 1, f"Expected 1 entry, got {len(key_rows)}"
@@ -813,7 +813,7 @@ class TestCSVRoundTrip:
 
         # Then: exactly one dup-1 row
         csv_path = output_dir / "results.csv"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         dup_count = sum(1 for r in rows if r["external_id"] == "dup-1")
         assert dup_count == 1, f"Expected exactly one 'dup-1', got {dup_count}"
@@ -841,7 +841,7 @@ class TestCSVRoundTrip:
 
         # Then: precision preserved
         csv_path = output_dir / "results.csv"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         prec_rows = [r for r in rows if r["external_id"] == "prec-1"]
         assert len(prec_rows) == 1, f"Expected 1 row for prec-1, got {len(prec_rows)}"
@@ -872,7 +872,7 @@ class TestCSVRoundTrip:
 
         # Then: exactly one header row
         csv_path = output_dir / "results.csv"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             lines = f.readlines()
         header_count = sum(1 for line in lines if line.startswith("title,"))
         assert header_count == 1, f"Expected exactly 1 header row, got {header_count}"
@@ -1070,7 +1070,7 @@ class TestDecisionExclusionAccumulated:
 
         # Then: decided listing excluded, undecided listing present
         csv_path = output_dir / "results.csv"
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         ids = {row["external_id"] for row in rows}
         assert "decided-1" not in ids, f"Expected decided listing excluded from CSV, got {ids}"

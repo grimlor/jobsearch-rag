@@ -924,7 +924,7 @@ class TestEvalReport:
         )
         assert path.suffix == ".md", f"Expected .md suffix, got {path.suffix!r}"
 
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
 
         # Then: heading and metrics are present
         assert "# Eval Report" in content or "# Evaluation Report" in content, (
@@ -963,7 +963,7 @@ class TestEvalReport:
 
         # Then: file exists with zero metric
         assert path.exists(), f"Report file not created at {path}"
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
         assert "0" in content, "Report must contain decisions_evaluated = 0"
 
     def test_nonexistent_output_dir_is_created(self, tmp_path: Path) -> None:
@@ -1017,7 +1017,7 @@ class TestEvalReport:
         path = EvalReport.write(result, str(tmp_path))
 
         # Then: file exists, no disagreement job IDs
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
         assert path.exists(), f"Report file not created at {path}"
         # Then: neither job should appear in a disagreement list
         assert "job-1" not in content or "agreed" in content.lower(), (
@@ -1084,7 +1084,7 @@ class TestEvalHistory:
         EvalHistory.append(result, str(history_path))
 
         # Then: file contains exactly one JSON line with all metrics
-        lines = history_path.read_text().strip().splitlines()
+        lines = history_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1, f"Expected 1 line, got {len(lines)}"
 
         record = json.loads(lines[0])
@@ -1117,7 +1117,7 @@ class TestEvalHistory:
             json.dumps({"timestamp": "2026-01-01T00:00:00", "agreement_rate": 0.5}),
             json.dumps({"timestamp": "2026-01-02T00:00:00", "agreement_rate": 0.6}),
         ]
-        history_path.write_text("\n".join(existing) + "\n")
+        history_path.write_text("\n".join(existing) + "\n", encoding="utf-8")
 
         result = self._make_result(agreement_rate=0.9)
 
@@ -1125,7 +1125,7 @@ class TestEvalHistory:
         EvalHistory.append(result, str(history_path))
 
         # Then: file has 3 lines, last line has the new metrics
-        lines = history_path.read_text().strip().splitlines()
+        lines = history_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 3, f"Expected 3 lines, got {len(lines)}"
 
         last = json.loads(lines[2])
@@ -1149,7 +1149,7 @@ class TestEvalHistory:
 
         # Then: file is created with one line
         assert history_path.exists(), "History file must be created"
-        lines = history_path.read_text().strip().splitlines()
+        lines = history_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1, f"Expected 1 line, got {len(lines)}"
 
 
@@ -1214,7 +1214,7 @@ class TestEvalIntegration:
         # And: history file exists with one line
         history_path = tmp_path / "data" / "eval_history.jsonl"
         assert history_path.exists(), "eval_history.jsonl should exist"
-        lines = history_path.read_text().strip().splitlines()
+        lines = history_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1, f"Expected 1 history line, found {len(lines)}"
 
     def test_eval_result_has_spearman_field(self, tmp_path: Path) -> None:

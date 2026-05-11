@@ -405,7 +405,8 @@ class TestDecisionRecording:
             jsonl_files = list(Path(decisions_dir).glob("*.jsonl"))
             assert len(jsonl_files) == 1, "Exactly one JSONL audit file should exist"
             records = [
-                json_mod.loads(line) for line in jsonl_files[0].read_text().strip().splitlines()
+                json_mod.loads(line)
+                for line in jsonl_files[0].read_text(encoding="utf-8").strip().splitlines()
             ]
             assert len(records) == 1, "JSONL file should contain exactly one record"
             assert records[0]["reason"] == "No remote option", (

@@ -71,7 +71,8 @@ def _make_settings(  # pyright: ignore[reportUnusedFunction]  # test utility for
 
     toml_path = Path(tmpdir) / "settings.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
-    toml_path.write_text(f"""\
+    toml_path.write_text(
+        f"""\
 [boards]
 enabled = ["testboard"]
 session_storage_dir = "data"
@@ -157,7 +158,9 @@ msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
 resume_path = "data/resume.md"
 archetypes_path = "config/role_archetypes.toml"
 global_rubric_path = "config/global_rubric.toml"
-""")
+""",
+        encoding="utf-8",
+    )
     return load_settings(toml_path)
 
 
@@ -317,7 +320,8 @@ rate_limit_range = [1.5, 3.5]
         escaped = ", ".join(f'"{p}"' for p in channel_paths)
         bp_lines += f"{channel} = [{escaped}]\n"
 
-    (config_dir / "settings.toml").write_text(f"""\
+    (config_dir / "settings.toml").write_text(
+        f"""\
 resume_path = "{data_dir / "resume.md"}"
 archetypes_path = "{config_dir / "role_archetypes.toml"}"
 global_rubric_path = "{config_dir / "global_rubric.toml"}"
@@ -396,28 +400,39 @@ viewport_width = 1440
 viewport_height = 900
 
 [adapters.browser_paths]
-{bp_lines}""")
+{bp_lines}""",
+        encoding="utf-8",
+    )
 
-    (config_dir / "role_archetypes.toml").write_text("""\
+    (config_dir / "role_archetypes.toml").write_text(
+        """\
 [[archetypes]]
 name = "Test Archetype"
 description = "A test archetype for indexing."
 signals_positive = ["positive signal"]
 signals_negative = ["negative signal"]
-""")
+""",
+        encoding="utf-8",
+    )
 
-    (config_dir / "global_rubric.toml").write_text("""\
+    (config_dir / "global_rubric.toml").write_text(
+        """\
 [[dimensions]]
 name = "Test Dimension"
 signals_positive = ["good indicator"]
 signals_negative = ["bad indicator"]
-""")
+""",
+        encoding="utf-8",
+    )
 
-    (data_dir / "resume.md").write_text("""\
+    (data_dir / "resume.md").write_text(
+        """\
 ## Summary
 
 Test resume content for indexing.
-""")
+""",
+        encoding="utf-8",
+    )
 
     # Mock Ollama client — the I/O boundary
     mock_client = make_mock_ollama_client()
@@ -1708,7 +1723,7 @@ class TestExportCommand:
 
         # Given: a markdown results file in the output directory
         md_file = tmp_path / "output" / "results.md"
-        md_file.write_text("# Run Summary\n\nTest results.\n")
+        md_file.write_text("# Run Summary\n\nTest results.\n", encoding="utf-8")
 
         # When: export is called with format=markdown
         args = argparse.Namespace(format="markdown")
@@ -1735,8 +1750,10 @@ class TestExportCommand:
 
         # Given: both CSV and markdown results files
         out_dir = tmp_path / "output"
-        (out_dir / "results.csv").write_text("title,company\nStaff Architect,Acme\n")
-        (out_dir / "results.md").write_text("# Results\n")
+        (out_dir / "results.csv").write_text(
+            "title,company\nStaff Architect,Acme\n", encoding="utf-8"
+        )
+        (out_dir / "results.md").write_text("# Results\n", encoding="utf-8")
 
         # When/Then: csv format prints CSV content
         args = argparse.Namespace(format="csv")
@@ -2085,7 +2102,7 @@ class TestExportMissing:
 
         # Given: only markdown results exist, not csv
         out_dir = tmp_path / "output"
-        (out_dir / "results.md").write_text("# Results")
+        (out_dir / "results.md").write_text("# Results", encoding="utf-8")
 
         # When: export is called with format=csv
         args = argparse.Namespace(format="csv")
@@ -2194,7 +2211,7 @@ class TestResetCommand:
         out_dir = tmp_path / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
         results_file = out_dir / "results.md"
-        results_file.write_text("old data")
+        results_file.write_text("old data", encoding="utf-8")
 
         # When: handle_reset runs with --clear-output
         args = argparse.Namespace(collection=None, clear_output=True)
@@ -2279,7 +2296,7 @@ class TestReviewJdLoading:
         company = "Acme Corp"
         title = "Staff Architect"
         slug_name = "abc123_acme-corp_staff-architect.md"
-        (jd_dir / slug_name).write_text("## Job Description\nFull JD here.")
+        (jd_dir / slug_name).write_text("## Job Description\nFull JD here.", encoding="utf-8")
 
         ranked = _make_ranked(title=title, company=company, external_id="abc123")
         recorder = MagicMock()
@@ -2422,7 +2439,7 @@ class TestReviewCommandHandler:
     @classmethod
     def _write_csv(cls, csv_path: Path, rows: list[dict[str, str]]) -> None:
         """Write a list of row dicts to a CSV file."""
-        with open(csv_path, "w", newline="") as f:
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=cls._CSV_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
@@ -2648,7 +2665,9 @@ class TestReviewCommandHandler:
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
         jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
-        jd_file.write_text("## Job Description\nStaff Architect role at Acme Corp.")
+        jd_file.write_text(
+            "## Job Description\nStaff Architect role at Acme Corp.", encoding="utf-8"
+        )
 
         # When: operator approves with reason
         with patch("builtins.input", side_effect=["y", "Good fit"]):
@@ -2681,7 +2700,8 @@ class TestReviewCommandHandler:
         jd_file.write_text(
             "# Staff Architect\n\n"
             "## Job Description\n"
-            "Lead the platform team and design distributed systems."
+            "Lead the platform team and design distributed systems.",
+            encoding="utf-8",
         )
 
         # When: handle_review is called and user approves
@@ -2708,7 +2728,9 @@ class TestReviewCommandHandler:
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
         jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
-        jd_file.write_text("# Staff Architect\n\nSome summary without the marker.")
+        jd_file.write_text(
+            "# Staff Architect\n\nSome summary without the marker.", encoding="utf-8"
+        )
 
         # When: handle_review is called and user approves, the real
         # DecisionRecorder.record() raises ActionableError because jd_text is empty
@@ -2736,7 +2758,7 @@ class TestReviewCommandHandler:
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
         jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
-        jd_file.write_text("## Job Description\nSome JD content here.")
+        jd_file.write_text("## Job Description\nSome JD content here.", encoding="utf-8")
 
         # When: operator enters 'n' with empty reason
         with patch("builtins.input", side_effect=["n", ""]):
@@ -2778,7 +2800,7 @@ class TestReviewCommandHandler:
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
         jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
-        jd_file.write_text("## Job Description\nSome JD content here.")
+        jd_file.write_text("## Job Description\nSome JD content here.", encoding="utf-8")
 
         # When: operator approves the only listing
         with patch("builtins.input", side_effect=["y", ""]):
@@ -2847,7 +2869,7 @@ class TestReviewCommandHandler:
         self._write_csv(review["csv_path"], [self._csv_row()])
         jd_dir = review["out_dir"] / "jds"
         jd_file = jd_dir / "job-1_acme-corp_staff-architect.md"
-        jd_file.write_text("## Job Description\nSome JD content here.")
+        jd_file.write_text("## Job Description\nSome JD content here.", encoding="utf-8")
 
         # When: verdict entered, then EOF on reason prompt
         with patch("builtins.input", side_effect=["y", EOFError]):
@@ -2885,7 +2907,7 @@ class TestReviewCommandHandler:
         )
         jd_dir = review["out_dir"] / "jds"
         jd_file = jd_dir / "81cb444f00994fff_acme-corp_staff-architect.md"
-        jd_file.write_text("## Job Description\nSome JD content.")
+        jd_file.write_text("## Job Description\nSome JD content.", encoding="utf-8")
 
         # When: operator quits immediately — we just need to verify the listing was built
         with patch("builtins.input", side_effect=["y", ""]):
@@ -3055,7 +3077,7 @@ class TestRescoreCommand:
             f"architecture, design, and technical leadership.\n"
         )
         jd_file = jd_dir / filename
-        jd_file.write_text(content)
+        jd_file.write_text(content, encoding="utf-8")
         return jd_file
 
     @pytest.fixture
@@ -3071,11 +3093,11 @@ class TestRescoreCommand:
 
         # Disable LLM disqualification — avoids needing chat mock responses
         settings_path = tmp_path / "config" / "settings.toml"
-        content = settings_path.read_text()
+        content = settings_path.read_text(encoding="utf-8")
         content = content.replace(
             "disqualify_on_llm_flag = true", "disqualify_on_llm_flag = false"
         )
-        settings_path.write_text(content)
+        settings_path.write_text(content, encoding="utf-8")
 
         with patch(
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",

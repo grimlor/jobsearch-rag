@@ -921,7 +921,7 @@ class TestLiveZipRecruiterPipeline:
         jd_paths = JDFileExporter(max_slug_length=80).export(ranked, jd_dir, summary=summary)
 
         # Then: Markdown export
-        md_content = Path(md_path).read_text()
+        md_content = Path(md_path).read_text(encoding="utf-8")
         assert "# Run Summary" in md_content, "Markdown should have run summary"
         assert "## Ranked Listings" in md_content, "Markdown should have ranked listings"
         assert "ziprecruiter" in md_content, "Markdown should mention board"
@@ -931,7 +931,7 @@ class TestLiveZipRecruiterPipeline:
             )
 
         # Then: CSV export
-        csv_content = Path(csv_path).read_text()
+        csv_content = Path(csv_path).read_text(encoding="utf-8")
         assert "title,company,board" in csv_content, "CSV should have header"
         csv_lines = csv_content.strip().split("\n")
         assert len(csv_lines) == len(ranked) + 1, (
@@ -943,7 +943,7 @@ class TestLiveZipRecruiterPipeline:
             f"Expected {len(ranked)} JD files, got {len(jd_paths)}"
         )
         for jd_path in jd_paths:
-            jd_content = jd_path.read_text()
+            jd_content = jd_path.read_text(encoding="utf-8")
             assert "## Score" in jd_content, f"JD file missing '## Score': {jd_path}"
             assert "## Job Description" in jd_content, (
                 f"JD file missing '## Job Description': {jd_path}"
@@ -1250,7 +1250,7 @@ class TestIntegrationRescoreAccumulatedJDs:
         csv_path = str(tmp_path / "results.csv")
         CSVExporter().export(result.ranked_listings, csv_path, summary=result.summary)
 
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             reader = list(csv_mod.DictReader(f))
 
         assert len(reader) == len(_SAMPLE_JDS), (
@@ -1265,7 +1265,7 @@ class TestIntegrationRescoreAccumulatedJDs:
         # Then: export Markdown and verify table row count matches CSV
         md_path = str(tmp_path / "results.md")
         MarkdownExporter().export(result.ranked_listings, md_path, summary=result.summary)
-        md_content = Path(md_path).read_text()
+        md_content = Path(md_path).read_text(encoding="utf-8")
         assert "# Run Summary" in md_content, "Markdown should contain '# Run Summary'"
 
         # Count table rows (lines starting with |, excluding header separator)
@@ -1361,7 +1361,7 @@ def _make_search_args(
 
 def _read_csv_rows(csv_path: Path) -> list[dict[str, str]]:
     """Read a CSV into a list of dicts (convenience helper)."""
-    with open(csv_path) as f:
+    with open(csv_path, encoding="utf-8") as f:
         return list(csv_mod.DictReader(f))
 
 
@@ -1482,7 +1482,7 @@ class TestLiveCumulativeAccumulation:
             assert 0.0 <= score <= 1.0, f"Score out of range for {row['external_id']}: {score}"
 
         # Then: header appears exactly once (WHAT 5)
-        raw_csv = csv_path.read_text()
+        raw_csv = csv_path.read_text(encoding="utf-8")
         header_line = raw_csv.strip().split("\n")[0]
         assert raw_csv.count(header_line) == 1, "CSV header should appear exactly once"
 
@@ -1501,7 +1501,7 @@ class TestLiveCumulativeAccumulation:
         )
 
         # Then: Markdown has Run Summary (WHAT 9)
-        md_content = md_path.read_text()
+        md_content = md_path.read_text(encoding="utf-8")
         assert "# Run Summary" in md_content, "Markdown should contain '# Run Summary'"
 
         # Then: Markdown table row count matches CSV data row count
@@ -1652,7 +1652,7 @@ class TestLiveFreshModeReset:
         assert len(fresh_jd_files) >= 1, "Fresh run should produce JD files"
 
         # Then: Markdown table rows match fresh CSV (WHAT 3)
-        md_content = md_path.read_text()
+        md_content = md_path.read_text(encoding="utf-8")
         md_table_rows = [
             line
             for line in md_content.split("\n")
@@ -1810,7 +1810,7 @@ class TestLiveDecisionExclusionAcrossRuns:
 
         # Then: decided listing excluded from Markdown (WHAT 2)
         md_path = out_dir / "results.md"
-        md_content = md_path.read_text()
+        md_content = md_path.read_text(encoding="utf-8")
         assert target_id not in md_content, (
             f"Decided listing '{target_id}' should not appear in Markdown"
         )

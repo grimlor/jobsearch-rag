@@ -305,7 +305,7 @@ def _run_pipeline_and_read_logs(
     for log_file in sorted(log_dir.glob("*.jsonl")):
         if log_file.name in skip:
             continue
-        for line in log_file.read_text().splitlines():
+        for line in log_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line:
                 entries.append(json.loads(line))
@@ -529,7 +529,7 @@ class TestSessionTracing:
             log_files = list(log_dir.glob("*.jsonl"))
             assert len(log_files) >= 1, f"Expected at least one .jsonl log file in {log_dir}"
             for log_file in log_files:
-                for i, line in enumerate(log_file.read_text().splitlines()):
+                for i, line in enumerate(log_file.read_text(encoding="utf-8").splitlines()):
                     line = line.strip()
                     if not line:
                         continue

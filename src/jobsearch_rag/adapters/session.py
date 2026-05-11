@@ -417,7 +417,7 @@ class BoardSession:
         path = self._config.storage_state_path
         path.parent.mkdir(parents=True, exist_ok=True)
         state = await self._context.storage_state()
-        path.write_text(json.dumps(state, indent=2))
+        path.write_text(json.dumps(state, indent=2), encoding="utf-8")
         logger.info("Session state saved to %s", path)
         return path
 

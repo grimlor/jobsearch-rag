@@ -92,7 +92,7 @@ class JDFileExporter:
             filepath = out / filename
 
             content = self._render(r)
-            filepath.write_text(content)
+            filepath.write_text(content, encoding="utf-8")
             paths.append(filepath)
 
         logger.info("Exported %d JD files to %s", len(paths), out)

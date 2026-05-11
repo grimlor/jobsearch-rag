@@ -113,7 +113,7 @@ class TestFileLogging:
             # Then: the log file contains the message and level
             log_files = list(log_dir.glob("*.log"))
             assert len(log_files) == 1, f"Expected 1 log file, found {len(log_files)}"
-            content = log_files[0].read_text()
+            content = log_files[0].read_text(encoding="utf-8")
             assert "duplicate check message" in content, (
                 f"Expected 'duplicate check message' in log content. Got: {content[:200]}"
             )
@@ -188,7 +188,7 @@ class TestFileLogging:
             # Then: the log file captures the debug output
             log_files = list(log_dir.glob("*.log"))
             assert len(log_files) == 1, f"Expected 1 log file, found {len(log_files)}"
-            content = log_files[0].read_text()
+            content = log_files[0].read_text(encoding="utf-8")
             assert "debug-level message" in content, (
                 f"Expected 'debug-level message' in log content. Got: {content[:200]}"
             )
@@ -272,7 +272,7 @@ class TestSessionLogging:
 
             # Then: the JSON entry contains event + extra data
             jsonl_files = list(log_dir.glob("*.jsonl"))
-            content = jsonl_files[0].read_text().strip()
+            content = jsonl_files[0].read_text(encoding="utf-8").strip()
             entry = json.loads(content)
             assert entry["event"] == "score_computed", (
                 f"Expected event 'score_computed', got: {entry.get('event')}"
@@ -303,7 +303,7 @@ class TestSessionLogging:
 
             # Then: valid JSON with default event
             jsonl_files = list(log_dir.glob("*.jsonl"))
-            content = jsonl_files[0].read_text().strip()
+            content = jsonl_files[0].read_text(encoding="utf-8").strip()
             entry = json.loads(content)
             assert entry["event"] == "log", (
                 f"Expected default event 'log', got: {entry.get('event')}"
