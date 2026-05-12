@@ -162,8 +162,8 @@ def _make_ranked(
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()
 
@@ -466,7 +466,7 @@ class TestBestArchetypeMatch:
         CSVExporter().export(listings, output_path)
 
         # Then: the CSV contains a best_archetype column with correct values
-        with open(output_path) as f:
+        with open(output_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
@@ -512,7 +512,7 @@ class TestBestArchetypeMatch:
 
         # Then: the file contains the best archetype line
         assert len(paths) == 1, f"Expected 1 JD file, got {len(paths)}"
-        content = paths[0].read_text()
+        content = paths[0].read_text(encoding="utf-8")
         assert "- **Best Archetype:** Data Platform Lead" in content, (
             f"Expected '- **Best Archetype:** Data Platform Lead' in JD file, "
             f"got content:\n{content}"
@@ -580,7 +580,7 @@ class TestBestArchetypeMatch:
 
         # Then: no best archetype line appears
         assert len(paths) == 1, f"Expected 1 JD file, got {len(paths)}"
-        content = paths[0].read_text()
+        content = paths[0].read_text(encoding="utf-8")
         assert "**Best Archetype:**" not in content, (
             f"Expected no '**Best Archetype:**' line when best_archetype is None, "
             f"but found it in:\n{content}"

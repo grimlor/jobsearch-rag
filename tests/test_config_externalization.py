@@ -203,6 +203,7 @@ max_slug_length = 80
 [chroma]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
+sync_threshold = 1
 
 [security]
 screen_prompt = "Review the following job description text."
@@ -267,7 +268,7 @@ def _write_config(
     rubric_path.write_text("", encoding="utf-8")
     content = content.replace(
         'global_rubric_path = "config/global_rubric.toml"',
-        f'global_rubric_path = "{rubric_path}"',
+        f'global_rubric_path = "{rubric_path.as_posix()}"',
     )
 
     settings_path = tmpdir / "settings.toml"
@@ -2192,7 +2193,7 @@ class TestLoginUrlConfig:
         _write_config(tmp_path / "config", settings_toml=toml)
         # Write resume so load_settings() doesn't fail on missing file
         (tmp_path / "data").mkdir(exist_ok=True)
-        (tmp_path / "data" / "resume.md").write_text("# Resume\n")
+        (tmp_path / "data" / "resume.md").write_text("# Resume\n", encoding="utf-8")
 
         # Given: mock Playwright at the I/O boundary
         mock_page = MagicMock()
@@ -2256,7 +2257,7 @@ class TestLoginUrlConfig:
         (tmp_path / "config").mkdir(exist_ok=True)
         _write_config(tmp_path / "config", settings_toml=toml)
         (tmp_path / "data").mkdir(exist_ok=True)
-        (tmp_path / "data" / "resume.md").write_text("# Resume\n")
+        (tmp_path / "data" / "resume.md").write_text("# Resume\n", encoding="utf-8")
 
         # Given: mock Playwright at the I/O boundary
         mock_page = MagicMock()
@@ -2358,7 +2359,7 @@ class TestStealthConfig:
         When the runner constructs a SessionConfig for that board
         Then SessionConfig.stealth is True (not derived from board name)
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: settings where "testboard" (not "linkedin") has stealth=True
             settings = make_test_settings(tmpdir)
             # Patch the board config to include stealth=True
@@ -2441,6 +2442,7 @@ class TestStealthConfig:
                 f"Expected stealth=True from board config, got {session_config.stealth!r}. "
                 f"Board name is 'testboard', not 'linkedin' — stealth must come from config."
             )
+            runner.store.close()
 
 
 class TestAdaptersConfig:

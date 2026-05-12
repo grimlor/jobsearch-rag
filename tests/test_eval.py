@@ -162,6 +162,7 @@ max_slug_length = 80
 [chroma]
 persist_dir = "./chroma"
 distance_metric = "cosine"
+sync_threshold = 1
 
 [security]
 screen_prompt = "Review the following job description text."
@@ -185,11 +186,11 @@ def _write_test_settings_toml(base_dir: Path, *, min_score_threshold: float = 0.
     toml_text = _SETTINGS_TOML_TEMPLATE.format(min_score_threshold=min_score_threshold)
     toml_text = toml_text.replace(
         'persist_dir = "./chroma"',
-        f'persist_dir = "{base_dir / "chroma"}"',
+        f'persist_dir = "{(base_dir / "chroma").as_posix()}"',
     )
     toml_text = toml_text.replace(
         'output_dir = "./output"',
-        f'output_dir = "{base_dir / "output"}"',
+        f'output_dir = "{(base_dir / "output").as_posix()}"',
     )
     (config_dir / "settings.toml").write_text(toml_text, encoding="utf-8")
     (config_dir / "global_rubric.toml").write_text("# empty rubric for tests\n", encoding="utf-8")
@@ -249,7 +250,9 @@ def _make_eval_stack(
 ) -> tuple[EvalRunner, Scorer, Ranker, VectorStore, AsyncMock]:
     """Build a full eval stack: EvalRunner + Scorer + Ranker + real VectorStore."""
     embedder, mock_client = _make_mock_embedder(embed_return=embed_return)
-    store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+    store = VectorStore(
+        persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
+    )
     scorer = Scorer(
         store=store,
         embedder=embedder,
@@ -359,7 +362,7 @@ class TestEvalCommand:
         When ``handle_eval`` is called
         Then it prints agreement_rate, precision, recall to stdout
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: settings pointing at tmpdir, a seeded store with decisions
             settings = _make_settings(tmpdir)
             runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
@@ -373,6 +376,7 @@ class TestEvalCommand:
             assert result.agreement_rate is not None, "agreement_rate should be set"
             assert result.precision is not None, "precision should be set"
             assert result.recall is not None, "recall should be set"
+            store.close()
 
     def test_handle_eval_with_no_decisions_exits_cleanly(self) -> None:
         """
@@ -380,7 +384,7 @@ class TestEvalCommand:
         When ``handle_eval`` is called
         Then it prints a "no decisions" message and exits cleanly
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: settings and a store with no decisions
             settings = _make_settings(tmpdir)
             runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
@@ -393,6 +397,7 @@ class TestEvalCommand:
             assert result.decisions_evaluated == 0, (
                 f"Expected 0 decisions_evaluated, got {result.decisions_evaluated}"
             )
+            store.close()
 
     def test_evaluate_returns_eval_result_with_correct_types(self) -> None:
         """
@@ -400,7 +405,7 @@ class TestEvalCommand:
         When ``EvalRunner.evaluate()`` completes
         Then it returns an ``EvalResult`` with correct field types
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: settings and a store with one decision
             settings = _make_settings(tmpdir)
             runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
@@ -430,6 +435,7 @@ class TestEvalCommand:
             assert isinstance(result.spearman, float), (
                 f"spearman should be float, got {type(result.spearman)}"
             )
+            store.close()
 
 
 class TestEvalMetrics:
@@ -470,7 +476,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then agreement_rate=1.0, precision=1.0, recall=1.0
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: collections seeded with EMBED_FAKE so queries return
             # score 1.0 (well above threshold); 3 yes decisions
             settings = _make_settings(tmpdir, min_score_threshold=0.45)
@@ -493,6 +499,7 @@ class TestEvalMetrics:
                 f"Expected precision 1.0, got {result.precision}"
             )
             assert result.recall == pytest.approx(1.0), f"Expected recall 1.0, got {result.recall}"
+            store.close()
 
     def test_all_no_below_threshold_produces_full_agreement(self) -> None:
         """
@@ -500,7 +507,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then agreement_rate=1.0
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: collections seeded with EMBED_DISTANT so queries return
             # low scores; high threshold ensures all below; 3 no decisions
             settings = _make_settings(tmpdir, min_score_threshold=0.99)
@@ -522,6 +529,7 @@ class TestEvalMetrics:
             assert result.agreement_rate == pytest.approx(1.0), (
                 f"Expected agreement_rate 1.0, got {result.agreement_rate}"
             )
+            store.close()
 
     def test_total_disagreement_produces_zero_rates(self) -> None:
         """
@@ -530,7 +538,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then agreement_rate=0.0, precision=0.0, recall=0.0
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: EMBED_DISTANT for queries → low scores; high threshold
             # means yes-decisions score below; but we need the no-decision
             # to score above. Since all go through the same scorer, we use
@@ -564,6 +572,7 @@ class TestEvalMetrics:
             assert result.precision == pytest.approx(0.0), (
                 f"Expected precision 0.0, got {result.precision}"
             )
+            store.close()
 
     def test_maybe_verdicts_treated_as_positive(self) -> None:
         """
@@ -571,7 +580,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then it counts as agreed (maybe is positive)
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: EMBED_FAKE for high scores; one maybe decision
             settings = _make_settings(tmpdir, min_score_threshold=0.45)
             runner, _s, _r, store, _mock = _make_eval_stack(settings)
@@ -589,6 +598,7 @@ class TestEvalMetrics:
                 f"Expected agreement_rate 1.0 (maybe=positive, above threshold), "
                 f"got {result.agreement_rate}"
             )
+            store.close()
 
     def test_per_decision_entries_have_correct_fields(self) -> None:
         """
@@ -596,7 +606,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then per_decision has 5 entries with correct fields
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: 5 decisions with mixed verdicts
             settings = _make_settings(tmpdir, min_score_threshold=0.45)
             runner, _s, _r, store, _mock = _make_eval_stack(settings)
@@ -621,6 +631,7 @@ class TestEvalMetrics:
                     f"per_decision entry missing 'above_threshold': {entry}"
                 )
                 assert hasattr(entry, "agreed"), f"per_decision entry missing 'agreed': {entry}"
+            store.close()
 
     def test_precision_and_recall_computed_correctly(self) -> None:
         """
@@ -628,7 +639,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then precision and recall are computed correctly against the definitions
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: EMBED_FAKE → score ~1.0 (above threshold).
             # 2 yes (above → agree), 1 no (above → disagree), 1 maybe (above → agree)
             # Pipeline says "above" for all 4.
@@ -651,6 +662,7 @@ class TestEvalMetrics:
                 f"Expected precision 0.75, got {result.precision}"
             )
             assert result.recall == pytest.approx(1.0), f"Expected recall 1.0, got {result.recall}"
+            store.close()
 
     def test_no_decisions_returns_zero_metrics(self) -> None:
         """
@@ -658,7 +670,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then EvalResult has decisions_evaluated=0 and rates are 0.0
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: store with required collections but no decisions
             settings = _make_settings(tmpdir)
             runner, _s, _r, store, _mock = _make_eval_stack(settings)
@@ -674,6 +686,7 @@ class TestEvalMetrics:
             )
             assert result.precision == pytest.approx(0.0), f"Expected 0.0, got {result.precision}"
             assert result.recall == pytest.approx(0.0), f"Expected 0.0, got {result.recall}"
+            store.close()
 
     def test_yes_verdict_below_threshold_is_recall_miss(self) -> None:
         """
@@ -683,7 +696,7 @@ class TestEvalMetrics:
         Then recall is 0.0 (the yes-decision missed) and agreement for the
              yes-decision is False
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: EMBED_DISTANT produces low cosine similarity against
             # EMBED_FAKE-seeded collections; high threshold ensures below
             settings = _make_settings(tmpdir, min_score_threshold=0.99)
@@ -708,6 +721,7 @@ class TestEvalMetrics:
             assert not yes_decisions[0].agreed, (
                 "yes-decision below threshold should disagree with pipeline"
             )
+            store.close()
 
 
 class TestSpearmanCorrelation:
@@ -924,7 +938,7 @@ class TestEvalReport:
         )
         assert path.suffix == ".md", f"Expected .md suffix, got {path.suffix!r}"
 
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
 
         # Then: heading and metrics are present
         assert "# Eval Report" in content or "# Evaluation Report" in content, (
@@ -963,7 +977,7 @@ class TestEvalReport:
 
         # Then: file exists with zero metric
         assert path.exists(), f"Report file not created at {path}"
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
         assert "0" in content, "Report must contain decisions_evaluated = 0"
 
     def test_nonexistent_output_dir_is_created(self, tmp_path: Path) -> None:
@@ -1017,7 +1031,7 @@ class TestEvalReport:
         path = EvalReport.write(result, str(tmp_path))
 
         # Then: file exists, no disagreement job IDs
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
         assert path.exists(), f"Report file not created at {path}"
         # Then: neither job should appear in a disagreement list
         assert "job-1" not in content or "agreed" in content.lower(), (
@@ -1084,7 +1098,7 @@ class TestEvalHistory:
         EvalHistory.append(result, str(history_path))
 
         # Then: file contains exactly one JSON line with all metrics
-        lines = history_path.read_text().strip().splitlines()
+        lines = history_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1, f"Expected 1 line, got {len(lines)}"
 
         record = json.loads(lines[0])
@@ -1117,7 +1131,7 @@ class TestEvalHistory:
             json.dumps({"timestamp": "2026-01-01T00:00:00", "agreement_rate": 0.5}),
             json.dumps({"timestamp": "2026-01-02T00:00:00", "agreement_rate": 0.6}),
         ]
-        history_path.write_text("\n".join(existing) + "\n")
+        history_path.write_text("\n".join(existing) + "\n", encoding="utf-8")
 
         result = self._make_result(agreement_rate=0.9)
 
@@ -1125,7 +1139,7 @@ class TestEvalHistory:
         EvalHistory.append(result, str(history_path))
 
         # Then: file has 3 lines, last line has the new metrics
-        lines = history_path.read_text().strip().splitlines()
+        lines = history_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 3, f"Expected 3 lines, got {len(lines)}"
 
         last = json.loads(lines[2])
@@ -1149,7 +1163,7 @@ class TestEvalHistory:
 
         # Then: file is created with one line
         assert history_path.exists(), "History file must be created"
-        lines = history_path.read_text().strip().splitlines()
+        lines = history_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1, f"Expected 1 line, got {len(lines)}"
 
 
@@ -1188,7 +1202,9 @@ class TestEvalIntegration:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
+        )
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="eval-1", verdict="yes")
         _seed_decision(store, job_id="eval-2", verdict="no", embedding=_EMBED_DISTANT)
@@ -1214,8 +1230,9 @@ class TestEvalIntegration:
         # And: history file exists with one line
         history_path = tmp_path / "data" / "eval_history.jsonl"
         assert history_path.exists(), "eval_history.jsonl should exist"
-        lines = history_path.read_text().strip().splitlines()
+        lines = history_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1, f"Expected 1 history line, found {len(lines)}"
+        store.close()
 
     def test_eval_result_has_spearman_field(self, tmp_path: Path) -> None:
         """
@@ -1237,6 +1254,7 @@ class TestEvalIntegration:
         assert isinstance(result.spearman, float), (
             f"Expected spearman to be float, got {type(result.spearman).__name__}"
         )
+        store.close()
 
 
 class TestModelComparisonResult:
@@ -1456,7 +1474,9 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
+        )
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
@@ -1477,6 +1497,7 @@ class TestCompareModelsFlag:
         output_dir = Path(settings.output.output_dir)
         report_files = list(output_dir.glob("eval_*.md"))
         assert len(report_files) == 1, f"Expected 1 report (normal flow), found {report_files}"
+        store.close()
 
     def test_compare_models_present_runs_dual_eval(
         self,
@@ -1495,7 +1516,9 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
+        )
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
         _seed_decision(store, job_id="cmp-2", verdict="no", embedding=_EMBED_DISTANT)
@@ -1524,6 +1547,7 @@ class TestCompareModelsFlag:
         assert "delta" in captured.out.lower() or "Δ" in captured.out, (
             "Expected delta label in comparison output"
         )
+        store.close()
 
     def test_compare_models_skips_report_and_history(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1539,7 +1563,9 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
+        )
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
@@ -1568,6 +1594,7 @@ class TestCompareModelsFlag:
         # And: no history file
         history_path = tmp_path / "data" / "eval_history.jsonl"
         assert not history_path.exists(), "Expected no history file in compare mode"
+        store.close()
 
 
 class TestLoadDecisionsResilience:
@@ -1618,6 +1645,7 @@ class TestLoadDecisionsResilience:
         assert result.decisions_evaluated == 0, (
             f"Expected 0 decisions, got {result.decisions_evaluated}"
         )
+        store.close()
 
     def test_decision_with_missing_metadata_is_skipped(self, tmp_path: Path) -> None:
         """
@@ -1648,6 +1676,7 @@ class TestLoadDecisionsResilience:
         assert result.decisions_evaluated == 1, (
             f"Expected 1 decision (skipped corrupt), got {result.decisions_evaluated}"
         )
+        store.close()
 
     def test_decision_with_empty_verdict_is_skipped(self, tmp_path: Path) -> None:
         """
@@ -1672,6 +1701,7 @@ class TestLoadDecisionsResilience:
         assert result.decisions_evaluated == 1, (
             f"Expected 1 decision (skipped empty verdict), got {result.decisions_evaluated}"
         )
+        store.close()
 
 
 class TestEvalSinglePath:
@@ -1714,7 +1744,9 @@ class TestEvalSinglePath:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(persist_dir=settings.chroma.persist_dir, distance_metric="cosine")
+        store = VectorStore(
+            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
+        )
         _seed_required_collections(store, EMBED_FAKE)
 
         _, mock_client = _make_mock_embedder()
@@ -1746,3 +1778,4 @@ class TestEvalSinglePath:
         # And: no history file
         history_path = tmp_path / "data" / "eval_history.jsonl"
         assert not history_path.exists(), "Expected no history file when decisions are empty"
+        store.close()

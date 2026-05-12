@@ -46,6 +46,23 @@ dev = [
 jobsearch-rag = "jobsearch_rag.__main__:main"
 
 # ---------------------------------------------------------------------------
+# uv
+# ---------------------------------------------------------------------------
+[tool.uv]
+# Ensure the lock file resolves wheels for every CI platform.
+# Without this, uv may pick a version that lacks wheels for some targets
+# (e.g. onnxruntime 1.26.0 dropped macOS ARM64 wheels for Python 3.12).
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
+# onnxruntime 1.26.0 has no macOS ARM64 wheel for Python 3.12.
+# Cap until upstream publishes the missing wheel.
+constraint-dependencies = ["onnxruntime<1.26"]
+
+# ---------------------------------------------------------------------------
 # Taskipy
 # ---------------------------------------------------------------------------
 [tool.taskipy.tasks]
@@ -139,7 +156,7 @@ asyncio_mode = "auto"
 python_files = ["*_test.py", "test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --strict-markers -m 'not integration and not live'"
+addopts = "-v --strict-markers -m 'not integration and not live' -n auto --cov-fail-under=100"
 log_cli = true
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s %(levelname)-8s %(name)s — %(message)s"

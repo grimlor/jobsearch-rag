@@ -40,8 +40,8 @@ if TYPE_CHECKING:
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """Yield a temporary VectorStore for test isolation."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()
 
@@ -99,6 +99,7 @@ class TestOllamaConnectivity:
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
         assert len(err.troubleshooting.steps) > 0, "Should have troubleshooting steps"
+        await embedder.close()
 
     async def test_startup_check_runs_before_browser_session_opens(self) -> None:
         """
@@ -120,6 +121,7 @@ class TestOllamaConnectivity:
         )
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
+        await embedder.close()
 
     async def test_wrong_model_name_suggests_ollama_pull_command(
         self,

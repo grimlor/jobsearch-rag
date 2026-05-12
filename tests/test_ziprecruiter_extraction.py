@@ -90,7 +90,7 @@ class TestZipRecruiterDomExtraction:
         THEN exactly 3 deduplicated cards are returned.
         """
         # Given: synthetic fixture HTML
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
 
         # When: extract
         cards = extract_job_cards(html)
@@ -130,7 +130,7 @@ class TestZipRecruiterDomExtraction:
         THEN 3 URLs are returned in position order.
         """
         # Given: synthetic fixture HTML
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
 
         # When: extract
         urls = extract_json_ld_urls(html)
@@ -146,7 +146,7 @@ class TestZipRecruiterDomExtraction:
         THEN the title maps to 'Staff Platform Architect'.
         """
         # Given: first card from fixture
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         urls = extract_json_ld_urls(html)
         cards[0]["url"] = urls[0]
@@ -166,7 +166,7 @@ class TestZipRecruiterDomExtraction:
         THEN the company name is mapped correctly.
         """
         # Given: first card from fixture
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
 
         # When: convert
@@ -182,7 +182,7 @@ class TestZipRecruiterDomExtraction:
         THEN the location is mapped correctly.
         """
         # Given: first card from fixture
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
 
         # When: convert
@@ -200,7 +200,7 @@ class TestZipRecruiterDomExtraction:
         THEN the external_id is mapped correctly.
         """
         # Given: first card from fixture
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
 
         # When: convert
@@ -218,7 +218,7 @@ class TestZipRecruiterDomExtraction:
         THEN the URL is set correctly.
         """
         # Given: card with URL from JSON-LD
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         urls = extract_json_ld_urls(html)
         cards[0]["url"] = urls[0]
@@ -238,7 +238,7 @@ class TestZipRecruiterDomExtraction:
         THEN board is set to 'ziprecruiter'.
         """
         # Given: first card from fixture
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
 
         # When: convert
@@ -254,7 +254,7 @@ class TestZipRecruiterDomExtraction:
         THEN full_text is empty (detail extraction is a separate step).
         """
         # Given: first card from fixture
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
 
         # When: convert
@@ -270,7 +270,7 @@ class TestZipRecruiterDomExtraction:
         THEN salary_range is included in metadata.
         """
         # Given: first card from fixture (has salary)
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
 
         # When: convert
@@ -292,7 +292,7 @@ class TestZipRecruiterDomExtraction:
         THEN salary_range is absent from metadata.
         """
         # Given: third card (no salary)
-        html = _SERP_FIXTURE.read_text()
+        html = _SERP_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
 
         # When: convert card without salary
@@ -583,7 +583,7 @@ class TestRealWorldExtraction:
         THEN exactly 20 listings are produced.
         """
         # Given: real fixture
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         urls = extract_json_ld_urls(html)
 
@@ -602,7 +602,7 @@ class TestRealWorldExtraction:
         THEN the company is Anchorage Digital with a platform engineering title.
         """
         # Given: real fixture, first card
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
 
         # When: convert first
@@ -623,7 +623,7 @@ class TestRealWorldExtraction:
         THEN every listing has a non-empty unique external_id.
         """
         # Given: all real listings
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         listings = [card_to_listing(c, max_full_text_chars=250_000) for c in cards]
 
@@ -640,7 +640,7 @@ class TestRealWorldExtraction:
         THEN both produce exactly 20 items.
         """
         # Given: real fixture
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         urls = extract_json_ld_urls(html)
 
@@ -655,7 +655,7 @@ class TestRealWorldExtraction:
         THEN every URL starts with the ZipRecruiter base URL.
         """
         # Given: all real listings with URLs
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         urls = extract_json_ld_urls(html)
         for i, c in enumerate(cards):
@@ -674,7 +674,7 @@ class TestRealWorldExtraction:
         THEN salary_range includes $185,000-$240,000.
         """
         # Given: Pearly listing (3rd card)
-        html = _REAL_FIXTURE.read_text()
+        html = _REAL_FIXTURE.read_text(encoding="utf-8")
         cards = extract_job_cards(html)
         listing = card_to_listing(cards[2], max_full_text_chars=250_000)
 
@@ -1010,7 +1010,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter(
             throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
         )
-        fixture_html = _SERP_FIXTURE.read_text()
+        fixture_html = _SERP_FIXTURE.read_text(encoding="utf-8")
         panel_text = "A detailed job description for testing " * 10  # > 100 chars
 
         page = _make_mock_page(
@@ -1043,7 +1043,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter(
             throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
         )
-        fixture_html = _SERP_FIXTURE.read_text()
+        fixture_html = _SERP_FIXTURE.read_text(encoding="utf-8")
         panel_a_text = "Role A detailed job description for panel " * 10
         panel_b_text = "Role B detailed job description for panel " * 10
         panel_c_text = "Role C detailed job description for panel " * 10
@@ -1077,7 +1077,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter(
             throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
         )
-        fixture_html = _SERP_FIXTURE.read_text()
+        fixture_html = _SERP_FIXTURE.read_text(encoding="utf-8")
 
         page = _make_mock_page(
             content_html=fixture_html,
@@ -1106,7 +1106,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter(
             throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
         )
-        fixture_html = _SERP_FIXTURE.read_text()
+        fixture_html = _SERP_FIXTURE.read_text(encoding="utf-8")
 
         page = _make_mock_page(
             content_html=fixture_html,
@@ -1156,7 +1156,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter(
             throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
         )
-        fixture_html = _SERP_FIXTURE.read_text()
+        fixture_html = _SERP_FIXTURE.read_text(encoding="utf-8")
         no_cards_html = "<html><head><title>Jobs</title></head><body></body></html>"
 
         call_count = {"goto": 0}
@@ -1220,7 +1220,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter(
             throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
         )
-        fixture_html = _SERP_FIXTURE.read_text()
+        fixture_html = _SERP_FIXTURE.read_text(encoding="utf-8")
         panel_text = "Long panel text for testing with enough chars " * 10
 
         page = _make_mock_page(
@@ -1267,7 +1267,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter(
             throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
         )
-        fixture_html = _SERP_FIXTURE.read_text()
+        fixture_html = _SERP_FIXTURE.read_text(encoding="utf-8")
         empty_html = "<html><head><title>Jobs</title></head><body></body></html>"
 
         goto_urls: list[str] = []
@@ -1313,7 +1313,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter(
             throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
         )
-        fixture_html = _SERP_FIXTURE.read_text()
+        fixture_html = _SERP_FIXTURE.read_text(encoding="utf-8")
         empty_html = "<html><head><title>Jobs</title></head><body></body></html>"
 
         goto_urls: list[str] = []
@@ -1356,7 +1356,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter(
             throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
         )
-        fixture_html = _SERP_FIXTURE.read_text()
+        fixture_html = _SERP_FIXTURE.read_text(encoding="utf-8")
         panel_text = "Full detail text with enough content for tests " * 5
 
         page = _make_mock_page(
@@ -1386,7 +1386,7 @@ class TestSearch:
         adapter = ZipRecruiterAdapter(
             throttle_max_retries=3, throttle_base_delay=2.0, max_full_text_chars=250_000
         )
-        fixture_html = _SERP_FIXTURE.read_text()
+        fixture_html = _SERP_FIXTURE.read_text(encoding="utf-8")
         panel_text = "Panel text from click-through enrichment " * 10
         prepopulated_text = "Original text that should be preserved"
 

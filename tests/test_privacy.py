@@ -82,7 +82,9 @@ def _network_guard(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[
 @pytest.fixture
 def _store(tmp_path: Path) -> VectorStore:  # pyright: ignore[reportUnusedFunction]
     """Real ChromaDB VectorStore backed by a per-test temp directory."""
-    store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+    store = VectorStore(
+        persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
+    )
     # Pre-create and seed collections the scorer requires
     for name in ("resume", "role_archetypes", "decisions"):
         store.get_or_create_collection(name)

@@ -84,6 +84,7 @@ class PipelineRunner:
         self._store = VectorStore(
             persist_dir=settings.chroma.persist_dir,
             distance_metric=settings.chroma.distance_metric,
+            sync_threshold=settings.chroma.sync_threshold,
         )
         # Resolve disqualifier prompt: freeform override takes precedence,
         # otherwise synthesize from archetypes.

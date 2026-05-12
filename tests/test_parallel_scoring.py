@@ -257,7 +257,7 @@ class TestParallelScoringOrchestration:
         When the pipeline runs,
         Then all 4 listings are scored and appear in ranked results.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: runner with 4 listings and OLLAMA_NUM_PARALLEL=2
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -279,6 +279,7 @@ class TestParallelScoringOrchestration:
             assert result.failed_listings == 0, (
                 f"Expected 0 failures, got {result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_semaphore_caps_concurrent_tasks(self) -> None:
         """
@@ -286,7 +287,7 @@ class TestParallelScoringOrchestration:
         When the pipeline scores them,
         Then at most 2 embed calls are in-flight concurrently.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: runner instrumented to track concurrency
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -326,6 +327,7 @@ class TestParallelScoringOrchestration:
             assert max_concurrent <= 2, (
                 f"Expected max 2 concurrent embed calls, observed {max_concurrent}"
             )
+            runner.store.close()
 
     async def test_results_identical_regardless_of_max_parallel(self) -> None:
         """
@@ -337,7 +339,7 @@ class TestParallelScoringOrchestration:
 
         results_by_parallel: dict[int, list[float]] = {}
         for max_p in (1, 3):
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
                 # Given: identical runner and listings
                 settings = _make_settings(tmpdir)
                 runner, _ = _make_runner_with_real_stack(settings)
@@ -356,6 +358,7 @@ class TestParallelScoringOrchestration:
                     key=lambda t: t[0],
                 )
                 results_by_parallel[max_p] = [s for _, s in scores]
+                runner.store.close()
 
         # Then: scores are identical
         assert results_by_parallel[1] == pytest.approx(results_by_parallel[3], abs=1e-9), (
@@ -370,7 +373,7 @@ class TestParallelScoringOrchestration:
         Then a scoring_parallelism log event is emitted with max_parallel=3
         and listing_count=5.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: runner with 5 listings
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -402,6 +405,7 @@ class TestParallelScoringOrchestration:
             assert evt["listing_count"] == 5, (
                 f"Expected listing_count=5, got {evt['listing_count']}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -440,7 +444,7 @@ class TestErrorIsolation:
         When the pipeline runs with OLLAMA_NUM_PARALLEL=2,
         Then the 1st and 3rd listings are scored and 1 failure is reported.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: 3 listings, embed fails for external_id "bad"
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -487,6 +491,7 @@ class TestErrorIsolation:
                 f"Expected 3 total (scored + failed), got {total}. "
                 f"ranked={len(result.ranked_listings)}, failed={result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_unexpected_exception_does_not_block_other_listings(self) -> None:
         """
@@ -494,7 +499,7 @@ class TestErrorIsolation:
         When the pipeline runs with OLLAMA_NUM_PARALLEL=2,
         Then the other listings are scored and the error is surfaced.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: embed raises RuntimeError on 3rd call
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -532,6 +537,7 @@ class TestErrorIsolation:
             assert len(result.ranked_listings) >= 1, (
                 f"Expected at least 1 success, got {len(result.ranked_listings)}"
             )
+            runner.store.close()
 
     async def test_failed_listings_surfaced_in_errors(self) -> None:
         """
@@ -539,7 +545,7 @@ class TestErrorIsolation:
         When the pipeline completes,
         Then RunResult.errors contains the corresponding ActionableError.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: embed always fails
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -562,6 +568,7 @@ class TestErrorIsolation:
             assert result.failed_listings == 1, (
                 f"Expected 1 failed listing, got {result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_session_summary_reflects_correct_failed_count(self) -> None:
         """
@@ -569,7 +576,7 @@ class TestErrorIsolation:
         When the pipeline completes,
         Then the session_summary log event shows failed_listings=2.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: embed fails on calls 3 and 5 (2nd and 3rd listings' first embed)
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -612,6 +619,7 @@ class TestErrorIsolation:
                 f"session_summary failed_listings={summaries[0]['failed_listings']} "
                 f"does not match RunResult.failed_listings={result.failed_listings}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -647,7 +655,7 @@ class TestCollectionScoreAggregation:
         Then retrieval_summary events have n_scored=3 for populated
         collections.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: 3 listings
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -682,6 +690,7 @@ class TestCollectionScoreAggregation:
             assert resume_summaries[0]["n_scored"] == 3, (
                 f"Expected n_scored=3 for resume, got {resume_summaries[0]['n_scored']}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -719,7 +728,7 @@ class TestEnvironmentVariableConfig:
         When the pipeline runs,
         Then the scoring_parallelism event shows max_parallel=4.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: OLLAMA_NUM_PARALLEL=4
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -748,13 +757,14 @@ class TestEnvironmentVariableConfig:
             assert parallelism[0]["max_parallel"] == 4, (
                 f"Expected max_parallel=4, got {parallelism[0]['max_parallel']}"
             )
+            runner.store.close()
 
     async def test_unset_env_var_defaults_to_serial(self) -> None:
         """
         When OLLAMA_NUM_PARALLEL is not set,
         Then max_parallel defaults to 1.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: env var not set
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -784,6 +794,7 @@ class TestEnvironmentVariableConfig:
             assert parallelism[0]["max_parallel"] == 1, (
                 f"Expected max_parallel=1 (serial), got {parallelism[0]['max_parallel']}"
             )
+            runner.store.close()
 
     async def test_non_integer_env_var_falls_back_to_serial(self) -> None:
         """
@@ -791,7 +802,7 @@ class TestEnvironmentVariableConfig:
         When the pipeline runs,
         Then max_parallel falls back to 1 and a warning is logged.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: invalid env var
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -820,6 +831,7 @@ class TestEnvironmentVariableConfig:
             assert parallelism[0]["max_parallel"] == 1, (
                 f"Expected max_parallel=1 fallback, got {parallelism[0]['max_parallel']}"
             )
+            runner.store.close()
 
     async def test_zero_env_var_falls_back_to_serial(self) -> None:
         """
@@ -827,7 +839,7 @@ class TestEnvironmentVariableConfig:
         When the pipeline runs,
         Then max_parallel falls back to 1 and a warning is logged.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: zero value
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -856,6 +868,7 @@ class TestEnvironmentVariableConfig:
             assert parallelism[0]["max_parallel"] == 1, (
                 f"Expected max_parallel=1 fallback for 0, got {parallelism[0]['max_parallel']}"
             )
+            runner.store.close()
 
     async def test_negative_env_var_falls_back_to_serial(self) -> None:
         """
@@ -863,7 +876,7 @@ class TestEnvironmentVariableConfig:
         When the pipeline runs,
         Then max_parallel falls back to 1.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: negative value
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -892,3 +905,4 @@ class TestEnvironmentVariableConfig:
             assert parallelism[0]["max_parallel"] == 1, (
                 f"Expected max_parallel=1 fallback for -1, got {parallelism[0]['max_parallel']}"
             )
+            runner.store.close()

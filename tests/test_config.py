@@ -96,6 +96,7 @@ max_slug_length = 80
 [chroma]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
+sync_threshold = 1
 
 [adapters]
 cdp_timeout = 15.0
@@ -185,7 +186,7 @@ class TestSettingsValidation:
 [scoring]
 archetype_weight = 0.5
 """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -213,7 +214,7 @@ archetype_weight = 0.5
         """
         # Given: archetype_weight exceeds valid range [0.0, 1.0]
         bad_toml = _VALID_SETTINGS.replace("archetype_weight = 0.5", "archetype_weight = 1.5")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -239,7 +240,7 @@ archetype_weight = 0.5
         """
         # Given: fit_weight is negative (below valid range [0.0, 1.0])
         bad_toml = _VALID_SETTINGS.replace("fit_weight = 0.3", "fit_weight = -0.1")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -277,7 +278,7 @@ base_url = "http://localhost:11434"
 [chroma]
 persist_dir = "./data/chroma_db"
 """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -309,7 +310,7 @@ persist_dir = "./data/chroma_db"
             'base_url = "http://localhost:11434"',
             'base_url = "localhost:11434"',
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -334,7 +335,7 @@ persist_dir = "./data/chroma_db"
         Then all fields are parsed and accessible
         """
         # Given: a complete, valid settings file
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, _VALID_SETTINGS)
 
             # When: settings are loaded
@@ -374,7 +375,7 @@ session_storage_dir = "data"
 searches = ["https://example.org/search"]
 rate_limit_range = [1.5, 3.5]
 """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, minimal_toml)
 
             # When / Then: load raises ActionableError for missing required section
@@ -396,7 +397,7 @@ rate_limit_range = [1.5, 3.5]
             "headless = true",
             'headless = true\nbrowser_channel = "msedge"',
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, channel_toml)
 
             # When: settings are loaded
@@ -415,7 +416,7 @@ rate_limit_range = [1.5, 3.5]
         """
         # Given: TOML without comp_weight
         bad_toml = _VALID_SETTINGS.replace("comp_weight = 0.15\n", "")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -434,7 +435,7 @@ rate_limit_range = [1.5, 3.5]
         """
         # Given: TOML without base_salary
         bad_toml = _VALID_SETTINGS.replace("base_salary = 220000\n", "")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -456,7 +457,7 @@ rate_limit_range = [1.5, 3.5]
             "base_salary = 220000",
             "base_salary = -50000",
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -479,7 +480,7 @@ rate_limit_range = [1.5, 3.5]
         Then the error says 'not found' with creation guidance
         """
         # Given: a nonexistent settings path
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             missing = Path(tmpdir) / "nonexistent.toml"
 
             # When: load is attempted
@@ -505,7 +506,7 @@ rate_limit_range = [1.5, 3.5]
         """
         # Given: syntactically broken TOML
         bad_toml = "[boards\nenabled = broken"
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: load is attempted
@@ -526,7 +527,7 @@ rate_limit_range = [1.5, 3.5]
         """
         # Given: empty enabled list
         bad_toml = _VALID_SETTINGS.replace('enabled = ["testboard"]', "enabled = []")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -556,7 +557,7 @@ rate_limit_range = [1.5, 3.5]
 enabled = ["testboard"]
 testboard = "not a table"
 """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -588,7 +589,7 @@ testboard = "not a table"
             '["https://night.org/search"]\nmax_pages = 5\nheadless = false'
             "\nrate_limit_range = [2.0, 4.0]",
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, overnight_toml)
 
             # When: settings are loaded
@@ -616,7 +617,7 @@ testboard = "not a table"
             '[boards]\nenabled = ["testboard"]',
             '[boards]\nenabled = ["testboard"]\novernight_boards = ["testboard"]',
         ).replace("max_pages = 2", "max_pages = 7")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, overlap_toml)
 
             # When: settings are loaded
@@ -642,7 +643,7 @@ testboard = "not a table"
             '[boards]\nenabled = ["testboard"]',
             '[boards]\nenabled = ["testboard"]\novernight_boards = ["nightboard"]\nnightboard = "not a table"',
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_section_toml)
 
             # When: settings are loaded
@@ -676,7 +677,7 @@ max_pages = 2
 headless = true
 rate_limit_range = [1.5, 3.5]
 """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -710,7 +711,7 @@ rate_limit_range = [1.5, 3.5]
             "",
         )
         bad_toml = 'ollama = "not a dict"\n' + bad_toml
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -738,7 +739,7 @@ rate_limit_range = [1.5, 3.5]
             "",
         )
         bad_toml = 'output = "not a dict"\n' + bad_toml
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -757,11 +758,11 @@ rate_limit_range = [1.5, 3.5]
         """
         # Given: replace [chroma] section with a scalar
         bad_toml = _VALID_SETTINGS.replace(
-            '[chroma]\npersist_dir = "./data/chroma_db"\ndistance_metric = "cosine"\n',
+            '[chroma]\npersist_dir = "./data/chroma_db"\ndistance_metric = "cosine"\nsync_threshold = 1\n',
             "",
         )
         bad_toml = 'chroma = "not a dict"\n' + bad_toml
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -786,7 +787,7 @@ overnight_boards = []
 [boards.testboard]
 searches = ["https://example.org/search"]
 """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -810,7 +811,7 @@ searches = ["https://example.org/search"]
         """
         # Given: TOML without negative_weight
         bad_toml = _VALID_SETTINGS.replace("negative_weight = 0.4\n", "")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -829,7 +830,7 @@ searches = ["https://example.org/search"]
         """
         # Given: negative_weight exceeds valid range
         bad_toml = _VALID_SETTINGS.replace("negative_weight = 0.4", "negative_weight = 1.5")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -855,7 +856,7 @@ searches = ["https://example.org/search"]
         """
         # Given: negative_weight is below valid range
         bad_toml = _VALID_SETTINGS.replace("negative_weight = 0.4", "negative_weight = -0.1")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -883,7 +884,7 @@ searches = ["https://example.org/search"]
         bad_toml = _VALID_SETTINGS.replace(
             'global_rubric_path = "config/global_rubric.toml"\n', ""
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -905,7 +906,7 @@ searches = ["https://example.org/search"]
             'global_rubric_path = "config/global_rubric.toml"',
             'global_rubric_path = "/nonexistent/global_rubric.toml"',
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -931,7 +932,7 @@ searches = ["https://example.org/search"]
         """
         # Given: TOML without culture_weight
         bad_toml = _VALID_SETTINGS.replace("culture_weight = 0.2\n", "")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -953,7 +954,7 @@ searches = ["https://example.org/search"]
             "culture_weight = 0.2",
             "culture_weight = 1.5",
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -982,7 +983,7 @@ searches = ["https://example.org/search"]
             "culture_weight = 0.2",
             "culture_weight = -0.1",
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: the settings are loaded
@@ -1007,7 +1008,7 @@ searches = ["https://example.org/search"]
         Then settings.disqualifier.system_prompt is None
         """
         # Given: valid settings with no [disqualifier] section
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, _VALID_SETTINGS)
 
             # When: settings are loaded
@@ -1030,7 +1031,7 @@ searches = ["https://example.org/search"]
             '[security]\nscreen_prompt = "Review the following job description text."\n',
             "",
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, no_security)
 
             # When / Then: load raises ActionableError
@@ -1052,7 +1053,7 @@ searches = ["https://example.org/search"]
             'classify_system_prompt = "You are a job listing classifier. Respond concisely with your classification."\n',
             "",
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, no_prompt)
 
             # When / Then: load raises ActionableError
@@ -1072,7 +1073,7 @@ searches = ["https://example.org/search"]
         # Given: disqualifier is a string instead of a table (prepend
         # so it stays at root level — appending would nest inside [security])
         bad_toml = 'disqualifier = "not a table"\n' + _VALID_SETTINGS
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: settings are loaded
@@ -1092,7 +1093,7 @@ searches = ["https://example.org/search"]
         """
         # Given: empty disqualifier prompt override
         bad_toml = _VALID_SETTINGS + '\n[disqualifier]\nsystem_prompt = ""\n'
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -1114,7 +1115,7 @@ searches = ["https://example.org/search"]
             'screen_prompt = "Review the following job description text."',
             'screen_prompt = ""',
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -1136,7 +1137,7 @@ searches = ["https://example.org/search"]
             'classify_system_prompt = "You are a job listing classifier. Respond concisely with your classification."',
             'classify_system_prompt = ""',
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When / Then: load raises ActionableError
@@ -1158,7 +1159,7 @@ searches = ["https://example.org/search"]
             '[boards]\nenabled = ["testboard"]',
             '[boards]\nenabled = ["testboard"]\novernight_boards = "not-a-list"',
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
             # When: settings are loaded
@@ -1177,7 +1178,7 @@ searches = ["https://example.org/search"]
         """
         # Given: TOML where archetypes is a scalar
         bad_toml = 'archetypes = "not a list"\n'
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = Path(tmpdir) / "bad_archetypes.toml"
             path.write_text(bad_toml)
 
@@ -1273,6 +1274,7 @@ max_slug_length = 80
 [chroma]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
+sync_threshold = 1
 
 [adapters]
 cdp_timeout = 15.0
@@ -1490,7 +1492,7 @@ class TestCommittedConfigCompleteness:
         """
         # Given: TOML without archetype_weight
         incomplete = _COMPLETE_SETTINGS.replace("archetype_weight = 0.5\n", "")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, incomplete)
 
             # When / Then
@@ -1509,7 +1511,7 @@ class TestCommittedConfigCompleteness:
         """
         # Given: TOML without llm_model
         incomplete = _COMPLETE_SETTINGS.replace('llm_model = "mistral:7b"\n', "")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, incomplete)
 
             # When / Then
@@ -1528,7 +1530,7 @@ class TestCommittedConfigCompleteness:
         """
         # Given: TOML without output_dir
         incomplete = _COMPLETE_SETTINGS.replace('output_dir = "./output"\n', "")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, incomplete)
 
             # When / Then
@@ -1547,7 +1549,7 @@ class TestCommittedConfigCompleteness:
         """
         # Given: TOML without persist_dir
         incomplete = _COMPLETE_SETTINGS.replace('persist_dir = "./data/chroma_db"\n', "")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, incomplete)
 
             # When / Then
@@ -1569,7 +1571,7 @@ class TestCommittedConfigCompleteness:
             'screen_prompt = "Review the following job description text."',
             "",
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, incomplete)
 
             # When / Then
@@ -1595,7 +1597,7 @@ class TestCommittedConfigCompleteness:
             "",
             _COMPLETE_SETTINGS,
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, incomplete)
 
             # When / Then
@@ -1614,7 +1616,7 @@ class TestCommittedConfigCompleteness:
         """
         # Given: TOML without resume_path
         incomplete = _COMPLETE_SETTINGS.replace('resume_path = "data/resume.md"\n', "")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, incomplete)
 
             # When / Then
@@ -1633,7 +1635,7 @@ class TestCommittedConfigCompleteness:
         """
         # Given: TOML without slow_llm_threshold_ms
         incomplete = _COMPLETE_SETTINGS.replace("slow_llm_threshold_ms = 30000\n", "")
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = _write_settings(tmpdir, incomplete)
 
             # When / Then

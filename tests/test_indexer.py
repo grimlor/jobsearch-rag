@@ -139,8 +139,8 @@ SAMPLE_RUBRIC_TOML = textwrap.dedent("""\
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()
 
@@ -166,7 +166,7 @@ def indexer(store: VectorStore, mock_embedder: Embedder) -> Indexer:
 def resume_path(tmp_path: Path) -> Path:
     """Write sample resume to a temp file and return its path."""
     p = tmp_path / "resume.md"
-    p.write_text(SAMPLE_RESUME)
+    p.write_text(SAMPLE_RESUME, encoding="utf-8")
     return p
 
 
@@ -174,7 +174,7 @@ def resume_path(tmp_path: Path) -> Path:
 def archetypes_path(tmp_path: Path) -> Path:
     """Write sample archetypes to a temp file and return its path."""
     p = tmp_path / "role_archetypes.toml"
-    p.write_text(SAMPLE_ARCHETYPES_TOML)
+    p.write_text(SAMPLE_ARCHETYPES_TOML, encoding="utf-8")
     return p
 
 
@@ -182,7 +182,7 @@ def archetypes_path(tmp_path: Path) -> Path:
 def archetypes_with_signals_path(tmp_path: Path) -> Path:
     """Write sample archetypes with signals to a temp file and return its path."""
     p = tmp_path / "role_archetypes_signals.toml"
-    p.write_text(SAMPLE_ARCHETYPES_WITH_SIGNALS_TOML)
+    p.write_text(SAMPLE_ARCHETYPES_WITH_SIGNALS_TOML, encoding="utf-8")
     return p
 
 
@@ -190,7 +190,7 @@ def archetypes_with_signals_path(tmp_path: Path) -> Path:
 def rubric_path(tmp_path: Path) -> Path:
     """Write sample global rubric to a temp file and return its path."""
     p = tmp_path / "global_rubric.toml"
-    p.write_text(SAMPLE_RUBRIC_TOML)
+    p.write_text(SAMPLE_RUBRIC_TOML, encoding="utf-8")
     return p
 
 

@@ -265,7 +265,7 @@ class TestPipelineOrchestration:
         When run() is invoked,
         Then the Ollama health check (client.list) fires before any board I/O.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with real Embedder/Scorer, populated store
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -301,6 +301,7 @@ class TestPipelineOrchestration:
             assert call_order[0] == "health_check", (
                 f"Expected health_check first, got: {call_order}"
             )
+            runner.store.close()
 
     async def test_defaults_to_enabled_boards_when_none_specified(self) -> None:
         """
@@ -308,7 +309,7 @@ class TestPipelineOrchestration:
         When run(boards=None) is called,
         Then both enabled boards are searched.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: two enabled boards
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
             runner, _ = _make_runner_with_real_stack(settings)
@@ -332,6 +333,7 @@ class TestPipelineOrchestration:
                 "board_a",
                 "board_b",
             }, f"Expected both enabled boards, got: {result.boards_searched}"
+            runner.store.close()
 
     async def test_explicit_boards_override_enabled_boards(self) -> None:
         """
@@ -339,7 +341,7 @@ class TestPipelineOrchestration:
         When run(boards=["board_a"]) is called,
         Then only the explicitly specified board is searched.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: two enabled boards
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
             runner, _ = _make_runner_with_real_stack(settings)
@@ -362,6 +364,7 @@ class TestPipelineOrchestration:
             assert result.boards_searched == ["board_a"], (
                 f"Expected only board_a, got: {result.boards_searched}"
             )
+            runner.store.close()
 
     async def test_overnight_mode_includes_overnight_boards(self) -> None:
         """
@@ -369,7 +372,7 @@ class TestPipelineOrchestration:
         When run(overnight=True) is called,
         Then both the enabled and overnight boards are searched.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: enabled + overnight boards
             settings = _make_settings(
                 tmpdir,
@@ -395,6 +398,7 @@ class TestPipelineOrchestration:
             # Then: both boards are searched
             assert "board_a" in result.boards_searched, "enabled board missing from search"
             assert "linkedin" in result.boards_searched, "overnight board missing from search"
+            runner.store.close()
 
     async def test_board_failure_does_not_abort_other_boards(self) -> None:
         """
@@ -402,7 +406,7 @@ class TestPipelineOrchestration:
         When run() is called,
         Then the good board's listings are still scored and results include both boards.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: one failing + one good board
             settings = _make_settings(tmpdir, enabled_boards=["failing_board", "good_board"])
             runner, _ = _make_runner_with_real_stack(settings)
@@ -451,6 +455,7 @@ class TestPipelineOrchestration:
             assert result.summary.total_found >= 1, (
                 f"Expected at least 1 found listing, got: {result.summary.total_found}"
             )
+            runner.store.close()
 
     async def test_scoring_failure_increments_failed_count(self) -> None:
         """
@@ -458,7 +463,7 @@ class TestPipelineOrchestration:
         When a listing is collected and scoring is attempted,
         Then failed_listings is incremented (real Scorer → real Embedder → mock client fails).
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: runner with populated store
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -484,6 +489,7 @@ class TestPipelineOrchestration:
             assert result.failed_listings >= 1, (
                 f"Expected failed_listings >= 1, got: {result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_empty_results_return_valid_run_result(self) -> None:
         """
@@ -491,7 +497,7 @@ class TestPipelineOrchestration:
         When run() completes,
         Then a valid RunResult is returned with empty ranked_listings.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: board returns no listings
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -515,6 +521,7 @@ class TestPipelineOrchestration:
             assert result.boards_searched == ["testboard"], (
                 f"Expected ['testboard'], got: {result.boards_searched}"
             )
+            runner.store.close()
 
     async def test_scored_listings_are_passed_to_ranker(self) -> None:
         """
@@ -522,7 +529,7 @@ class TestPipelineOrchestration:
         When run() scores it successfully,
         Then the listing passes through the ranker and appears in summary counts.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: one listing available
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -546,6 +553,7 @@ class TestPipelineOrchestration:
             assert result.summary.total_scored == 1, (
                 f"Expected total_scored == 1, got: {result.summary.total_scored}"
             )
+            runner.store.close()
 
     async def test_overnight_overlap_does_not_duplicate_board(self) -> None:
         """
@@ -553,7 +561,7 @@ class TestPipelineOrchestration:
         When run(overnight=True) is called,
         Then the board appears only once in boards_searched.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: same board in both enabled and overnight
             settings = _make_settings(
                 tmpdir,
@@ -579,6 +587,7 @@ class TestPipelineOrchestration:
             assert result.boards_searched.count("board_a") == 1, (
                 f"Expected board_a once, got: {result.boards_searched}"
             )
+            runner.store.close()
 
     async def test_auto_indexes_only_empty_collections(self) -> None:
         """
@@ -587,7 +596,7 @@ class TestPipelineOrchestration:
         When run() is called,
         Then only the positive_signals collection is auto-indexed.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: resume and archetypes populated, positive empty
             resume_path, archetypes_path, rubric_path = _create_index_files(tmpdir)
             settings = _make_settings(
@@ -623,6 +632,7 @@ class TestPipelineOrchestration:
             assert store.collection_count("global_positive_signals") > 0, (
                 "Expected positive_signals to be auto-indexed"
             )
+            runner.store.close()
 
     async def test_auto_index_skips_populated_collections(self) -> None:
         """
@@ -631,7 +641,7 @@ class TestPipelineOrchestration:
         When run() is called,
         Then only archetypes is auto-indexed while the others are untouched.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: resume and positive_signals populated, archetypes empty
             resume_path, archetypes_path, rubric_path = _create_index_files(tmpdir)
             settings = _make_settings(
@@ -667,6 +677,7 @@ class TestPipelineOrchestration:
             assert store.collection_count("role_archetypes") > 0, (
                 "Expected archetypes to be auto-indexed"
             )
+            runner.store.close()
 
     async def test_max_listings_caps_scored_count_and_logs(
         self,
@@ -677,7 +688,7 @@ class TestPipelineOrchestration:
         When run(max_listings=2) is called
         Then only 2 listings are scored and the cap is logged.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: runner + adapter returning 5 listings
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -704,6 +715,7 @@ class TestPipelineOrchestration:
             assert any("Capping listings from 5 to 2" in msg for msg in caplog.messages), (
                 f"Expected cap log message, got: {caplog.messages}"
             )
+            runner.store.close()
 
     async def test_freeform_disqualifier_override_bypasses_synthesis(self) -> None:
         """
@@ -712,7 +724,7 @@ class TestPipelineOrchestration:
         Then the pipeline completes successfully using the freeform prompt
              (the listing is scored without synthesis from archetypes).
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             settings = _make_settings(tmpdir)
             settings.disqualifier = DisqualifierConfig(
                 system_prompt="Custom freeform disqualifier prompt for testing",
@@ -734,6 +746,7 @@ class TestPipelineOrchestration:
             assert result.summary.total_scored > 0, (
                 f"Expected at least 1 scored listing, got {result.summary.total_scored}"
             )
+            runner.store.close()
 
     async def test_forwards_throttle_config_to_adapter_constructor(self) -> None:
         """
@@ -741,7 +754,7 @@ class TestPipelineOrchestration:
         When the pipeline runs
         Then the adapter is constructed with those throttle keyword arguments
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a board config with throttle overrides
             settings = _make_settings(tmpdir)
             settings.boards["testboard"].throttle_max_retries = 5
@@ -771,6 +784,7 @@ class TestPipelineOrchestration:
             assert received_kwargs.get("throttle_base_delay") == 2.0, (
                 f"Expected throttle_base_delay=2.0, got: {received_kwargs}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -809,7 +823,7 @@ class TestBoardSearchDelegation:
         When run(boards=["nonexistent_board"]) is called,
         Then the board is skipped and an empty result is returned without error.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: runner configured for 'testboard' only
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -836,6 +850,7 @@ class TestBoardSearchDelegation:
             assert result.failed_listings == 0, (
                 f"Expected 0 failed_listings, got: {result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_mixed_group_skips_unconfigured_board_via_search_board(self) -> None:
         """
@@ -844,7 +859,7 @@ class TestBoardSearchDelegation:
         Then the unconfigured board is skipped by _search_board and the configured board's
         listings are returned normally.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: runner with 'testboard' configured; 'ghost' has no config
             settings = _make_settings(tmpdir, enabled_boards=["testboard", "ghost"])
             # Remove ghost's auto-generated config so _search_board hits the
@@ -883,6 +898,7 @@ class TestBoardSearchDelegation:
             assert test_adapter.authenticate.call_count == 1, (
                 "Testboard adapter should authenticate once"
             )
+            runner.store.close()
 
     async def test_adapter_lifecycle_runs_in_order(self) -> None:
         """
@@ -890,7 +906,7 @@ class TestBoardSearchDelegation:
         When run() searches that board,
         Then authenticate → search → extract_detail is called in that order.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: adapter with lifecycle tracking
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -945,6 +961,7 @@ class TestBoardSearchDelegation:
             assert result.summary.total_found == 1, (
                 f"Expected total_found == 1, got: {result.summary.total_found}"
             )
+            runner.store.close()
 
     async def test_enriched_listings_skip_extract_detail(self) -> None:
         """
@@ -952,7 +969,7 @@ class TestBoardSearchDelegation:
         When run() processes that listing,
         Then extract_detail is not called.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: listing with pre-populated full_text
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -996,6 +1013,7 @@ class TestBoardSearchDelegation:
             assert result.summary.total_found == 1, (
                 f"Expected total_found == 1, got: {result.summary.total_found}"
             )
+            runner.store.close()
 
     async def test_empty_jd_text_is_counted_as_failure(self) -> None:
         """
@@ -1003,7 +1021,7 @@ class TestBoardSearchDelegation:
         When run() processes that listing,
         Then the listing is excluded and counted as failed.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: extraction produces whitespace-only text
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1052,6 +1070,7 @@ class TestBoardSearchDelegation:
             assert result.failed_listings == 1, (
                 f"Expected 1 failed_listings, got: {result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_extraction_error_counts_failure_without_aborting(self) -> None:
         """
@@ -1059,7 +1078,7 @@ class TestBoardSearchDelegation:
         When run() processes both,
         Then the good listing is scored and the bad one is counted as failed.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: two listings, one will fail extraction
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1120,6 +1139,7 @@ class TestBoardSearchDelegation:
                 f"Expected 'good' listing, got: {result.ranked_listings[0].listing.external_id}"
             )
             assert result.failed_listings == 1, f"Expected 1 failed, got: {result.failed_listings}"
+            runner.store.close()
 
     async def test_unexpected_exception_during_extraction_is_counted(self) -> None:
         """
@@ -1127,7 +1147,7 @@ class TestBoardSearchDelegation:
         When run() processes that listing,
         Then the failure is counted without aborting the run.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: extraction raises unexpected error
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1164,6 +1184,7 @@ class TestBoardSearchDelegation:
                 f"Expected no ranked listings, got: {result.ranked_listings}"
             )
             assert result.failed_listings == 1, f"Expected 1 failed, got: {result.failed_listings}"
+            runner.store.close()
 
     async def test_search_failure_skips_url_and_continues(self) -> None:
         """
@@ -1171,7 +1192,7 @@ class TestBoardSearchDelegation:
         When run() searches both,
         Then the second URL's results are collected successfully.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: two search URLs, first will fail
             settings = _make_settings(tmpdir)
             settings.boards["testboard"].searches = [
@@ -1215,6 +1236,7 @@ class TestBoardSearchDelegation:
             assert result.summary.total_found == 1, (
                 f"Expected 1 found from second URL, got: {result.summary.total_found}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1251,7 +1273,7 @@ class TestAutoIndex:
         When run() is called,
         Then _ensure_indexed creates a real Indexer and indexes resume + archetypes.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: config files exist, store is empty
             resume, archetypes, rubric = _create_index_files(tmpdir)
             settings = _make_settings(
@@ -1283,6 +1305,7 @@ class TestAutoIndex:
             assert store.collection_count("global_positive_signals") > 0, (
                 "global_positive_signals collection should be populated after auto-index"
             )
+            runner.store.close()
 
     async def test_skips_auto_index_when_collections_are_populated(self) -> None:
         """
@@ -1290,7 +1313,7 @@ class TestAutoIndex:
         When run() is called,
         Then no re-indexing occurs (collection counts remain unchanged).
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: store already populated
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
@@ -1316,6 +1339,7 @@ class TestAutoIndex:
             assert store.collection_count("role_archetypes") == archetypes_count_before, (
                 "role_archetypes collection should not change when already populated"
             )
+            runner.store.close()
 
     async def test_auto_index_runs_before_scoring_begins(self) -> None:
         """
@@ -1323,7 +1347,7 @@ class TestAutoIndex:
         When run() is called,
         Then auto-indexing populates collections before scoring uses them.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: config files exist, store empty, one listing to score
             resume, archetypes, rubric = _create_index_files(tmpdir)
             settings = _make_settings(
@@ -1365,6 +1389,7 @@ class TestAutoIndex:
             assert result.summary.total_scored >= 1, (
                 f"Expected at least 1 scored listing, got: {result.summary.total_scored}"
             )
+            runner.store.close()
 
     async def test_collection_empty_returns_true_when_store_raises(self) -> None:
         """
@@ -1372,7 +1397,7 @@ class TestAutoIndex:
         When _ensure_indexed checks collections,
         Then the collection is treated as empty and real auto-indexing runs.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: config files exist, store completely empty
             resume, archetypes, rubric = _create_index_files(tmpdir)
             settings = _make_settings(
@@ -1404,6 +1429,7 @@ class TestAutoIndex:
             assert store.collection_count("global_positive_signals") > 0, (
                 "global_positive_signals should be auto-indexed when collection was missing"
             )
+            runner.store.close()
 
 
 class TestCompEnrichment:
@@ -1430,7 +1456,7 @@ class TestCompEnrichment:
         When the pipeline runner scores it,
         Then comp_min, comp_max, comp_source, and comp_text are set on the listing.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with real stack and a listing containing salary text
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1474,6 +1500,7 @@ class TestCompEnrichment:
             assert "$180,000" in listing.comp_text, (
                 f"Expected '$180,000' in comp_text, got: {listing.comp_text}"
             )
+            runner.store.close()
 
 
 class TestErrorSurfacing:
@@ -1517,7 +1544,7 @@ class TestErrorSurfacing:
         When runner.run() completes
         Then the caught board-level error appears in RunResult.errors
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a board adapter whose authenticate raises ActionableError
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1545,6 +1572,7 @@ class TestErrorSurfacing:
             assert "testboard" in result.errors[0].error, (
                 f"Expected 'testboard' in error message, got: {result.errors[0].error}"
             )
+            runner.store.close()
 
     async def test_extraction_level_actionable_errors_are_appended_to_run_result_errors(
         self,
@@ -1555,7 +1583,7 @@ class TestErrorSurfacing:
         When runner.run() completes
         Then the caught extraction-level error appears in RunResult.errors
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a listing with empty full_text so extract_detail is called,
             # and extract_detail raises ActionableError
             settings = _make_settings(tmpdir)
@@ -1600,6 +1628,7 @@ class TestErrorSurfacing:
             assert "testboard" in (result.errors[0].service or ""), (
                 f"Expected 'testboard' in service, got: {result.errors[0].service}"
             )
+            runner.store.close()
 
     async def test_scoring_level_actionable_errors_are_appended_to_run_result_errors(
         self,
@@ -1610,7 +1639,7 @@ class TestErrorSurfacing:
         When runner.run() completes
         Then the caught scoring-level error appears in RunResult.errors
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a listing that collects ok, but scoring fails with ActionableError
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -1640,6 +1669,7 @@ class TestErrorSurfacing:
                 f"Expected EMBEDDING error in errors, got types: "
                 f"{[e.error_type for e in result.errors]}"
             )
+            runner.store.close()
 
     async def test_every_surfaced_error_has_non_empty_suggestion(self) -> None:
         """
@@ -1648,7 +1678,7 @@ class TestErrorSurfacing:
         When RunResult.errors is inspected
         Then every surfaced error has a non-empty suggestion
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: two boards, each with a different failure mode
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1698,6 +1728,7 @@ class TestErrorSurfacing:
                     f"Expected non-empty suggestion on error '{err.error}', "
                     f"got: {err.suggestion!r}"
                 )
+            runner.store.close()
 
     def test_cli_summary_prints_error_service_and_suggestion_for_each_error(
         self,
@@ -1802,7 +1833,7 @@ class TestErrorSurfacing:
         When runner.run() returns RunResult
         Then RunResult.errors is an empty list
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a clean run with one listing that succeeds
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1821,6 +1852,7 @@ class TestErrorSurfacing:
 
             # Then: errors is an empty list
             assert result.errors == [], f"Expected empty errors list, got: {result.errors}"
+            runner.store.close()
 
     async def test_unexpected_scoring_exception_is_wrapped_and_appended_to_run_result_errors(
         self,
@@ -1839,7 +1871,7 @@ class TestErrorSurfacing:
         This scenario closes the equivalent gap at the scoring level, ensuring the
         wrapping contract is complete across all three pipeline failure surfaces.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a listing that collects ok, but scoring raises bare RuntimeError
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -1884,6 +1916,7 @@ class TestErrorSurfacing:
                 f"Expected listing URL '{listing.url}' in log output, "
                 f"got records: {[r.message for r in caplog.records]}"
             )
+            runner.store.close()
 
     async def test_errors_from_multiple_boards_all_accumulate_in_run_result(self) -> None:
         """
@@ -1898,7 +1931,7 @@ class TestErrorSurfacing:
         This scenario confirms errors are not overwritten or deduplicated across
         boards — accumulation is additive regardless of which board raised.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: two boards, each raises ActionableError on authenticate
             settings = _make_settings(tmpdir, enabled_boards=["board_x", "board_y"])
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1938,6 +1971,7 @@ class TestErrorSurfacing:
                     f"Expected non-empty suggestion on error '{err.error}', "
                     f"got: {err.suggestion!r}"
                 )
+            runner.store.close()
 
     async def test_caught_error_increments_both_errors_list_and_failed_listings_count(
         self,
@@ -1955,7 +1989,7 @@ class TestErrorSurfacing:
         failed_listings counter (Phase 4j-A). This test locks in that the new
         surfacing mechanism does not replace the count — both are live simultaneously.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a listing with empty full_text, extract_detail raises ActionableError
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1995,6 +2029,7 @@ class TestErrorSurfacing:
             assert result.failed_listings >= 1, (
                 f"Expected failed_listings >= 1, got: {result.failed_listings}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -2028,9 +2063,9 @@ def _setup_cli_env(
         )
 
     (config_dir / "settings.toml").write_text(
-        f'resume_path = "{data_dir / "resume.md"}"\n'
-        f'archetypes_path = "{config_dir / "role_archetypes.toml"}"\n'
-        f'global_rubric_path = "{config_dir / "global_rubric.toml"}"\n'
+        f'resume_path = "{(data_dir / "resume.md").as_posix()}"\n'
+        f'archetypes_path = "{(config_dir / "role_archetypes.toml").as_posix()}"\n'
+        f'global_rubric_path = "{(config_dir / "global_rubric.toml").as_posix()}"\n'
         "\n[boards]\n"
         f"enabled = {boards!r}\n"
         'session_storage_dir = "data"\n'
@@ -2056,15 +2091,16 @@ def _setup_cli_env(
         "max_retries = 3\nbase_delay = 1.0\n"
         "max_embed_chars = 8000\nhead_ratio = 0.6\n"
         "retryable_status_codes = [408, 429, 500, 502, 503, 504]\n"
-        f'\n[output]\ndefault_format = "markdown"\noutput_dir = "{output_dir}"\n'
+        f'\n[output]\ndefault_format = "markdown"\noutput_dir = "{output_dir.as_posix()}"\n'
         "open_top_n = 5\n"
         'jd_dir = "output/jds"\n'
         'decisions_dir = "data/decisions"\n'
         'log_dir = "data/logs"\n'
         'eval_history_path = "data/eval_history.jsonl"\n'
         "max_slug_length = 80\n"
-        f'\n[chroma]\npersist_dir = "{tmp_path / "chroma"}"\n'
+        f'\n[chroma]\npersist_dir = "{(tmp_path / "chroma").as_posix()}"\n'
         'distance_metric = "cosine"\n'
+        "sync_threshold = 1\n"
         '\n[security]\nscreen_prompt = "Review the following job description text."\n'
         "\n[adapters]\n"
         "cdp_timeout = 15.0\n"

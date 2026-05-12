@@ -59,7 +59,7 @@ def _read_jd_text(
     jd_path = jd_dir / filename
     if not jd_path.exists():
         return ""
-    content = jd_path.read_text()
+    content = jd_path.read_text(encoding="utf-8")
     marker = "## Job Description\n"
     idx = content.find(marker)
     if idx == -1:
@@ -79,7 +79,7 @@ def _load_prior_csv(csv_path: Path, *, max_full_text_chars: int) -> list[RankedL
         return []
 
     listings: list[RankedListing] = []
-    with open(csv_path) as f:
+    with open(csv_path, encoding="utf-8") as f:
         reader = csv_mod.DictReader(f)
         for row in reader:
             external_id = row.get("external_id", "")
@@ -218,6 +218,7 @@ def handle_index(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
+        sync_threshold=settings.chroma.sync_threshold,
     )
     indexer = Indexer(store=store, embedder=embedder)
 
@@ -376,6 +377,7 @@ def handle_decide(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
+        sync_threshold=settings.chroma.sync_threshold,
     )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
@@ -430,6 +432,7 @@ def handle_decisions(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
+        sync_threshold=settings.chroma.sync_threshold,
     )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
@@ -494,6 +497,7 @@ def handle_review(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
+        sync_threshold=settings.chroma.sync_threshold,
     )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
@@ -509,7 +513,7 @@ def handle_review(args: argparse.Namespace) -> None:
     ranked_listings: list[RankedListing] = []
     jd_dir = settings.output.jd_dir
 
-    with open(csv_path) as f:
+    with open(csv_path, encoding="utf-8") as f:
         reader = csv_mod.DictReader(f)
         for _i, row in enumerate(reader, 1):
             title = row.get("title", "")
@@ -618,6 +622,7 @@ def handle_rescore(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
+        sync_threshold=settings.chroma.sync_threshold,
     )
     scorer = Scorer(
         store=store,
@@ -731,6 +736,7 @@ def _build_eval_stack(
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
+        sync_threshold=settings.chroma.sync_threshold,
     )
     scorer = Scorer(
         store=store,
@@ -865,9 +871,9 @@ def handle_export(args: argparse.Namespace) -> None:
 
     fmt = args.format
     if fmt == "markdown" and md_path.exists():
-        print(md_path.read_text())
+        print(md_path.read_text(encoding="utf-8"))
     elif fmt == "csv" and csv_path.exists():
-        print(csv_path.read_text())
+        print(csv_path.read_text(encoding="utf-8"))
     else:
         print(f"No {fmt} export found in {out_dir}. Run 'search' to generate results.")
 
@@ -882,6 +888,7 @@ def handle_reset(args: argparse.Namespace) -> None:
     store = VectorStore(
         persist_dir=settings.chroma.persist_dir,
         distance_metric=settings.chroma.distance_metric,
+        sync_threshold=settings.chroma.sync_threshold,
     )
 
     collections = [args.collection] if args.collection else list(_COLLECTIONS)
