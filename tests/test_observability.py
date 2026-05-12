@@ -299,6 +299,12 @@ def _run_pipeline_and_read_logs(
     ):
         asyncio.run(runner.run())
 
+    # Release ChromaDB file handles before TemporaryDirectory cleanup.
+    # Without this, Windows cannot delete the temp dir (no POSIX
+    # unlink-while-open) and leaked handles exhaust the fd limit
+    # under pytest-xdist parallelism.
+    runner.store.close()
+
     # Parse JSON-lines log files (only new ones)
     skip = exclude_files or set()
     entries: list[dict[str, object]] = []
@@ -355,7 +361,7 @@ class TestSessionTracing:
         Then every JSON-lines entry contains a 'session' field
         And all 'session' values in that file are identical
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner and two listings
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -383,7 +389,7 @@ class TestSessionTracing:
         Then the entry whose 'event' is 'session_summary' contains
         the same session ID as all other entries in that file
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with one listing
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -407,7 +413,7 @@ class TestSessionTracing:
         When both log files are read
         Then the session IDs in the two files are different
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with one listing, run twice
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -441,7 +447,7 @@ class TestSessionTracing:
         When the log file is read
         Then exactly three entries with event 'score_computed' are present
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with three listings
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -467,7 +473,7 @@ class TestSessionTracing:
         Then it contains numeric fields for archetype, fit, culture,
         history, negative, and final scores
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with one listing
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -493,7 +499,7 @@ class TestSessionTracing:
         When the run completes
         Then a log file exists under data/logs/ within that directory
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with tmp data dir
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -515,7 +521,7 @@ class TestSessionTracing:
         When each line of the log file is parsed as JSON
         Then every line parses without error
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with one listing
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -586,7 +592,7 @@ class TestOllamaCallTracing:
         And it contains 'model' matching the configured embed model
         And it contains 'input_chars' as a positive integer
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with one listing and disqualification off
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -622,7 +628,7 @@ class TestOllamaCallTracing:
         And it contains 'input_chars' as a positive integer
         And it contains 'outcome' as a string
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -657,7 +663,7 @@ class TestOllamaCallTracing:
         When the log file is read
         Then the disqualifier_call entry's 'outcome' field is 'disqualified'
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with disqualification enabled and a disqualifying response
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -688,7 +694,7 @@ class TestOllamaCallTracing:
         Then embed_call, disqualifier_call, and score_computed entries
         all contain the same 'session' value
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -717,7 +723,7 @@ class TestOllamaCallTracing:
         Then there are at least 3 embed_call entries
         And there are exactly 3 disqualifier_call entries
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: three listings with disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -794,7 +800,7 @@ class TestInferenceMetrics:
         Then exactly one entry with event 'session_summary' is present
         And it is the last entry in the file
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with one listing
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -819,7 +825,7 @@ class TestInferenceMetrics:
         When the session_summary log entry is read
         Then it contains an 'embed_calls' field with a value >= 2
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with two listings
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -851,7 +857,7 @@ class TestInferenceMetrics:
         When the session_summary log entry is read
         Then it contains an 'llm_calls' field equal to 4 (2 screening + 2 disqualifier)
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with two listings and disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -879,7 +885,7 @@ class TestInferenceMetrics:
         When the session_summary log entry is read
         Then it contains an 'llm_latency_ms_total' field with a non-negative integer value
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with one listing and disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -912,7 +918,7 @@ class TestInferenceMetrics:
         Note: value comes from Ollama prompt_eval_count when available,
               otherwise falls back to len(text) // 4 estimate
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with two listings
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -946,7 +952,7 @@ class TestInferenceMetrics:
         Note: value comes from Ollama prompt_eval_count + eval_count when
               available, otherwise falls back to len(text) // 4 estimate
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with two listings and disqualification enabled
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -979,15 +985,17 @@ class TestInferenceMetrics:
         When the session_summary log entry is read
         Then 'slow_llm_calls' is greater than zero
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: threshold of 1ms with a chat mock that sleeps 5ms
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True, slow_llm_threshold_ms=1)
             runner, mock_client = _make_runner_with_real_stack(settings)
             listings = [_make_listing()]
 
             # When: pipeline runs with measurable chat latency
+            # 50ms exceeds Windows' ~15.6ms timer tick so
+            # time.monotonic() always registers the delay.
             entries = _run_pipeline_and_read_logs(
-                tmpdir, listings, mock_client, runner, chat_latency_s=0.005
+                tmpdir, listings, mock_client, runner, chat_latency_s=0.050
             )
 
             # Then: slow_llm_calls > 0
@@ -1008,7 +1016,7 @@ class TestInferenceMetrics:
         When the session_summary log entry is read
         Then 'slow_llm_calls' is zero
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: threshold so high no call can exceed it
             settings = _make_settings(
                 tmpdir,
@@ -1040,7 +1048,7 @@ class TestInferenceMetrics:
         Then the slow_llm_calls counts differ between the two runs
         for the same underlying inference time
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: run 1 with threshold=1 (everything is slow) and 5ms chat latency
             settings_low = _make_settings(
                 tmpdir, disqualify_on_llm_flag=True, slow_llm_threshold_ms=1
@@ -1049,12 +1057,12 @@ class TestInferenceMetrics:
             listings = [_make_listing()]
 
             entries_low = _run_pipeline_and_read_logs(
-                tmpdir, listings, mock_client_low, runner_low, chat_latency_s=0.005
+                tmpdir, listings, mock_client_low, runner_low, chat_latency_s=0.050
             )
             summaries_low = [e for e in entries_low if e.get("event") == "session_summary"]
             assert len(summaries_low) == 1, "Expected 1 session_summary for low-threshold run"
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: run 2 with threshold=999999999 (nothing is slow)
             settings_high = _make_settings(
                 tmpdir, disqualify_on_llm_flag=True, slow_llm_threshold_ms=999_999_999
@@ -1081,7 +1089,7 @@ class TestInferenceMetrics:
         When the session_summary log entry is read
         Then it contains a 'wall_clock_ms' field as a non-negative integer
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with one listing
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -1110,7 +1118,7 @@ class TestInferenceMetrics:
         When the session_summary log entry is read
         Then it still contains a 'wall_clock_ms' field as a non-negative integer
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with no listings (board returns empty)
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -1179,7 +1187,7 @@ class TestRetrievalMetrics:
         When the log file is read
         Then exactly four entries with event 'retrieval_summary' are present
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with distant embeddings (4 collections) and one listing
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_distant_store(settings)
@@ -1201,7 +1209,7 @@ class TestRetrievalMetrics:
         When a retrieval_summary log entry is read
         Then it contains a 'collection' field matching a known collection name
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with distant embeddings and one listing
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_distant_store(settings)
@@ -1227,7 +1235,7 @@ class TestRetrievalMetrics:
         Then it contains numeric fields for score_min, score_p50,
         score_p90, score_max, and below_threshold
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with distant embeddings and two listings
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_distant_store(settings)
@@ -1268,7 +1276,7 @@ class TestRetrievalMetrics:
         When that collection's retrieval_summary entry is read
         Then below_threshold is 5
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: high threshold (0.9) — distant embeddings produce scores < 0.9
             settings = _make_settings(tmpdir, min_score_threshold=0.9)
             runner, mock_client = _make_runner_with_distant_store(settings)
@@ -1298,7 +1306,7 @@ class TestRetrievalMetrics:
         Then retrieval_summary entries are present (one per collection)
         and each contains valid numeric fields
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: a runner with distant embeddings and exactly one listing
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_distant_store(settings)

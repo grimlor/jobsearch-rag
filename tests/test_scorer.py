@@ -394,7 +394,7 @@ class TestSemanticScoring:
         Then an ActionableError of type INDEX is raised with guidance.
         """
         # Given: an empty VectorStore with no resume collection
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             empty_store = VectorStore(
                 persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
             )
@@ -422,6 +422,7 @@ class TestSemanticScoring:
             assert len(err.troubleshooting.steps) > 0, (
                 "Troubleshooting should have at least one step"
             )
+            empty_store.close()
 
     async def test_empty_resume_collection_tells_operator_to_run_index(
         self, mock_embedder: Embedder
@@ -432,7 +433,7 @@ class TestSemanticScoring:
         Then an ActionableError of type INDEX is raised with guidance.
         """
         # Given: a VectorStore with an empty resume collection
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             store = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             store.reset_collection("resume")
             scorer = Scorer(
@@ -459,6 +460,7 @@ class TestSemanticScoring:
             assert len(err.troubleshooting.steps) > 0, (
                 "Troubleshooting should have at least one step"
             )
+            store.close()
 
     async def test_existing_but_empty_decisions_returns_zero_history(
         self, populated_store: VectorStore, mock_embedder: Embedder

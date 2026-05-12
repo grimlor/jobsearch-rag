@@ -99,6 +99,7 @@ class TestOllamaConnectivity:
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
         assert len(err.troubleshooting.steps) > 0, "Should have troubleshooting steps"
+        await embedder.close()
 
     async def test_startup_check_runs_before_browser_session_opens(self) -> None:
         """
@@ -120,6 +121,7 @@ class TestOllamaConnectivity:
         )
         assert err.suggestion is not None, "Should include a suggestion"
         assert err.troubleshooting is not None, "Should include troubleshooting"
+        await embedder.close()
 
     async def test_wrong_model_name_suggests_ollama_pull_command(
         self,

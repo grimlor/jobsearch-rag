@@ -467,7 +467,7 @@ class TestChromaDBContract:
         WHEN a new VectorStore client opens the same directory
         THEN the previously indexed data is still available.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: index with first client
             store1 = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             embedding = await embedder.embed("persistence test")

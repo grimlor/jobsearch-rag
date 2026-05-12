@@ -362,7 +362,7 @@ class TestEvalCommand:
         When ``handle_eval`` is called
         Then it prints agreement_rate, precision, recall to stdout
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: settings pointing at tmpdir, a seeded store with decisions
             settings = _make_settings(tmpdir)
             runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
@@ -376,6 +376,7 @@ class TestEvalCommand:
             assert result.agreement_rate is not None, "agreement_rate should be set"
             assert result.precision is not None, "precision should be set"
             assert result.recall is not None, "recall should be set"
+            store.close()
 
     def test_handle_eval_with_no_decisions_exits_cleanly(self) -> None:
         """
@@ -383,7 +384,7 @@ class TestEvalCommand:
         When ``handle_eval`` is called
         Then it prints a "no decisions" message and exits cleanly
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: settings and a store with no decisions
             settings = _make_settings(tmpdir)
             runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
@@ -396,6 +397,7 @@ class TestEvalCommand:
             assert result.decisions_evaluated == 0, (
                 f"Expected 0 decisions_evaluated, got {result.decisions_evaluated}"
             )
+            store.close()
 
     def test_evaluate_returns_eval_result_with_correct_types(self) -> None:
         """
@@ -403,7 +405,7 @@ class TestEvalCommand:
         When ``EvalRunner.evaluate()`` completes
         Then it returns an ``EvalResult`` with correct field types
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: settings and a store with one decision
             settings = _make_settings(tmpdir)
             runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
@@ -433,6 +435,7 @@ class TestEvalCommand:
             assert isinstance(result.spearman, float), (
                 f"spearman should be float, got {type(result.spearman)}"
             )
+            store.close()
 
 
 class TestEvalMetrics:
@@ -473,7 +476,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then agreement_rate=1.0, precision=1.0, recall=1.0
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: collections seeded with EMBED_FAKE so queries return
             # score 1.0 (well above threshold); 3 yes decisions
             settings = _make_settings(tmpdir, min_score_threshold=0.45)
@@ -496,6 +499,7 @@ class TestEvalMetrics:
                 f"Expected precision 1.0, got {result.precision}"
             )
             assert result.recall == pytest.approx(1.0), f"Expected recall 1.0, got {result.recall}"
+            store.close()
 
     def test_all_no_below_threshold_produces_full_agreement(self) -> None:
         """
@@ -503,7 +507,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then agreement_rate=1.0
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: collections seeded with EMBED_DISTANT so queries return
             # low scores; high threshold ensures all below; 3 no decisions
             settings = _make_settings(tmpdir, min_score_threshold=0.99)
@@ -525,6 +529,7 @@ class TestEvalMetrics:
             assert result.agreement_rate == pytest.approx(1.0), (
                 f"Expected agreement_rate 1.0, got {result.agreement_rate}"
             )
+            store.close()
 
     def test_total_disagreement_produces_zero_rates(self) -> None:
         """
@@ -533,7 +538,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then agreement_rate=0.0, precision=0.0, recall=0.0
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: EMBED_DISTANT for queries → low scores; high threshold
             # means yes-decisions score below; but we need the no-decision
             # to score above. Since all go through the same scorer, we use
@@ -567,6 +572,7 @@ class TestEvalMetrics:
             assert result.precision == pytest.approx(0.0), (
                 f"Expected precision 0.0, got {result.precision}"
             )
+            store.close()
 
     def test_maybe_verdicts_treated_as_positive(self) -> None:
         """
@@ -574,7 +580,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then it counts as agreed (maybe is positive)
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: EMBED_FAKE for high scores; one maybe decision
             settings = _make_settings(tmpdir, min_score_threshold=0.45)
             runner, _s, _r, store, _mock = _make_eval_stack(settings)
@@ -592,6 +598,7 @@ class TestEvalMetrics:
                 f"Expected agreement_rate 1.0 (maybe=positive, above threshold), "
                 f"got {result.agreement_rate}"
             )
+            store.close()
 
     def test_per_decision_entries_have_correct_fields(self) -> None:
         """
@@ -599,7 +606,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then per_decision has 5 entries with correct fields
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: 5 decisions with mixed verdicts
             settings = _make_settings(tmpdir, min_score_threshold=0.45)
             runner, _s, _r, store, _mock = _make_eval_stack(settings)
@@ -624,6 +631,7 @@ class TestEvalMetrics:
                     f"per_decision entry missing 'above_threshold': {entry}"
                 )
                 assert hasattr(entry, "agreed"), f"per_decision entry missing 'agreed': {entry}"
+            store.close()
 
     def test_precision_and_recall_computed_correctly(self) -> None:
         """
@@ -631,7 +639,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then precision and recall are computed correctly against the definitions
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: EMBED_FAKE → score ~1.0 (above threshold).
             # 2 yes (above → agree), 1 no (above → disagree), 1 maybe (above → agree)
             # Pipeline says "above" for all 4.
@@ -654,6 +662,7 @@ class TestEvalMetrics:
                 f"Expected precision 0.75, got {result.precision}"
             )
             assert result.recall == pytest.approx(1.0), f"Expected recall 1.0, got {result.recall}"
+            store.close()
 
     def test_no_decisions_returns_zero_metrics(self) -> None:
         """
@@ -661,7 +670,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then EvalResult has decisions_evaluated=0 and rates are 0.0
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: store with required collections but no decisions
             settings = _make_settings(tmpdir)
             runner, _s, _r, store, _mock = _make_eval_stack(settings)
@@ -677,6 +686,7 @@ class TestEvalMetrics:
             )
             assert result.precision == pytest.approx(0.0), f"Expected 0.0, got {result.precision}"
             assert result.recall == pytest.approx(0.0), f"Expected 0.0, got {result.recall}"
+            store.close()
 
     def test_yes_verdict_below_threshold_is_recall_miss(self) -> None:
         """
@@ -686,7 +696,7 @@ class TestEvalMetrics:
         Then recall is 0.0 (the yes-decision missed) and agreement for the
              yes-decision is False
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: EMBED_DISTANT produces low cosine similarity against
             # EMBED_FAKE-seeded collections; high threshold ensures below
             settings = _make_settings(tmpdir, min_score_threshold=0.99)
@@ -711,6 +721,7 @@ class TestEvalMetrics:
             assert not yes_decisions[0].agreed, (
                 "yes-decision below threshold should disagree with pipeline"
             )
+            store.close()
 
 
 class TestSpearmanCorrelation:
@@ -1221,6 +1232,7 @@ class TestEvalIntegration:
         assert history_path.exists(), "eval_history.jsonl should exist"
         lines = history_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1, f"Expected 1 history line, found {len(lines)}"
+        store.close()
 
     def test_eval_result_has_spearman_field(self, tmp_path: Path) -> None:
         """
@@ -1242,6 +1254,7 @@ class TestEvalIntegration:
         assert isinstance(result.spearman, float), (
             f"Expected spearman to be float, got {type(result.spearman).__name__}"
         )
+        store.close()
 
 
 class TestModelComparisonResult:
@@ -1484,6 +1497,7 @@ class TestCompareModelsFlag:
         output_dir = Path(settings.output.output_dir)
         report_files = list(output_dir.glob("eval_*.md"))
         assert len(report_files) == 1, f"Expected 1 report (normal flow), found {report_files}"
+        store.close()
 
     def test_compare_models_present_runs_dual_eval(
         self,
@@ -1533,6 +1547,7 @@ class TestCompareModelsFlag:
         assert "delta" in captured.out.lower() or "Δ" in captured.out, (
             "Expected delta label in comparison output"
         )
+        store.close()
 
     def test_compare_models_skips_report_and_history(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1579,6 +1594,7 @@ class TestCompareModelsFlag:
         # And: no history file
         history_path = tmp_path / "data" / "eval_history.jsonl"
         assert not history_path.exists(), "Expected no history file in compare mode"
+        store.close()
 
 
 class TestLoadDecisionsResilience:
@@ -1629,6 +1645,7 @@ class TestLoadDecisionsResilience:
         assert result.decisions_evaluated == 0, (
             f"Expected 0 decisions, got {result.decisions_evaluated}"
         )
+        store.close()
 
     def test_decision_with_missing_metadata_is_skipped(self, tmp_path: Path) -> None:
         """
@@ -1659,6 +1676,7 @@ class TestLoadDecisionsResilience:
         assert result.decisions_evaluated == 1, (
             f"Expected 1 decision (skipped corrupt), got {result.decisions_evaluated}"
         )
+        store.close()
 
     def test_decision_with_empty_verdict_is_skipped(self, tmp_path: Path) -> None:
         """
@@ -1683,6 +1701,7 @@ class TestLoadDecisionsResilience:
         assert result.decisions_evaluated == 1, (
             f"Expected 1 decision (skipped empty verdict), got {result.decisions_evaluated}"
         )
+        store.close()
 
 
 class TestEvalSinglePath:
@@ -1759,3 +1778,4 @@ class TestEvalSinglePath:
         # And: no history file
         history_path = tmp_path / "data" / "eval_history.jsonl"
         assert not history_path.exists(), "Expected no history file when decisions are empty"
+        store.close()

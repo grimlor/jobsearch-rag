@@ -2359,7 +2359,7 @@ class TestStealthConfig:
         When the runner constructs a SessionConfig for that board
         Then SessionConfig.stealth is True (not derived from board name)
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Given: settings where "testboard" (not "linkedin") has stealth=True
             settings = make_test_settings(tmpdir)
             # Patch the board config to include stealth=True
@@ -2442,6 +2442,7 @@ class TestStealthConfig:
                 f"Expected stealth=True from board config, got {session_config.stealth!r}. "
                 f"Board name is 'testboard', not 'linkedin' — stealth must come from config."
             )
+            runner.store.close()
 
 
 class TestAdaptersConfig:

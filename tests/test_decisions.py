@@ -52,7 +52,7 @@ def mock_embedder() -> Embedder:
 @pytest.fixture
 def recorder(store: VectorStore, mock_embedder: Embedder) -> Iterator[DecisionRecorder]:
     """Yield a DecisionRecorder backed by temporary storage."""
-    with tempfile.TemporaryDirectory() as decisions_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as decisions_dir:
         # Ensure decisions collection exists
         store.get_or_create_collection("decisions")
         yield DecisionRecorder(store=store, embedder=mock_embedder, decisions_dir=decisions_dir)
@@ -383,7 +383,7 @@ class TestDecisionRecording:
         When the decision is recorded
         Then the reason field appears in the daily JSONL audit file alongside the verdict.
         """
-        with tempfile.TemporaryDirectory() as decisions_dir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as decisions_dir:
             # Given: a recorder with a fresh decisions directory
             store.get_or_create_collection("decisions")
             rec = DecisionRecorder(
@@ -422,7 +422,7 @@ class TestDecisionRecording:
         Then None is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             empty_store = VectorStore(
                 persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
             )
@@ -432,6 +432,7 @@ class TestDecisionRecording:
             assert recorder.get_decision("nonexistent-job") is None, (
                 "Should return None when collection is missing"
             )
+            empty_store.close()
 
     def test_get_decision_returns_none_when_no_results_found(
         self, mock_embedder: Embedder
@@ -442,7 +443,7 @@ class TestDecisionRecording:
         Then None is returned.
         """
         # Given: a store with an empty decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             store = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             store.get_or_create_collection("decisions")
             recorder = DecisionRecorder(store=store, embedder=mock_embedder)
@@ -451,6 +452,7 @@ class TestDecisionRecording:
             assert recorder.get_decision("unknown-id") is None, (
                 "Should return None when no matching document exists"
             )
+            store.close()
 
     def test_history_count_returns_zero_when_collection_missing(
         self, mock_embedder: Embedder
@@ -461,7 +463,7 @@ class TestDecisionRecording:
         Then 0 is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             empty_store = VectorStore(
                 persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
             )
@@ -469,6 +471,7 @@ class TestDecisionRecording:
 
             # When/Then: history_count returns 0 gracefully
             assert recorder.history_count() == 0, "Should return 0 when collection is missing"
+            empty_store.close()
 
     def test_audit_decisions_returns_empty_list_when_collection_missing(
         self, mock_embedder: Embedder
@@ -479,7 +482,7 @@ class TestDecisionRecording:
         Then an empty list is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             empty_store = VectorStore(
                 persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
             )
@@ -492,3 +495,4 @@ class TestDecisionRecording:
             assert results == [], (
                 f"Should return empty list when collection is missing, got: {results}"
             )
+            empty_store.close()
