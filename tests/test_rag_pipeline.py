@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """Yield a temporary VectorStore for test isolation."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
         s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()

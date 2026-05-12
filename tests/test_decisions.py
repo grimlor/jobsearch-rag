@@ -32,7 +32,7 @@ EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """Yield a temporary VectorStore for test isolation."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
         s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()
@@ -52,7 +52,7 @@ def mock_embedder() -> Embedder:
 @pytest.fixture
 def recorder(store: VectorStore, mock_embedder: Embedder) -> Iterator[DecisionRecorder]:
     """Yield a DecisionRecorder backed by temporary storage."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as decisions_dir:
+    with tempfile.TemporaryDirectory() as decisions_dir:
         # Ensure decisions collection exists
         store.get_or_create_collection("decisions")
         yield DecisionRecorder(store=store, embedder=mock_embedder, decisions_dir=decisions_dir)
@@ -383,7 +383,7 @@ class TestDecisionRecording:
         When the decision is recorded
         Then the reason field appears in the daily JSONL audit file alongside the verdict.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as decisions_dir:
+        with tempfile.TemporaryDirectory() as decisions_dir:
             # Given: a recorder with a fresh decisions directory
             store.get_or_create_collection("decisions")
             rec = DecisionRecorder(
@@ -422,7 +422,7 @@ class TestDecisionRecording:
         Then None is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             empty_store = VectorStore(
                 persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
             )
@@ -443,7 +443,7 @@ class TestDecisionRecording:
         Then None is returned.
         """
         # Given: a store with an empty decisions collection
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             store = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             store.get_or_create_collection("decisions")
             recorder = DecisionRecorder(store=store, embedder=mock_embedder)
@@ -463,7 +463,7 @@ class TestDecisionRecording:
         Then 0 is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             empty_store = VectorStore(
                 persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
             )
@@ -482,7 +482,7 @@ class TestDecisionRecording:
         Then an empty list is returned instead of raising.
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             empty_store = VectorStore(
                 persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
             )
