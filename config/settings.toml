@@ -110,6 +110,9 @@ eval_history_path = "data/eval_history.jsonl"
 [chroma]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
+# Flush HNSW index to disk after every N writes.
+# 1 = immediate durability (required for Windows correctness).
+sync_threshold = 1
 
 [security]
 screen_prompt = """\

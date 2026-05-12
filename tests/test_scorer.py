@@ -104,7 +104,7 @@ def _chat_user_prompt(embedder: Embedder, call_index: int = -1) -> str:
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()
 
@@ -395,7 +395,9 @@ class TestSemanticScoring:
         """
         # Given: an empty VectorStore with no resume collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            empty_store = VectorStore(
+                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
+            )
             scorer = Scorer(
                 store=empty_store,
                 embedder=mock_embedder,
@@ -431,7 +433,7 @@ class TestSemanticScoring:
         """
         # Given: a VectorStore with an empty resume collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             store.reset_collection("resume")
             scorer = Scorer(
                 store=store,

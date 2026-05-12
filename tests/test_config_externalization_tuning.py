@@ -16,13 +16,13 @@ All tests are expected to FAIL until Phase 3 implementation is complete.
 #   load_settings(path: str | Path) -> Settings
 #   ScoringConfig(..., top_k_retrieval: int, salary_floor: float,
 #                 salary_ceiling: float, hours_per_year: int)
-#   ChromaConfig(persist_dir: str, distance_metric: str)
+#   ChromaConfig(persist_dir: str, distance_metric: str, sync_threshold: int)
 #   OutputConfig(..., max_slug_length: int)
 #   AdaptersConfig(..., max_full_text_chars: int, viewport_width: int,
 #                  viewport_height: int)
 #
 # Public API surface (from src/jobsearch_rag/rag/store):
-#   VectorStore(persist_dir: str, distance_metric: str)
+#   VectorStore(persist_dir: str, distance_metric: str, sync_threshold: int)
 #
 # Public API surface (from src/jobsearch_rag/rag/scorer):
 #   Scorer(store, embedder, ..., top_k_retrieval: int)
@@ -133,6 +133,7 @@ max_slug_length = 80
 [chroma]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
+sync_threshold = 1
 
 [security]
 screen_prompt = "Review the following job description text."
@@ -456,7 +457,7 @@ class TestDistanceMetricConfig:
             mock_client.get_or_create_collection.return_value = mock_collection
             mock_client_cls.return_value = mock_client
 
-            store = VectorStore(persist_dir=str(tmp_path), distance_metric="l2")
+            store = VectorStore(persist_dir=str(tmp_path), distance_metric="l2", sync_threshold=1)
 
             # When: create a collection
             store.get_or_create_collection("test_collection")
@@ -468,6 +469,32 @@ class TestDistanceMetricConfig:
             assert hnsw.get("space") == "l2", (
                 f"Expected hnsw.space='l2', got configuration={config}"
             )
+
+
+# ---------------------------------------------------------------------------
+# TestSyncThresholdConfig
+# ---------------------------------------------------------------------------
+
+
+class TestSyncThresholdConfig:
+    """REQUIREMENT: sync_threshold < 1 is rejected with an actionable error."""
+
+    def test_sync_threshold_below_one_raises_actionable_error(self, tmp_path: Path) -> None:
+        """
+        Given settings.toml has [chroma] sync_threshold = 0
+        When load_settings() is called
+        Then ActionableError is raised naming the field and constraint.
+        """
+        # Given: sync_threshold below minimum
+        toml = _replace_value(_BASE_SETTINGS, "sync_threshold", "0")
+        path = _write_config(tmp_path, toml)
+
+        # When / Then: validation rejects it
+        with pytest.raises(ActionableError, match="sync_threshold") as exc_info:
+            load_settings(path)
+        assert ">= 1" in str(exc_info.value), (
+            f"Error should state the constraint, got: {exc_info.value}"
+        )
 
 
 # ---------------------------------------------------------------------------

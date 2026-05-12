@@ -127,7 +127,7 @@ def embedder() -> Embedder:
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()
 
@@ -469,7 +469,7 @@ class TestChromaDBContract:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: index with first client
-            store1 = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            store1 = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             embedding = await embedder.embed("persistence test")
             store1.add_documents(
                 collection_name="test_persist",
@@ -481,7 +481,7 @@ class TestChromaDBContract:
             store1.close()
 
             # When: create new client against same directory
-            store2 = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            store2 = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             count_after = store2.collection_count("test_persist")
 
             # Then: data persisted
@@ -750,7 +750,7 @@ class TestLiveZipRecruiterPipeline:
     def live_store(self) -> Iterator[VectorStore]:
         """A VectorStore in a temp directory for live pipeline tests."""
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-            s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             yield s
             s.close()
 
@@ -1315,7 +1315,7 @@ def _make_live_settings(tmp_path: Path, *, max_pages: int = 1) -> Settings:
     return dataclasses.replace(
         real,
         boards=narrowed_boards,
-        chroma=ChromaConfig(persist_dir=chroma_dir, distance_metric="cosine"),
+        chroma=ChromaConfig(persist_dir=chroma_dir, distance_metric="cosine", sync_threshold=1),
         output=OutputConfig(
             default_format=real.output.default_format,
             output_dir=output_dir,

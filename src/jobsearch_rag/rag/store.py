@@ -39,10 +39,11 @@ class VectorStore:
         results = store.query("resume", query_embedding=[...], n_results=5)
     """
 
-    def __init__(self, persist_dir: str, distance_metric: str) -> None:
+    def __init__(self, persist_dir: str, distance_metric: str, sync_threshold: int) -> None:
         """Initialize ChromaDB client at *persist_dir*."""
         self.persist_dir = persist_dir
         self._distance_metric = distance_metric
+        self._sync_threshold = sync_threshold
         self._client = chromadb.PersistentClient(path=persist_dir)
         logger.debug("ChromaDB client initialized at %s", persist_dir)
 
@@ -69,6 +70,7 @@ class VectorStore:
             configuration={
                 "hnsw": {
                     "space": self._distance_metric,
+                    "sync_threshold": self._sync_threshold,
                 },
             },
         )

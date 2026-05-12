@@ -309,6 +309,7 @@ max_slug_length = 80
 [chroma]
 persist_dir = "{(tmp_path / "chroma").as_posix()}"
 distance_metric = "cosine"
+sync_threshold = 1
 
 [security]
 screen_prompt = "Review the following job description text."
@@ -359,7 +360,9 @@ def _seed_decision(
     company: str = "Acme Corp",
 ) -> None:
     """Pre-populate the ChromaDB decisions collection with a test record."""
-    store = VectorStore(persist_dir=str(tmp_path / "chroma"), distance_metric="cosine")
+    store = VectorStore(
+        persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
+    )
     store.get_or_create_collection("decisions")
     store.add_documents(
         collection_name="decisions",
