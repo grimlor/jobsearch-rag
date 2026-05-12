@@ -103,7 +103,7 @@ def _chat_user_prompt(embedder: Embedder, call_index: int = -1) -> str:
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
         s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()
@@ -394,7 +394,7 @@ class TestSemanticScoring:
         Then an ActionableError of type INDEX is raised with guidance.
         """
         # Given: an empty VectorStore with no resume collection
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             empty_store = VectorStore(
                 persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
             )
@@ -433,7 +433,7 @@ class TestSemanticScoring:
         Then an ActionableError of type INDEX is raised with guidance.
         """
         # Given: a VectorStore with an empty resume collection
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             store = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             store.reset_collection("resume")
             scorer = Scorer(

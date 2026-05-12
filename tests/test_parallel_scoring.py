@@ -257,7 +257,7 @@ class TestParallelScoringOrchestration:
         When the pipeline runs,
         Then all 4 listings are scored and appear in ranked results.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with 4 listings and OLLAMA_NUM_PARALLEL=2
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -287,7 +287,7 @@ class TestParallelScoringOrchestration:
         When the pipeline scores them,
         Then at most 2 embed calls are in-flight concurrently.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner instrumented to track concurrency
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -339,7 +339,7 @@ class TestParallelScoringOrchestration:
 
         results_by_parallel: dict[int, list[float]] = {}
         for max_p in (1, 3):
-            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            with tempfile.TemporaryDirectory() as tmpdir:
                 # Given: identical runner and listings
                 settings = _make_settings(tmpdir)
                 runner, _ = _make_runner_with_real_stack(settings)
@@ -373,7 +373,7 @@ class TestParallelScoringOrchestration:
         Then a scoring_parallelism log event is emitted with max_parallel=3
         and listing_count=5.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with 5 listings
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -444,7 +444,7 @@ class TestErrorIsolation:
         When the pipeline runs with OLLAMA_NUM_PARALLEL=2,
         Then the 1st and 3rd listings are scored and 1 failure is reported.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: 3 listings, embed fails for external_id "bad"
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -499,7 +499,7 @@ class TestErrorIsolation:
         When the pipeline runs with OLLAMA_NUM_PARALLEL=2,
         Then the other listings are scored and the error is surfaced.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: embed raises RuntimeError on 3rd call
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -545,7 +545,7 @@ class TestErrorIsolation:
         When the pipeline completes,
         Then RunResult.errors contains the corresponding ActionableError.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: embed always fails
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -576,7 +576,7 @@ class TestErrorIsolation:
         When the pipeline completes,
         Then the session_summary log event shows failed_listings=2.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: embed fails on calls 3 and 5 (2nd and 3rd listings' first embed)
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -655,7 +655,7 @@ class TestCollectionScoreAggregation:
         Then retrieval_summary events have n_scored=3 for populated
         collections.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: 3 listings
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -728,7 +728,7 @@ class TestEnvironmentVariableConfig:
         When the pipeline runs,
         Then the scoring_parallelism event shows max_parallel=4.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: OLLAMA_NUM_PARALLEL=4
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -764,7 +764,7 @@ class TestEnvironmentVariableConfig:
         When OLLAMA_NUM_PARALLEL is not set,
         Then max_parallel defaults to 1.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: env var not set
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -802,7 +802,7 @@ class TestEnvironmentVariableConfig:
         When the pipeline runs,
         Then max_parallel falls back to 1 and a warning is logged.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: invalid env var
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -839,7 +839,7 @@ class TestEnvironmentVariableConfig:
         When the pipeline runs,
         Then max_parallel falls back to 1 and a warning is logged.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: zero value
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -876,7 +876,7 @@ class TestEnvironmentVariableConfig:
         When the pipeline runs,
         Then max_parallel falls back to 1.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: negative value
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)

@@ -265,7 +265,7 @@ class TestPipelineOrchestration:
         When run() is invoked,
         Then the Ollama health check (client.list) fires before any board I/O.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with real Embedder/Scorer, populated store
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -309,7 +309,7 @@ class TestPipelineOrchestration:
         When run(boards=None) is called,
         Then both enabled boards are searched.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two enabled boards
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
             runner, _ = _make_runner_with_real_stack(settings)
@@ -341,7 +341,7 @@ class TestPipelineOrchestration:
         When run(boards=["board_a"]) is called,
         Then only the explicitly specified board is searched.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two enabled boards
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
             runner, _ = _make_runner_with_real_stack(settings)
@@ -372,7 +372,7 @@ class TestPipelineOrchestration:
         When run(overnight=True) is called,
         Then both the enabled and overnight boards are searched.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: enabled + overnight boards
             settings = _make_settings(
                 tmpdir,
@@ -406,7 +406,7 @@ class TestPipelineOrchestration:
         When run() is called,
         Then the good board's listings are still scored and results include both boards.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: one failing + one good board
             settings = _make_settings(tmpdir, enabled_boards=["failing_board", "good_board"])
             runner, _ = _make_runner_with_real_stack(settings)
@@ -463,7 +463,7 @@ class TestPipelineOrchestration:
         When a listing is collected and scoring is attempted,
         Then failed_listings is incremented (real Scorer → real Embedder → mock client fails).
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with populated store
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -497,7 +497,7 @@ class TestPipelineOrchestration:
         When run() completes,
         Then a valid RunResult is returned with empty ranked_listings.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: board returns no listings
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -529,7 +529,7 @@ class TestPipelineOrchestration:
         When run() scores it successfully,
         Then the listing passes through the ranker and appears in summary counts.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: one listing available
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -561,7 +561,7 @@ class TestPipelineOrchestration:
         When run(overnight=True) is called,
         Then the board appears only once in boards_searched.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: same board in both enabled and overnight
             settings = _make_settings(
                 tmpdir,
@@ -596,7 +596,7 @@ class TestPipelineOrchestration:
         When run() is called,
         Then only the positive_signals collection is auto-indexed.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: resume and archetypes populated, positive empty
             resume_path, archetypes_path, rubric_path = _create_index_files(tmpdir)
             settings = _make_settings(
@@ -641,7 +641,7 @@ class TestPipelineOrchestration:
         When run() is called,
         Then only archetypes is auto-indexed while the others are untouched.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: resume and positive_signals populated, archetypes empty
             resume_path, archetypes_path, rubric_path = _create_index_files(tmpdir)
             settings = _make_settings(
@@ -688,7 +688,7 @@ class TestPipelineOrchestration:
         When run(max_listings=2) is called
         Then only 2 listings are scored and the cap is logged.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner + adapter returning 5 listings
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -724,7 +724,7 @@ class TestPipelineOrchestration:
         Then the pipeline completes successfully using the freeform prompt
              (the listing is scored without synthesis from archetypes).
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
             settings.disqualifier = DisqualifierConfig(
                 system_prompt="Custom freeform disqualifier prompt for testing",
@@ -754,7 +754,7 @@ class TestPipelineOrchestration:
         When the pipeline runs
         Then the adapter is constructed with those throttle keyword arguments
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a board config with throttle overrides
             settings = _make_settings(tmpdir)
             settings.boards["testboard"].throttle_max_retries = 5
@@ -823,7 +823,7 @@ class TestBoardSearchDelegation:
         When run(boards=["nonexistent_board"]) is called,
         Then the board is skipped and an empty result is returned without error.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner configured for 'testboard' only
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -859,7 +859,7 @@ class TestBoardSearchDelegation:
         Then the unconfigured board is skipped by _search_board and the configured board's
         listings are returned normally.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with 'testboard' configured; 'ghost' has no config
             settings = _make_settings(tmpdir, enabled_boards=["testboard", "ghost"])
             # Remove ghost's auto-generated config so _search_board hits the
@@ -906,7 +906,7 @@ class TestBoardSearchDelegation:
         When run() searches that board,
         Then authenticate → search → extract_detail is called in that order.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: adapter with lifecycle tracking
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -969,7 +969,7 @@ class TestBoardSearchDelegation:
         When run() processes that listing,
         Then extract_detail is not called.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: listing with pre-populated full_text
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1021,7 +1021,7 @@ class TestBoardSearchDelegation:
         When run() processes that listing,
         Then the listing is excluded and counted as failed.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: extraction produces whitespace-only text
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1078,7 +1078,7 @@ class TestBoardSearchDelegation:
         When run() processes both,
         Then the good listing is scored and the bad one is counted as failed.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two listings, one will fail extraction
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1147,7 +1147,7 @@ class TestBoardSearchDelegation:
         When run() processes that listing,
         Then the failure is counted without aborting the run.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: extraction raises unexpected error
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1192,7 +1192,7 @@ class TestBoardSearchDelegation:
         When run() searches both,
         Then the second URL's results are collected successfully.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two search URLs, first will fail
             settings = _make_settings(tmpdir)
             settings.boards["testboard"].searches = [
@@ -1273,7 +1273,7 @@ class TestAutoIndex:
         When run() is called,
         Then _ensure_indexed creates a real Indexer and indexes resume + archetypes.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: config files exist, store is empty
             resume, archetypes, rubric = _create_index_files(tmpdir)
             settings = _make_settings(
@@ -1313,7 +1313,7 @@ class TestAutoIndex:
         When run() is called,
         Then no re-indexing occurs (collection counts remain unchanged).
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: store already populated
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
@@ -1347,7 +1347,7 @@ class TestAutoIndex:
         When run() is called,
         Then auto-indexing populates collections before scoring uses them.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: config files exist, store empty, one listing to score
             resume, archetypes, rubric = _create_index_files(tmpdir)
             settings = _make_settings(
@@ -1397,7 +1397,7 @@ class TestAutoIndex:
         When _ensure_indexed checks collections,
         Then the collection is treated as empty and real auto-indexing runs.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: config files exist, store completely empty
             resume, archetypes, rubric = _create_index_files(tmpdir)
             settings = _make_settings(
@@ -1456,7 +1456,7 @@ class TestCompEnrichment:
         When the pipeline runner scores it,
         Then comp_min, comp_max, comp_source, and comp_text are set on the listing.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with real stack and a listing containing salary text
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1544,7 +1544,7 @@ class TestErrorSurfacing:
         When runner.run() completes
         Then the caught board-level error appears in RunResult.errors
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a board adapter whose authenticate raises ActionableError
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1583,7 +1583,7 @@ class TestErrorSurfacing:
         When runner.run() completes
         Then the caught extraction-level error appears in RunResult.errors
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a listing with empty full_text so extract_detail is called,
             # and extract_detail raises ActionableError
             settings = _make_settings(tmpdir)
@@ -1639,7 +1639,7 @@ class TestErrorSurfacing:
         When runner.run() completes
         Then the caught scoring-level error appears in RunResult.errors
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a listing that collects ok, but scoring fails with ActionableError
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -1678,7 +1678,7 @@ class TestErrorSurfacing:
         When RunResult.errors is inspected
         Then every surfaced error has a non-empty suggestion
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two boards, each with a different failure mode
             settings = _make_settings(tmpdir, enabled_boards=["board_a", "board_b"])
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1833,7 +1833,7 @@ class TestErrorSurfacing:
         When runner.run() returns RunResult
         Then RunResult.errors is an empty list
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a clean run with one listing that succeeds
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1871,7 +1871,7 @@ class TestErrorSurfacing:
         This scenario closes the equivalent gap at the scoring level, ensuring the
         wrapping contract is complete across all three pipeline failure surfaces.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a listing that collects ok, but scoring raises bare RuntimeError
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
@@ -1931,7 +1931,7 @@ class TestErrorSurfacing:
         This scenario confirms errors are not overwritten or deduplicated across
         boards — accumulation is additive regardless of which board raised.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two boards, each raises ActionableError on authenticate
             settings = _make_settings(tmpdir, enabled_boards=["board_x", "board_y"])
             runner, _ = _make_runner_with_real_stack(settings)
@@ -1989,7 +1989,7 @@ class TestErrorSurfacing:
         failed_listings counter (Phase 4j-A). This test locks in that the new
         surfacing mechanism does not replace the count — both are live simultaneously.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a listing with empty full_text, extract_detail raises ActionableError
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
