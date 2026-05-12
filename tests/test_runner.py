@@ -301,6 +301,7 @@ class TestPipelineOrchestration:
             assert call_order[0] == "health_check", (
                 f"Expected health_check first, got: {call_order}"
             )
+            runner.store.close()
 
     async def test_defaults_to_enabled_boards_when_none_specified(self) -> None:
         """
@@ -332,6 +333,7 @@ class TestPipelineOrchestration:
                 "board_a",
                 "board_b",
             }, f"Expected both enabled boards, got: {result.boards_searched}"
+            runner.store.close()
 
     async def test_explicit_boards_override_enabled_boards(self) -> None:
         """
@@ -362,6 +364,7 @@ class TestPipelineOrchestration:
             assert result.boards_searched == ["board_a"], (
                 f"Expected only board_a, got: {result.boards_searched}"
             )
+            runner.store.close()
 
     async def test_overnight_mode_includes_overnight_boards(self) -> None:
         """
@@ -395,6 +398,7 @@ class TestPipelineOrchestration:
             # Then: both boards are searched
             assert "board_a" in result.boards_searched, "enabled board missing from search"
             assert "linkedin" in result.boards_searched, "overnight board missing from search"
+            runner.store.close()
 
     async def test_board_failure_does_not_abort_other_boards(self) -> None:
         """
@@ -451,6 +455,7 @@ class TestPipelineOrchestration:
             assert result.summary.total_found >= 1, (
                 f"Expected at least 1 found listing, got: {result.summary.total_found}"
             )
+            runner.store.close()
 
     async def test_scoring_failure_increments_failed_count(self) -> None:
         """
@@ -484,6 +489,7 @@ class TestPipelineOrchestration:
             assert result.failed_listings >= 1, (
                 f"Expected failed_listings >= 1, got: {result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_empty_results_return_valid_run_result(self) -> None:
         """
@@ -515,6 +521,7 @@ class TestPipelineOrchestration:
             assert result.boards_searched == ["testboard"], (
                 f"Expected ['testboard'], got: {result.boards_searched}"
             )
+            runner.store.close()
 
     async def test_scored_listings_are_passed_to_ranker(self) -> None:
         """
@@ -546,6 +553,7 @@ class TestPipelineOrchestration:
             assert result.summary.total_scored == 1, (
                 f"Expected total_scored == 1, got: {result.summary.total_scored}"
             )
+            runner.store.close()
 
     async def test_overnight_overlap_does_not_duplicate_board(self) -> None:
         """
@@ -579,6 +587,7 @@ class TestPipelineOrchestration:
             assert result.boards_searched.count("board_a") == 1, (
                 f"Expected board_a once, got: {result.boards_searched}"
             )
+            runner.store.close()
 
     async def test_auto_indexes_only_empty_collections(self) -> None:
         """
@@ -623,6 +632,7 @@ class TestPipelineOrchestration:
             assert store.collection_count("global_positive_signals") > 0, (
                 "Expected positive_signals to be auto-indexed"
             )
+            runner.store.close()
 
     async def test_auto_index_skips_populated_collections(self) -> None:
         """
@@ -667,6 +677,7 @@ class TestPipelineOrchestration:
             assert store.collection_count("role_archetypes") > 0, (
                 "Expected archetypes to be auto-indexed"
             )
+            runner.store.close()
 
     async def test_max_listings_caps_scored_count_and_logs(
         self,
@@ -704,6 +715,7 @@ class TestPipelineOrchestration:
             assert any("Capping listings from 5 to 2" in msg for msg in caplog.messages), (
                 f"Expected cap log message, got: {caplog.messages}"
             )
+            runner.store.close()
 
     async def test_freeform_disqualifier_override_bypasses_synthesis(self) -> None:
         """
@@ -734,6 +746,7 @@ class TestPipelineOrchestration:
             assert result.summary.total_scored > 0, (
                 f"Expected at least 1 scored listing, got {result.summary.total_scored}"
             )
+            runner.store.close()
 
     async def test_forwards_throttle_config_to_adapter_constructor(self) -> None:
         """
@@ -771,6 +784,7 @@ class TestPipelineOrchestration:
             assert received_kwargs.get("throttle_base_delay") == 2.0, (
                 f"Expected throttle_base_delay=2.0, got: {received_kwargs}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -836,6 +850,7 @@ class TestBoardSearchDelegation:
             assert result.failed_listings == 0, (
                 f"Expected 0 failed_listings, got: {result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_mixed_group_skips_unconfigured_board_via_search_board(self) -> None:
         """
@@ -883,6 +898,7 @@ class TestBoardSearchDelegation:
             assert test_adapter.authenticate.call_count == 1, (
                 "Testboard adapter should authenticate once"
             )
+            runner.store.close()
 
     async def test_adapter_lifecycle_runs_in_order(self) -> None:
         """
@@ -945,6 +961,7 @@ class TestBoardSearchDelegation:
             assert result.summary.total_found == 1, (
                 f"Expected total_found == 1, got: {result.summary.total_found}"
             )
+            runner.store.close()
 
     async def test_enriched_listings_skip_extract_detail(self) -> None:
         """
@@ -996,6 +1013,7 @@ class TestBoardSearchDelegation:
             assert result.summary.total_found == 1, (
                 f"Expected total_found == 1, got: {result.summary.total_found}"
             )
+            runner.store.close()
 
     async def test_empty_jd_text_is_counted_as_failure(self) -> None:
         """
@@ -1052,6 +1070,7 @@ class TestBoardSearchDelegation:
             assert result.failed_listings == 1, (
                 f"Expected 1 failed_listings, got: {result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_extraction_error_counts_failure_without_aborting(self) -> None:
         """
@@ -1120,6 +1139,7 @@ class TestBoardSearchDelegation:
                 f"Expected 'good' listing, got: {result.ranked_listings[0].listing.external_id}"
             )
             assert result.failed_listings == 1, f"Expected 1 failed, got: {result.failed_listings}"
+            runner.store.close()
 
     async def test_unexpected_exception_during_extraction_is_counted(self) -> None:
         """
@@ -1164,6 +1184,7 @@ class TestBoardSearchDelegation:
                 f"Expected no ranked listings, got: {result.ranked_listings}"
             )
             assert result.failed_listings == 1, f"Expected 1 failed, got: {result.failed_listings}"
+            runner.store.close()
 
     async def test_search_failure_skips_url_and_continues(self) -> None:
         """
@@ -1215,6 +1236,7 @@ class TestBoardSearchDelegation:
             assert result.summary.total_found == 1, (
                 f"Expected 1 found from second URL, got: {result.summary.total_found}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1283,6 +1305,7 @@ class TestAutoIndex:
             assert store.collection_count("global_positive_signals") > 0, (
                 "global_positive_signals collection should be populated after auto-index"
             )
+            runner.store.close()
 
     async def test_skips_auto_index_when_collections_are_populated(self) -> None:
         """
@@ -1316,6 +1339,7 @@ class TestAutoIndex:
             assert store.collection_count("role_archetypes") == archetypes_count_before, (
                 "role_archetypes collection should not change when already populated"
             )
+            runner.store.close()
 
     async def test_auto_index_runs_before_scoring_begins(self) -> None:
         """
@@ -1365,6 +1389,7 @@ class TestAutoIndex:
             assert result.summary.total_scored >= 1, (
                 f"Expected at least 1 scored listing, got: {result.summary.total_scored}"
             )
+            runner.store.close()
 
     async def test_collection_empty_returns_true_when_store_raises(self) -> None:
         """
@@ -1404,6 +1429,7 @@ class TestAutoIndex:
             assert store.collection_count("global_positive_signals") > 0, (
                 "global_positive_signals should be auto-indexed when collection was missing"
             )
+            runner.store.close()
 
 
 class TestCompEnrichment:
@@ -1474,6 +1500,7 @@ class TestCompEnrichment:
             assert "$180,000" in listing.comp_text, (
                 f"Expected '$180,000' in comp_text, got: {listing.comp_text}"
             )
+            runner.store.close()
 
 
 class TestErrorSurfacing:
@@ -1545,6 +1572,7 @@ class TestErrorSurfacing:
             assert "testboard" in result.errors[0].error, (
                 f"Expected 'testboard' in error message, got: {result.errors[0].error}"
             )
+            runner.store.close()
 
     async def test_extraction_level_actionable_errors_are_appended_to_run_result_errors(
         self,
@@ -1600,6 +1628,7 @@ class TestErrorSurfacing:
             assert "testboard" in (result.errors[0].service or ""), (
                 f"Expected 'testboard' in service, got: {result.errors[0].service}"
             )
+            runner.store.close()
 
     async def test_scoring_level_actionable_errors_are_appended_to_run_result_errors(
         self,
@@ -1640,6 +1669,7 @@ class TestErrorSurfacing:
                 f"Expected EMBEDDING error in errors, got types: "
                 f"{[e.error_type for e in result.errors]}"
             )
+            runner.store.close()
 
     async def test_every_surfaced_error_has_non_empty_suggestion(self) -> None:
         """
@@ -1698,6 +1728,7 @@ class TestErrorSurfacing:
                     f"Expected non-empty suggestion on error '{err.error}', "
                     f"got: {err.suggestion!r}"
                 )
+            runner.store.close()
 
     def test_cli_summary_prints_error_service_and_suggestion_for_each_error(
         self,
@@ -1821,6 +1852,7 @@ class TestErrorSurfacing:
 
             # Then: errors is an empty list
             assert result.errors == [], f"Expected empty errors list, got: {result.errors}"
+            runner.store.close()
 
     async def test_unexpected_scoring_exception_is_wrapped_and_appended_to_run_result_errors(
         self,
@@ -1884,6 +1916,7 @@ class TestErrorSurfacing:
                 f"Expected listing URL '{listing.url}' in log output, "
                 f"got records: {[r.message for r in caplog.records]}"
             )
+            runner.store.close()
 
     async def test_errors_from_multiple_boards_all_accumulate_in_run_result(self) -> None:
         """
@@ -1938,6 +1971,7 @@ class TestErrorSurfacing:
                     f"Expected non-empty suggestion on error '{err.error}', "
                     f"got: {err.suggestion!r}"
                 )
+            runner.store.close()
 
     async def test_caught_error_increments_both_errors_list_and_failed_listings_count(
         self,
@@ -1995,6 +2029,7 @@ class TestErrorSurfacing:
             assert result.failed_listings >= 1, (
                 f"Expected failed_listings >= 1, got: {result.failed_listings}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -2028,9 +2063,9 @@ def _setup_cli_env(
         )
 
     (config_dir / "settings.toml").write_text(
-        f'resume_path = "{data_dir / "resume.md"}"\n'
-        f'archetypes_path = "{config_dir / "role_archetypes.toml"}"\n'
-        f'global_rubric_path = "{config_dir / "global_rubric.toml"}"\n'
+        f'resume_path = "{(data_dir / "resume.md").as_posix()}"\n'
+        f'archetypes_path = "{(config_dir / "role_archetypes.toml").as_posix()}"\n'
+        f'global_rubric_path = "{(config_dir / "global_rubric.toml").as_posix()}"\n'
         "\n[boards]\n"
         f"enabled = {boards!r}\n"
         'session_storage_dir = "data"\n'
@@ -2056,15 +2091,16 @@ def _setup_cli_env(
         "max_retries = 3\nbase_delay = 1.0\n"
         "max_embed_chars = 8000\nhead_ratio = 0.6\n"
         "retryable_status_codes = [408, 429, 500, 502, 503, 504]\n"
-        f'\n[output]\ndefault_format = "markdown"\noutput_dir = "{output_dir}"\n'
+        f'\n[output]\ndefault_format = "markdown"\noutput_dir = "{output_dir.as_posix()}"\n'
         "open_top_n = 5\n"
         'jd_dir = "output/jds"\n'
         'decisions_dir = "data/decisions"\n'
         'log_dir = "data/logs"\n'
         'eval_history_path = "data/eval_history.jsonl"\n'
         "max_slug_length = 80\n"
-        f'\n[chroma]\npersist_dir = "{tmp_path / "chroma"}"\n'
+        f'\n[chroma]\npersist_dir = "{(tmp_path / "chroma").as_posix()}"\n'
         'distance_metric = "cosine"\n'
+        "sync_threshold = 1\n"
         '\n[security]\nscreen_prompt = "Review the following job description text."\n'
         "\n[adapters]\n"
         "cdp_timeout = 15.0\n"

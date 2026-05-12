@@ -9,7 +9,8 @@ Spec classes:
 
 from __future__ import annotations
 
-import runpy
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -220,26 +221,30 @@ class TestMainModuleEntryPoint:
          definitions but never dispatch — the operator would see no output
 
     MOCK BOUNDARY:
-        Mock: jobsearch_rag.cli.handle_boards (CLI handler I/O),
-              sys.argv (process state)
-        Real: runpy module execution, build_parser(), main(), __name__ guard
-        Never: Patch runpy internals
+        Mock: (none — boards subcommand is pure: registry read + print)
+        Real: full subprocess execution of ``python -m jobsearch_rag boards``
+        Never: (none)
     """
 
     def test_module_entry_point_invokes_main(self) -> None:
         """
         Given the package is invoked as ``python -m jobsearch_rag boards``
         When Python executes __main__.py with __name__ set to "__main__"
-        Then main() dispatches the subcommand to the handler.
+        Then main() dispatches the subcommand and the handler runs.
         """
-        # Given: sys.argv set to a valid subcommand
-        mock_handler = MagicMock()
-        with (
-            patch("sys.argv", ["jobsearch_rag", "boards"]),
-            patch("jobsearch_rag.cli.handle_boards", mock_handler),
-        ):
-            # When: the module is executed as __main__
-            runpy.run_module("jobsearch_rag", run_name="__main__")
+        # Given: the boards subcommand requires no config or external services
+        # When: the package is executed as a module in a fresh process
+        result = subprocess.run(
+            [sys.executable, "-m", "jobsearch_rag", "boards"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
 
-        # Then: the handler was dispatched via main()
-        mock_handler.assert_called_once()
+        # Then: main() dispatched to handle_boards(), printing adapter names
+        assert result.returncode == 0, (
+            f"Expected exit code 0, got {result.returncode}; stderr: {result.stderr}"
+        )
+        assert "Registered adapters:" in result.stdout, (
+            f"Expected adapter listing in stdout, got: {result.stdout!r}"
+        )

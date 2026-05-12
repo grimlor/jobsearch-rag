@@ -238,6 +238,7 @@ class TestCrossRunDedup:
             assert "Old Role" not in titles, (
                 f"Decided listing should be excluded from ranked results, got titles: {titles}"
             )
+            runner.store.close()
 
     async def test_excluded_listing_does_not_appear_in_export(self) -> None:
         """
@@ -274,6 +275,7 @@ class TestCrossRunDedup:
                 assert "New Role" in titles, (
                     f"New listing should appear in ranked results, got titles: {titles}"
                 )
+            runner.store.close()
 
     async def test_exclusion_count_appears_in_run_summary(self) -> None:
         """
@@ -305,6 +307,7 @@ class TestCrossRunDedup:
             assert result.skipped_decisions >= 1, (
                 f"Expected at least 1 skipped decision, got {result.skipped_decisions}"
             )
+            runner.store.close()
 
     async def test_listing_with_no_decision_is_scored_normally(self) -> None:
         """
@@ -338,6 +341,7 @@ class TestCrossRunDedup:
             assert result.skipped_decisions == 0, (
                 f"Expected 0 skipped decisions, got {result.skipped_decisions}"
             )
+            runner.store.close()
 
     async def test_force_rescore_flag_overrides_exclusion(self) -> None:
         """
@@ -371,6 +375,7 @@ class TestCrossRunDedup:
             assert result.skipped_decisions == 0, (
                 f"Expected 0 skipped decisions with force_rescore, got {result.skipped_decisions}"
             )
+            runner.store.close()
 
     async def test_decision_lookup_uses_job_id_not_url(self) -> None:
         """
@@ -404,3 +409,4 @@ class TestCrossRunDedup:
                 f"Expected listing skipped by job_id lookup, "
                 f"got skipped_decisions={result.skipped_decisions}"
             )
+            runner.store.close()

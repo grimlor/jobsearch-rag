@@ -299,13 +299,19 @@ def _run_pipeline_and_read_logs(
     ):
         asyncio.run(runner.run())
 
+    # Release ChromaDB file handles before TemporaryDirectory cleanup.
+    # Without this, Windows cannot delete the temp dir (no POSIX
+    # unlink-while-open) and leaked handles exhaust the fd limit
+    # under pytest-xdist parallelism.
+    runner.store.close()
+
     # Parse JSON-lines log files (only new ones)
     skip = exclude_files or set()
     entries: list[dict[str, object]] = []
     for log_file in sorted(log_dir.glob("*.jsonl")):
         if log_file.name in skip:
             continue
-        for line in log_file.read_text().splitlines():
+        for line in log_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line:
                 entries.append(json.loads(line))
@@ -529,7 +535,7 @@ class TestSessionTracing:
             log_files = list(log_dir.glob("*.jsonl"))
             assert len(log_files) >= 1, f"Expected at least one .jsonl log file in {log_dir}"
             for log_file in log_files:
-                for i, line in enumerate(log_file.read_text().splitlines()):
+                for i, line in enumerate(log_file.read_text(encoding="utf-8").splitlines()):
                     line = line.strip()
                     if not line:
                         continue
@@ -986,8 +992,10 @@ class TestInferenceMetrics:
             listings = [_make_listing()]
 
             # When: pipeline runs with measurable chat latency
+            # 50ms exceeds Windows' ~15.6ms timer tick so
+            # time.monotonic() always registers the delay.
             entries = _run_pipeline_and_read_logs(
-                tmpdir, listings, mock_client, runner, chat_latency_s=0.005
+                tmpdir, listings, mock_client, runner, chat_latency_s=0.050
             )
 
             # Then: slow_llm_calls > 0
@@ -1049,7 +1057,7 @@ class TestInferenceMetrics:
             listings = [_make_listing()]
 
             entries_low = _run_pipeline_and_read_logs(
-                tmpdir, listings, mock_client_low, runner_low, chat_latency_s=0.005
+                tmpdir, listings, mock_client_low, runner_low, chat_latency_s=0.050
             )
             summaries_low = [e for e in entries_low if e.get("event") == "session_summary"]
             assert len(summaries_low) == 1, "Expected 1 session_summary for low-threshold run"

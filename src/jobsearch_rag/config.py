@@ -136,6 +136,7 @@ class ChromaConfig:
 
     persist_dir: str
     distance_metric: str
+    sync_threshold: int
 
 
 @dataclass
@@ -461,7 +462,16 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
     chroma = ChromaConfig(
         persist_dir=str(_require_field(chroma_data, "persist_dir", "chroma")),
         distance_metric=str(_require_field(chroma_data, "distance_metric", "chroma")),
+        sync_threshold=int(_require_field(chroma_data, "sync_threshold", "chroma")),
     )
+
+    # Validate sync_threshold
+    if chroma.sync_threshold < 1:
+        raise ActionableError.validation(
+            field_name="chroma.sync_threshold",
+            reason=f"is {chroma.sync_threshold} — must be >= 1",
+            suggestion="Set [chroma].sync_threshold to a positive integer (e.g. 1)",
+        )
 
     # Validate distance_metric
     valid_metrics = {"cosine", "l2", "ip"}

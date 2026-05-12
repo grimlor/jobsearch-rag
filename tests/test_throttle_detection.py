@@ -32,7 +32,7 @@ from jobsearch_rag.adapters.ziprecruiter import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -97,7 +97,7 @@ def _build_zr_html(listings: list[JobListing]) -> str:
 def _patch_search_to_click_through(
     listings: list[JobListing],
     panel_mock: AsyncMock,
-) -> Iterator[MagicMock]:
+) -> Generator[MagicMock, None, None]:
     """
     Patch I/O boundaries so ``search()`` reaches click-through with real parsing.
 

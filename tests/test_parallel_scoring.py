@@ -279,6 +279,7 @@ class TestParallelScoringOrchestration:
             assert result.failed_listings == 0, (
                 f"Expected 0 failures, got {result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_semaphore_caps_concurrent_tasks(self) -> None:
         """
@@ -326,6 +327,7 @@ class TestParallelScoringOrchestration:
             assert max_concurrent <= 2, (
                 f"Expected max 2 concurrent embed calls, observed {max_concurrent}"
             )
+            runner.store.close()
 
     async def test_results_identical_regardless_of_max_parallel(self) -> None:
         """
@@ -356,6 +358,7 @@ class TestParallelScoringOrchestration:
                     key=lambda t: t[0],
                 )
                 results_by_parallel[max_p] = [s for _, s in scores]
+                runner.store.close()
 
         # Then: scores are identical
         assert results_by_parallel[1] == pytest.approx(results_by_parallel[3], abs=1e-9), (
@@ -402,6 +405,7 @@ class TestParallelScoringOrchestration:
             assert evt["listing_count"] == 5, (
                 f"Expected listing_count=5, got {evt['listing_count']}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -487,6 +491,7 @@ class TestErrorIsolation:
                 f"Expected 3 total (scored + failed), got {total}. "
                 f"ranked={len(result.ranked_listings)}, failed={result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_unexpected_exception_does_not_block_other_listings(self) -> None:
         """
@@ -532,6 +537,7 @@ class TestErrorIsolation:
             assert len(result.ranked_listings) >= 1, (
                 f"Expected at least 1 success, got {len(result.ranked_listings)}"
             )
+            runner.store.close()
 
     async def test_failed_listings_surfaced_in_errors(self) -> None:
         """
@@ -562,6 +568,7 @@ class TestErrorIsolation:
             assert result.failed_listings == 1, (
                 f"Expected 1 failed listing, got {result.failed_listings}"
             )
+            runner.store.close()
 
     async def test_session_summary_reflects_correct_failed_count(self) -> None:
         """
@@ -612,6 +619,7 @@ class TestErrorIsolation:
                 f"session_summary failed_listings={summaries[0]['failed_listings']} "
                 f"does not match RunResult.failed_listings={result.failed_listings}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -682,6 +690,7 @@ class TestCollectionScoreAggregation:
             assert resume_summaries[0]["n_scored"] == 3, (
                 f"Expected n_scored=3 for resume, got {resume_summaries[0]['n_scored']}"
             )
+            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -748,6 +757,7 @@ class TestEnvironmentVariableConfig:
             assert parallelism[0]["max_parallel"] == 4, (
                 f"Expected max_parallel=4, got {parallelism[0]['max_parallel']}"
             )
+            runner.store.close()
 
     async def test_unset_env_var_defaults_to_serial(self) -> None:
         """
@@ -784,6 +794,7 @@ class TestEnvironmentVariableConfig:
             assert parallelism[0]["max_parallel"] == 1, (
                 f"Expected max_parallel=1 (serial), got {parallelism[0]['max_parallel']}"
             )
+            runner.store.close()
 
     async def test_non_integer_env_var_falls_back_to_serial(self) -> None:
         """
@@ -820,6 +831,7 @@ class TestEnvironmentVariableConfig:
             assert parallelism[0]["max_parallel"] == 1, (
                 f"Expected max_parallel=1 fallback, got {parallelism[0]['max_parallel']}"
             )
+            runner.store.close()
 
     async def test_zero_env_var_falls_back_to_serial(self) -> None:
         """
@@ -856,6 +868,7 @@ class TestEnvironmentVariableConfig:
             assert parallelism[0]["max_parallel"] == 1, (
                 f"Expected max_parallel=1 fallback for 0, got {parallelism[0]['max_parallel']}"
             )
+            runner.store.close()
 
     async def test_negative_env_var_falls_back_to_serial(self) -> None:
         """
@@ -892,3 +905,4 @@ class TestEnvironmentVariableConfig:
             assert parallelism[0]["max_parallel"] == 1, (
                 f"Expected max_parallel=1 fallback for -1, got {parallelism[0]['max_parallel']}"
             )
+            runner.store.close()

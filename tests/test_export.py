@@ -175,7 +175,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown
         MarkdownExporter().export(listings, str(out), summary=_summary())
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: all required fields are present
         assert "Staff Architect" in content, "Title should appear in output"
@@ -211,7 +211,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown
         MarkdownExporter().export(listings, str(out), summary=_summary())
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: High appears before Mid, Mid before Low
         high_pos = content.index("High")
@@ -241,7 +241,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown
         MarkdownExporter().export(listings, str(out), summary=_summary())
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: only qualified role appears
         assert "Good Role" in content, "Qualified role should appear"
@@ -259,7 +259,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown
         MarkdownExporter().export(listings, str(out), summary=_summary())
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: all component scores appear
         assert "0.74" in content, "Fit score should appear"
@@ -285,7 +285,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown
         MarkdownExporter().export([listing], str(out), summary=_summary())
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: culture score appears
         assert "Culture" in content, (
@@ -313,7 +313,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown
         MarkdownExporter().export([listing], str(out), summary=_summary())
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: negative score appears
         assert "Negative" in content, (
@@ -335,7 +335,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown
         MarkdownExporter().export(listings, str(out), summary=_summary())
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: summary appears before listings
         summary_pos = content.index("Summary")
@@ -357,7 +357,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown
         MarkdownExporter().export(listings, str(out), summary=summary)
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: counts appear in output
         assert "10" in content, "Total found should appear"
@@ -379,7 +379,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown
         MarkdownExporter().export(listings, str(out), summary=_summary())
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: both URLs appear
         assert "https://example.org/job/1" in content, "First URL should appear"
@@ -399,7 +399,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown
         MarkdownExporter().export([], str(out), summary=summary)
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: summary present, no listings
         assert "Summary" in content, "Summary should appear even with no results"
@@ -417,7 +417,7 @@ class TestMarkdownExport:
 
         # When: export to Markdown with summary=None (the default)
         MarkdownExporter().export(listings, str(out))
-        content = out.read_text()
+        content = out.read_text(encoding="utf-8")
 
         # Then: summary heading present but no stats
         assert "Summary" in content, "Summary heading should appear even without stats"
@@ -468,7 +468,7 @@ class TestCSVExport:
         CSVExporter().export(listings, str(out), summary=_summary())
 
         # Then: header contains required columns
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             reader = csv.reader(f)
             header = next(reader)
         required = ["title", "company", "board", "final_score", "url"]
@@ -489,7 +489,7 @@ class TestCSVExport:
         CSVExporter().export(listings, str(out), summary=_summary())
 
         # Then: comp columns present
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             reader = csv.reader(f)
             header = next(reader)
         for col in ["comp_score", "comp_min", "comp_max"]:
@@ -509,7 +509,7 @@ class TestCSVExport:
         CSVExporter().export(listings, str(out), summary=_summary())
 
         # Then: full_text column is absent
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             reader = csv.reader(f)
             header = next(reader)
         assert "full_text" not in header, "full_text should be excluded from CSV"
@@ -528,7 +528,7 @@ class TestCSVExport:
         CSVExporter().export(listings, str(out), summary=_summary())
 
         # Then: company survives CSV round-trip intact
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             reader = csv.reader(f)
             _header = next(reader)
             row = next(reader)
@@ -548,7 +548,7 @@ class TestCSVExport:
         CSVExporter().export([], str(out), summary=summary)
 
         # Then: header present, no data rows
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             reader = csv.reader(f)
             header = next(reader)
             rows = list(reader)
@@ -580,7 +580,7 @@ class TestCSVExport:
         CSVExporter().export(listings, str(out), summary=_summary())
 
         # Then: only 2 data rows (disqualified excluded)
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             reader = csv.reader(f)
             _header = next(reader)
             rows = list(reader)
@@ -600,7 +600,7 @@ class TestCSVExport:
         CSVExporter().export(listings, str(out), summary=_summary())
 
         # Then: culture_score column present
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             reader = csv.reader(f)
             header = next(reader)
         assert "culture_score" in header, f"Missing culture_score column. Header: {header}"
@@ -619,7 +619,7 @@ class TestCSVExport:
         CSVExporter().export(listings, str(out), summary=_summary())
 
         # Then: negative_score column present
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             reader = csv.reader(f)
             header = next(reader)
         assert "negative_score" in header, f"Missing negative_score column. Header: {header}"
@@ -638,7 +638,7 @@ class TestCSVExport:
         CSVExporter().export(listings, str(out), summary=_summary())
 
         # Then: external_id column exists with correct value
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             row = next(reader)
         assert "external_id" in row, f"Missing external_id column. Columns: {list(row.keys())}"
@@ -996,7 +996,7 @@ class TestJDFileExport:
 
         # When: export JD files
         paths = JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
-        content = paths[0].read_text()
+        content = paths[0].read_text(encoding="utf-8")
 
         # Then: metadata header present
         assert "# Staff Architect" in content, f"Title heading should appear in:\n{content[:300]}"
@@ -1021,7 +1021,7 @@ class TestJDFileExport:
         # When: export JD files
         JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
         files = list(tmp_path.glob("*.md"))
-        content = files[0].read_text()
+        content = files[0].read_text(encoding="utf-8")
 
         # Then: JD text appears
         assert "## Job Description" in content, "JD section header should appear"
@@ -1129,7 +1129,7 @@ class TestJDFileExport:
         # When: export JD files
         JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
         files = list(tmp_path.glob("*.md"))
-        content = files[0].read_text()
+        content = files[0].read_text(encoding="utf-8")
 
         # Then: all component scores appear
         assert "**Final Score:** 0.78" in content, "Final score should appear"
@@ -1157,7 +1157,7 @@ class TestJDFileExport:
         # When: export JD files
         JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
         files = list(tmp_path.glob("*.md"))
-        content = files[0].read_text()
+        content = files[0].read_text(encoding="utf-8")
 
         # Then: duplicate boards shown
         assert "**Also on:** indeed, linkedin" in content, (
@@ -1184,7 +1184,7 @@ class TestJDFileExport:
         # When: export JD files
         JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
         files = list(tmp_path.glob("*.md"))
-        content = files[0].read_text()
+        content = files[0].read_text(encoding="utf-8")
 
         # Then: disqualification reason shown
         assert "**Disqualified:** lacks cloud experience" in content, (
@@ -1209,7 +1209,7 @@ class TestJDFileExport:
 
         # When: export JD files
         paths = JDFileExporter(max_slug_length=80).export(listings, str(tmp_path))
-        content = paths[0].read_text()
+        content = paths[0].read_text(encoding="utf-8")
 
         # Then: External ID metadata is present in header
         assert "**External ID:** 81cb444f00994fff" in content, (

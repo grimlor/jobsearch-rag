@@ -903,7 +903,7 @@ class TestBoardSession:
         with patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", tmp_path):
             state_file = config.storage_state_path
             state_file.parent.mkdir(parents=True, exist_ok=True)
-            state_file.write_text(json.dumps({"cookies": [{"name": "sid"}]}))
+            state_file.write_text(json.dumps({"cookies": [{"name": "sid"}]}), encoding="utf-8")
 
             # When: BoardSession is entered
             async with BoardSession(mock_browser, config):
@@ -1060,7 +1060,7 @@ class TestBoardSession:
 
                 # Then: file exists with correct data
                 assert result.exists(), "Storage state file should be written to disk"
-                saved = json.loads(result.read_text())
+                saved = json.loads(result.read_text(encoding="utf-8"))
                 assert saved["cookies"][0]["name"] == "session", (
                     f"Expected 'session', got {saved['cookies'][0].get('name')}"
                 )
@@ -1085,7 +1085,7 @@ class TestBoardSession:
         with patch("jobsearch_rag.adapters.session._DEFAULT_STORAGE_DIR", tmp_path):
             state_file = config.storage_state_path
             state_file.parent.mkdir(parents=True, exist_ok=True)
-            state_file.write_text("{}")
+            state_file.write_text("{}", encoding="utf-8")
 
             # When/Then: has_storage_state returns True
             async with BoardSession(mock_browser, config) as session:
@@ -1786,7 +1786,7 @@ class TestSharedBrowserOrchestration:
 
                 # And: create the storage file and check again
                 config.storage_state_path.parent.mkdir(parents=True, exist_ok=True)
-                config.storage_state_path.write_text("{}")
+                config.storage_state_path.write_text("{}", encoding="utf-8")
 
                 result_after = session.has_storage_state()
                 assert result_after is True, (

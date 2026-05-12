@@ -103,8 +103,8 @@ def _chat_user_prompt(embedder: Embedder, call_index: int = -1) -> str:
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()
 
@@ -395,7 +395,9 @@ class TestSemanticScoring:
         """
         # Given: an empty VectorStore with no resume collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            empty_store = VectorStore(
+                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
+            )
             scorer = Scorer(
                 store=empty_store,
                 embedder=mock_embedder,
@@ -420,6 +422,7 @@ class TestSemanticScoring:
             assert len(err.troubleshooting.steps) > 0, (
                 "Troubleshooting should have at least one step"
             )
+            empty_store.close()
 
     async def test_empty_resume_collection_tells_operator_to_run_index(
         self, mock_embedder: Embedder
@@ -431,7 +434,7 @@ class TestSemanticScoring:
         """
         # Given: a VectorStore with an empty resume collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             store.reset_collection("resume")
             scorer = Scorer(
                 store=store,
@@ -457,6 +460,7 @@ class TestSemanticScoring:
             assert len(err.troubleshooting.steps) > 0, (
                 "Troubleshooting should have at least one step"
             )
+            store.close()
 
     async def test_existing_but_empty_decisions_returns_zero_history(
         self, populated_store: VectorStore, mock_embedder: Embedder

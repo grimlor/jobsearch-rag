@@ -84,6 +84,10 @@ class Embedder:
 
     # -- Public API ----------------------------------------------------------
 
+    async def close(self) -> None:
+        """Release the underlying HTTP connection pool."""
+        await self._client.close()
+
     @property
     def metrics(self) -> InferenceMetrics:
         """Accumulated inference metrics for the current session."""

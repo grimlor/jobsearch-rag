@@ -32,8 +32,8 @@ EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """Yield a temporary VectorStore for test isolation."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()
 
@@ -405,7 +405,8 @@ class TestDecisionRecording:
             jsonl_files = list(Path(decisions_dir).glob("*.jsonl"))
             assert len(jsonl_files) == 1, "Exactly one JSONL audit file should exist"
             records = [
-                json_mod.loads(line) for line in jsonl_files[0].read_text().strip().splitlines()
+                json_mod.loads(line)
+                for line in jsonl_files[0].read_text(encoding="utf-8").strip().splitlines()
             ]
             assert len(records) == 1, "JSONL file should contain exactly one record"
             assert records[0]["reason"] == "No remote option", (
@@ -422,13 +423,16 @@ class TestDecisionRecording:
         """
         # Given: a fresh store with no decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            empty_store = VectorStore(
+                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
+            )
             recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
             # When/Then: get_decision returns None gracefully
             assert recorder.get_decision("nonexistent-job") is None, (
                 "Should return None when collection is missing"
             )
+            empty_store.close()
 
     def test_get_decision_returns_none_when_no_results_found(
         self, mock_embedder: Embedder
@@ -440,7 +444,7 @@ class TestDecisionRecording:
         """
         # Given: a store with an empty decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             store.get_or_create_collection("decisions")
             recorder = DecisionRecorder(store=store, embedder=mock_embedder)
 
@@ -448,6 +452,7 @@ class TestDecisionRecording:
             assert recorder.get_decision("unknown-id") is None, (
                 "Should return None when no matching document exists"
             )
+            store.close()
 
     def test_history_count_returns_zero_when_collection_missing(
         self, mock_embedder: Embedder
@@ -459,11 +464,14 @@ class TestDecisionRecording:
         """
         # Given: a fresh store with no decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            empty_store = VectorStore(
+                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
+            )
             recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
             # When/Then: history_count returns 0 gracefully
             assert recorder.history_count() == 0, "Should return 0 when collection is missing"
+            empty_store.close()
 
     def test_audit_decisions_returns_empty_list_when_collection_missing(
         self, mock_embedder: Embedder
@@ -475,7 +483,9 @@ class TestDecisionRecording:
         """
         # Given: a fresh store with no decisions collection
         with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(persist_dir=tmpdir, distance_metric="cosine")
+            empty_store = VectorStore(
+                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
+            )
             recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
             # When: audit_decisions is called
@@ -485,3 +495,4 @@ class TestDecisionRecording:
             assert results == [], (
                 f"Should return empty list when collection is missing, got: {results}"
             )
+            empty_store.close()
