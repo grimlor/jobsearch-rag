@@ -50,9 +50,9 @@ from jobsearch_rag.rag.store import VectorStore
 from tests.constants import EMBED_FAKE as EMBED_FAKE  # re-export for fixtures below
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Iterator
+    from collections.abc import Callable, Generator, Iterator, Mapping
 
-    from jobsearch_rag.adapters.base import JobBoardAdapter
+    from jobsearch_rag.adapters.ports import JobBoardPort
 
 _PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
 
@@ -92,7 +92,7 @@ _REGISTRY = AdapterRegistry._registry  # pyright: ignore[reportPrivateUsage]
 
 @contextmanager
 def adapter_override(
-    factories: dict[str, Callable[..., JobBoardAdapter]],
+    factories: Mapping[str, Callable[..., JobBoardPort]],
     *,
     clear: bool = False,
 ) -> Generator[None, None, None]:

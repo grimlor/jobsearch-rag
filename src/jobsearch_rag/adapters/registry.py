@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 
 if TYPE_CHECKING:
-    from jobsearch_rag.adapters.base import JobBoardAdapter
+    from jobsearch_rag.adapters.ports import JobBoardPort
 
-_T = TypeVar("_T", bound="JobBoardAdapter")
+_T = TypeVar("_T", bound="JobBoardPort")
 
 
 class AdapterRegistry:
@@ -24,17 +24,17 @@ class AdapterRegistry:
             ...
     """
 
-    _registry: ClassVar[dict[str, type[JobBoardAdapter]]] = {}
+    _registry: ClassVar[dict[str, type[JobBoardPort]]] = {}
 
     @classmethod
     def register(cls, adapter_class: type[_T]) -> type[_T]:
         """Class decorator — registers an adapter by its ``board_name``."""
         instance = adapter_class.__new__(adapter_class)
-        cls._registry[instance.board_name] = adapter_class  # type: ignore[assignment]  # _T is a subtype of JobBoardAdapter
+        cls._registry[instance.board_name] = cast("type[JobBoardPort]", adapter_class)
         return adapter_class
 
     @classmethod
-    def get(cls, board_name: str, **kwargs: Any) -> JobBoardAdapter:
+    def get(cls, board_name: str, **kwargs: Any) -> JobBoardPort:
         """
         Return a new instance of the adapter registered under *board_name*.
 
