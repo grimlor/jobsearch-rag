@@ -362,7 +362,7 @@ class TestEvalCommand:
         When ``handle_eval`` is called
         Then it prints agreement_rate, precision, recall to stdout
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: settings pointing at tmpdir, a seeded store with decisions
             settings = _make_settings(tmpdir)
             runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
@@ -384,7 +384,7 @@ class TestEvalCommand:
         When ``handle_eval`` is called
         Then it prints a "no decisions" message and exits cleanly
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: settings and a store with no decisions
             settings = _make_settings(tmpdir)
             runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
@@ -405,7 +405,7 @@ class TestEvalCommand:
         When ``EvalRunner.evaluate()`` completes
         Then it returns an ``EvalResult`` with correct field types
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: settings and a store with one decision
             settings = _make_settings(tmpdir)
             runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
@@ -476,7 +476,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then agreement_rate=1.0, precision=1.0, recall=1.0
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: collections seeded with EMBED_FAKE so queries return
             # score 1.0 (well above threshold); 3 yes decisions
             settings = _make_settings(tmpdir, min_score_threshold=0.45)
@@ -507,7 +507,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then agreement_rate=1.0
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: collections seeded with EMBED_DISTANT so queries return
             # low scores; high threshold ensures all below; 3 no decisions
             settings = _make_settings(tmpdir, min_score_threshold=0.99)
@@ -538,7 +538,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then agreement_rate=0.0, precision=0.0, recall=0.0
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: EMBED_DISTANT for queries → low scores; high threshold
             # means yes-decisions score below; but we need the no-decision
             # to score above. Since all go through the same scorer, we use
@@ -580,7 +580,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then it counts as agreed (maybe is positive)
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: EMBED_FAKE for high scores; one maybe decision
             settings = _make_settings(tmpdir, min_score_threshold=0.45)
             runner, _s, _r, store, _mock = _make_eval_stack(settings)
@@ -606,7 +606,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then per_decision has 5 entries with correct fields
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: 5 decisions with mixed verdicts
             settings = _make_settings(tmpdir, min_score_threshold=0.45)
             runner, _s, _r, store, _mock = _make_eval_stack(settings)
@@ -639,7 +639,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then precision and recall are computed correctly against the definitions
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: EMBED_FAKE → score ~1.0 (above threshold).
             # 2 yes (above → agree), 1 no (above → disagree), 1 maybe (above → agree)
             # Pipeline says "above" for all 4.
@@ -670,7 +670,7 @@ class TestEvalMetrics:
         When evaluate() runs
         Then EvalResult has decisions_evaluated=0 and rates are 0.0
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: store with required collections but no decisions
             settings = _make_settings(tmpdir)
             runner, _s, _r, store, _mock = _make_eval_stack(settings)
@@ -696,7 +696,7 @@ class TestEvalMetrics:
         Then recall is 0.0 (the yes-decision missed) and agreement for the
              yes-decision is False
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: EMBED_DISTANT produces low cosine similarity against
             # EMBED_FAKE-seeded collections; high threshold ensures below
             settings = _make_settings(tmpdir, min_score_threshold=0.99)

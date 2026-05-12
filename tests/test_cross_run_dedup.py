@@ -209,7 +209,7 @@ class TestCrossRunDedup:
         When run() processes listings including "already-decided" and "brand-new",
         Then only the new listing appears in ranked results and the decided one is skipped.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision for "already-decided"
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
@@ -246,7 +246,7 @@ class TestCrossRunDedup:
         When run() processes both "decided-1" and "new-1",
         Then only "New Role" appears in the ranked results.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision for "decided-1"
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
@@ -283,7 +283,7 @@ class TestCrossRunDedup:
         When run() processes "decided-1" and "new-1",
         Then result.skipped_decisions reflects the exclusion.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
@@ -315,7 +315,7 @@ class TestCrossRunDedup:
         When run() processes a listing "never-seen",
         Then the listing appears in the ranked results.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with no decisions seeded
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
@@ -349,7 +349,7 @@ class TestCrossRunDedup:
         When run(force_rescore=True) is called,
         Then the decided listing is scored anyway.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)
@@ -384,7 +384,7 @@ class TestCrossRunDedup:
         When run() processes the listing,
         Then the listing is skipped — proving lookup is by job_id, not URL.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with decision keyed by job_id
             settings = _make_settings(tmpdir)
             runner, _mock_client = _make_runner_with_real_stack(settings)

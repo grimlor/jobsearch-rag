@@ -126,7 +126,7 @@ def embedder() -> Embedder:
 @pytest.fixture
 def store() -> Iterator[VectorStore]:
     """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
         s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
         yield s
         s.close()
@@ -467,7 +467,7 @@ class TestChromaDBContract:
         WHEN a new VectorStore client opens the same directory
         THEN the previously indexed data is still available.
         """
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             # Given: index with first client
             store1 = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             embedding = await embedder.embed("persistence test")
@@ -749,7 +749,7 @@ class TestLiveZipRecruiterPipeline:
     @pytest.fixture
     def live_store(self) -> Iterator[VectorStore]:
         """A VectorStore in a temp directory for live pipeline tests."""
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
             yield s
             s.close()
