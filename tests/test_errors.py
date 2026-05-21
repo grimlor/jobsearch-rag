@@ -20,7 +20,7 @@ from jobsearch_rag.errors import ActionableError, AIGuidance, ErrorType
 
 class TestErrorFactoryMethods:
     """
-    REQUIREMENT: Factory methods produce structured errors with embedded guidance.
+    REQUIREMENT: Factory methods produce structured errors with embedded guidance
 
     WHO: Any component catching exceptions and wrapping them for consumers
     WHAT: (1) The system returns an authentication error that includes a suggestion and troubleshooting guidance so the operator can re-authenticate.
@@ -45,7 +45,7 @@ class TestErrorFactoryMethods:
         """
         Given an authentication failure
         When authentication() factory is called
-        Then the error includes suggestion and troubleshooting so the operator can re-authenticate.
+        Then the error includes suggestion and troubleshooting so the operator can re-authenticate
         """
         # When: create an authentication error
         err = ActionableError.authentication("ziprecruiter", "session expired")
@@ -60,7 +60,7 @@ class TestErrorFactoryMethods:
         """
         Given a config field validation failure
         When config() factory is called
-        Then the error names the field and provides recovery steps.
+        Then the error names the field and provides recovery steps
         """
         # When: create a config error
         err = ActionableError.config("scoring.archetype_weight", "must be between 0.0 and 1.0")
@@ -75,7 +75,7 @@ class TestErrorFactoryMethods:
         """
         Given a connection failure with a URL
         When connection() factory is called
-        Then the error includes the URL and connectivity troubleshooting.
+        Then the error includes the URL and connectivity troubleshooting
         """
         # When: create a connection error
         err = ActionableError.connection("Ollama", "http://localhost:11434", "refused")
@@ -90,7 +90,7 @@ class TestErrorFactoryMethods:
         """
         Given an embedding model failure
         When embedding() factory is called
-        Then the error names the model and provides pull/check guidance.
+        Then the error names the model and provides pull/check guidance
         """
         # When: create an embedding error
         err = ActionableError.embedding("nomic-embed-text", "timeout after 3 retries")
@@ -105,7 +105,7 @@ class TestErrorFactoryMethods:
         """
         Given an index/collection failure
         When index() factory is called
-        Then the error names the collection and provides rebuild guidance.
+        Then the error names the collection and provides rebuild guidance
         """
         # When: create an index error
         err = ActionableError.index("resume")
@@ -120,7 +120,7 @@ class TestErrorFactoryMethods:
         """
         Given a parse failure with board and selector
         When parse() factory is called
-        Then the error names board + selector and provides inspection steps.
+        Then the error names board + selector and provides inspection steps
         """
         # When: create a parse error
         err = ActionableError.parse("ziprecruiter", ".job-title", "element not found")
@@ -136,7 +136,7 @@ class TestErrorFactoryMethods:
         """
         Given a decision error for a specific job_id
         When decision() factory is called
-        Then the error names the job_id and provides lookup guidance.
+        Then the error names the job_id and provides lookup guidance
         """
         # When: create a decision error
         err = ActionableError.decision("abc-123")
@@ -151,7 +151,7 @@ class TestErrorFactoryMethods:
         """
         Given an error produced by a factory method
         When to_dict() is called
-        Then no values in the dict are None — clean for logging and API responses.
+        Then no values in the dict are None — clean for logging and API responses
         """
         # When: create error and serialize
         err = ActionableError.config("weight", "too high")
@@ -164,7 +164,7 @@ class TestErrorFactoryMethods:
         """
         Given an error produced by any factory method
         When success is checked
-        Then it is False so callers never accidentally treat an error as a success.
+        Then it is False so callers never accidentally treat an error as a success
         """
         # When: create an error
         err = ActionableError.unexpected("test", "op", "boom")
@@ -175,7 +175,7 @@ class TestErrorFactoryMethods:
 
 class TestSuggestionPreservation:
     """
-    REQUIREMENT: Custom suggestions are always preserved.
+    REQUIREMENT: Custom suggestions are always preserved
 
     WHO: Callers providing operation-specific context
     WHAT: (1) The system preserves a caller-provided suggestion verbatim when authentication() creates the error instead of using a generic default.
@@ -192,7 +192,7 @@ class TestSuggestionPreservation:
         """
         Given a caller-provided suggestion
         When authentication() factory is called with that suggestion
-        Then the suggestion is preserved verbatim, overriding any generic default.
+        Then the suggestion is preserved verbatim, overriding any generic default
         """
         # When: create error with custom suggestion
         err = ActionableError.authentication(
@@ -208,7 +208,7 @@ class TestSuggestionPreservation:
         """
         Given a caller-provided suggestion
         When from_exception() is called with that suggestion
-        Then the suggestion is forwarded rather than generating a generic one.
+        Then the suggestion is forwarded rather than generating a generic one
         """
         # When: create error from exception with custom suggestion
         err = ActionableError.from_exception(
@@ -224,7 +224,7 @@ class TestSuggestionPreservation:
 
 class TestAIGuidanceToDict:
     """
-    REQUIREMENT: AIGuidance.to_dict() includes only non-None optional fields.
+    REQUIREMENT: AIGuidance.to_dict() includes only non-None optional fields
 
     WHO: Logging and API consumers deserializing error guidance
     WHAT: (1) The system includes the `command` key in the dictionary when `command` is set.
@@ -245,7 +245,7 @@ class TestAIGuidanceToDict:
         """
         Given AIGuidance with command populated
         When to_dict() is called
-        Then the dict includes the 'command' key.
+        Then the dict includes the 'command' key
         """
         # Given: guidance with command
         g = AIGuidance(action_required="fix it", command="run fix")
@@ -260,7 +260,7 @@ class TestAIGuidanceToDict:
         """
         Given AIGuidance with discovery_tool populated
         When to_dict() is called
-        Then the dict includes the 'discovery_tool' key.
+        Then the dict includes the 'discovery_tool' key
         """
         # Given: guidance with discovery_tool
         g = AIGuidance(action_required="fix it", discovery_tool="tool_x")
@@ -275,7 +275,7 @@ class TestAIGuidanceToDict:
         """
         Given AIGuidance with checks populated
         When to_dict() is called
-        Then the dict includes the 'checks' list.
+        Then the dict includes the 'checks' list
         """
         # Given: guidance with checks
         g = AIGuidance(action_required="fix it", checks=["check1", "check2"])
@@ -290,7 +290,7 @@ class TestAIGuidanceToDict:
         """
         Given AIGuidance with steps populated
         When to_dict() is called
-        Then the dict includes the 'steps' list.
+        Then the dict includes the 'steps' list
         """
         # Given: guidance with steps
         g = AIGuidance(action_required="fix it", steps=["step1", "step2"])
@@ -305,7 +305,7 @@ class TestAIGuidanceToDict:
         """
         Given AIGuidance with only action_required set
         When to_dict() is called
-        Then the dict has no extra keys beyond action_required.
+        Then the dict has no extra keys beyond action_required
         """
         # Given: minimal guidance
         g = AIGuidance(action_required="fix it")
@@ -319,7 +319,7 @@ class TestAIGuidanceToDict:
 
 class TestActionableErrorToDict:
     """
-    REQUIREMENT: ActionableError.to_dict() includes troubleshooting and context when set.
+    REQUIREMENT: ActionableError.to_dict() includes troubleshooting and context when set
 
     WHO: Error serialization consumers (logs, API responses, AI agents)
     WHAT: (1) The system includes the troubleshooting dictionary with its steps when converting an error with troubleshooting steps to a dictionary.
@@ -336,7 +336,7 @@ class TestActionableErrorToDict:
         """
         Given an error with troubleshooting steps
         When to_dict() is called
-        Then the dict includes the troubleshooting dict with steps.
+        Then the dict includes the troubleshooting dict with steps
         """
         # When: create error with troubleshooting
         err = ActionableError.authentication("test_board", "session expired")
@@ -351,7 +351,7 @@ class TestActionableErrorToDict:
         """
         Given an error with context dict populated
         When to_dict() is called
-        Then the dict includes the context dict.
+        Then the dict includes the context dict
         """
         # Given: error with context
         err = ActionableError(
@@ -372,7 +372,7 @@ class TestActionableErrorToDict:
 
 class TestValidationFactory:
     """
-    REQUIREMENT: validation() factory produces VALIDATION-typed errors.
+    REQUIREMENT: validation() factory produces VALIDATION-typed errors
 
     WHO: Config validation and input parsing code
     WHAT: (1) The system returns a VALIDATION error that names the field and provides suggestion and troubleshooting guidance.
@@ -388,7 +388,7 @@ class TestValidationFactory:
         """
         Given a field validation failure
         When validation() factory is called
-        Then the error names the field and provides suggestion and troubleshooting.
+        Then the error names the field and provides suggestion and troubleshooting
         """
         # When: create a validation error
         err = ActionableError.validation("email", "must contain @")
@@ -403,7 +403,7 @@ class TestValidationFactory:
 
 class TestFromExceptionClassifier:
     """
-    REQUIREMENT: from_exception() classifies exceptions by keyword patterns.
+    REQUIREMENT: from_exception() classifies exceptions by keyword patterns
 
     WHO: Generic exception handlers wrapping unknown errors
     WHAT: (1) The system classifies an exception containing timeout as CONNECTION and provides suggestion and troubleshooting.
@@ -424,7 +424,7 @@ class TestFromExceptionClassifier:
         """
         Given an exception containing 'timeout'
         When from_exception() classifies it
-        Then it is classified as CONNECTION with suggestion and troubleshooting.
+        Then it is classified as CONNECTION with suggestion and troubleshooting
         """
         # When: classify a timeout exception
         err = ActionableError.from_exception(
@@ -442,7 +442,7 @@ class TestFromExceptionClassifier:
         """
         Given an exception containing 'timed out'
         When from_exception() classifies it
-        Then it is classified as CONNECTION with actionable guidance.
+        Then it is classified as CONNECTION with actionable guidance
         """
         # When: classify a timed-out exception
         err = ActionableError.from_exception(
@@ -460,7 +460,7 @@ class TestFromExceptionClassifier:
         """
         Given an exception containing 'connection refused'
         When from_exception() classifies it
-        Then it is classified as CONNECTION with actionable guidance.
+        Then it is classified as CONNECTION with actionable guidance
         """
         # When: classify a connection-refused exception
         err = ActionableError.from_exception(
@@ -480,7 +480,7 @@ class TestFromExceptionClassifier:
         """
         Given an exception containing 'not found'
         When from_exception() classifies it
-        Then it is classified as UNEXPECTED with actionable guidance.
+        Then it is classified as UNEXPECTED with actionable guidance
         """
         # When: classify a not-found exception
         err = ActionableError.from_exception(
@@ -498,7 +498,7 @@ class TestFromExceptionClassifier:
         """
         Given an exception with no matching keyword
         When from_exception() classifies it
-        Then it is classified as UNEXPECTED but still provides actionable guidance.
+        Then it is classified as UNEXPECTED but still provides actionable guidance
         """
         # When: classify an unmatched exception
         err = ActionableError.from_exception(

@@ -75,7 +75,7 @@ class _FakeAdapter(JobBoardAdapter):
 
 class TestAuthenticationFailures:
     """
-    REQUIREMENT: Authentication failures tell the operator exactly how to recover.
+    REQUIREMENT: Authentication failures tell the operator exactly how to recover
 
     WHO: The operator running the tool; the pipeline runner
     WHAT: (1) The system reports an authentication error that names the affected board and tells the operator to reauthenticate.
@@ -97,7 +97,7 @@ class TestAuthenticationFailures:
         """
         GIVEN an expired session on a specific board
         WHEN an authentication error is created
-        THEN the error names the board and provides recovery guidance.
+        THEN the error names the board and provides recovery guidance
         """
         # Given: an expired session on ziprecruiter
         # When: authentication error is created
@@ -114,7 +114,7 @@ class TestAuthenticationFailures:
         """
         GIVEN invalid cookies on a specific board
         WHEN an authentication error is created
-        THEN the error provides login recovery steps for that board.
+        THEN the error provides login recovery steps for that board
         """
         # Given: invalid cookies on linkedin
         # When: authentication error is created
@@ -131,7 +131,7 @@ class TestAuthenticationFailures:
         """
         GIVEN a CAPTCHA encountered during scraping
         WHEN an authentication error is created with CAPTCHA details
-        THEN the error names the board and advises manual resolution.
+        THEN the error names the board and advises manual resolution
         """
         # Given: CAPTCHA encountered on ziprecruiter
         # When: authentication error is created
@@ -150,7 +150,7 @@ class TestAuthenticationFailures:
         """
         GIVEN a CAPTCHA authentication error
         WHEN the error type is checked
-        THEN it is AUTHENTICATION (not CONNECTION), preventing automated retry.
+        THEN it is AUTHENTICATION (not CONNECTION), preventing automated retry
         """
         # Given: CAPTCHA error
         err = ActionableError.authentication("ziprecruiter", "CAPTCHA")
@@ -169,7 +169,7 @@ class TestAuthenticationFailures:
         """
         GIVEN a successful authentication with cookies
         WHEN the session state is written to disk
-        THEN subsequent runs can skip login by loading the state file.
+        THEN subsequent runs can skip login by loading the state file
         """
         # Given: session state data
         path = tmp_path / "ziprecruiter_session.json"
@@ -187,7 +187,7 @@ class TestAuthenticationFailures:
         """
         GIVEN a board with no existing session file
         WHEN SessionManager checks for stored state
-        THEN it reports no state available instead of crashing.
+        THEN it reports no state available instead of crashing
         """
         # Given: a config for a board with no session file
         config = SessionConfig(
@@ -208,7 +208,7 @@ class TestAuthenticationFailures:
 
 class TestRateLimitAndThrottling:
     """
-    REQUIREMENT: Page loads are throttled to human-like timing per adapter profile.
+    REQUIREMENT: Page loads are throttled to human-like timing per adapter profile
 
     WHO: The browser session manager; the operator avoiding platform bans
     WHAT: (1) The system delays for a duration that stays within the adapter's configured minimum and maximum rate limit bounds.
@@ -229,7 +229,7 @@ class TestRateLimitAndThrottling:
         """
         GIVEN an adapter with defined rate_limit_seconds bounds
         WHEN throttle() is called
-        THEN the delay falls within the adapter's min/max range.
+        THEN the delay falls within the adapter's min/max range
         """
         # Given: adapter with known rate limits
         adapter = _FakeAdapter()
@@ -245,7 +245,7 @@ class TestRateLimitAndThrottling:
         """
         GIVEN an adapter with a rate limit range
         WHEN throttle() is called repeatedly
-        THEN varying durations are produced, avoiding fixed-interval detection.
+        THEN varying durations are produced, avoiding fixed-interval detection
         """
         # Given: adapter with rate limit range
         adapter = _FakeAdapter()
@@ -262,7 +262,7 @@ class TestRateLimitAndThrottling:
         """
         GIVEN a LinkedIn adapter with overnight rate limits
         WHEN throttle() is called
-        THEN the delay is at least 8 seconds to avoid ban escalation.
+        THEN the delay is at least 8 seconds to avoid ban escalation
         """
 
         # Given: LinkedIn adapter with extended rate limits
@@ -289,7 +289,7 @@ class TestRateLimitAndThrottling:
         """
         GIVEN multiple page navigations in a search session
         WHEN throttle() is called between each page
-        THEN every delay falls within the adapter's rate limit bounds.
+        THEN every delay falls within the adapter's rate limit bounds
         """
         # Given: adapter with known rate limits
         adapter = _FakeAdapter()
@@ -308,7 +308,7 @@ class TestRateLimitAndThrottling:
         """
         GIVEN multiple detail page fetches in a session
         WHEN throttle() is called between each fetch
-        THEN every delay falls within the adapter's rate limit bounds.
+        THEN every delay falls within the adapter's rate limit bounds
         """
         # Given: adapter with known rate limits
         adapter = _FakeAdapter()
@@ -331,7 +331,7 @@ class TestRateLimitAndThrottling:
 
 class TestPageExtractionFailures:
     """
-    REQUIREMENT: Extraction failures on individual listings do not abort the run.
+    REQUIREMENT: Extraction failures on individual listings do not abort the run
 
     WHO: The pipeline runner processing a result set
     WHAT: (1) The system classifies a 404 detail-page failure as a PARSE error and provides actionable guidance.
@@ -354,7 +354,7 @@ class TestPageExtractionFailures:
         """
         GIVEN a 404 response on a job detail page
         WHEN a parse error is created for the failure
-        THEN the error has PARSE type with actionable guidance.
+        THEN the error has PARSE type with actionable guidance
         """
         # Given/When: 404 produces a parse error
         err = ActionableError.parse("ziprecruiter", ".job-detail", "404 Not Found")
@@ -368,7 +368,7 @@ class TestPageExtractionFailures:
         """
         GIVEN a listing with empty full_text after extraction
         WHEN the listing is checked for content
-        THEN the empty full_text is detectable for scorer exclusion.
+        THEN the empty full_text is detectable for scorer exclusion
         """
         # Given: a listing with empty extracted text
         listing = _make_listing()
@@ -381,7 +381,7 @@ class TestPageExtractionFailures:
         """
         GIVEN a listing with empty full_text after extraction
         WHEN the listing URL is checked
-        THEN the URL is available for diagnostic logging.
+        THEN the URL is available for diagnostic logging
         """
         # Given: a listing with empty extracted text
         listing = _make_listing()
@@ -395,7 +395,7 @@ class TestPageExtractionFailures:
         """
         GIVEN a CSS selector miss on a board page
         WHEN a parse error is created
-        THEN the error names the board and selector with inspection guidance.
+        THEN the error names the board and selector with inspection guidance
         """
         # Given/When: selector miss produces a parse error
         err = ActionableError.parse(
@@ -416,7 +416,7 @@ class TestPageExtractionFailures:
         """
         GIVEN a connection timeout on a detail page
         WHEN a connection error is created
-        THEN the error has CONNECTION type with recovery guidance.
+        THEN the error has CONNECTION type with recovery guidance
         """
         # Given/When: timeout produces a connection error
         err = ActionableError.connection(
@@ -435,7 +435,7 @@ class TestPageExtractionFailures:
         """
         GIVEN a batch of listings with some extraction failures
         WHEN failures are tracked separately
-        THEN the run summary can report success vs. failure counts.
+        THEN the run summary can report success vs. failure counts
         """
         # Given: 5 listings with 2 failures
         failed: list[JobListing] = []
@@ -451,7 +451,7 @@ class TestPageExtractionFailures:
         """
         GIVEN a batch where some listings fail extraction
         WHEN successful listings are filtered
-        THEN partial results are available for export.
+        THEN partial results are available for export
         """
         # Given: 5 total listings with indices 1 and 3 failing
         total = [_make_listing() for _ in range(5)]
@@ -469,7 +469,7 @@ class TestPageExtractionFailures:
 
 class TestLinkedInDetectionResponse:
     """
-    REQUIREMENT: LinkedIn bot detection triggers a graceful, safe halt.
+    REQUIREMENT: LinkedIn bot detection triggers a graceful, safe halt
 
     WHO: The operator running overnight LinkedIn passes
     WHAT: (1) The system raises an AUTHENTICATION error that advises waiting before retrying when LinkedIn redirects to `/authwall`.
@@ -494,7 +494,7 @@ class TestLinkedInDetectionResponse:
         """
         GIVEN a page redirected to LinkedIn /authwall
         WHEN check_linkedin_detection() is called
-        THEN an AUTHENTICATION error advises waiting before retrying.
+        THEN an AUTHENTICATION error advises waiting before retrying
         """
         # Given: page URL is /authwall redirect
         page = MagicMock()
@@ -517,7 +517,7 @@ class TestLinkedInDetectionResponse:
         """
         GIVEN a page redirected to LinkedIn /checkpoint/challenge
         WHEN check_linkedin_detection() is called
-        THEN an AUTHENTICATION error advises waiting before retrying.
+        THEN an AUTHENTICATION error advises waiting before retrying
         """
         # Given: page URL is /checkpoint/challenge
         page = MagicMock()
@@ -540,7 +540,7 @@ class TestLinkedInDetectionResponse:
         """
         GIVEN a LinkedIn authwall detection event
         WHEN the error is inspected
-        THEN it advises waiting, not retrying (retry escalates ban risk).
+        THEN it advises waiting, not retrying (retry escalates ban risk)
         """
         # Given: authwall detection
         page = MagicMock()
@@ -560,7 +560,7 @@ class TestLinkedInDetectionResponse:
         """
         GIVEN a LinkedIn authwall detection event
         WHEN the error guidance is inspected
-        THEN it includes wait advice and troubleshooting steps for scheduling.
+        THEN it includes wait advice and troubleshooting steps for scheduling
         """
         # Given: authwall detection
         page = MagicMock()
@@ -581,7 +581,7 @@ class TestLinkedInDetectionResponse:
         """
         GIVEN a LinkedIn detection event is raised
         WHEN the check completes
-        THEN no further page.goto() calls are made.
+        THEN no further page.goto() calls are made
         """
         # Given: authwall detection with goto mock
         page = MagicMock()
@@ -603,7 +603,7 @@ class TestLinkedInDetectionResponse:
         """
         GIVEN a page redirected to /login (session invalidation)
         WHEN check_linkedin_detection() is called
-        THEN an AUTHENTICATION error advises re-authenticating.
+        THEN an AUTHENTICATION error advises re-authenticating
         """
         # Given: page URL is /login redirect
         page = MagicMock()
@@ -629,7 +629,7 @@ class TestLinkedInDetectionResponse:
         """
         GIVEN a page redirected to /uas/login (legacy session invalidation)
         WHEN check_linkedin_detection() is called
-        THEN an AUTHENTICATION error advises re-authenticating.
+        THEN an AUTHENTICATION error advises re-authenticating
         """
         # Given: page URL is /uas/login redirect
         page = MagicMock()
@@ -650,7 +650,7 @@ class TestLinkedInDetectionResponse:
         """
         GIVEN listings collected before a detection event
         WHEN detection occurs on a later page
-        THEN earlier results are preserved for export.
+        THEN earlier results are preserved for export
         """
         # Given: 3 listings collected before detection on 4th page
         results_before_detection = [_make_listing() for _ in range(3)]
@@ -665,7 +665,7 @@ class TestLinkedInDetectionResponse:
         """
         GIVEN a page with a normal LinkedIn feed URL and non-triggering title
         WHEN check_linkedin_detection() is called
-        THEN no error is raised and the function returns cleanly.
+        THEN no error is raised and the function returns cleanly
         """
         # Given: a clean page with no detection indicators
         page = MagicMock()

@@ -93,7 +93,7 @@ def embedder(ollama_mock: MagicMock) -> Embedder:
 
 class TestEmbedding:
     """
-    REQUIREMENT: Text is embedded into a vector via Ollama.
+    REQUIREMENT: Text is embedded into a vector via Ollama
 
     WHO: The indexer converting resume chunks and archetypes to vectors
     WHAT: (1) The system returns the embedding vector as a list of floats.
@@ -119,7 +119,7 @@ class TestEmbedding:
         """
         Given text to embed
         When embed() is called
-        Then a list of floats is returned.
+        Then a list of floats is returned
         """
         # Given: mock Ollama client returning a known embedding
         ollama_mock.embed = AsyncMock(return_value=_mock_embed_response([FAKE_EMBEDDING]))
@@ -137,7 +137,7 @@ class TestEmbedding:
         """
         Given an embedder with a configured model
         When embed() is called
-        Then the configured embed_model is passed to Ollama.
+        Then the configured embed_model is passed to Ollama
         """
         # Given: mock Ollama client
         ollama_mock.embed = AsyncMock(return_value=_mock_embed_response([FAKE_EMBEDDING]))
@@ -154,7 +154,7 @@ class TestEmbedding:
         """
         Given text with leading/trailing whitespace
         When embed() is called
-        Then the whitespace is stripped before sending to Ollama.
+        Then the whitespace is stripped before sending to Ollama
         """
         # Given: mock Ollama client
         ollama_mock.embed = AsyncMock(return_value=_mock_embed_response([FAKE_EMBEDDING]))
@@ -171,7 +171,7 @@ class TestEmbedding:
         """
         Given an empty string
         When embed() is called
-        Then a VALIDATION error with guidance is raised.
+        Then a VALIDATION error with guidance is raised
         """
         # When/Then: embedding empty string raises VALIDATION error
         with pytest.raises(ActionableError) as exc_info:
@@ -189,7 +189,7 @@ class TestEmbedding:
         """
         Given whitespace-only text
         When embed() is called
-        Then a VALIDATION error with guidance is raised.
+        Then a VALIDATION error with guidance is raised
         """
         # When/Then: embedding whitespace raises VALIDATION error
         with pytest.raises(ActionableError) as exc_info:
@@ -207,7 +207,7 @@ class TestEmbedding:
         """
         Given text exceeding the model context window
         When embed() is called
-        Then the text is truncated before sending to Ollama.
+        Then the text is truncated before sending to Ollama
         """
         # Given: text clearly exceeding any context window
         long_text = "x" * 20_000
@@ -230,7 +230,7 @@ class TestEmbedding:
         """
         Given text with distinctive head and tail content
         When embed() truncates it
-        Then both head and tail are preserved with an ellipsis marker.
+        Then both head and tail are preserved with an ellipsis marker
         """
         # Given: text with identifiable head, expendable middle, identifiable tail
         head_content = "HEAD_SIGNAL_" * 3000
@@ -265,7 +265,7 @@ class TestEmbedding:
         """
         Given text within the context window limit
         When embed() is called
-        Then the text is passed through unchanged.
+        Then the text is passed through unchanged
         """
         # Given: normal-length text
         normal_text = "Staff Platform Architect for distributed systems"
@@ -288,7 +288,7 @@ class TestEmbedding:
 
 class TestClassification:
     """
-    REQUIREMENT: LLM classification prompts are sent via Ollama chat.
+    REQUIREMENT: LLM classification prompts are sent via Ollama chat
 
     WHO: The scorer's disqualifier checking for hard-no signals
     WHAT: (1) The system returns the raw LLM response content.
@@ -310,7 +310,7 @@ class TestClassification:
         """
         Given a classification prompt
         When classify() is called
-        Then the raw LLM response content is returned.
+        Then the raw LLM response content is returned
         """
         # Given: mock LLM response
         ollama_mock.chat = AsyncMock(
@@ -329,7 +329,7 @@ class TestClassification:
         """
         Given an embedder with a configured LLM model
         When classify() is called
-        Then the configured llm_model is passed to Ollama.
+        Then the configured llm_model is passed to Ollama
         """
         # Given: mock chat response
         ollama_mock.chat = AsyncMock(return_value=_mock_chat_response("OK"))
@@ -347,7 +347,7 @@ class TestClassification:
         """
         Given a classification prompt
         When classify() is called
-        Then the prompt is sent as a user message in the chat conversation.
+        Then the prompt is sent as a user message in the chat conversation
         """
         # Given: mock chat response
         ollama_mock.chat = AsyncMock(return_value=_mock_chat_response("OK"))
@@ -370,7 +370,7 @@ class TestClassification:
         """
         Given an Ollama chat response whose message content is None
         When classify() is called
-        Then an EMBEDDING error is raised indicating empty content.
+        Then an EMBEDDING error is raised indicating empty content
         """
         # Given: mock response with None content
         none_resp = _mock_chat_response("placeholder")
@@ -398,7 +398,7 @@ class TestClassification:
 
 class TestHealthCheck:
     """
-    REQUIREMENT: Ollama unavailability is detected before processing begins.
+    REQUIREMENT: Ollama unavailability is detected before processing begins
 
     WHO: The pipeline runner; the operator who may have forgotten to start Ollama
     WHAT: (1) The system completes the health check without raising an error when both models are available in Ollama.
@@ -420,7 +420,7 @@ class TestHealthCheck:
         """
         Given both embed and LLM models available in Ollama
         When health_check() is called
-        Then no error is raised.
+        Then no error is raised
         """
         # Given: mock list response with both models
         ollama_mock.list = AsyncMock(return_value=_mock_list_response([EMBED_MODEL, LLM_MODEL]))
@@ -434,7 +434,7 @@ class TestHealthCheck:
         """
         Given Ollama is unreachable
         When health_check() is called
-        Then a CONNECTION error with URL and troubleshooting steps is raised.
+        Then a CONNECTION error with URL and troubleshooting steps is raised
         """
         # Given: connection error from Ollama
         ollama_mock.list = AsyncMock(side_effect=ConnectionError("could not connect"))
@@ -457,7 +457,7 @@ class TestHealthCheck:
         """
         Given the embed model is not available in Ollama
         When health_check() is called
-        Then an EMBEDDING error naming the model with pull guidance is raised.
+        Then an EMBEDDING error naming the model with pull guidance is raised
         """
         # Given: only LLM model available
         ollama_mock.list = AsyncMock(return_value=_mock_list_response([LLM_MODEL]))
@@ -480,7 +480,7 @@ class TestHealthCheck:
         """
         Given the LLM model is not available in Ollama
         When health_check() is called
-        Then an EMBEDDING error naming the model with pull guidance is raised.
+        Then an EMBEDDING error naming the model with pull guidance is raised
         """
         # Given: only embed model available
         ollama_mock.list = AsyncMock(return_value=_mock_list_response([EMBED_MODEL]))
@@ -505,7 +505,7 @@ class TestHealthCheck:
 
 class TestRetryLogic:
     """
-    REQUIREMENT: Transient Ollama failures are retried with backoff.
+    REQUIREMENT: Transient Ollama failures are retried with backoff
 
     WHO: The embedding/classification caller during scoring
     WHAT: (1) The system retries `embed()` after a transient 503 error and returns the embedding on the second attempt.
@@ -529,7 +529,7 @@ class TestRetryLogic:
         """
         Given a transient 503 error on the first embed call
         When embed() is called
-        Then the call is retried and succeeds on the second attempt.
+        Then the call is retried and succeeds on the second attempt
         """
         # Given: first call fails with 503, second succeeds
         ollama_mock.embed = AsyncMock(
@@ -552,7 +552,7 @@ class TestRetryLogic:
         """
         Given persistent 503 errors on every embed attempt
         When all retries are exhausted
-        Then an EMBEDDING error advising system resource checks is raised.
+        Then an EMBEDDING error advising system resource checks is raised
         """
         # Given: every call fails with 503
         ollama_mock.embed = AsyncMock(side_effect=ResponseError("server busy", status_code=503))
@@ -573,7 +573,7 @@ class TestRetryLogic:
         """
         Given a non-retryable 404 error (model not found)
         When embed() is called
-        Then an EMBEDDING error with model guidance is raised without retrying.
+        Then an EMBEDDING error with model guidance is raised without retrying
         """
         # Given: model-not-found error (non-retryable)
         ollama_mock.embed = AsyncMock(
@@ -597,7 +597,7 @@ class TestRetryLogic:
         """
         Given a transient 503 error on the first classify call
         When classify() is called
-        Then the call is retried and succeeds on the second attempt.
+        Then the call is retried and succeeds on the second attempt
         """
         # Given: first chat call fails with 503, second succeeds
         ollama_mock.chat = AsyncMock(
@@ -620,7 +620,7 @@ class TestRetryLogic:
         """
         Given a ConnectionError on the first embed call
         When embed() is called
-        Then the call is retried and succeeds on the second attempt.
+        Then the call is retried and succeeds on the second attempt
         """
         # Given: first call gets connection refused, second succeeds
         ollama_mock.embed = AsyncMock(
@@ -643,7 +643,7 @@ class TestRetryLogic:
         """
         Given persistent ConnectionError on every embed attempt
         When all retries are exhausted
-        Then an EMBEDDING error with retry count and Ollama guidance is raised.
+        Then an EMBEDDING error with retry count and Ollama guidance is raised
         """
         # Given: every call gets connection refused
         ollama_mock.embed = AsyncMock(side_effect=ConnectionError("Connection refused"))

@@ -21,7 +21,7 @@ from jobsearch_rag.rag.comp_parser import parse_compensation
 
 class TestCompensationParsing:
     """
-    REQUIREMENT: Compensation ranges are extracted from JD text and normalized.
+    REQUIREMENT: Compensation ranges are extracted from JD text and normalized
 
     WHO: The pipeline runner enriching listings after JD extraction;
          the scorer computing comp_score

@@ -121,7 +121,7 @@ def _write_settings(tmpdir: str, content: str) -> Path:
 
 class TestSettingsValidation:
     """
-    REQUIREMENT: Configuration errors tell the operator exactly what to fix.
+    REQUIREMENT: Configuration errors tell the operator exactly what to fix
 
     WHO: The operator who misconfigured settings.toml
     WHAT: (1) The system reports that the `boards` section is missing and tells the operator how to add it.
@@ -610,7 +610,7 @@ testboard = "not a table"
         """
         Given an overnight board that is also listed in enabled boards
         When load_settings is called
-        Then the enabled board's config is used and no duplicate entry is created.
+        Then the enabled board's config is used and no duplicate entry is created
         """
         # Given: same board in both enabled and overnight lists
         overlap_toml = _VALID_SETTINGS.replace(
@@ -636,7 +636,7 @@ testboard = "not a table"
         """
         Given an overnight board whose section in [boards] is a scalar, not a table
         When load_settings is called
-        Then the non-dict section is skipped and no BoardConfig is created for it.
+        Then the non-dict section is skipped and no BoardConfig is created for it
         """
         # Given: overnight board section is a string scalar
         bad_section_toml = _VALID_SETTINGS.replace(
@@ -1152,7 +1152,7 @@ searches = ["https://example.org/search"]
         """
         Given a settings file where overnight_boards is a string instead of a list
         When load_settings is called
-        Then the value is treated as empty — no overnight boards are configured.
+        Then the value is treated as empty — no overnight boards are configured
         """
         # Given: overnight_boards is a scalar instead of a list
         bad_toml = _VALID_SETTINGS.replace(
@@ -1174,7 +1174,7 @@ searches = ["https://example.org/search"]
         """
         Given an archetypes TOML file where archetypes is a string instead of a list
         When synthesize_disqualifier_prompt is called
-        Then ActionableError is raised because no archetypes were found.
+        Then ActionableError is raised because no archetypes were found
         """
         # Given: TOML where archetypes is a scalar
         bad_toml = 'archetypes = "not a list"\n'
@@ -1293,7 +1293,7 @@ screen_prompt = "Review the following job description text."
 class TestCommittedConfigCompleteness:
     """
     REQUIREMENT: The committed config/settings.toml is the single source of
-    truth for all tunable values — no field may rely on a code-side default.
+    truth for all tunable values — no field may rely on a code-side default
 
     WHO: Any operator or developer who needs to understand or change a
          configuration value

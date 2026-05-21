@@ -22,7 +22,7 @@ from jobsearch_rag.rag.comp_parser import compute_comp_score
 class TestCompensationScoring:
     """
     REQUIREMENT: Compensation score is a continuous signal relative to a
-    configurable base_salary target, not a binary gate.
+    configurable base_salary target, not a binary gate
 
     WHO: The ranker consuming comp_score to nudge final ranking;
          the operator tuning base_salary in settings.toml
