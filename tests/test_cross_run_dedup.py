@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.pipeline.runner import PipelineRunner
+from jobsearch_rag.rag.ports import EmbeddedDocument
 from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
 
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from jobsearch_rag.config import Settings
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.rag.ports import VectorStorePort
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -101,35 +102,41 @@ def _make_runner_with_real_stack(
     return runner, mock_client
 
 
-def _populate_store(store: VectorStore) -> None:
+def _populate_store(store: VectorStorePort) -> None:
     """Seed the three required collections so auto-indexing is skipped."""
     for name in ("resume", "role_archetypes", "global_positive_signals"):
         store.add_documents(
             name,
-            ids=[f"{name}-seed"],
-            documents=[f"Seed document for {name}"],
-            embeddings=[EMBED_FAKE],
+            documents=[
+                EmbeddedDocument(
+                    id=f"{name}-seed",
+                    document=f"Seed document for {name}",
+                    embedding=EMBED_FAKE,
+                ),
+            ],
         )
 
 
-def _seed_decision(store: VectorStore, job_id: str, verdict: str = "yes") -> None:
-    """Pre-record a decision into the real VectorStore decisions collection."""
+def _seed_decision(store: VectorStorePort, job_id: str, verdict: str = "yes") -> None:
+    """Pre-record a decision into the VectorStorePort decisions collection."""
     store.add_documents(
         collection_name="decisions",
-        ids=[f"decision-{job_id}"],
-        documents=["Previously decided JD text."],
-        embeddings=[EMBED_FAKE],
-        metadatas=[
-            {
-                "job_id": job_id,
-                "verdict": verdict,
-                "board": "testboard",
-                "title": "Old Role",
-                "company": "OldCo",
-                "scoring_signal": "true" if verdict == "yes" else "false",
-                "reason": "",
-                "recorded_at": "2026-01-01T00:00:00+00:00",
-            }
+        documents=[
+            EmbeddedDocument(
+                id=f"decision-{job_id}",
+                document="Previously decided JD text.",
+                embedding=EMBED_FAKE,
+                metadata={
+                    "job_id": job_id,
+                    "verdict": verdict,
+                    "board": "testboard",
+                    "title": "Old Role",
+                    "company": "OldCo",
+                    "scoring_signal": "true" if verdict == "yes" else "false",
+                    "reason": "",
+                    "recorded_at": "2026-01-01T00:00:00+00:00",
+                },
+            ),
         ],
     )
 
@@ -180,7 +187,7 @@ def _make_test_adapter(
 class TestCrossRunDedup:
     """
     REQUIREMENT: Re-searching does not re-process listings that already
-    have a recorded decision.
+    have a recorded decision
 
     WHO: The pipeline runner performing a follow-up search
     WHAT: (1) The system excludes listings with existing decisions from ranked results and increments `skipped_decisions`.
@@ -207,7 +214,7 @@ class TestCrossRunDedup:
         """
         Given a decision for "already-decided" pre-seeded in the store,
         When run() processes listings including "already-decided" and "brand-new",
-        Then only the new listing appears in ranked results and the decided one is skipped.
+        Then only the new listing appears in ranked results and the decided one is skipped
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision for "already-decided"
@@ -238,13 +245,12 @@ class TestCrossRunDedup:
             assert "Old Role" not in titles, (
                 f"Decided listing should be excluded from ranked results, got titles: {titles}"
             )
-            runner.store.close()
 
     async def test_excluded_listing_does_not_appear_in_export(self) -> None:
         """
         Given a decision for "decided-1" pre-seeded in the store,
         When run() processes both "decided-1" and "new-1",
-        Then only "New Role" appears in the ranked results.
+        Then only "New Role" appears in the ranked results
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision for "decided-1"
@@ -275,13 +281,12 @@ class TestCrossRunDedup:
                 assert "New Role" in titles, (
                     f"New listing should appear in ranked results, got titles: {titles}"
                 )
-            runner.store.close()
 
     async def test_exclusion_count_appears_in_run_summary(self) -> None:
         """
         Given a decision for "decided-1" pre-seeded in the store,
         When run() processes "decided-1" and "new-1",
-        Then result.skipped_decisions reflects the exclusion.
+        Then result.skipped_decisions reflects the exclusion
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision
@@ -307,13 +312,12 @@ class TestCrossRunDedup:
             assert result.skipped_decisions >= 1, (
                 f"Expected at least 1 skipped decision, got {result.skipped_decisions}"
             )
-            runner.store.close()
 
     async def test_listing_with_no_decision_is_scored_normally(self) -> None:
         """
         Given no pre-existing decisions in the store,
         When run() processes a listing "never-seen",
-        Then the listing appears in the ranked results.
+        Then the listing appears in the ranked results
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with no decisions seeded
@@ -341,13 +345,12 @@ class TestCrossRunDedup:
             assert result.skipped_decisions == 0, (
                 f"Expected 0 skipped decisions, got {result.skipped_decisions}"
             )
-            runner.store.close()
 
     async def test_force_rescore_flag_overrides_exclusion(self) -> None:
         """
         Given a decision for "decided-1" pre-seeded in the store,
         When run(force_rescore=True) is called,
-        Then the decided listing is scored anyway.
+        Then the decided listing is scored anyway
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with a pre-seeded decision
@@ -375,14 +378,13 @@ class TestCrossRunDedup:
             assert result.skipped_decisions == 0, (
                 f"Expected 0 skipped decisions with force_rescore, got {result.skipped_decisions}"
             )
-            runner.store.close()
 
     async def test_decision_lookup_uses_job_id_not_url(self) -> None:
         """
         Given a decision for "canonical-id-123" and a listing with that
               external_id but a different URL,
         When run() processes the listing,
-        Then the listing is skipped — proving lookup is by job_id, not URL.
+        Then the listing is skipped — proving lookup is by job_id, not URL
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with decision keyed by job_id
@@ -409,4 +411,3 @@ class TestCrossRunDedup:
                 f"Expected listing skipped by job_id lookup, "
                 f"got skipped_decisions={result.skipped_decisions}"
             )
-            runner.store.close()

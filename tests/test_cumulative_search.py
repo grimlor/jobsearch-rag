@@ -20,8 +20,13 @@ from jobsearch_rag.export.csv_export import CSVExporter
 from jobsearch_rag.export.jd_files import JDFileExporter
 from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.rescorer import load_jd_files
+from jobsearch_rag.rag.ports import (
+    EmbeddedDocument,
+    VectorStoreConfig,
+    VectorStorePort,
+    create_vector_store,
+)
 from jobsearch_rag.rag.scorer import ScoreResult
-from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import adapter_override, make_mock_ollama_client
 
 if TYPE_CHECKING:
@@ -32,6 +37,13 @@ if TYPE_CHECKING:
 #   handle_search(args: argparse.Namespace) -> None
 #     Accumulate mode (default): merges new results with prior CSV
 #     Fresh mode (--fresh): skips merge, replace-on-write
+
+_FAKE_STORE_CONFIG = VectorStoreConfig(
+    store_class="tests.fakes.FakeVectorStore",
+    persist_dir="",
+    distance_metric="cosine",
+    sync_threshold=1,
+)
 #
 # Public API surface (from src/jobsearch_rag/export/csv_export):
 #   CSVExporter().export(listings, output_path, *, summary=None) -> None
@@ -189,6 +201,7 @@ def _run_handle_search(
     listings: list[JobListing],
     *,
     fresh: bool = False,
+    store: VectorStorePort | None = None,
 ) -> None:
     """
     Run ``handle_search`` through the real pipeline using boundary mocks only.
@@ -201,6 +214,8 @@ def _run_handle_search(
     Everything else runs for real: ``PipelineRunner``, ``Scorer``, ``Ranker``,
     ``CSVExporter``, ``JDFileExporter``, merge logic.
     """
+    if store is None:
+        store = create_vector_store(_FAKE_STORE_CONFIG)
     adapter = _make_test_adapter(search_results=listings)
     mock_pw_fn, _ = _mock_playwright_boundary()
 
@@ -217,7 +232,8 @@ def _run_handle_search(
                 open_top=0,
                 force_rescore=False,
                 fresh=fresh,
-            )
+            ),
+            store=store,
         )
 
 
@@ -351,7 +367,7 @@ Test resume content for indexing.
 
 
 def _seed_decision(
-    tmp_path: Path,
+    store: VectorStorePort,
     *,
     job_id: str,
     verdict: str = "skip",
@@ -359,27 +375,28 @@ def _seed_decision(
     title: str = "Decided Job",
     company: str = "Acme Corp",
 ) -> None:
-    """Pre-populate the ChromaDB decisions collection with a test record."""
-    store = VectorStore(
-        persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
-    )
-    store.get_or_create_collection("decisions")
+    """Pre-populate the decisions collection with a test record."""
+    store.reset_collection("decisions")
     store.add_documents(
         collection_name="decisions",
-        ids=[f"decision-{job_id}"],
-        documents=["Full JD text for a decided listing."],
-        embeddings=[[0.1, 0.2, 0.3, 0.4, 0.5]],
-        metadatas=[
-            {
-                "job_id": job_id,
-                "verdict": verdict,
-                "board": board,
-                "title": title,
-                "company": company,
-            }
+        documents=[
+            EmbeddedDocument(
+                id=f"decision-{job_id}",
+                document=f"JD text for {title} at {company}",
+                embedding=[0.1, 0.2, 0.3, 0.4, 0.5],
+                metadata={
+                    "job_id": job_id,
+                    "verdict": verdict,
+                    "board": board,
+                    "title": title,
+                    "company": company,
+                    "scoring_signal": "false",
+                    "reason": "",
+                    "recorded_at": "2026-01-01T00:00:00",
+                },
+            )
         ],
     )
-    store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +407,7 @@ def _seed_decision(
 class TestAccumulateMode:
     """
     REQUIREMENT: By default, search merges new results with prior export
-    data instead of replacing it.
+    data instead of replacing it
 
     WHO: Operator running daily searches that accumulate over the week
     WHAT: (1) New listings not in prior CSV are appended to the merged set
@@ -567,7 +584,7 @@ class TestAccumulateMode:
 
 class TestFreshMode:
     """
-    REQUIREMENT: The --fresh flag restores replace-on-write behavior.
+    REQUIREMENT: The --fresh flag restores replace-on-write behavior
 
     WHO: Operator starting a clean search after a config change
     WHAT: (1) When --fresh is set, handle_search skips merge entirely
@@ -688,7 +705,7 @@ class TestFreshMode:
 
 class TestCSVRoundTrip:
     """
-    REQUIREMENT: Prior CSV rows round-trip cleanly through load -> merge -> export.
+    REQUIREMENT: Prior CSV rows round-trip cleanly through load -> merge -> export
 
     WHO: The merge function reconstructing RankedListing from CSV rows
     WHAT: (1) All 17 CSV columns are parsed back into RankedListing with
@@ -890,7 +907,7 @@ class TestCSVRoundTrip:
 class TestJDFilePreservation:
     """
     REQUIREMENT: JD files from prior runs are preserved when not in the
-    current result set (accumulate mode).
+    current result set (accumulate mode)
 
     WHO: The export step in accumulate mode
     WHAT: (1) JD files for listings in the current run are written/overwritten
@@ -972,7 +989,7 @@ class TestJDFilePreservation:
 class TestRescoreAccumulatedSet:
     """
     REQUIREMENT: rescore naturally operates on all JD files regardless of
-    accumulation.
+    accumulation
 
     WHO: Operator re-scoring after config changes
     WHAT: (1) load_jd_files reads all .md files in jds/ — existing behavior
@@ -1030,7 +1047,7 @@ class TestRescoreAccumulatedSet:
 class TestDecisionExclusionAccumulated:
     """
     REQUIREMENT: Decided listings are excluded from the merged CSV export
-    even if their JD files are preserved.
+    even if their JD files are preserved
 
     WHO: Operator who reviewed some listings between search runs
     WHAT: (1) The merge step filters decided listings from the merged set
@@ -1042,7 +1059,7 @@ class TestDecisionExclusionAccumulated:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O),
                async_playwright (Playwright browser I/O)
         Real:  PipelineRunner, Scorer, Ranker, load_settings,
-               CSV merge logic, DecisionRecorder via ChromaDB,
+               CSV merge logic, DecisionRecorder via FakeVectorStore (in-memory VectorStorePort),
                CSV/JD I/O via tmp_path
         Never: Patch the decision lookup
     """
@@ -1065,12 +1082,13 @@ class TestDecisionExclusionAccumulated:
         _write_prior_csv(output_dir / "results.csv", [prior_a, prior_b])
 
         # And: seed a decision for listing A
-        _seed_decision(tmp_path, job_id="decided-1", title="Decided Job")
+        store = create_vector_store(_FAKE_STORE_CONFIG)
+        _seed_decision(store, job_id="decided-1", title="Decided Job")
 
         new = _make_listing(external_id="new-1", title="New Job")
 
         # When: handle_search in accumulate mode
-        _run_handle_search(tmp_path, mock_client, [new])
+        _run_handle_search(tmp_path, mock_client, [new], store=store)
 
         # Then: decided listing excluded, undecided listing present
         csv_path = output_dir / "results.csv"
