@@ -28,7 +28,7 @@ class Collection:
         self,
         ids: list[str] | None = ...,
         embeddings: Sequence[Sequence[float | int]] | None = ...,
-        metadatas: list[dict[str, Any]] | None = ...,
+        metadatas: list[dict[str, Any] | None] | None = ...,
         documents: list[str] | None = ...,
     ) -> None: ...
     def get(
