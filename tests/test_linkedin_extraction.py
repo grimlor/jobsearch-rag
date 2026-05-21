@@ -61,7 +61,7 @@ def _make_listing(
 
 class TestLinkedInAuthenticate:
     """
-    REQUIREMENT: LinkedIn session verification detects bot-detection and session expiry.
+    REQUIREMENT: LinkedIn session verification detects bot-detection and session expiry
 
     WHO: The pipeline runner during the authenticate step
     WHAT: (1) The system completes authentication without error when the LinkedIn feed loads successfully.
@@ -83,7 +83,7 @@ class TestLinkedInAuthenticate:
         """
         Given a mock page that loads the LinkedIn feed without detection
         When authenticate is called
-        Then it completes without error.
+        Then it completes without error
         """
         # Given: valid session page
         adapter = LinkedInAdapter()
@@ -103,7 +103,7 @@ class TestLinkedInAuthenticate:
         """
         Given a page redirected to /authwall (bot detection triggered)
         When authenticate is called
-        Then an ActionableError is raised suggesting a 24-hour wait.
+        Then an ActionableError is raised suggesting a 24-hour wait
         """
         # Given: authwall redirect
         adapter = LinkedInAdapter()
@@ -123,7 +123,7 @@ class TestLinkedInAuthenticate:
         """
         Given a page redirected to /login (session expired)
         When authenticate is called
-        Then an ActionableError about session expiration is raised.
+        Then an ActionableError about session expiration is raised
         """
         # Given: login redirect
         adapter = LinkedInAdapter()
@@ -147,7 +147,7 @@ class TestLinkedInAuthenticate:
 
 class TestLinkedInSearch:
     """
-    REQUIREMENT: search() navigates LinkedIn job search and extracts listings.
+    REQUIREMENT: search() navigates LinkedIn job search and extracts listings
 
     WHO: The pipeline runner collecting listings from LinkedIn
     WHAT: (1) The system returns a list of JobListings when LinkedIn search is called on job search results.
@@ -168,7 +168,7 @@ class TestLinkedInSearch:
         """
         Given a mock page with LinkedIn job search results
         When search is called
-        Then a list of JobListings is returned.
+        Then a list of JobListings is returned
         """
         # Given: adapter + mock page
         adapter = LinkedInAdapter()
@@ -190,7 +190,7 @@ class TestLinkedInSearch:
         """
         Given a mock page with LinkedIn job results
         When search returns listings
-        Then each listing has board, title, company, location, and url populated.
+        Then each listing has board, title, company, location, and url populated
         """
         # Given: adapter + mock page
         adapter = LinkedInAdapter()
@@ -216,7 +216,7 @@ class TestLinkedInSearch:
         """
         Given a search with max_pages=1
         When search is called
-        Then only the first page of results is processed.
+        Then only the first page of results is processed
         """
         # Given: adapter + mock page
         adapter = LinkedInAdapter()
@@ -240,7 +240,7 @@ class TestLinkedInSearch:
 
 class TestLinkedInExtractDetail:
     """
-    REQUIREMENT: extract_detail navigates to a listing and populates full_text.
+    REQUIREMENT: extract_detail navigates to a listing and populates full_text
 
     WHO: The pipeline runner enriching shallow listings with full JD text
     WHAT: (1) The system populates an empty full_text field with the job description body during detail extraction.
@@ -261,7 +261,7 @@ class TestLinkedInExtractDetail:
         """
         Given a shallow listing with empty full_text
         When extract_detail is called
-        Then full_text is populated with the JD body.
+        Then full_text is populated with the JD body
         """
         # Given: shallow listing
         adapter = LinkedInAdapter()
@@ -280,7 +280,7 @@ class TestLinkedInExtractDetail:
         """
         Given a listing with full_text already populated
         When extract_detail is called
-        Then it returns the listing unchanged.
+        Then it returns the listing unchanged
         """
         # Given: listing with full_text
         adapter = LinkedInAdapter()
@@ -301,7 +301,7 @@ class TestLinkedInExtractDetail:
         """
         Given a listing object
         When extract_detail is called
-        Then the same object is returned (mutated in place).
+        Then the same object is returned (mutated in place)
         """
         # Given: adapter + listing
         adapter = LinkedInAdapter()

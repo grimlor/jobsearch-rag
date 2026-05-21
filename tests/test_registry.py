@@ -85,7 +85,7 @@ def _make_listing(
 
 
 @pytest.fixture(autouse=True)
-def _clean_registry() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+def clean_registry() -> Iterator[None]:
     """Reset the registry before each test, restoring original state after."""
     with adapter_override({}, clear=True):
         yield
@@ -98,7 +98,7 @@ def _clean_registry() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction
 
 class TestAdapterRegistration:
     """
-    REQUIREMENT: Adapters self-register and are discoverable by board name.
+    REQUIREMENT: Adapters self-register and are discoverable by board name
 
     WHO: The pipeline runner loading adapters from settings.toml
     WHAT: (1) The registry returns a ready-to-use adapter instance when the system looks up a registered board name.
@@ -119,7 +119,7 @@ class TestAdapterRegistration:
         """
         Given a registered adapter class
         When looked up by its board name string
-        Then a ready-to-use adapter instance is returned.
+        Then a ready-to-use adapter instance is returned
         """
         # Given: register an adapter
         adapter_cls = _make_adapter_class("ziprecruiter")
@@ -136,7 +136,7 @@ class TestAdapterRegistration:
         """
         Given no adapter registered for a board name
         When get() is called for that name
-        Then ValueError is raised identifying the missing name.
+        Then ValueError is raised identifying the missing name
         """
         # When/Then: unregistered name raises ValueError
         with pytest.raises(ValueError, match="no-such-board"):
@@ -146,7 +146,7 @@ class TestAdapterRegistration:
         """
         Given multiple registered adapters
         When list_registered() is called
-        Then all board names are returned.
+        Then all board names are returned
         """
         # Given: register four adapters
         for name in ("ziprecruiter", "indeed", "weworkremotely", "linkedin"):
@@ -167,7 +167,7 @@ class TestAdapterRegistration:
         """
         Given an adapter already registered for a board name
         When a second class is registered for the same name
-        Then the new class replaces the old one.
+        Then the new class replaces the old one
         """
         # Given: two distinct classes for the same board
         cls_v1 = _make_adapter_class("ziprecruiter")
@@ -187,7 +187,7 @@ class TestAdapterRegistration:
         """
         Given an adapter class
         When passed through register()
-        Then the original class is returned unchanged.
+        Then the original class is returned unchanged
         """
         # Given: a concrete adapter class
         cls = _make_adapter_class("ziprecruiter")
@@ -206,7 +206,7 @@ class TestAdapterRegistration:
 
 class TestAdapterContract:
     """
-    REQUIREMENT: All adapters conform to the JobBoardAdapter interface.
+    REQUIREMENT: All adapters conform to the JobBoardAdapter interface
 
     WHO: The pipeline runner invoking adapters polymorphically
     WHAT: (1) The adapter returns a non-empty string for board_name.
@@ -228,7 +228,7 @@ class TestAdapterContract:
         """
         Given a concrete adapter instance
         When board_name is accessed
-        Then a non-empty string is returned.
+        Then a non-empty string is returned
         """
         # Given: an adapter instance
         cls = _make_adapter_class("ziprecruiter")
@@ -242,7 +242,7 @@ class TestAdapterContract:
         """
         Given a concrete adapter instance
         When rate_limit_seconds is accessed
-        Then a (min, max) tuple of two floats is returned.
+        Then a (min, max) tuple of two floats is returned
         """
         # Given: an adapter instance
         cls = _make_adapter_class("test-board")
@@ -260,7 +260,7 @@ class TestAdapterContract:
         """
         Given a concrete adapter instance
         When rate_limit_seconds is accessed
-        Then the lower bound is strictly less than the upper bound.
+        Then the lower bound is strictly less than the upper bound
         """
         # Given: an adapter instance
         cls = _make_adapter_class("test-board")
@@ -276,7 +276,7 @@ class TestAdapterContract:
         """
         Given a concrete adapter and a mock Playwright page
         When search() is called
-        Then a list is returned (possibly empty).
+        Then a list is returned (possibly empty)
         """
         # Given: adapter + mock page
         cls = _make_adapter_class("test-board")
@@ -293,7 +293,7 @@ class TestAdapterContract:
         """
         Given an adapter and a listing with empty full_text
         When extract_detail() is called
-        Then full_text is populated with content.
+        Then full_text is populated with content
         """
         # Given: adapter + listing without full_text
         cls = _make_adapter_class("test-board")
@@ -311,7 +311,7 @@ class TestAdapterContract:
         """
         Given an adapter and a listing object
         When extract_detail() is called
-        Then the same object is returned (mutated in place).
+        Then the same object is returned (mutated in place)
         """
         # Given: adapter + listing
         cls = _make_adapter_class("test-board")
@@ -333,7 +333,7 @@ class TestAdapterContract:
 
 class TestJobListingDataContract:
     """
-    REQUIREMENT: JobListing is the canonical data contract across all boards.
+    REQUIREMENT: JobListing is the canonical data contract across all boards
 
     WHO: The RAG scorer, ranker, and exporter consuming listings
     WHAT: (1) The system preserves all required listing fields as non-empty strings after extraction.
@@ -355,7 +355,7 @@ class TestJobListingDataContract:
         """
         Given a listing constructed with all required fields
         When fields are accessed
-        Then all are non-empty strings.
+        Then all are non-empty strings
         """
         # Given: a fully-populated listing
         listing = _make_listing(board="ziprecruiter", full_text="Some JD text")
@@ -373,7 +373,7 @@ class TestJobListingDataContract:
         """
         Given an adapter and a listing
         When extract_detail() completes
-        Then full_text is a non-empty string ready for embedding.
+        Then full_text is a non-empty string ready for embedding
         """
         # Given: adapter + listing
         cls = _make_adapter_class("ziprecruiter")
@@ -392,7 +392,7 @@ class TestJobListingDataContract:
         """
         Given a listing created with an adapter's board name
         When the board field is accessed
-        Then it matches the adapter's board_name property.
+        Then it matches the adapter's board_name property
         """
         # Given: adapter + listing using its board name
         cls = _make_adapter_class("ziprecruiter")
@@ -406,7 +406,7 @@ class TestJobListingDataContract:
         """
         Given two listings on the same board with different external IDs
         When external_id is compared
-        Then they are distinct.
+        Then they are distinct
         """
         # Given: two listings with different IDs
         listing_a = _make_listing(board="ziprecruiter", external_id="zr-001")
@@ -419,7 +419,7 @@ class TestJobListingDataContract:
         """
         Given a listing constructed without posted_at
         When posted_at is accessed
-        Then it defaults to None without raising.
+        Then it defaults to None without raising
         """
         # Given: listing without posted_at
         listing = _make_listing()
@@ -431,7 +431,7 @@ class TestJobListingDataContract:
         """
         Given a listing constructed without metadata
         When metadata is accessed
-        Then it defaults to an empty dict, not None.
+        Then it defaults to an empty dict, not None
         """
         # Given: listing without metadata
         listing = _make_listing()
@@ -449,7 +449,7 @@ class TestJobListingDataContract:
 
 class TestStubAdapterContract:
     """
-    REQUIREMENT: Planned adapters conform to the full adapter behavioral contract.
+    REQUIREMENT: Planned adapters conform to the full adapter behavioral contract
 
     WHO: The pipeline runner invoking adapters polymorphically
     WHAT: (1) The adapter reports the expected board identifier through its `board_name` property.
@@ -485,7 +485,7 @@ class TestStubAdapterContract:
         """
         GIVEN a stub adapter instance
         When board_name is accessed
-        Then it returns the expected board identifier.
+        Then it returns the expected board identifier
         """
         # Given: a stub adapter instance
         adapter = adapter_cls()
@@ -501,7 +501,7 @@ class TestStubAdapterContract:
         """
         GIVEN a LinkedIn adapter instance
         When rate_limit_seconds is accessed
-        Then the bounds are wider than the default to avoid detection.
+        Then the bounds are wider than the default to avoid detection
         """
         # Given: LinkedIn adapter
         adapter = LinkedInAdapter()
@@ -527,7 +527,7 @@ class TestStubAdapterContract:
         """
         GIVEN a valid browser session
         When authenticate() is called
-        Then the session is verified without error.
+        Then the session is verified without error
         """
         # Given: stub adapter + mock page with valid session
         adapter = adapter_cls()
@@ -548,7 +548,7 @@ class TestStubAdapterContract:
         """
         GIVEN a valid browser session
         When search() is called with a query
-        Then a list of JobListings is returned.
+        Then a list of JobListings is returned
         """
         # Given: stub adapter + mock page
         adapter = adapter_cls()
@@ -574,7 +574,7 @@ class TestStubAdapterContract:
         """
         GIVEN a shallow listing without full_text
         When extract_detail() is called
-        Then the listing's full_text is populated.
+        Then the listing's full_text is populated
         """
         # Given: stub adapter + mock page + shallow listing
         adapter = adapter_cls()

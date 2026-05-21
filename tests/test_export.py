@@ -140,7 +140,7 @@ def _summary(
 
 class TestMarkdownExport:
     """
-    REQUIREMENT: Markdown output is human-readable and complete.
+    REQUIREMENT: Markdown output is human-readable and complete
 
     WHO: The operator reviewing results in Obsidian or a text editor
     WHAT: (1) The system includes each listing's title, company, board, scores, disqualifier status, and URL in the Markdown output.
@@ -167,7 +167,7 @@ class TestMarkdownExport:
         """
         Given a single ranked listing
         When exported to Markdown
-        Then the output includes title, company, board, scores, disqualifier status, and URL.
+        Then the output includes title, company, board, scores, disqualifier status, and URL
         """
         # Given: a single listing
         listings = [_ranked()]
@@ -189,7 +189,7 @@ class TestMarkdownExport:
         """
         Given listings with different final scores
         When exported to Markdown
-        Then they appear in descending score order so the best matches are reviewed first.
+        Then they appear in descending score order so the best matches are reviewed first
         """
         # Given: three listings with different scores
         listings = [
@@ -223,7 +223,7 @@ class TestMarkdownExport:
         """
         Given a mix of qualified and disqualified listings
         When exported to Markdown
-        Then disqualified roles (score 0.0) are excluded entirely.
+        Then disqualified roles (score 0.0) are excluded entirely
         """
         # Given: one good, one disqualified
         listings = [
@@ -251,7 +251,7 @@ class TestMarkdownExport:
         """
         Given a listing with specific component scores
         When exported to Markdown
-        Then the output shows fit, archetype, history, and comp values for transparency.
+        Then the output shows fit, archetype, history, and comp values for transparency
         """
         # Given: listing with known component scores
         listings = [_ranked(fit=0.74, archetype=0.81, history=0.62, comp=0.90)]
@@ -271,7 +271,7 @@ class TestMarkdownExport:
         """
         Given a listing with culture_score set
         When exported to Markdown
-        Then the output includes the culture score for environment-quality transparency.
+        Then the output includes the culture score for environment-quality transparency
         """
         # Given: listing with culture_score
         scores = _scores(fit=0.74, archetype=0.81, history=0.62, comp=0.90)
@@ -299,7 +299,7 @@ class TestMarkdownExport:
         """
         Given a listing with negative_score set
         When exported to Markdown
-        Then the output includes the negative score for penalty signal transparency.
+        Then the output includes the negative score for penalty signal transparency
         """
         # Given: listing with negative_score
         scores = _scores(fit=0.74, archetype=0.81, history=0.62, comp=0.90)
@@ -327,7 +327,7 @@ class TestMarkdownExport:
         """
         Given listings with a run summary
         When exported to Markdown
-        Then the summary header appears before any listing, providing immediate run context.
+        Then the summary header appears before any listing, providing immediate run context
         """
         # Given: a listing with summary
         listings = [_ranked()]
@@ -348,7 +348,7 @@ class TestMarkdownExport:
         """
         Given specific run summary counts
         When exported to Markdown
-        Then the output reports total found, scored, excluded, and deduplicated counts.
+        Then the output reports total found, scored, excluded, and deduplicated counts
         """
         # Given: summary with specific counts
         listings = [_ranked()]
@@ -368,7 +368,7 @@ class TestMarkdownExport:
         """
         Given multiple listings with distinct URLs
         When exported to Markdown
-        Then every listing has its URL present so the operator can click through.
+        Then every listing has its URL present so the operator can click through
         """
         # Given: two listings with different URLs
         listings = [
@@ -391,7 +391,7 @@ class TestMarkdownExport:
         """
         Given an empty result set
         When exported to Markdown
-        Then a valid file is produced with a summary but no listing table.
+        Then a valid file is produced with a summary but no listing table
         """
         # Given: empty listings
         out = tmp_path / "results.md"
@@ -409,7 +409,7 @@ class TestMarkdownExport:
         """
         Given a listing set with no summary provided
         When exported to Markdown
-        Then the output contains the summary heading but no total-found/scored lines.
+        Then the output contains the summary heading but no total-found/scored lines
         """
         # Given: listings with no summary
         out = tmp_path / "results.md"
@@ -433,7 +433,7 @@ class TestMarkdownExport:
 
 class TestCSVExport:
     """
-    REQUIREMENT: CSV export is valid and importable by standard tools.
+    REQUIREMENT: CSV export is valid and importable by standard tools
 
     WHO: The operator importing results into a spreadsheet or ATS tracker
     WHAT: (1) The system starts the CSV file with a header row that contains all required column names.
@@ -458,7 +458,7 @@ class TestCSVExport:
         """
         Given a single ranked listing
         When exported to CSV
-        Then the file starts with a header row containing all required column names.
+        Then the file starts with a header row containing all required column names
         """
         # Given: a single listing
         listings = [_ranked()]
@@ -479,7 +479,7 @@ class TestCSVExport:
         """
         Given a ranked listing
         When exported to CSV
-        Then the header includes comp_score, comp_min, and comp_max columns.
+        Then the header includes comp_score, comp_min, and comp_max columns
         """
         # Given: a single listing
         listings = [_ranked()]
@@ -499,7 +499,7 @@ class TestCSVExport:
         """
         Given a ranked listing with full_text
         When exported to CSV
-        Then full_text is omitted since it is too large for spreadsheet cells.
+        Then full_text is omitted since it is too large for spreadsheet cells
         """
         # Given: a listing with full_text
         listings = [_ranked()]
@@ -518,7 +518,7 @@ class TestCSVExport:
         """
         Given a company name containing commas
         When exported to CSV
-        Then the name is properly quoted so it doesn't split across columns on import.
+        Then the name is properly quoted so it doesn't split across columns on import
         """
         # Given: listing with comma in company name
         listings = [_ranked(company="Acme, Inc.")]
@@ -538,7 +538,7 @@ class TestCSVExport:
         """
         Given an empty result set
         When exported to CSV
-        Then the file contains headers only, remaining valid for import tools.
+        Then the file contains headers only, remaining valid for import tools
         """
         # Given: empty listings
         out = tmp_path / "results.csv"
@@ -559,7 +559,7 @@ class TestCSVExport:
         """
         Given a mix of scored and disqualified listings
         When exported to CSV
-        Then the data row count equals the number of non-disqualified listings.
+        Then the data row count equals the number of non-disqualified listings
         """
         # Given: 2 scored + 1 disqualified
         listings = [
@@ -590,7 +590,7 @@ class TestCSVExport:
         """
         Given a ranked listing
         When exported to CSV
-        Then the header includes a culture_score column.
+        Then the header includes a culture_score column
         """
         # Given: a listing
         listings = [_ranked()]
@@ -609,7 +609,7 @@ class TestCSVExport:
         """
         Given a ranked listing
         When exported to CSV
-        Then the header includes a negative_score column.
+        Then the header includes a negative_score column
         """
         # Given: a listing
         listings = [_ranked()]
@@ -654,7 +654,7 @@ class TestCSVExport:
 
 class TestBrowserTabOpener:
     """
-    REQUIREMENT: Top-ranked results open as browser tabs in score order.
+    REQUIREMENT: Top-ranked results open as browser tabs in score order
 
     WHO: The operator who wants to review shortlisted roles without manually
          clicking through the ranked output
@@ -682,7 +682,7 @@ class TestBrowserTabOpener:
         """
         Given listings with different scores
         When tabs are opened
-        Then browser tabs open highest-scored first so the best match is immediately visible.
+        Then browser tabs open highest-scored first so the best match is immediately visible
         """
         # Given: three listings with different scores
         listings = [
@@ -714,7 +714,7 @@ class TestBrowserTabOpener:
         """
         Given 5 listings
         When the --open-top N CLI flag limits to 2
-        Then exactly 2 tabs are opened.
+        Then exactly 2 tabs are opened
         """
         # Given: 5 listings
         listings = [
@@ -740,7 +740,7 @@ class TestBrowserTabOpener:
         """
         Given 10 listings and no CLI --open-top specified
         When tabs are opened with the default
-        Then the default from settings.toml (5) is used.
+        Then the default from settings.toml (5) is used
         """
         # Given: 10 listings
         listings = [
@@ -766,7 +766,7 @@ class TestBrowserTabOpener:
         """
         Given fewer results than N
         When tabs are opened with a large top_n
-        Then all available are opened without raising on the shortfall.
+        Then all available are opened without raising on the shortfall
         """
         # Given: only 1 listing
         listings = [
@@ -784,7 +784,7 @@ class TestBrowserTabOpener:
         """
         Given a mix of qualified and disqualified listings
         When tabs are opened
-        Then disqualified roles are excluded regardless of position.
+        Then disqualified roles are excluded regardless of position
         """
         # Given: one qualified, one disqualified
         listings = [
@@ -814,7 +814,7 @@ class TestBrowserTabOpener:
         """
         Given the first tab open fails with OSError
         When tabs are opened
-        Then the failed URL is logged and the next tab still opens.
+        Then the failed URL is logged and the next tab still opens
         """
         # Given: two listings, first will fail
         listings = [
@@ -838,7 +838,7 @@ class TestBrowserTabOpener:
         """
         Given all results score zero (disqualified)
         When tabs are opened
-        Then no tabs open and an advisory message is logged.
+        Then no tabs open and an advisory message is logged
         """
         # Given: only disqualified listings
         listings = [
@@ -860,7 +860,7 @@ class TestBrowserTabOpener:
         """
         Given a listing
         When a tab is opened
-        Then it opens in the system browser, not the Playwright automation session.
+        Then it opens in the system browser, not the Playwright automation session
         """
         # Given: a single listing
         listings = [_ranked()]
@@ -876,7 +876,7 @@ class TestBrowserTabOpener:
         """
         Given a listing
         When --open-top 0 is specified
-        Then no tabs are opened and no error is raised.
+        Then no tabs are opened and no error is raised
         """
         # Given: a listing
         listings = [_ranked()]
@@ -896,7 +896,7 @@ class TestBrowserTabOpener:
 class TestJDFileExport:
     """
     REQUIREMENT: Individual JD files are exported with stable identity
-    that survives re-ranking across search runs.
+    that survives re-ranking across search runs
 
     WHO:  Operator reviewing JDs with external tools (e.g. Edge Copilot),
           and downstream consumers (review, rescore) that look up JD files
@@ -929,7 +929,7 @@ class TestJDFileExport:
         """
         Given multiple qualified listings
         When exported as JD files
-        Then each listing gets its own Markdown file.
+        Then each listing gets its own Markdown file
         """
         # Given: two listings
         listings = [
@@ -982,7 +982,7 @@ class TestJDFileExport:
         """
         Given a listing with specific metadata
         When exported as a JD file
-        Then the file includes company, URL, external_id, and score section.
+        Then the file includes company, URL, external_id, and score section
         """
         # Given: a listing
         listings = [
@@ -1013,7 +1013,7 @@ class TestJDFileExport:
         """
         Given a listing with full_text
         When exported as a JD file
-        Then the full job description text appears after the score section.
+        Then the full job description text appears after the score section
         """
         # Given: a listing with full_text
         listings = [_ranked()]
@@ -1031,7 +1031,7 @@ class TestJDFileExport:
         """
         Given a listing with empty full_text
         When exported as JD files
-        Then the listing is skipped and no file is created.
+        Then the listing is skipped and no file is created
         """
         # Given: listing with empty full_text
         listing = _ranked(title="Empty JD")
@@ -1047,7 +1047,7 @@ class TestJDFileExport:
         """
         Given a mix of qualified and disqualified listings
         When exported as JD files
-        Then disqualified listings with final_score=0 are excluded.
+        Then disqualified listings with final_score=0 are excluded
         """
         # Given: one qualified, one disqualified
         listings = [
@@ -1073,7 +1073,7 @@ class TestJDFileExport:
         """
         Given listings with different scores
         When exported as JD files
-        Then files are sorted by score, with higher-scored listing exported first.
+        Then files are sorted by score, with higher-scored listing exported first
         """
         # Given: two listings, lower-scored first
         listings = [
@@ -1102,7 +1102,7 @@ class TestJDFileExport:
         """
         Given a nested output directory that doesn't exist
         When JD files are exported
-        Then the directory is created automatically.
+        Then the directory is created automatically
         """
         # Given: a non-existent nested directory
         nested = tmp_path / "deep" / "nested" / "jds"
@@ -1119,7 +1119,7 @@ class TestJDFileExport:
         """
         Given a listing with specific component scores
         When exported as a JD file
-        Then the score section shows fit, archetype, history, and comp scores.
+        Then the score section shows fit, archetype, history, and comp scores
         """
         # Given: listing with known scores
         listings = [
@@ -1142,7 +1142,7 @@ class TestJDFileExport:
         """
         Given a listing with duplicate_boards populated
         When the JD file is exported
-        Then the file contains an 'Also on:' line listing the other boards.
+        Then the file contains an 'Also on:' line listing the other boards
         """
         # Given: listing with duplicate boards
         listings = [
@@ -1168,7 +1168,7 @@ class TestJDFileExport:
         """
         Given a listing that is disqualified but has a non-zero final score
         When the JD file is exported
-        Then the file contains a 'Disqualified:' line with the reason.
+        Then the file contains a 'Disqualified:' line with the reason
         """
         # Given: disqualified listing with non-zero score
         listings = [

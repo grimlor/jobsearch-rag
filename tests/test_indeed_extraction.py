@@ -61,7 +61,7 @@ def _make_listing(
 
 class TestIndeedAuthenticate:
     """
-    REQUIREMENT: Indeed session verification detects blocks and session expiry.
+    REQUIREMENT: Indeed session verification detects blocks and session expiry
 
     WHO: The pipeline runner during the authenticate step
     WHAT: (1) The system completes authentication without error when the Indeed search page loads without detection.
@@ -83,7 +83,7 @@ class TestIndeedAuthenticate:
         """
         Given a mock page that loads Indeed search without detection
         When authenticate is called
-        Then it completes without error.
+        Then it completes without error
         """
         # Given: valid session page
         adapter = IndeedAdapter()
@@ -100,7 +100,7 @@ class TestIndeedAuthenticate:
         """
         Given a page showing a CAPTCHA challenge
         When authenticate is called
-        Then an ActionableError suggesting manual solve is raised.
+        Then an ActionableError suggesting manual solve is raised
         """
         # Given: CAPTCHA page
         adapter = IndeedAdapter()
@@ -119,7 +119,7 @@ class TestIndeedAuthenticate:
         """
         Given a page redirected to the Indeed login page
         When authenticate is called
-        Then an ActionableError about session expiration is raised.
+        Then an ActionableError about session expiration is raised
         """
         # Given: login redirect
         adapter = IndeedAdapter()
@@ -140,7 +140,7 @@ class TestIndeedAuthenticate:
 
 class TestIndeedSearch:
     """
-    REQUIREMENT: search() navigates Indeed job search and extracts listings.
+    REQUIREMENT: search() navigates Indeed job search and extracts listings
 
     WHO: The pipeline runner collecting listings from Indeed
     WHAT: (1) The system returns a list of JobListing objects when Indeed search is called on search results.
@@ -161,7 +161,7 @@ class TestIndeedSearch:
         """
         Given a mock page with Indeed search results
         When search is called
-        Then a list of JobListings is returned.
+        Then a list of JobListings is returned
         """
         # Given: adapter + mock page
         adapter = IndeedAdapter()
@@ -183,7 +183,7 @@ class TestIndeedSearch:
         """
         Given a mock page with Indeed job results
         When search returns listings
-        Then each listing has board, title, company, location, and url populated.
+        Then each listing has board, title, company, location, and url populated
         """
         # Given: adapter + mock page
         adapter = IndeedAdapter()
@@ -209,7 +209,7 @@ class TestIndeedSearch:
         """
         Given a search with max_pages=1
         When search is called
-        Then only the first page of results is processed.
+        Then only the first page of results is processed
         """
         # Given: adapter + mock page
         adapter = IndeedAdapter()
@@ -233,7 +233,7 @@ class TestIndeedSearch:
 
 class TestIndeedExtractDetail:
     """
-    REQUIREMENT: extract_detail navigates to a listing and populates full_text.
+    REQUIREMENT: extract_detail navigates to a listing and populates full_text
 
     WHO: The pipeline runner enriching shallow listings with full JD text
     WHAT: (1) The system populates full_text with the job description body when full_text is empty.
@@ -254,7 +254,7 @@ class TestIndeedExtractDetail:
         """
         Given a shallow listing with empty full_text
         When extract_detail is called
-        Then full_text is populated with the JD body.
+        Then full_text is populated with the JD body
         """
         # Given: shallow listing
         adapter = IndeedAdapter()
@@ -273,7 +273,7 @@ class TestIndeedExtractDetail:
         """
         Given a listing with full_text already populated
         When extract_detail is called
-        Then it returns the listing unchanged.
+        Then it returns the listing unchanged
         """
         # Given: listing with full_text
         adapter = IndeedAdapter()
@@ -294,7 +294,7 @@ class TestIndeedExtractDetail:
         """
         Given a listing object
         When extract_detail is called
-        Then the same object is returned (mutated in place).
+        Then the same object is returned (mutated in place)
         """
         # Given: adapter + listing
         adapter = IndeedAdapter()

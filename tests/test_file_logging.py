@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 class TestFileLogging:
     """
-    REQUIREMENT: Run logs are persisted to disk for post-run diagnosis.
+    REQUIREMENT: Run logs are persisted to disk for post-run diagnosis
 
     WHO: The operator diagnosing a failed or unexpected pipeline run
     WHAT: (1) The system creates a log file under the specified logs directory when file logging is enabled and a message is logged.
@@ -202,7 +202,7 @@ class TestFileLogging:
 class TestSessionLogging:
     """
     REQUIREMENT: Session logging writes JSON-lines entries correlated by
-    a session ID for structured observability.
+    a session ID for structured observability
 
     WHO: The operator diagnosing unexpected scores or slow inference by
          reading structured log entries
