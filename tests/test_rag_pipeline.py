@@ -14,7 +14,6 @@ Spec classes
 from __future__ import annotations
 
 import tempfile
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import ollama as ollama_sdk
@@ -25,29 +24,34 @@ from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.ranker import RankedListing, Ranker
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
+from jobsearch_rag.rag.ports import (
+    EmbeddedDocument,
+    VectorStoreConfig,
+    VectorStorePort,
+    create_vector_store,
+)
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
-from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import make_test_ollama_config
 from tests.constants import EMBED_FAKE
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
 
 # mock_embedder is provided by conftest.py (Embedder.__new__ + stubbed I/O)
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
-    """Yield a temporary VectorStore for test isolation."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
-        yield s
-        s.close()
+def store() -> VectorStorePort:
+    """In-memory VectorStorePort for test isolation."""
+    return create_vector_store(
+        VectorStoreConfig(
+            store_class="tests.fakes.FakeVectorStore",
+            persist_dir="",
+            distance_metric="cosine",
+            sync_threshold=1,
+        )
+    )
 
 
 @pytest.fixture
-def indexer(store: VectorStore, mock_embedder: Embedder) -> Indexer:
+def indexer(store: VectorStorePort, mock_embedder: Embedder) -> Indexer:
     """Return an Indexer wired to the temporary store and mock embedder."""
     return Indexer(store=store, embedder=mock_embedder)
 
@@ -60,7 +64,7 @@ def indexer(store: VectorStore, mock_embedder: Embedder) -> Indexer:
 class TestOllamaConnectivity:
     """
     REQUIREMENT: Ollama unavailability is detected before processing begins
-    with guidance the operator can act on immediately.
+    with guidance the operator can act on immediately
 
     WHO: The pipeline runner; the operator who may have forgotten to start Ollama
     WHAT: (1) The system raises a CONNECTION error that names the unreachable Ollama URL and provides troubleshooting steps.
@@ -81,7 +85,7 @@ class TestOllamaConnectivity:
         """
         Given an Embedder configured with an unreachable Ollama URL
         When health_check() is called
-        Then a CONNECTION error naming the URL with troubleshooting steps is raised.
+        Then a CONNECTION error naming the URL with troubleshooting steps is raised
         """
         # Given: unreachable URL
         embedder = Embedder(make_test_ollama_config(base_url="http://localhost:59999"))
@@ -105,7 +109,7 @@ class TestOllamaConnectivity:
         """
         Given an Embedder with an unreachable Ollama URL
         When health_check() is called at startup
-        Then a CONNECTION error with actionable guidance is raised before any browser work.
+        Then a CONNECTION error with actionable guidance is raised before any browser work
         """
         # Given: unreachable URL
         embedder = Embedder(make_test_ollama_config(base_url="http://localhost:59999"))
@@ -129,7 +133,7 @@ class TestOllamaConnectivity:
         """
         Given an Embedder with a model name not in Ollama's model list
         When health_check() is called
-        Then an EMBEDDING error suggesting 'ollama pull' is raised.
+        Then an EMBEDDING error suggesting 'ollama pull' is raised
         """
         # Given: mock client returning empty model list
         mock_client = MagicMock()
@@ -162,7 +166,7 @@ class TestOllamaConnectivity:
         """
         Given an Ollama that fails twice then succeeds
         When embed() is called with max_retries=3
-        Then the result is returned after 3 calls (2 retries + 1 success).
+        Then the result is returned after 3 calls (2 retries + 1 success)
         """
         # Given: mock that fails twice then succeeds
         call_count = 0
@@ -194,7 +198,7 @@ class TestOllamaConnectivity:
         """
         Given an Ollama that always times out
         When embed() exhausts all retries
-        Then an EMBEDDING error advising about system resources is raised.
+        Then an EMBEDDING error advising about system resources is raised
         """
 
         # Given: always-failing mock
@@ -228,7 +232,7 @@ class TestOllamaConnectivity:
 
 class TestResumeIndexing:
     """
-    REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed.
+    REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed
 
     WHO: The scorer computing fit_score; the operator running first-time setup
     WHAT: (1) The system raises an INDEX error telling the operator to run the index command when the resume collection is empty.
@@ -247,12 +251,12 @@ class TestResumeIndexing:
     """
 
     async def test_empty_resume_collection_tells_operator_to_run_index_command(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given an empty resume collection in ChromaDB
         When scorer.score() is called
-        Then an INDEX error telling the operator to run the index command is raised.
+        Then an INDEX error telling the operator to run the index command is raised
         """
         # Given: empty store (no resume indexed)
         scorer = Scorer(
@@ -277,12 +281,12 @@ class TestResumeIndexing:
         assert len(err.troubleshooting.steps) > 0, "Should have troubleshooting steps"
 
     async def test_missing_collection_error_provides_step_by_step_setup_guidance(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given no resume collection in ChromaDB
         When scorer.score() is called
-        Then the INDEX error names 'resume' and provides step-by-step setup guidance.
+        Then the INDEX error names 'resume' and provides step-by-step setup guidance
         """
         # Given: empty store
         scorer = Scorer(
@@ -307,12 +311,12 @@ class TestResumeIndexing:
         assert len(err.troubleshooting.steps) > 0, "Should have troubleshooting steps"
 
     async def test_resume_is_chunked_by_section_heading(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given a resume with three ## sections
         When index_resume is called
-        Then three chunks are created, one per section with correct content.
+        Then three chunks are created, one per section with correct content
         """
         # Given: resume with 3 sections
         content = """\
@@ -340,20 +344,18 @@ Python, distributed systems, cloud platforms.
             collection_name="resume",
             ids=["resume-summary", "resume-experience", "resume-skills"],
         )
-        assert len(docs["documents"]) == 3, "Should retrieve all 3 chunks"
-        assert "principal architect" in docs["documents"][0], "Summary chunk should have content"
-        assert "platform architecture" in docs["documents"][1], (
-            "Experience chunk should have content"
-        )
-        assert "distributed systems" in docs["documents"][2], "Skills chunk should have content"
+        assert len(docs) == 3, "Should retrieve all 3 chunks"
+        assert "principal architect" in docs[0].document, "Summary chunk should have content"
+        assert "platform architecture" in docs[1].document, "Experience chunk should have content"
+        assert "distributed systems" in docs[2].document, "Skills chunk should have content"
 
     async def test_each_chunk_contains_at_least_one_complete_sentence(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given a resume with multi-sentence sections
         When index_resume chunks the content
-        Then each chunk contains at least one complete sentence (no mid-sentence splits).
+        Then each chunk contains at least one complete sentence (no mid-sentence splits)
         """
         # Given: resume with complete sentences
         content = """\
@@ -375,17 +377,17 @@ Led teams. Built platforms.
         # Then: each chunk has complete sentences
         for doc_id in ["resume-summary", "resume-experience"]:
             docs = store.get_documents(collection_name="resume", ids=[doc_id])
-            body = docs["documents"][0]
+            body = docs[0].document
             text = body.split("\n", 1)[-1] if "\n" in body else body
             assert "." in text, f"Chunk {doc_id} lacks complete sentence: {body!r}"
 
     async def test_reindex_replaces_previous_resume_content_not_appends(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given a resume already indexed
         When index_resume is called again
-        Then previous content is replaced, not appended.
+        Then previous content is replaced, not appended
         """
         # Given: resume content
         resume_content = """\
@@ -415,7 +417,7 @@ Original summary.
         """
         Given a resume with two ## sections
         When index_resume is called
-        Then the return value is 2, confirming chunk count for operator feedback.
+        Then the return value is 2, confirming chunk count for operator feedback
         """
         # Given: resume with 2 sections
         content = """\
@@ -445,7 +447,7 @@ Python, cloud, systems.
 
 class TestArchetypeIndexing:
     """
-    REQUIREMENT: Role archetypes are loaded from TOML and embedded correctly.
+    REQUIREMENT: Role archetypes are loaded from TOML and embedded correctly
 
     WHO: The scorer computing archetype_score
     WHAT: (1) The system creates one ChromaDB document for each archetype in the TOML file.
@@ -463,12 +465,12 @@ class TestArchetypeIndexing:
     """
 
     async def test_each_toml_archetype_produces_one_chroma_document(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given a TOML file with two archetypes
         When index_archetypes is called
-        Then each archetype produces one ChromaDB document.
+        Then each archetype produces one ChromaDB document
         """
         # Given: TOML with 2 archetypes
         toml_content = """\
@@ -494,12 +496,12 @@ description = "Developer relations."
         )
 
     async def test_archetype_name_is_stored_as_document_metadata(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given an indexed archetype
         When the document metadata is retrieved
-        Then the archetype name is stored for debugging.
+        Then the archetype name is stored for debugging
         """
         # Given: TOML with one archetype
         toml_content = """\
@@ -519,8 +521,8 @@ description = "Defines tech strategy."
         )
 
         # Then: name in metadata
-        assert docs["metadatas"][0]["name"] == "Staff Architect", (
-            f"Expected 'Staff Architect', got {docs['metadatas'][0].get('name')!r}"
+        assert docs[0].metadata["name"] == "Staff Architect", (
+            f"Expected 'Staff Architect', got {docs[0].metadata.get('name')!r}"
         )
 
     async def test_malformed_toml_identifies_syntax_error_and_file_path(
@@ -529,7 +531,7 @@ description = "Defines tech strategy."
         """
         Given a TOML file with invalid syntax
         When index_archetypes is called
-        Then a PARSE error with actionable guidance is raised.
+        Then a PARSE error with actionable guidance is raised
         """
         # Given: malformed TOML
         bad_toml = "this is [not valid {{ toml"
@@ -553,7 +555,7 @@ description = "Defines tech strategy."
         """
         Given an empty archetypes TOML file
         When index_archetypes is called
-        Then a VALIDATION error with actionable guidance is raised.
+        Then a VALIDATION error with actionable guidance is raised
         """
         # Given: empty TOML
         empty_toml = "# No archetypes defined\n"
@@ -574,12 +576,12 @@ description = "Defines tech strategy."
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
     async def test_archetype_description_whitespace_is_normalized_before_embedding(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given an archetype with excessive whitespace in its description
         When index_archetypes is called
-        Then the stored document text has normalized whitespace.
+        Then the stored document text has normalized whitespace
         """
         # Given: TOML with messy whitespace
         toml_content = """\
@@ -602,7 +604,7 @@ description = \"\"\"
             collection_name="role_archetypes",
             ids=["archetype-test"],
         )
-        doc_text = docs["documents"][0]
+        doc_text = docs[0].document
         assert "  " not in doc_text, f"Double spaces remain in stored text: {doc_text!r}"
 
 
@@ -613,7 +615,7 @@ description = \"\"\"
 
 class TestNegativeScoring:
     """
-    REQUIREMENT: JDs matching negative signals receive a continuous penalty score.
+    REQUIREMENT: JDs matching negative signals receive a continuous penalty score
 
     WHO: The scorer and ranker computing the final ranked output
     WHAT: (1) The system sets negative_score to 0.0 when the negative_signals collection is missing.
@@ -630,27 +632,35 @@ class TestNegativeScoring:
     """
 
     async def test_negative_score_is_zero_when_collection_missing(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a VectorStore with resume and archetypes but no negative_signals collection
         When scorer.score is called
-        Then negative_score defaults to 0.0.
+        Then negative_score defaults to 0.0
         """
         # Given: populate resume and archetypes only — no negative_signals
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["## Summary\nPrincipal architect."],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="## Summary\nPrincipal architect.",
+                    embedding=EMBED_FAKE,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="role_archetypes",
-            ids=["archetype-test"],
-            documents=["Staff Architect"],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+            documents=[
+                EmbeddedDocument(
+                    id="archetype-test",
+                    document="Staff Architect",
+                    embedding=EMBED_FAKE,
+                    metadata={"name": "Test", "source": "role_archetypes"},
+                ),
+            ],
         )
 
         # When: score a JD
@@ -671,27 +681,35 @@ class TestNegativeScoring:
         )
 
     async def test_negative_score_is_zero_when_collection_empty(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a VectorStore with an empty negative_signals collection
         When scorer.score is called
-        Then negative_score defaults to 0.0.
+        Then negative_score defaults to 0.0
         """
         # Given: resume + archetypes populated, empty negative_signals
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["## Summary\nPrincipal architect."],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="## Summary\nPrincipal architect.",
+                    embedding=EMBED_FAKE,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="role_archetypes",
-            ids=["archetype-test"],
-            documents=["Staff Architect"],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+            documents=[
+                EmbeddedDocument(
+                    id="archetype-test",
+                    document="Staff Architect",
+                    embedding=EMBED_FAKE,
+                    metadata={"name": "Test", "source": "role_archetypes"},
+                ),
+            ],
         )
         store.reset_collection("negative_signals")
 
@@ -713,34 +731,49 @@ class TestNegativeScoring:
         )
 
     async def test_negative_score_returned_in_score_result(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a VectorStore with populated negative_signals
         When scorer.score is called with a JD matching a negative signal
-        Then ScoreResult includes negative_score in [0.0, 1.0].
+        Then ScoreResult includes negative_score in [0.0, 1.0]
         """
         # Given: resume + archetypes + negative_signals populated
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["## Summary\nPrincipal architect."],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="## Summary\nPrincipal architect.",
+                    embedding=EMBED_FAKE,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="role_archetypes",
-            ids=["archetype-test"],
-            documents=["Staff Architect"],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+            documents=[
+                EmbeddedDocument(
+                    id="archetype-test",
+                    document="Staff Architect",
+                    embedding=EMBED_FAKE,
+                    metadata={"name": "Test", "source": "role_archetypes"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="negative_signals",
-            ids=["neg-test"],
-            documents=["Adtech surveillance platform"],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"source": "rubric:Industry", "signal": "Adtech surveillance platform"}],
+            documents=[
+                EmbeddedDocument(
+                    id="neg-test",
+                    document="Adtech surveillance platform",
+                    embedding=EMBED_FAKE,
+                    metadata={
+                        "source": "rubric:Industry",
+                        "signal": "Adtech surveillance platform",
+                    },
+                ),
+            ],
         )
 
         # When: score a matching JD
@@ -796,12 +829,12 @@ class TestGlobalPositiveSignalIndexing:
     """
 
     async def test_one_document_per_rubric_dimension_with_positive_signals(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given a rubric TOML with two dimensions that have signals_positive
         When index_global_positive_signals is called
-        Then each dimension produces exactly one ChromaDB document.
+        Then each dimension produces exactly one ChromaDB document
         """
         # Given: TOML with 2 dimensions having signals_positive
         rubric_toml = """\
@@ -829,12 +862,12 @@ signals_negative = ["60-hour weeks"]
         )
 
     async def test_document_metadata_identifies_source_dimension(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given an indexed rubric dimension with signals_positive
         When the document metadata is retrieved
-        Then the source dimension name is stored in metadata.
+        Then the source dimension name is stored in metadata
         """
         # Given: TOML with one dimension
         rubric_toml = """\
@@ -854,17 +887,17 @@ signals_positive = ["strategic thinking", "cross-org influence"]
         )
 
         # Then: source in metadata
-        assert docs["metadatas"][0]["source"] == "Altitude", (
-            f"Expected source 'Altitude', got {docs['metadatas'][0].get('source')}"
+        assert docs[0].metadata["source"] == "Altitude", (
+            f"Expected source 'Altitude', got {docs[0].metadata.get('source')}"
         )
 
     async def test_reindex_replaces_global_positive_collection_not_appends(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given an already-indexed global positive collection
         When index_global_positive_signals is called again
-        Then the collection is replaced, not appended to.
+        Then the collection is replaced, not appended to
         """
         # Given: TOML indexed once
         rubric_toml = """\
@@ -889,12 +922,12 @@ signals_positive = ["strategic"]
         )
 
     async def test_dimension_without_signals_positive_produces_no_document(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given a rubric dimension with only signals_negative (no signals_positive)
         When index_global_positive_signals is called
-        Then zero documents are produced.
+        Then zero documents are produced
         """
         # Given: TOML with negative-only dimension
         rubric_toml = """\
@@ -916,7 +949,7 @@ signals_negative = ["equity-only compensation"]
         """
         Given a nonexistent global_rubric.toml path
         When index_global_positive_signals is called
-        Then a CONFIG error with actionable guidance is raised.
+        Then a CONFIG error with actionable guidance is raised
         """
         # When/Then: raises CONFIG error
         with pytest.raises(ActionableError) as exc_info:
@@ -930,12 +963,12 @@ signals_negative = ["equity-only compensation"]
         )
 
     async def test_archetypes_only_flag_rebuilds_global_positive_collection(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given a rubric TOML with a dimension having signals_positive
         When --archetypes-only triggers index_global_positive_signals
-        Then the global positive collection is rebuilt.
+        Then the global positive collection is rebuilt
         """
         # Given: TOML with one positive dimension
         rubric_toml = """\
@@ -954,12 +987,12 @@ signals_positive = ["strategic vision"]
         assert n >= 1, "Global positive signals should be indexed during --archetypes-only"
 
     async def test_global_positive_collection_count_matches_contributing_dimensions(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given a rubric with 2 positive and 1 negative-only dimension
         When index_global_positive_signals is called
-        Then the collection count equals the number of contributing dimensions.
+        Then the collection count equals the number of contributing dimensions
         """
         # Given: 3 dimensions, only 2 with signals_positive
         rubric_toml = """\
@@ -989,12 +1022,12 @@ signals_negative = ["equity-only"]
         )
 
     async def test_compensation_dimension_produces_no_positive_document(
-        self, indexer: Indexer, store: VectorStore
+        self, indexer: Indexer, store: VectorStorePort
     ) -> None:
         """
         Given a dimension with only signals_negative (e.g., Compensation Red Flags)
         When index_global_positive_signals is called
-        Then zero positive documents are produced.
+        Then zero positive documents are produced
         """
         # Given: negative-only dimension
         rubric_toml = """\
@@ -1018,7 +1051,7 @@ signals_negative = ["equity-only compensation", "unpaid position"]
         """
         Given a global rubric TOML file with invalid syntax
         When index_global_positive_signals is called
-        Then a PARSE error is raised naming the file and suggesting a fix.
+        Then a PARSE error is raised naming the file and suggesting a fix
         """
         # Given: malformed TOML
         with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
@@ -1074,27 +1107,35 @@ class TestCultureScoring:
     """
 
     async def test_missing_global_positive_collection_returns_zero_not_error(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a VectorStore without a global_positive_signals collection
         When scorer.score is called
-        Then culture_score defaults to 0.0.
+        Then culture_score defaults to 0.0
         """
         # Given: required collections populated but NOT global_positive_signals
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["## Summary\nPrincipal architect."],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="## Summary\nPrincipal architect.",
+                    embedding=EMBED_FAKE,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="role_archetypes",
-            ids=["archetype-test"],
-            documents=["Staff Architect"],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+            documents=[
+                EmbeddedDocument(
+                    id="archetype-test",
+                    document="Staff Architect",
+                    embedding=EMBED_FAKE,
+                    metadata={"name": "Test", "source": "role_archetypes"},
+                ),
+            ],
         )
 
         # When: score
@@ -1115,34 +1156,46 @@ class TestCultureScoring:
         )
 
     async def test_culture_score_is_float_between_zero_and_one(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a VectorStore with populated global_positive_signals
         When scorer.score is called
-        Then culture_score is a float in [0.0, 1.0].
+        Then culture_score is a float in [0.0, 1.0]
         """
         # Given: all required collections + global_positive_signals populated
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["## Summary\nPrincipal architect."],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="## Summary\nPrincipal architect.",
+                    embedding=EMBED_FAKE,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="role_archetypes",
-            ids=["archetype-test"],
-            documents=["Staff Architect"],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+            documents=[
+                EmbeddedDocument(
+                    id="archetype-test",
+                    document="Staff Architect",
+                    embedding=EMBED_FAKE,
+                    metadata={"name": "Test", "source": "role_archetypes"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="global_positive_signals",
-            ids=["pos-altitude"],
-            documents=["Altitude: strategic thinking, cross-org influence"],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"source": "Altitude"}],
+            documents=[
+                EmbeddedDocument(
+                    id="pos-altitude",
+                    document="Altitude: strategic thinking, cross-org influence",
+                    embedding=EMBED_FAKE,
+                    metadata={"source": "Altitude"},
+                ),
+            ],
         )
 
         # When: score a JD
@@ -1166,27 +1219,35 @@ class TestCultureScoring:
         )
 
     async def test_culture_score_returned_in_score_result(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a VectorStore with required collections
         When scorer.score is called
-        Then ScoreResult includes culture_score as a named field.
+        Then ScoreResult includes culture_score as a named field
         """
         # Given: required collections populated
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["## Summary\nPrincipal architect."],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="## Summary\nPrincipal architect.",
+                    embedding=EMBED_FAKE,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="role_archetypes",
-            ids=["archetype-test"],
-            documents=["Staff Architect"],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+            documents=[
+                EmbeddedDocument(
+                    id="archetype-test",
+                    document="Staff Architect",
+                    embedding=EMBED_FAKE,
+                    metadata={"name": "Test", "source": "role_archetypes"},
+                ),
+            ],
         )
 
         # When: score
@@ -1208,7 +1269,7 @@ class TestCultureScoring:
         """
         Given a RankedListing with a culture_score of 0.65
         When score_explanation is called
-        Then the explanation string includes 'Culture: 0.65'.
+        Then the explanation string includes 'Culture: 0.65'
         """
         # Given: scores with culture_score=0.65
         scores = ScoreResult(
@@ -1247,7 +1308,7 @@ class TestCultureScoring:
         """
         Given a Ranker instantiated with culture_weight=0.2
         When the attribute is read
-        Then it reflects the configured value, not a hardcoded default.
+        Then it reflects the configured value, not a hardcoded default
         """
         # Given: Ranker with explicit culture_weight
         ranker = Ranker(
@@ -1270,7 +1331,7 @@ class TestCultureScoring:
         """
         Given two ScoreResults identical except for culture_score (0.0 vs 0.9)
         When compute_final_score is called on each
-        Then the high-culture result has a higher final score.
+        Then the high-culture result has a higher final score
         """
         # Given: Ranker with culture_weight=0.3
         ranker = Ranker(
@@ -1312,27 +1373,35 @@ class TestCultureScoring:
         )
 
     async def test_empty_global_positive_collection_returns_zero_culture_score(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given an empty global_positive_signals collection
         When scorer.score is called
-        Then culture_score is 0.0.
+        Then culture_score is 0.0
         """
         # Given: required collections + empty global_positive_signals
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["## Summary\nPrincipal architect."],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="## Summary\nPrincipal architect.",
+                    embedding=EMBED_FAKE,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="role_archetypes",
-            ids=["archetype-test"],
-            documents=["Staff Architect"],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"name": "Test", "source": "role_archetypes"}],
+            documents=[
+                EmbeddedDocument(
+                    id="archetype-test",
+                    document="Staff Architect",
+                    embedding=EMBED_FAKE,
+                    metadata={"name": "Test", "source": "role_archetypes"},
+                ),
+            ],
         )
         store.reset_collection("global_positive_signals")
 
@@ -1357,7 +1426,7 @@ class TestCultureScoring:
         """
         Given a RankedListing with all six score components set
         When score_explanation is called
-        Then all six components appear in the explanation string.
+        Then all six components appear in the explanation string
         """
         # Given: scores with all 6 components
         scores = ScoreResult(
