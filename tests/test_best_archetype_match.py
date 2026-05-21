@@ -13,7 +13,7 @@ ScoreResult, score explanation, CSV export, JD file metadata, and review display
 # Public API surface (from src/jobsearch_rag/rag/scorer):
 #   ScoreResult(fit_score, archetype_score, history_score, disqualified,
 #               disqualifier_reason, comp_score, negative_score, culture_score)
-#   Scorer(store: VectorStore, embedder: Embedder, disqualify_on_llm_flag: bool)
+#   Scorer(store: VectorStorePort, embedder: Embedder, disqualify_on_llm_flag: bool)
 #   scorer.score(jd_text: str) -> ScoreResult
 #
 # Public API surface (from src/jobsearch_rag/pipeline/ranker):
@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import csv
 import tempfile
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -47,12 +46,14 @@ from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.review import ReviewSession
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.ports import (
+    EmbeddedDocument,
+    VectorStoreConfig,
+    VectorStorePort,
+    create_vector_store,
+)
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
-from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import make_mock_ollama_client, make_test_ollama_config
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 # ---------------------------------------------------------------------------
 # Fake 5D embeddings with directional meaning for archetype similarity tests.
@@ -160,12 +161,16 @@ def _make_ranked(
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
-    """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
-        yield s
-        s.close()
+def store() -> VectorStorePort:
+    """In-memory VectorStorePort for unit tests."""
+    return create_vector_store(
+        VectorStoreConfig(
+            store_class="tests.fakes.FakeVectorStore",
+            persist_dir="",
+            distance_metric="cosine",
+            sync_threshold=1,
+        )
+    )
 
 
 @pytest.fixture
@@ -183,36 +188,44 @@ def mock_embedder() -> Embedder:
 
 
 @pytest.fixture
-def populated_store(store: VectorStore) -> VectorStore:
-    """A VectorStore with resume and two archetypes seeded."""
+def populated_store(store: VectorStorePort) -> VectorStorePort:
+    """A VectorStorePort with resume and two archetypes seeded."""
     # Resume collection
     store.add_documents(
         collection_name="resume",
-        ids=["resume-summary"],
-        documents=["Principal architect specializing in distributed systems."],
-        embeddings=[EMBED_ARCHITECT],
-        metadatas=[{"source": "resume", "section": "Summary"}],
+        documents=[
+            EmbeddedDocument(
+                id="resume-summary",
+                document="Principal architect specializing in distributed systems.",
+                embedding=EMBED_ARCHITECT,
+                metadata={"source": "resume", "section": "Summary"},
+            ),
+        ],
     )
     # Archetype collection — two archetypes with distinct embeddings
     store.add_documents(
         collection_name="role_archetypes",
-        ids=["archetype-ai-systems-engineer", "archetype-data-platform-lead"],
         documents=[
-            "AI Systems Engineer: ML infrastructure, distributed training, model deployment.",
-            "Data Platform Lead: data pipelines, warehousing, analytics infrastructure.",
-        ],
-        embeddings=[EMBED_ARCHITECT, EMBED_DATA_ENG],
-        metadatas=[
-            {"name": "AI Systems Engineer", "source": "role_archetypes"},
-            {"name": "Data Platform Lead", "source": "role_archetypes"},
+            EmbeddedDocument(
+                id="archetype-ai-systems-engineer",
+                document="AI Systems Engineer: ML infrastructure, distributed training, model deployment.",
+                embedding=EMBED_ARCHITECT,
+                metadata={"name": "AI Systems Engineer", "source": "role_archetypes"},
+            ),
+            EmbeddedDocument(
+                id="archetype-data-platform-lead",
+                document="Data Platform Lead: data pipelines, warehousing, analytics infrastructure.",
+                embedding=EMBED_DATA_ENG,
+                metadata={"name": "Data Platform Lead", "source": "role_archetypes"},
+            ),
         ],
     )
     return store
 
 
 @pytest.fixture
-def scorer(populated_store: VectorStore, mock_embedder: Embedder) -> Scorer:
-    """A Scorer wired to a populated VectorStore and mocked Embedder."""
+def scorer(populated_store: VectorStorePort, mock_embedder: Embedder) -> Scorer:
+    """A Scorer wired to a populated VectorStorePort and mocked Embedder."""
     return Scorer(
         store=populated_store,
         embedder=mock_embedder,
@@ -233,7 +246,7 @@ class TestBestArchetypeMatch:
     """
     REQUIREMENT: The scoring pipeline surfaces the name of the best-matching
     archetype per listing, flowing through ScoreResult, score explanation,
-    CSV export, JD file metadata, and review display.
+    CSV export, JD file metadata, and review display
 
     WHO: The operator reviewing scored listings — needs to know which target
          role type each JD most resembles, for tuning and tailoring.
@@ -316,7 +329,7 @@ class TestBestArchetypeMatch:
         )
 
     async def test_multi_chunk_jd_selects_archetype_from_best_scoring_chunk(
-        self, populated_store: VectorStore, mock_embedder: Embedder
+        self, populated_store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a JD that is long enough to be split into multiple chunks
@@ -351,7 +364,7 @@ class TestBestArchetypeMatch:
         )
 
     async def test_single_archetype_collection_always_selects_that_archetype(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a role_archetypes collection with exactly one archetype
@@ -361,17 +374,25 @@ class TestBestArchetypeMatch:
         # Given: resume + single archetype seeded
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["Principal architect specializing in distributed systems."],
-            embeddings=[EMBED_ARCHITECT],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="Principal architect specializing in distributed systems.",
+                    embedding=EMBED_ARCHITECT,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="role_archetypes",
-            ids=["archetype-solo"],
-            documents=["Solo Archetype: the only role type available."],
-            embeddings=[EMBED_ARCHITECT],
-            metadatas=[{"name": "Solo Archetype", "source": "role_archetypes"}],
+            documents=[
+                EmbeddedDocument(
+                    id="archetype-solo",
+                    document="Solo Archetype: the only role type available.",
+                    embedding=EMBED_ARCHITECT,
+                    metadata={"name": "Solo Archetype", "source": "role_archetypes"},
+                ),
+            ],
         )
         scorer = Scorer(
             store=store,
@@ -533,7 +554,7 @@ class TestBestArchetypeMatch:
     # --- Review display ---
 
     def test_review_display_shows_best_archetype(
-        self, vector_store: VectorStore, mock_embedder: Embedder
+        self, vector_store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a RankedListing with best_archetype='AI Systems Engineer'
@@ -589,7 +610,7 @@ class TestBestArchetypeMatch:
     # --- Archetype without metadata falls back ---
 
     async def test_archetype_without_metadata_falls_back_to_none(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a role_archetypes document was added without metadata
@@ -599,16 +620,24 @@ class TestBestArchetypeMatch:
         # Given: resume seeded, one archetype added WITHOUT metadata
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["Principal architect specializing in distributed systems."],
-            embeddings=[EMBED_ARCHITECT],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="Principal architect specializing in distributed systems.",
+                    embedding=EMBED_ARCHITECT,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="role_archetypes",
-            ids=["archetype-no-meta"],
-            documents=["Some archetype without metadata."],
-            embeddings=[EMBED_ARCHITECT],
+            documents=[
+                EmbeddedDocument(
+                    id="archetype-no-meta",
+                    document="Some archetype without metadata.",
+                    embedding=EMBED_ARCHITECT,
+                ),
+            ],
         )
         scorer = Scorer(
             store=store,
@@ -632,7 +661,7 @@ class TestBestArchetypeMatch:
     # --- Empty archetypes collection error path ---
 
     async def test_empty_archetypes_collection_raises_index_error(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a resume collection is populated but role_archetypes is empty
@@ -642,10 +671,14 @@ class TestBestArchetypeMatch:
         # Given: resume seeded but no archetypes
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["Principal architect specializing in distributed systems."],
-            embeddings=[EMBED_ARCHITECT],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="Principal architect specializing in distributed systems.",
+                    embedding=EMBED_ARCHITECT,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.reset_collection("role_archetypes")
         scorer = Scorer(
