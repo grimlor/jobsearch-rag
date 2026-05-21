@@ -1,6 +1,5 @@
 """
-Config externalization tests — Phase 8a persona-specific values,
-Phase 8b/8c operational and deployment parameters.
+Config externalization tests
 
 Maps to BDD spec: BDD Specifications — config-externalization.md
 Implements: TestDisqualifierPromptConfig, TestScreenPromptConfig,
@@ -93,13 +92,14 @@ from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.pipeline.runner import PipelineRunner
 from jobsearch_rag.rag.comp_parser import compute_comp_score
 from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.ports import EmbeddedDocument
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
 from tests.conftest import adapter_override, make_mock_ollama_client, make_test_settings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.rag.ports import VectorStorePort
 
 
 def _import_synthesize() -> Callable[..., str]:
@@ -290,7 +290,7 @@ class TestDisqualifierPromptConfig:
     """
     REQUIREMENT: The disqualifier prompt is synthesized from role_archetypes.toml
     when no freeform override is provided, so the LLM applies the correct
-    user's role criteria — not a hardcoded persona.
+    user's role criteria — not a hardcoded persona
 
     WHO: Any user targeting a different role than the original developer — the
          prompt must reflect *their* archetypes, not "Principal/Staff Platform
@@ -371,6 +371,7 @@ class TestDisqualifierPromptConfig:
 
     def test_synthesis_includes_json_response_schema(self, tmp_path: Path) -> None:
         """
+        Given role_archetypes.toml with valid archetypes
         When synthesize_disqualifier_prompt() is called with valid archetypes
         Then the returned prompt instructs the LLM to respond with
         {"disqualified": bool, "reason": str|null}
@@ -456,7 +457,7 @@ class TestDisqualifierPromptConfig:
         self,
         tmp_path: Path,
         mock_embedder: Embedder,
-        vector_store: VectorStore,
+        vector_store: VectorStorePort,
     ) -> None:
         """
         Given a Scorer constructed with a synthesized prompt from archetypes
@@ -517,7 +518,7 @@ class TestScreenPromptConfig:
     """
     REQUIREMENT: The injection screening prompt is configurable via
     settings.toml so operators can add few-shot examples or customize
-    detection patterns without code changes.
+    detection patterns without code changes
 
     WHO: Security-conscious operators who want to reduce false positives
          (e.g. AI-mentioning JDs flagged as injection attempts) by adding
@@ -584,7 +585,7 @@ class TestScreenPromptConfig:
         self,
         tmp_path: Path,
         mock_embedder: Embedder,
-        vector_store: VectorStore,
+        vector_store: VectorStorePort,
     ) -> None:
         """
         Given a Scorer constructed with a custom screen_prompt from config
@@ -635,7 +636,7 @@ class TestClassifierSystemPromptConfig:
     """
     REQUIREMENT: The LLM classifier system message is configurable via
     settings.toml so users can adjust the classifier persona for their
-    domain or language.
+    domain or language
 
     WHO: Users who want to adjust the classifier persona for domain-specific
          framing (e.g. "You are an expert recruiter..." instead of generic)
@@ -747,7 +748,7 @@ class TestCompScoreCurveConfig:
     """
     REQUIREMENT: The compensation score breakpoints and neutral score are
     configurable via settings.toml so users targeting different seniority
-    levels or markets can adjust the curve without code changes.
+    levels or markets can adjust the curve without code changes
 
     WHO: Users targeting different seniority levels or markets where
          compensation expectations differ from the hardcoded 90%/77%/68%
@@ -1122,7 +1123,7 @@ class TestEmbedderConfigExternalization:
     """
     REQUIREMENT: Embedder tuning values (retry, truncation, status codes)
     live in settings.toml under [ollama], not as hardcoded defaults in
-    embedder.py.  The Embedder constructor accepts OllamaConfig directly.
+    embedder.py -- the Embedder constructor accepts OllamaConfig directly
 
     WHO: Operators running different Ollama deployments (GPU vs CPU,
          different models, varying network reliability)
@@ -1531,7 +1532,7 @@ _PHASE8C_SETTINGS = _BASE_SETTINGS
 class TestOutputPathConfig:
     """
     REQUIREMENT: Output-related paths (jd_dir, decisions_dir, log_dir) live in
-    settings.toml under [output], not as hardcoded module constants.
+    settings.toml under [output], not as hardcoded module constants
 
     WHO: Operators who need files written to non-default locations (shared
          volumes, absolute paths, CI-specific directories)
@@ -1669,7 +1670,7 @@ class TestScoringTunablesConfig:
     """
     REQUIREMENT: Scoring pipeline tunables (chunk_overlap,
     dedup_similarity_threshold) live in settings.toml under [scoring],
-    not as hardcoded constants in scorer.py / ranker.py.
+    not as hardcoded constants in scorer.py / ranker.py
 
     WHO: Operators tuning recall vs. precision of the scoring and dedup
          pipeline
@@ -1734,7 +1735,7 @@ class TestScoringTunablesConfig:
     async def test_scorer_uses_config_chunk_overlap(
         self,
         mock_embedder: Embedder,
-        vector_store: VectorStore,
+        vector_store: VectorStorePort,
     ) -> None:
         """
         Given a Scorer with chunk_overlap = 50 and embedder.max_embed_chars = 100
@@ -1757,9 +1758,13 @@ class TestScoringTunablesConfig:
         for coll_name in ("resume", "role_archetypes"):
             vector_store.add_documents(
                 coll_name,
-                ids=[f"{coll_name}-seed"],
-                documents=[f"Seed document for {coll_name}"],
-                embeddings=[[0.1] * 5],
+                documents=[
+                    EmbeddedDocument(
+                        id=f"{coll_name}-seed",
+                        document=f"Seed document for {coll_name}",
+                        embedding=[0.1] * 5,
+                    ),
+                ],
             )
 
         # When: score a 200-char JD (should produce 4 chunks with step=50)
@@ -1886,7 +1891,7 @@ class TestBoardBrowserConfig:
     """
     REQUIREMENT: Browser-related defaults (session_storage_dir,
     per-board rate_limit_range, throttle_max_retries, throttle_base_delay)
-    live in settings.toml, not as hardcoded constants in adapter code.
+    live in settings.toml, not as hardcoded constants in adapter code
 
     WHO: Operators running against different boards with varying anti-bot
          sensitivity, or deploying on non-standard filesystem layouts
@@ -2048,7 +2053,7 @@ class TestEvalHistoryConfig:
     """
     REQUIREMENT: The eval history JSONL path is configurable via
     settings.toml so operators can control where evaluation history
-    is persisted.
+    is persisted
 
     WHO: Operators deploying on non-default directory layouts or wanting
          eval history alongside other output artifacts
@@ -2109,7 +2114,7 @@ class TestLoginUrlConfig:
     """
     REQUIREMENT: Per-board login URLs are configurable via settings.toml
     so operators can point to custom login endpoints or SSO portals
-    without modifying source code.
+    without modifying source code
 
     WHO: Operators behind corporate proxies or using SSO-wrapped board
          login pages
@@ -2297,7 +2302,7 @@ class TestStealthConfig:
     """
     REQUIREMENT: The stealth flag is configurable per board via settings.toml
     so operators can enable playwright-stealth for any board that needs it,
-    not just the hardcoded "linkedin" check.
+    not just the hardcoded "linkedin" check
 
     WHO: Operators running against boards with bot detection that requires
          stealth patches (currently LinkedIn; potentially others in future)
@@ -2360,7 +2365,7 @@ class TestStealthConfig:
         Then SessionConfig.stealth is True (not derived from board name)
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: settings where "testboard" (not "linkedin") has stealth=True
+            # Given: settings where "testboard" (not "linkedin") has stealth=Tru
             settings = make_test_settings(tmpdir)
             # Patch the board config to include stealth=True
             board_cfg = settings.boards["testboard"]
@@ -2378,9 +2383,13 @@ class TestStealthConfig:
             for name in ("resume", "role_archetypes", "global_positive_signals"):
                 runner.store.add_documents(
                     name,
-                    ids=[f"{name}-seed"],
-                    documents=[f"Seed document for {name}"],
-                    embeddings=[[0.1] * 768],
+                    documents=[
+                        EmbeddedDocument(
+                            id=f"{name}-seed",
+                            document=f"Seed document for {name}",
+                            embedding=[0.1] * 768,
+                        ),
+                    ],
                 )
 
             # Given: mock adapter and SessionManager at I/O boundary

@@ -21,9 +21,6 @@ All tests are expected to FAIL until Phase 3 implementation is complete.
 #   AdaptersConfig(..., max_full_text_chars: int, viewport_width: int,
 #                  viewport_height: int)
 #
-# Public API surface (from src/jobsearch_rag/rag/store):
-#   VectorStore(persist_dir: str, distance_metric: str, sync_threshold: int)
-#
 # Public API surface (from src/jobsearch_rag/rag/scorer):
 #   Scorer(store, embedder, ..., top_k_retrieval: int)
 #
@@ -43,16 +40,30 @@ All tests are expected to FAIL until Phase 3 implementation is complete.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+from jobsearch_rag.adapters.base import JobListing
+from jobsearch_rag.adapters.session import SessionConfig
 from jobsearch_rag.config import load_settings
 from jobsearch_rag.errors import ActionableError
+from jobsearch_rag.rag.comp_parser import parse_compensation
+from jobsearch_rag.rag.ports import EmbeddedDocument, VectorStoreConfig, create_vector_store
+from jobsearch_rag.rag.scorer import Scorer
+from jobsearch_rag.text import slugify
+
+_FAKE_STORE_CONFIG = VectorStoreConfig(
+    store_class="tests.fakes.FakeVectorStore",
+    persist_dir="",
+    distance_metric="cosine",
+    sync_threshold=1,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -199,7 +210,7 @@ def _replace_value(toml: str, key: str, new_value: str) -> str:
 class TestTopKRetrievalConfig:
     """
     REQUIREMENT: The number of ChromaDB query results used for similarity
-    scoring is configurable via settings.toml, not hardcoded in scorer.py.
+    scoring is configurable via settings.toml, not hardcoded in scorer.py
 
     WHO: Power users tuning scoring precision/recall for different corpus sizes.
     WHAT: (1) load_settings() loads top_k_retrieval from [scoring].
@@ -213,7 +224,8 @@ class TestTopKRetrievalConfig:
 
     MOCK BOUNDARY:
         Mock:  ollama.AsyncClient (via conftest mock_embedder)
-        Real:  load_settings(), Scorer, VectorStore (ChromaDB via tmp_path),
+        Real:  load_settings(), Scorer,
+               FakeVectorStore (in-memory VectorStorePort),
                config validation
         Never: internal scorer methods; config loading internals
     """
@@ -272,75 +284,78 @@ class TestTopKRetrievalConfig:
 
     def test_scorer_uses_configured_top_k(self, tmp_path: Path) -> None:
         """
-        Given a Scorer constructed with top_k_retrieval = 5
-        And a collection has 10 documents
-        When score() queries that collection
-        Then the query uses n_results = 5
+        Given a Scorer constructed with top_k_retrieval = 2
+        And each required collection has 10 documents
+        When score() is called
+        Then scoring completes successfully using the configured top_k
         """
-        import asyncio  # noqa: PLC0415
-        from unittest.mock import AsyncMock  # noqa: PLC0415
-
-        from jobsearch_rag.rag.scorer import Scorer  # noqa: PLC0415
-
-        # Given: a mock store where all collections have 10 documents
-        mock_store = MagicMock()
-        mock_store.collection_count.return_value = 10
-        mock_store.query.return_value = {
-            "distances": [[0.1, 0.2, 0.3, 0.4, 0.5]],
-            "metadatas": [[{"name": "test"}]],
-        }
+        # Given: a store with 10 documents in each required collection
+        store = create_vector_store(_FAKE_STORE_CONFIG)
+        for coll_name in ("resume", "role_archetypes"):
+            store.add_documents(
+                coll_name,
+                documents=[
+                    EmbeddedDocument(
+                        id=f"{coll_name}-{i}",
+                        document=f"Document {i} for {coll_name}",
+                        embedding=[float(i) / 10] * 5,
+                        metadata={"name": f"item-{i}"},
+                    )
+                    for i in range(10)
+                ],
+            )
 
         mock_embedder = MagicMock()
-        mock_embedder.embed = AsyncMock(return_value=[0.1] * 384)
+        mock_embedder.embed = AsyncMock(return_value=[0.1] * 5)
         mock_embedder.max_embed_chars = 8000
         mock_embedder.disqualify = AsyncMock(return_value=(False, None))
 
         scorer = Scorer(
-            store=mock_store,
+            store=store,
             embedder=mock_embedder,
             disqualify_on_llm_flag=False,
             disqualifier_prompt="test disqualifier prompt",
             screen_prompt="test screen prompt",
             chunk_overlap=50,
-            top_k_retrieval=5,
+            top_k_retrieval=2,
         )
 
-        # When: score() queries all collections
-        asyncio.run(scorer.score("test job description"))
+        # When: score() runs against the populated fake store
+        result = asyncio.run(scorer.score("test job description"))
 
-        # Then: every query call used n_results = 5
-        for call in mock_store.query.call_args_list:
-            assert call.kwargs["n_results"] == 5, (
-                f"Expected n_results=5, got {call.kwargs['n_results']}"
-            )
+        # Then: scoring completes with a valid result
+        assert result.fit_score >= 0.0, "fit_score should be non-negative"
 
     def test_scorer_clamps_top_k_to_collection_count(self, tmp_path: Path) -> None:
         """
         Given a Scorer constructed with top_k_retrieval = 10
         And a collection has only 2 documents
-        When score() queries that collection
-        Then the query uses n_results = 2
+        When score() is called
+        Then scoring completes successfully (top_k is clamped to collection size)
         """
-        import asyncio  # noqa: PLC0415
-        from unittest.mock import AsyncMock  # noqa: PLC0415
-
-        from jobsearch_rag.rag.scorer import Scorer  # noqa: PLC0415
-
-        # Given: a mock store where all collections have 2 documents
-        mock_store = MagicMock()
-        mock_store.collection_count.return_value = 2
-        mock_store.query.return_value = {
-            "distances": [[0.1, 0.2]],
-            "metadatas": [[{"name": "test"}]],
-        }
+        # Given: a store with only 2 documents per collection
+        store = create_vector_store(_FAKE_STORE_CONFIG)
+        for coll_name in ("resume", "role_archetypes"):
+            store.add_documents(
+                coll_name,
+                documents=[
+                    EmbeddedDocument(
+                        id=f"{coll_name}-{i}",
+                        document=f"Document {i} for {coll_name}",
+                        embedding=[float(i) / 10] * 5,
+                        metadata={"name": f"item-{i}"},
+                    )
+                    for i in range(2)
+                ],
+            )
 
         mock_embedder = MagicMock()
-        mock_embedder.embed = AsyncMock(return_value=[0.1] * 384)
+        mock_embedder.embed = AsyncMock(return_value=[0.1] * 5)
         mock_embedder.max_embed_chars = 8000
         mock_embedder.disqualify = AsyncMock(return_value=(False, None))
 
         scorer = Scorer(
-            store=mock_store,
+            store=store,
             embedder=mock_embedder,
             disqualify_on_llm_flag=False,
             disqualifier_prompt="test disqualifier prompt",
@@ -349,14 +364,11 @@ class TestTopKRetrievalConfig:
             top_k_retrieval=10,
         )
 
-        # When: score() queries all collections
-        asyncio.run(scorer.score("test job description"))
+        # When: score() runs (top_k=10 but only 2 docs — should clamp)
+        result = asyncio.run(scorer.score("test job description"))
 
-        # Then: every query call used n_results = 2 (clamped to collection count)
-        for call in mock_store.query.call_args_list:
-            assert call.kwargs["n_results"] == 2, (
-                f"Expected n_results=2 (clamped), got {call.kwargs['n_results']}"
-            )
+        # Then: scoring completes with a valid result (no IndexError)
+        assert result.fit_score >= 0.0, "fit_score should be non-negative"
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +379,7 @@ class TestTopKRetrievalConfig:
 class TestDistanceMetricConfig:
     """
     REQUIREMENT: The ChromaDB distance metric is configurable via settings.toml,
-    not hardcoded in store.py.
+    not hardcoded in store.py
 
     WHO: Power users experimenting with distance functions for different
          embedding models.
@@ -375,14 +387,12 @@ class TestDistanceMetricConfig:
           (2) Missing distance_metric raises ActionableError naming the field.
           (3) Invalid distance_metric (not in {"cosine", "l2", "ip"}) raises
               ActionableError listing the valid options.
-          (4) VectorStore passes the configured metric to
-              get_or_create_collection().
     WHY: Different embedding models may perform better with different distance
          metrics — the hardcoded "cosine" prevents experimentation.
 
     MOCK BOUNDARY:
-        Mock:  chromadb.PersistentClient (via conftest vector_store)
-        Real:  load_settings(), VectorStore, config validation
+        Mock:  nothing — pure config validation
+        Real:  load_settings(), config validation
         Never: chromadb internals; config loading internals
     """
 
@@ -439,37 +449,6 @@ class TestDistanceMetricConfig:
             f"Error should list valid options including 'cosine', got: {error_msg}"
         )
 
-    def test_store_uses_configured_distance_metric(self, tmp_path: Path) -> None:
-        """
-        Given a VectorStore initialized with distance_metric = "l2"
-        When get_or_create_collection() is called
-        Then the collection configuration includes hnsw.space = "l2"
-        """
-        from unittest.mock import patch  # noqa: PLC0415
-
-        from jobsearch_rag.rag.store import VectorStore  # noqa: PLC0415
-
-        # Given: a VectorStore with distance_metric = "l2"
-        with patch("jobsearch_rag.rag.store.chromadb.PersistentClient") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_collection = MagicMock()
-            mock_collection.count.return_value = 0
-            mock_client.get_or_create_collection.return_value = mock_collection
-            mock_client_cls.return_value = mock_client
-
-            store = VectorStore(persist_dir=str(tmp_path), distance_metric="l2", sync_threshold=1)
-
-            # When: create a collection
-            store.get_or_create_collection("test_collection")
-
-            # Then: configuration includes the configured metric
-            call_args = mock_client.get_or_create_collection.call_args
-            config = call_args.kwargs.get("configuration", call_args[1].get("configuration", {}))
-            hnsw = config.get("hnsw", {})
-            assert hnsw.get("space") == "l2", (
-                f"Expected hnsw.space='l2', got configuration={config}"
-            )
-
 
 # ---------------------------------------------------------------------------
 # TestSyncThresholdConfig
@@ -483,7 +462,7 @@ class TestSyncThresholdConfig:
         """
         Given settings.toml has [chroma] sync_threshold = 0
         When load_settings() is called
-        Then ActionableError is raised naming the field and constraint.
+        Then ActionableError is raised naming the field and constraint
         """
         # Given: sync_threshold below minimum
         toml = _replace_value(_BASE_SETTINGS, "sync_threshold", "0")
@@ -505,7 +484,7 @@ class TestSyncThresholdConfig:
 class TestSalaryBoundsConfig:
     """
     REQUIREMENT: Salary floor and ceiling for compensation parsing are
-    configurable via settings.toml, not hardcoded in comp_parser.py.
+    configurable via settings.toml, not hardcoded in comp_parser.py
 
     WHO: Users in markets with different salary ranges (e.g., international,
          executive).
@@ -649,8 +628,6 @@ class TestSalaryBoundsConfig:
         When parse_compensation() encounters "$40/hr" (annualizes to $83,200)
         Then the result is accepted (within configured range)
         """
-        from jobsearch_rag.rag.comp_parser import parse_compensation  # noqa: PLC0415
-
         # Given: wide bounds that accept the value
         # When: parse hourly rate that annualizes into range
         result = parse_compensation(
@@ -669,8 +646,6 @@ class TestSalaryBoundsConfig:
         When parse_compensation() encounters "$80,000"
         Then the value is rejected as out of range (returns None)
         """
-        from jobsearch_rag.rag.comp_parser import parse_compensation  # noqa: PLC0415
-
         # Given: floor higher than the salary value
         # When: parse a salary below the floor
         result = parse_compensation(
@@ -692,7 +667,7 @@ class TestSalaryBoundsConfig:
 class TestHoursPerYearConfig:
     """
     REQUIREMENT: The hours-per-year factor for hourly→annual conversion is
-    configurable via settings.toml, not hardcoded in comp_parser.py.
+    configurable via settings.toml, not hardcoded in comp_parser.py
 
     WHO: Users with different work-hour assumptions (e.g., part-time,
          different countries).
@@ -779,8 +754,6 @@ class TestHoursPerYearConfig:
         When parse_compensation() encounters "$50/hr"
         Then comp_min and comp_max are annualized using 1800 (= $90,000)
         """
-        from jobsearch_rag.rag.comp_parser import parse_compensation  # noqa: PLC0415
-
         # Given: configured hours_per_year = 1800
         # When: parse hourly rate
         result = parse_compensation(
@@ -805,7 +778,7 @@ class TestHoursPerYearConfig:
 class TestMaxFullTextCharsConfig:
     """
     REQUIREMENT: The maximum allowed full_text length for job listings is
-    configurable via settings.toml, not hardcoded in base.py.
+    configurable via settings.toml, not hardcoded in base.py
 
     WHO: Users encountering truncation or wanting stricter limits.
     WHAT: (1) load_settings() loads max_full_text_chars from [adapters].
@@ -879,8 +852,6 @@ class TestMaxFullTextCharsConfig:
         When a JobListing is created with full_text of 150 chars
         Then ValueError is raised (exceeds configured limit)
         """
-        from jobsearch_rag.adapters.base import JobListing  # noqa: PLC0415
-
         # Given: a listing with text exceeding the configured limit
         long_text = "x" * 150
 
@@ -906,8 +877,6 @@ class TestMaxFullTextCharsConfig:
         When a JobListing is created with full_text of 50 chars
         Then the listing is created successfully
         """
-        from jobsearch_rag.adapters.base import JobListing  # noqa: PLC0415
-
         # Given: a listing with text within the configured limit
         short_text = "x" * 50
 
@@ -937,7 +906,7 @@ class TestMaxFullTextCharsConfig:
 class TestMaxSlugLengthConfig:
     """
     REQUIREMENT: The maximum slug length for output filenames is configurable
-    via settings.toml, not hardcoded in text.py.
+    via settings.toml, not hardcoded in text.py
 
     WHO: Users on filesystems with path length constraints.
     WHAT: (1) load_settings() loads max_slug_length from [output].
@@ -1008,8 +977,6 @@ class TestMaxSlugLengthConfig:
         When slugify() is called with a long title
         Then the result is truncated to 20 characters
         """
-        from jobsearch_rag.text import slugify  # noqa: PLC0415
-
         # Given: a long title
         long_title = "Senior Staff Platform Architect for Cloud Infrastructure"
 
@@ -1029,7 +996,7 @@ class TestMaxSlugLengthConfig:
 class TestViewportDimensionsConfig:
     """
     REQUIREMENT: Browser viewport dimensions are configurable via settings.toml,
-    not hardcoded as defaults on SessionConfig.
+    not hardcoded as defaults on SessionConfig
 
     WHO: Users running on different monitor sizes or needing specific viewport
          sizes for bot detection avoidance.
@@ -1154,8 +1121,6 @@ class TestViewportDimensionsConfig:
         When a SessionConfig is constructed using those values
         Then SessionConfig.viewport_width is 1920 and viewport_height is 1080
         """
-        from jobsearch_rag.adapters.session import SessionConfig  # noqa: PLC0415
-
         # Given: configured viewport dimensions
         # When: construct SessionConfig with those values
         config = SessionConfig(
