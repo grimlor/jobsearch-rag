@@ -51,7 +51,7 @@ class Embedder:
     """
     Wraps Ollama embedding and LLM calls with backoff and error handling.
 
-    Usage::
+    Usage:
 
         embedder = Embedder(ollama_config)
         await embedder.health_check()          # fail fast if Ollama is down

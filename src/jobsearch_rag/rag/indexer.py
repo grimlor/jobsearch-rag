@@ -117,7 +117,7 @@ class Indexer:
     """
     Chunks and indexes resume and role archetypes into ChromaDB.
 
-    Usage::
+    Usage:
 
         indexer = Indexer(store=vector_store, embedder=embedder)
         n_resume = await indexer.index_resume("data/resume.md")

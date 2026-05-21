@@ -337,7 +337,7 @@ class BoardSession:
 
     Provides cookie isolation, stealth patches, and page management.
 
-    Usage::
+    Usage:
 
         async with BrowserManager(config) as mgr:
             async with BoardSession(mgr.browser, board_config) as session:
@@ -436,7 +436,7 @@ class SessionManager:
     Backward-compatible wrapper composing BrowserManager + BoardSession.
 
     For single-board callers (e.g. ``handle_login``) that want the
-    original one-liner interface::
+    original one-liner interface:
 
         async with SessionManager(config) as session:
             page = await session.new_page()

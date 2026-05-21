@@ -471,7 +471,7 @@ class Scorer:
         """
         Parse the LLM disqualifier JSON response.
 
-        Expected format::
+        Expected format:
 
             {"disqualified": true, "reason": "short explanation"}
 

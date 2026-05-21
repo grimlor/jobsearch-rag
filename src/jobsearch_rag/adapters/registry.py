@@ -14,7 +14,7 @@ class AdapterRegistry:
     """
     Decorator-based registry that maps board name strings to adapter classes.
 
-    Usage::
+    Usage:
 
         @AdapterRegistry.register
         class ZipRecruiterAdapter(JobBoardAdapter):

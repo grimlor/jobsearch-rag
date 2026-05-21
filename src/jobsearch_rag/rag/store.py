@@ -31,7 +31,7 @@ class VectorStore:
     """
     Manages ChromaDB collections for resume, archetypes, and decisions.
 
-    Usage::
+    Usage:
 
         store = VectorStore(persist_dir="./data/chroma_db")
         store.get_or_create_collection("resume")

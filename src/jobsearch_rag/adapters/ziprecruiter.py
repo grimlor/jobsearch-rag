@@ -20,12 +20,12 @@ The adapter stays on the SERP page and uses click-through extraction
 rather than navigating to individual detail URLs, which avoids triggering
 fresh Cloudflare challenges per listing.
 
-.. important::
-
+Important:
    ZipRecruiter uses Cloudflare bot protection.  Headless Chromium is
    typically blocked.  Set ``headless = false`` in ``settings.toml``
    for reliable operation.  Use ``jobsearch-rag login --board ziprecruiter``
    to establish a session interactively before running headless searches.
+
 """
 
 from __future__ import annotations

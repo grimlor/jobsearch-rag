@@ -43,7 +43,7 @@ def _parse_jd_header(content: str) -> dict[str, str]:
     """
     Extract metadata from a JD file's YAML-style header.
 
-    Expected format::
+    Expected format:
 
         # Title
 
@@ -151,7 +151,7 @@ class Rescorer:
     """
     Re-scores existing JD files through the current RAG collections.
 
-    Usage::
+    Usage:
 
         rescorer = Rescorer(scorer=scorer, ranker=ranker, base_salary=220000)
         result = await rescorer.rescore(jd_dir="output/jds")

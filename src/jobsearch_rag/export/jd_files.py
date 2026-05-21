@@ -29,7 +29,7 @@ class JDFileExporter:
     """
     Exports each ranked listing as an individual Markdown file.
 
-    Usage::
+    Usage:
 
         exporter = JDFileExporter(max_slug_length=80)
         paths = exporter.export(ranked_listings, "output/jds")
