@@ -26,7 +26,6 @@ import pytest
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.adapters.ziprecruiter import (
-    _SELECTORS,  # pyright: ignore[reportPrivateUsage]  # test coupling to selector dict
     ZipRecruiterAdapter,
     is_throttle_response,
 )
@@ -112,9 +111,9 @@ def _patch_search_to_click_through(
     """
     html = _build_zr_html(listings)
 
-    # Derive selector patterns from the adapter's own _SELECTORS dict
-    _panel_sel = _SELECTORS["detail_panel"]
-    _card_prefix = _SELECTORS["card_articles"].replace("^=", "='")
+    # Derive selector patterns matching the adapter's CSS selectors
+    _panel_sel = "[data-testid='job-details-scroll-container']"
+    _card_prefix = "article[id='job-card-"
 
     # Card locators by ID
     _card_mocks: dict[str, MagicMock] = {}
@@ -142,7 +141,7 @@ def _patch_search_to_click_through(
     page.content = AsyncMock(return_value=html)
     page.title = AsyncMock(return_value="Jobs")
     page.query_selector = AsyncMock(return_value=None)
-    page.locator = MagicMock(side_effect=_locator_dispatch)  # pyright: ignore[reportUnknownLambdaType]
+    page.locator = MagicMock(side_effect=_locator_dispatch)
 
     yield page
 
@@ -155,7 +154,7 @@ def _patch_search_to_click_through(
 class TestThrottleDetection:
     """
     REQUIREMENT: Board-specific throttle responses are detected and handled
-    gracefully rather than treated as valid JD text.
+    gracefully rather than treated as valid JD text
 
     WHO: The pipeline operator running automated searches
     WHAT: (1) The system recognizes the canonical ZipRecruiter error message as a throttle response.

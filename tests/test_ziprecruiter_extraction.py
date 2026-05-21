@@ -27,7 +27,6 @@ from playwright.async_api import Error as PlaywrightError
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.adapters.ziprecruiter import (
-    _SELECTORS,  # pyright: ignore[reportPrivateUsage]  # test coupling to selector dict
     ZipRecruiterAdapter,
     card_to_listing,
     extract_job_cards,
@@ -54,7 +53,7 @@ _REAL_FIXTURE = _FIXTURES / "ziprecruiter_serp_real.html"
 
 class TestZipRecruiterDomExtraction:
     """
-    REQUIREMENT: Job data is extracted from ZipRecruiter's Next.js SERP DOM.
+    REQUIREMENT: Job data is extracted from ZipRecruiter's Next.js SERP DOM
 
     WHO: The ZipRecruiter adapter extraction pipeline
     WHAT: (1) The system extracts 3 job cards from the synthetic SERP fixture.
@@ -87,7 +86,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a synthetic SERP HTML fixture with 3 job cards (6 articles, 3 duplicates)
         WHEN extract_job_cards is called
-        THEN exactly 3 deduplicated cards are returned.
+        THEN exactly 3 deduplicated cards are returned
         """
         # Given: synthetic fixture HTML
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -102,7 +101,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN HTML with two articles sharing the same job-card ID
         WHEN extract_job_cards is called
-        THEN only one card is returned for that ID.
+        THEN only one card is returned for that ID
         """
         # Given: HTML with duplicate article IDs
         html = """
@@ -127,7 +126,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a synthetic SERP fixture with JSON-LD containing 3 items
         WHEN extract_json_ld_urls is called
-        THEN 3 URLs are returned in position order.
+        THEN 3 URLs are returned in position order
         """
         # Given: synthetic fixture HTML
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -143,7 +142,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a card dict from extract_job_cards with a title
         WHEN card_to_listing is called
-        THEN the title maps to 'Staff Platform Architect'.
+        THEN the title maps to 'Staff Platform Architect'
         """
         # Given: first card from fixture
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -163,7 +162,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a card dict with a company field
         WHEN card_to_listing is called
-        THEN the company name is mapped correctly.
+        THEN the company name is mapped correctly
         """
         # Given: first card from fixture
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -179,7 +178,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a card dict with a location field
         WHEN card_to_listing is called
-        THEN the location is mapped correctly.
+        THEN the location is mapped correctly
         """
         # Given: first card from fixture
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -197,7 +196,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a card dict with an external_id from the article ID
         WHEN card_to_listing is called
-        THEN the external_id is mapped correctly.
+        THEN the external_id is mapped correctly
         """
         # Given: first card from fixture
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -215,7 +214,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a card dict with a URL added from JSON-LD matching
         WHEN card_to_listing is called
-        THEN the URL is set correctly.
+        THEN the URL is set correctly
         """
         # Given: card with URL from JSON-LD
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -235,7 +234,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN any card dict
         WHEN card_to_listing is called
-        THEN board is set to 'ziprecruiter'.
+        THEN board is set to 'ziprecruiter'
         """
         # Given: first card from fixture
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -251,7 +250,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a card dict from search results
         WHEN card_to_listing is called
-        THEN full_text is empty (detail extraction is a separate step).
+        THEN full_text is empty (detail extraction is a separate step)
         """
         # Given: first card from fixture
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -267,7 +266,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a card dict with salary text '$210K - $250K/yr'
         WHEN card_to_listing is called
-        THEN salary_range is included in metadata.
+        THEN salary_range is included in metadata
         """
         # Given: first card from fixture (has salary)
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -289,7 +288,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a card dict without salary text
         WHEN card_to_listing is called
-        THEN salary_range is absent from metadata.
+        THEN salary_range is absent from metadata
         """
         # Given: third card (no salary)
         html = _SERP_FIXTURE.read_text(encoding="utf-8")
@@ -307,7 +306,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN a card dict with salary_text that does not match the salary regex
         WHEN card_to_listing is called
-        THEN salary_range is absent, comp_min and comp_max are None.
+        THEN salary_range is absent, comp_min and comp_max are None
         """
         # Given: card with unparseable salary text
         card = {
@@ -334,7 +333,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN HTML without any article elements
         WHEN extract_job_cards is called
-        THEN an empty list is returned.
+        THEN an empty list is returned
         """
         # Given: HTML with no articles
         html = "<html><body><p>No jobs here</p></body></html>"
@@ -349,7 +348,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN HTML without a JSON-LD script tag
         WHEN extract_json_ld_urls is called
-        THEN an empty list is returned.
+        THEN an empty list is returned
         """
         # Given: HTML with no JSON-LD
         html = "<html><body><p>No JSON-LD here</p></body></html>"
@@ -364,7 +363,7 @@ class TestZipRecruiterDomExtraction:
         """
         GIVEN HTML with a JSON-LD script tag containing invalid JSON
         WHEN extract_json_ld_urls is called
-        THEN an empty list is returned gracefully.
+        THEN an empty list is returned gracefully
         """
         # Given: malformed JSON-LD
         html = '<script type="application/ld+json">{not valid json</script>'
@@ -383,7 +382,7 @@ class TestZipRecruiterDomExtraction:
 
 class TestHtmlToText:
     """
-    REQUIREMENT: HTML job descriptions are converted to clean plain text.
+    REQUIREMENT: HTML job descriptions are converted to clean plain text
 
     WHO: The JD extraction pipeline before RAG embedding
     WHAT: (1) The system removes all HTML tags and leaves only the text content.
@@ -404,7 +403,7 @@ class TestHtmlToText:
         """
         GIVEN HTML with strong and em tags
         WHEN html_to_text is called
-        THEN all tags are removed, leaving only text.
+        THEN all tags are removed, leaving only text
         """
         # Given: HTML with tags
         html = "<div><strong>Hello</strong> <em>world</em></div>"
@@ -421,7 +420,7 @@ class TestHtmlToText:
         """
         GIVEN HTML with multiple consecutive whitespace characters
         WHEN html_to_text is called
-        THEN whitespace is collapsed to single spaces.
+        THEN whitespace is collapsed to single spaces
         """
         # Given: HTML with excess whitespace
         html = "<p>Hello    world</p>"
@@ -437,7 +436,7 @@ class TestHtmlToText:
         """
         GIVEN HTML with ul/li list items
         WHEN html_to_text is called
-        THEN all list item text is preserved.
+        THEN all list item text is preserved
         """
         # Given: HTML list
         html = "<ul><li>Item one</li><li>Item two</li></ul>"
@@ -453,7 +452,7 @@ class TestHtmlToText:
         """
         GIVEN an empty HTML string
         WHEN html_to_text is called
-        THEN an empty string is returned.
+        THEN an empty string is returned
         """
         # Then: empty in, empty out
         assert html_to_text("") == "", "Empty HTML should produce empty text"
@@ -462,7 +461,7 @@ class TestHtmlToText:
         """
         GIVEN plain text without any HTML tags
         WHEN html_to_text is called
-        THEN the text passes through unchanged.
+        THEN the text passes through unchanged
         """
         # Given: plain text
         text = "Just plain text, nothing fancy."
@@ -478,7 +477,7 @@ class TestHtmlToText:
 
 class TestSalaryParsing:
     """
-    REQUIREMENT: Salary text from SERP cards is parsed into numeric ranges.
+    REQUIREMENT: Salary text from SERP cards is parsed into numeric ranges
 
     WHO: The adapter salary extraction pipeline
     WHAT: (1) The system parses '$185K - $240K/yr' into (185000, 240000).
@@ -499,7 +498,7 @@ class TestSalaryParsing:
         """
         GIVEN salary text '$185K - $240K/yr'
         WHEN parse_salary_text is called
-        THEN (185000.0, 240000.0) is returned.
+        THEN (185000.0, 240000.0) is returned
         """
         min_val, max_val = parse_salary_text("$185K - $240K/yr")
 
@@ -510,7 +509,7 @@ class TestSalaryParsing:
         """
         GIVEN salary text '$114.30K - $157K/yr'
         WHEN parse_salary_text is called
-        THEN (114300.0, 157000.0) is returned.
+        THEN (114300.0, 157000.0) is returned
         """
         min_val, max_val = parse_salary_text("$114.30K - $157K/yr")
 
@@ -521,7 +520,7 @@ class TestSalaryParsing:
         """
         GIVEN text without a salary pattern
         WHEN parse_salary_text is called
-        THEN (None, None) is returned.
+        THEN (None, None) is returned
         """
         min_val, max_val = parse_salary_text("No salary info here")
 
@@ -532,7 +531,7 @@ class TestSalaryParsing:
         """
         GIVEN salary text '$60 - $100' (hourly, no suffix)
         WHEN parse_salary_text is called
-        THEN (60.0, 100.0) is returned.
+        THEN (60.0, 100.0) is returned
         """
         min_val, max_val = parse_salary_text("$60 - $100")
 
@@ -543,7 +542,7 @@ class TestSalaryParsing:
         """
         GIVEN salary text '$1.5M - $2M/yr'
         WHEN parse_salary_text is called
-        THEN (1500000.0, 2000000.0) is returned.
+        THEN (1500000.0, 2000000.0) is returned
         """
         min_val, max_val = parse_salary_text("$1.5M - $2M/yr")
 
@@ -558,7 +557,7 @@ class TestSalaryParsing:
 
 class TestRealWorldExtraction:
     """
-    REQUIREMENT: Extraction works correctly against real ZipRecruiter data.
+    REQUIREMENT: Extraction works correctly against real ZipRecruiter data
 
     WHO: The adapter maintainer validating against production HTML
     WHAT: (1) The system produces exactly 20 listings from the real ZipRecruiter SERP fixture.
@@ -580,7 +579,7 @@ class TestRealWorldExtraction:
         """
         GIVEN the real ZipRecruiter SERP fixture
         WHEN all cards are converted to listings
-        THEN exactly 20 listings are produced.
+        THEN exactly 20 listings are produced
         """
         # Given: real fixture
         html = _REAL_FIXTURE.read_text(encoding="utf-8")
@@ -599,7 +598,7 @@ class TestRealWorldExtraction:
         """
         GIVEN the real SERP fixture
         WHEN the first card is converted
-        THEN the company is Anchorage Digital with a platform engineering title.
+        THEN the company is Anchorage Digital with a platform engineering title
         """
         # Given: real fixture, first card
         html = _REAL_FIXTURE.read_text(encoding="utf-8")
@@ -620,7 +619,7 @@ class TestRealWorldExtraction:
         """
         GIVEN all 20 real listings
         WHEN external_ids are checked
-        THEN every listing has a non-empty unique external_id.
+        THEN every listing has a non-empty unique external_id
         """
         # Given: all real listings
         html = _REAL_FIXTURE.read_text(encoding="utf-8")
@@ -637,7 +636,7 @@ class TestRealWorldExtraction:
         """
         GIVEN the real SERP fixture
         WHEN JSON-LD URLs and DOM cards are extracted
-        THEN both produce exactly 20 items.
+        THEN both produce exactly 20 items
         """
         # Given: real fixture
         html = _REAL_FIXTURE.read_text(encoding="utf-8")
@@ -652,7 +651,7 @@ class TestRealWorldExtraction:
         """
         GIVEN all 20 real listings with JSON-LD URLs matched
         WHEN URLs are checked
-        THEN every URL starts with the ZipRecruiter base URL.
+        THEN every URL starts with the ZipRecruiter base URL
         """
         # Given: all real listings with URLs
         html = _REAL_FIXTURE.read_text(encoding="utf-8")
@@ -671,7 +670,7 @@ class TestRealWorldExtraction:
         """
         GIVEN the Pearly listing (3rd card) from the real fixture
         WHEN salary metadata is checked
-        THEN salary_range includes $185,000-$240,000.
+        THEN salary_range includes $185,000-$240,000
         """
         # Given: Pearly listing (3rd card)
         html = _REAL_FIXTURE.read_text(encoding="utf-8")
@@ -744,8 +743,8 @@ def _make_mock_page(
     mock_page.url = url
     mock_page.query_selector = AsyncMock(return_value=MagicMock() if captcha else None)
 
-    # Panel locator — keyed from the adapter's own selector dict
-    _panel_sel = _SELECTORS["detail_panel"]
+    # Panel locator — matching the adapter's CSS selector
+    _panel_sel = "[data-testid='job-details-scroll-container']"
     mock_panel_locator = MagicMock()
     mock_panel_locator.wait_for = AsyncMock()
     if panel_texts:
@@ -753,10 +752,10 @@ def _make_mock_page(
     else:
         mock_panel_locator.inner_text = AsyncMock(return_value="")
 
-    # Card locators by ID — derive the per-card selector prefix from the
-    # adapter's ``_SELECTORS["card_articles"]`` so selector changes only
-    # need to happen in one place.
-    _card_prefix = _SELECTORS["card_articles"].replace("^=", "='")
+    # Card locators by ID — per-card selector derived from the adapter's
+    # article[id^='job-card-'] pattern so selector changes only need to
+    # happen in one place.
+    _card_prefix = "article[id='job-card-"
     # e.g.  "article[id^='job-card-']" → "article[id='job-card-"
     _card_mocks: dict[str, MagicMock] = {}
     if card_ids:
@@ -771,7 +770,7 @@ def _make_mock_page(
     def _locator_dispatch(sel: str) -> MagicMock:
         if sel == _panel_sel:
             return mock_panel_locator
-        # Match per-card selectors derived from _SELECTORS["card_articles"]
+        # Match per-card selectors (article[id='job-card-{id}'])
         if sel.startswith(_card_prefix):
             cid = sel[len(_card_prefix) :].rstrip("']")
             if cid in _card_mocks:
@@ -782,7 +781,7 @@ def _make_mock_page(
         fallback.first.click = AsyncMock()
         return fallback
 
-    mock_page.locator.side_effect = _locator_dispatch  # pyright: ignore[reportUnknownLambdaType]
+    mock_page.locator.side_effect = _locator_dispatch
 
     return mock_page
 
@@ -794,7 +793,7 @@ def _make_mock_page(
 
 class TestAuthenticate:
     """
-    REQUIREMENT: Session verification detects expired sessions and Cloudflare blocks.
+    REQUIREMENT: Session verification detects expired sessions and Cloudflare blocks
 
     WHO: The pipeline runner during the authenticate step
     WHAT: (1) The system completes authentication without error when the session is valid.
@@ -819,7 +818,7 @@ class TestAuthenticate:
         """
         GIVEN a mock page that loads without Cloudflare/CAPTCHA/redirect
         WHEN authenticate is called
-        THEN it completes without error.
+        THEN it completes without error
         """
         # Given: valid mock page
         adapter = ZipRecruiterAdapter(
@@ -838,7 +837,7 @@ class TestAuthenticate:
         """
         GIVEN a mock page with a CAPTCHA element detected
         WHEN authenticate is called
-        THEN an ActionableError suggesting manual-solve is raised.
+        THEN an ActionableError suggesting manual-solve is raised
         """
         # Given: page with CAPTCHA
         adapter = ZipRecruiterAdapter(
@@ -861,7 +860,7 @@ class TestAuthenticate:
         """
         GIVEN a mock page redirected to /login
         WHEN authenticate is called
-        THEN an ActionableError about session expiration is raised.
+        THEN an ActionableError about session expiration is raised
         """
         # Given: page redirected to login
         adapter = ZipRecruiterAdapter(
@@ -884,7 +883,7 @@ class TestAuthenticate:
         """
         GIVEN a mock page redirected to /sign-in
         WHEN authenticate is called
-        THEN an ActionableError about session expiration is raised.
+        THEN an ActionableError about session expiration is raised
         """
         # Given: page redirected to sign-in
         adapter = ZipRecruiterAdapter(
@@ -907,7 +906,7 @@ class TestAuthenticate:
         """
         GIVEN a mock page showing a persistent Cloudflare challenge
         WHEN authenticate times out waiting for resolution
-        THEN an ActionableError suggesting headed mode is raised.
+        THEN an ActionableError suggesting headed mode is raised
         """
         # Given: Cloudflare challenge page
         adapter = ZipRecruiterAdapter(
@@ -937,7 +936,7 @@ class TestAuthenticate:
         GIVEN a page where title() raises PlaywrightError on first call
               then returns a normal title on second call
         WHEN authenticate runs
-        THEN the system retries transparently and succeeds.
+        THEN the system retries transparently and succeeds
         """
         # Given: page.title() raises once (navigation-destroyed context),
         # then returns a normal page title on retry
@@ -972,7 +971,7 @@ class TestAuthenticate:
 
 class TestSearch:
     """
-    REQUIREMENT: search() navigates SERP pages, extracts cards, and enriches via click-through.
+    REQUIREMENT: search() navigates SERP pages, extracts cards, and enriches via click-through
 
     WHO: The pipeline runner collecting listings from ZipRecruiter
     WHAT: (1) The system returns three listings from the fixture and includes 'Staff Platform Architect' as the first title.
@@ -1004,7 +1003,7 @@ class TestSearch:
         """
         GIVEN a mock page with the synthetic SERP fixture and 3 card articles
         WHEN search is called with max_pages=1
-        THEN 3 listings are returned with the first titled 'Staff Platform Architect'.
+        THEN 3 listings are returned with the first titled 'Staff Platform Architect'
         """
         # Given: mock page with fixture HTML
         adapter = ZipRecruiterAdapter(
@@ -1037,7 +1036,7 @@ class TestSearch:
         """
         GIVEN a mock page with 3 cards and panel texts for all cards
         WHEN search is called
-        THEN all cards are enriched via click-through panel text.
+        THEN all cards are enriched via click-through panel text
         """
         # Given: mock page with distinct panel text per card
         adapter = ZipRecruiterAdapter(
@@ -1071,7 +1070,7 @@ class TestSearch:
         """
         GIVEN a mock page where panel text is under 100 chars
         WHEN search is called
-        THEN title/company fallback is used for those cards.
+        THEN title/company fallback is used for those cards
         """
         # Given: mock page with short panel text
         adapter = ZipRecruiterAdapter(
@@ -1100,7 +1099,7 @@ class TestSearch:
         """
         GIVEN a mock page where clicking the second card raises TimeoutError
         WHEN search is called
-        THEN the failed card's full_text is empty or fallback, while others are enriched.
+        THEN the failed card's full_text is empty or fallback, while others are enriched
         """
         # Given: mock page with failing card click
         adapter = ZipRecruiterAdapter(
@@ -1121,18 +1120,17 @@ class TestSearch:
 
         # Override locator for def456key
         original_dispatch = page.locator.side_effect
-        _card_prefix = _SELECTORS["card_articles"].replace("^=", "='")
-        _fail_sel = f"{_card_prefix}def456key']"
+        _fail_sel = "article[id='job-card-def456key']"
 
         def _patched_dispatch(sel: str) -> MagicMock:
             if sel == _fail_sel:
                 return fail_mock
             return original_dispatch(sel)
 
-        page.locator.side_effect = _patched_dispatch  # pyright: ignore[reportUnknownLambdaType]
+        page.locator.side_effect = _patched_dispatch
 
         panel_text = "Panel text for other cards with enough detail " * 10
-        panel_locator = page.locator(_SELECTORS["detail_panel"])
+        panel_locator = page.locator("[data-testid='job-details-scroll-container']")
         panel_locator.inner_text = AsyncMock(return_value=panel_text)
 
         # When: search
@@ -1150,7 +1148,7 @@ class TestSearch:
         """
         GIVEN a multi-page SERP where page 2 has zero cards
         WHEN search is called with max_pages=3
-        THEN pagination stops after 2 pages with only page 1 listings.
+        THEN pagination stops after 2 pages with only page 1 listings
         """
         # Given: page 1 has cards, page 2 has zero cards
         adapter = ZipRecruiterAdapter(
@@ -1193,7 +1191,7 @@ class TestSearch:
         """
         GIVEN a page with no article elements
         WHEN search is called
-        THEN an empty listing list is returned.
+        THEN an empty listing list is returned
         """
         # Given: HTML with no articles
         adapter = ZipRecruiterAdapter(
@@ -1214,7 +1212,7 @@ class TestSearch:
         """
         GIVEN a mock page where card_to_listing raises on the second card
         WHEN search is called
-        THEN the unparseable card is skipped and 2 listings are returned.
+        THEN the unparseable card is skipped and 2 listings are returned
         """
         # Given: mock page with 3 cards, one will fail
         adapter = ZipRecruiterAdapter(
@@ -1261,7 +1259,7 @@ class TestSearch:
         """
         GIVEN a query URL containing '?'
         WHEN search navigates to page 2
-        THEN page 2 URL appends '&page=2'.
+        THEN page 2 URL appends '&page=2'
         """
         # Given: a query URL with existing query string
         adapter = ZipRecruiterAdapter(
@@ -1307,7 +1305,7 @@ class TestSearch:
         """
         GIVEN a query URL without '?' (no query string)
         WHEN search paginates to page 2
-        THEN '?page=2' is used as the separator.
+        THEN '?page=2' is used as the separator
         """
         # Given: a query URL without '?'
         adapter = ZipRecruiterAdapter(
@@ -1350,7 +1348,7 @@ class TestSearch:
         """
         GIVEN a fixture with 3 cards
         WHEN search is called with max_pages=1
-        THEN only 1 page is navigated.
+        THEN only 1 page is navigated
         """
         # Given: fixture with cards, but max_pages=1
         adapter = ZipRecruiterAdapter(
@@ -1380,7 +1378,7 @@ class TestSearch:
         """
         GIVEN a listing whose full_text is already populated before click-through
         WHEN search enriches cards via click-through
-        THEN the pre-populated listing keeps its original full_text.
+        THEN the pre-populated listing keeps its original full_text
         """
         # Given: fixture with 3 cards; we pre-populate one listing's full_text
         adapter = ZipRecruiterAdapter(
@@ -1435,7 +1433,7 @@ class TestSearch:
 
 class TestExtractDetailPassthrough:
     """
-    REQUIREMENT: extract_detail is a passthrough when full_text is populated.
+    REQUIREMENT: extract_detail is a passthrough when full_text is populated
 
     WHO: The pipeline runner calling extract_detail after search
     WHAT: (1) The system returns the listing unchanged when full_text is already populated.
@@ -1456,7 +1454,7 @@ class TestExtractDetailPassthrough:
         """
         GIVEN a listing with full_text already populated
         WHEN extract_detail is called
-        THEN the listing is returned unchanged.
+        THEN the listing is returned unchanged
         """
         # Given: listing with full_text
         adapter = ZipRecruiterAdapter(
@@ -1479,7 +1477,7 @@ class TestExtractDetailPassthrough:
         """
         GIVEN a listing with empty full_text and a short_description in metadata
         WHEN extract_detail is called
-        THEN the shortDescription fallback populates full_text.
+        THEN the shortDescription fallback populates full_text
         """
         # Given: listing with empty full_text, short_description in metadata
         adapter = ZipRecruiterAdapter(
@@ -1504,7 +1502,7 @@ class TestExtractDetailPassthrough:
         """
         GIVEN a listing with empty full_text and no short_description
         WHEN extract_detail is called
-        THEN full_text remains empty.
+        THEN full_text remains empty
         """
         # Given: listing with empty full_text, no fallback
         adapter = ZipRecruiterAdapter(
