@@ -41,6 +41,7 @@ import pytest
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.logging import log_event as _real_log_event
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
+from jobsearch_rag.rag.ports import EmbeddedDocument
 from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
 
@@ -145,9 +146,13 @@ def _make_runner_with_real_stack(
     for name in ("resume", "role_archetypes", "global_positive_signals"):
         store.add_documents(
             name,
-            ids=[f"{name}-seed"],
-            documents=[f"Seed document for {name}"],
-            embeddings=[EMBED_FAKE],
+            documents=[
+                EmbeddedDocument(
+                    id=f"{name}-seed",
+                    document=f"Seed document for {name}",
+                    embedding=EMBED_FAKE,
+                ),
+            ],
         )
 
     return runner, mock_client
@@ -229,7 +234,7 @@ async def _run_pipeline(
 class TestParallelScoringOrchestration:
     """
     REQUIREMENT: The scoring loop processes listings concurrently up to a
-    configurable limit derived from the OLLAMA_NUM_PARALLEL environment variable.
+    configurable limit derived from the OLLAMA_NUM_PARALLEL environment variable
 
     WHO: The pipeline runner optimizing wall-clock time for Ollama-bound scoring
     WHAT: (1) Listings are scored concurrently up to max_parallel (from env var,
@@ -255,7 +260,7 @@ class TestParallelScoringOrchestration:
         """
         Given OLLAMA_NUM_PARALLEL=2 and 4 listings,
         When the pipeline runs,
-        Then all 4 listings are scored and appear in ranked results.
+        Then all 4 listings are scored and appear in ranked results
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with 4 listings and OLLAMA_NUM_PARALLEL=2
@@ -285,7 +290,7 @@ class TestParallelScoringOrchestration:
         """
         Given OLLAMA_NUM_PARALLEL=2 and 4 listings,
         When the pipeline scores them,
-        Then at most 2 embed calls are in-flight concurrently.
+        Then at most 2 embed calls are in-flight concurrently
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner instrumented to track concurrency
@@ -333,7 +338,7 @@ class TestParallelScoringOrchestration:
         """
         Given the same listings and mock Ollama responses,
         When run with max_parallel=1 and max_parallel=3,
-        Then the ranked listings have identical scores.
+        Then the ranked listings have identical scores
         """
         listings = [_make_listing(external_id=str(i)) for i in range(3)]
 
@@ -371,7 +376,7 @@ class TestParallelScoringOrchestration:
         Given OLLAMA_NUM_PARALLEL=3 and 5 listings,
         When the pipeline runs,
         Then a scoring_parallelism log event is emitted with max_parallel=3
-        and listing_count=5.
+        and listing_count=5
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with 5 listings
@@ -416,7 +421,7 @@ class TestParallelScoringOrchestration:
 class TestErrorIsolation:
     """
     REQUIREMENT: A scoring failure in one listing does not cancel or block
-    other concurrent listings.
+    other concurrent listings
 
     WHO: The pipeline runner ensuring resilience under partial failure
     WHAT: (1) An ActionableError in one task does not prevent other tasks
@@ -442,7 +447,7 @@ class TestErrorIsolation:
         """
         Given 3 listings where the 2nd triggers an embed error,
         When the pipeline runs with OLLAMA_NUM_PARALLEL=2,
-        Then the 1st and 3rd listings are scored and 1 failure is reported.
+        Then the 1st and 3rd listings are scored and 1 failure is reported
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: 3 listings, embed fails for external_id "bad"
@@ -497,7 +502,7 @@ class TestErrorIsolation:
         """
         Given 3 listings where the 2nd raises an unexpected RuntimeError,
         When the pipeline runs with OLLAMA_NUM_PARALLEL=2,
-        Then the other listings are scored and the error is surfaced.
+        Then the other listings are scored and the error is surfaced
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: embed raises RuntimeError on 3rd call
@@ -543,7 +548,7 @@ class TestErrorIsolation:
         """
         Given a listing that fails during scoring,
         When the pipeline completes,
-        Then RunResult.errors contains the corresponding ActionableError.
+        Then RunResult.errors contains the corresponding ActionableError
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: embed always fails
@@ -574,7 +579,7 @@ class TestErrorIsolation:
         """
         Given 4 listings where 2 fail during scoring,
         When the pipeline completes,
-        Then the session_summary log event shows failed_listings=2.
+        Then the session_summary log event shows failed_listings=2
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: embed fails on calls 3 and 5 (2nd and 3rd listings' first embed)
@@ -630,7 +635,7 @@ class TestErrorIsolation:
 class TestCollectionScoreAggregation:
     """
     REQUIREMENT: Per-collection retrieval metrics are correctly aggregated
-    from concurrent scoring tasks.
+    from concurrent scoring tasks
 
     WHO: The observability layer that emits retrieval_summary log events
     WHAT: (1) The retrieval_summary log events contain correct statistics
@@ -653,10 +658,10 @@ class TestCollectionScoreAggregation:
         Given 3 listings scored with OLLAMA_NUM_PARALLEL=2,
         When scoring completes,
         Then retrieval_summary events have n_scored=3 for populated
-        collections.
+        collections
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: 3 listings
+            # Given: 3 listings, embed fails for external_id "bad"
             settings = _make_settings(tmpdir)
             runner, _ = _make_runner_with_real_stack(settings)
             listings = [_make_listing(external_id=str(i)) for i in range(3)]
@@ -701,7 +706,7 @@ class TestCollectionScoreAggregation:
 class TestEnvironmentVariableConfig:
     """
     REQUIREMENT: max_parallel is read from the OLLAMA_NUM_PARALLEL environment
-    variable with safe fallback behavior.
+    variable with safe fallback behavior
 
     WHO: The operator who configures Ollama and the pipeline with a single
          environment variable
@@ -726,7 +731,7 @@ class TestEnvironmentVariableConfig:
         """
         Given OLLAMA_NUM_PARALLEL=4,
         When the pipeline runs,
-        Then the scoring_parallelism event shows max_parallel=4.
+        Then the scoring_parallelism event shows max_parallel=4
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: OLLAMA_NUM_PARALLEL=4
@@ -762,7 +767,7 @@ class TestEnvironmentVariableConfig:
     async def test_unset_env_var_defaults_to_serial(self) -> None:
         """
         When OLLAMA_NUM_PARALLEL is not set,
-        Then max_parallel defaults to 1.
+        Then max_parallel defaults to 1
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: env var not set
@@ -800,7 +805,7 @@ class TestEnvironmentVariableConfig:
         """
         Given OLLAMA_NUM_PARALLEL="abc",
         When the pipeline runs,
-        Then max_parallel falls back to 1 and a warning is logged.
+        Then max_parallel falls back to 1 and a warning is logged
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: invalid env var
@@ -837,7 +842,7 @@ class TestEnvironmentVariableConfig:
         """
         Given OLLAMA_NUM_PARALLEL=0,
         When the pipeline runs,
-        Then max_parallel falls back to 1 and a warning is logged.
+        Then max_parallel falls back to 1 and a warning is logged
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: zero value
@@ -874,7 +879,7 @@ class TestEnvironmentVariableConfig:
         """
         Given OLLAMA_NUM_PARALLEL=-1,
         When the pipeline runs,
-        Then max_parallel falls back to 1.
+        Then max_parallel falls back to 1
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: negative value

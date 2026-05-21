@@ -13,17 +13,18 @@ import json
 import tempfile
 import time as _time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.pipeline.runner import PipelineRunner
-from tests.conftest import adapter_override
+from jobsearch_rag.rag.ports import EmbeddedDocument
+from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
     from jobsearch_rag.config import Settings
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.rag.ports import VectorStorePort
 
 # ---------------------------------------------------------------------------
 # Public API surface (from src/jobsearch_rag/logging):
@@ -66,19 +67,17 @@ def _make_settings(
     min_score_threshold: float | None = None,
 ) -> Settings:
     """Create a Settings with temp ChromaDB dir and configurable boards."""
-    from tests.conftest import make_test_settings  # noqa: PLC0415
-
-    scoring_overrides: dict[str, object] = {"disqualify_on_llm_flag": disqualify_on_llm_flag}
+    scoring_overrides: dict[str, Any] = {"disqualify_on_llm_flag": disqualify_on_llm_flag}
     if min_score_threshold is not None:
         scoring_overrides["min_score_threshold"] = min_score_threshold
-    ollama_overrides: dict[str, object] = {}
+    ollama_overrides: dict[str, Any] = {}
     if slow_llm_threshold_ms is not None:
         ollama_overrides["slow_llm_threshold_ms"] = slow_llm_threshold_ms
     return make_test_settings(
         tmpdir,
         enabled_boards=enabled_boards,
-        scoring_overrides=scoring_overrides,  # type: ignore[arg-type]
-        ollama_overrides=ollama_overrides,  # type: ignore[arg-type]
+        scoring_overrides=scoring_overrides,
+        ollama_overrides=ollama_overrides,
     )
 
 
@@ -132,14 +131,18 @@ def _make_runner_with_real_stack(
     return runner, mock_client
 
 
-def _populate_store(store: VectorStore) -> None:
+def _populate_store(store: VectorStorePort) -> None:
     """Seed the three required collections so auto-indexing is skipped."""
     for name in ("resume", "role_archetypes", "global_positive_signals"):
         store.add_documents(
             name,
-            ids=[f"{name}-seed"],
-            documents=[f"Seed document for {name}"],
-            embeddings=[EMBED_FAKE],
+            documents=[
+                EmbeddedDocument(
+                    id=f"{name}-seed",
+                    document=f"Seed document for {name}",
+                    embedding=EMBED_FAKE,
+                ),
+            ],
         )
 
 
@@ -158,7 +161,7 @@ _RETRIEVAL_COLLECTIONS = (
 )
 
 
-def _populate_store_with_distant_embeddings(store: VectorStore) -> None:
+def _populate_store_with_distant_embeddings(store: VectorStorePort) -> None:
     """
     Seed collections with distant embeddings so score distributions are non-trivial.
 
@@ -168,9 +171,13 @@ def _populate_store_with_distant_embeddings(store: VectorStore) -> None:
     for name in _RETRIEVAL_COLLECTIONS:
         store.add_documents(
             name,
-            ids=[f"{name}-seed"],
-            documents=[f"Seed document for {name}"],
-            embeddings=[_EMBED_DISTANT],
+            documents=[
+                EmbeddedDocument(
+                    id=f"{name}-seed",
+                    document=f"Seed document for {name}",
+                    embedding=_EMBED_DISTANT,
+                ),
+            ],
         )
 
 
@@ -273,7 +280,7 @@ def _run_pipeline_and_read_logs(
     )
     if chat_latency_s > 0:
 
-        async def _slow_chat(**_kwargs: object) -> MagicMock:  # type: ignore[type-arg]
+        async def _slow_chat(**_kwargs: object) -> object:
             _time.sleep(chat_latency_s)
             return chat_response
 
@@ -299,12 +306,6 @@ def _run_pipeline_and_read_logs(
     ):
         asyncio.run(runner.run())
 
-    # Release ChromaDB file handles before TemporaryDirectory cleanup.
-    # Without this, Windows cannot delete the temp dir (no POSIX
-    # unlink-while-open) and leaked handles exhaust the fd limit
-    # under pytest-xdist parallelism.
-    runner.store.close()
-
     # Parse JSON-lines log files (only new ones)
     skip = exclude_files or set()
     entries: list[dict[str, object]] = []
@@ -328,8 +329,7 @@ class TestSessionTracing:
     """
     REQUIREMENT: Every run produces a structured log file whose entries
     are correlated by a session ID so the operator can reconstruct exactly
-    what happened in any given run.
-
+    what happened in any given run
     WHO: The operator diagnosing unexpected scores, missed listings, or
          slow inference after a run completes
     WHAT: (1) A session ID is generated at the start of each CLI invocation
@@ -390,7 +390,7 @@ class TestSessionTracing:
         the same session ID as all other entries in that file
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with one listing
+            # Given: a runner with one listing and disqualification off
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
             listings = [_make_listing()]
@@ -474,7 +474,7 @@ class TestSessionTracing:
         history, negative, and final scores
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with one listing
+            # Given: a runner with one listing and disqualification off
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
             listings = [_make_listing()]
@@ -522,7 +522,7 @@ class TestSessionTracing:
         Then every line parses without error
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with one listing
+            # Given: a runner with one listing and disqualification off
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
             listings = [_make_listing()]
@@ -611,13 +611,11 @@ class TestOllamaCallTracing:
             assert entry.get("model") == settings.ollama.embed_model, (
                 f"Expected model '{settings.ollama.embed_model}', got '{entry.get('model')}'"
             )
-            assert isinstance(entry.get("input_chars"), int), (
-                f"Expected 'input_chars' as int, got {type(entry.get('input_chars'))}: "
-                f"{entry.get('input_chars')}"
+            input_chars = entry.get("input_chars")
+            assert isinstance(input_chars, int), (
+                f"Expected 'input_chars' as int, got {type(input_chars)}: {input_chars}"
             )
-            assert entry["input_chars"] > 0, (  # type: ignore[operator]
-                f"Expected positive input_chars, got {entry['input_chars']}"
-            )
+            assert input_chars > 0, f"Expected positive input_chars, got {input_chars}"
 
     def test_disqualifier_call_entry_has_model_input_chars_and_outcome(self) -> None:
         """
@@ -629,7 +627,7 @@ class TestOllamaCallTracing:
         And it contains 'outcome' as a string
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with disqualification enabled
+            # Given: a runner with disqualification enabled and a disqualifying response
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
             runner, mock_client = _make_runner_with_real_stack(settings)
             listings = [_make_listing()]
@@ -647,12 +645,11 @@ class TestOllamaCallTracing:
             assert entry.get("model") == settings.ollama.llm_model, (
                 f"Expected model '{settings.ollama.llm_model}', got '{entry.get('model')}'"
             )
-            assert isinstance(entry.get("input_chars"), int), (
-                f"Expected 'input_chars' as int, got {type(entry.get('input_chars'))}"
+            input_chars = entry.get("input_chars")
+            assert isinstance(input_chars, int), (
+                f"Expected 'input_chars' as int, got {type(input_chars)}"
             )
-            assert entry["input_chars"] > 0, (  # type: ignore[operator]
-                f"Expected positive input_chars, got {entry['input_chars']}"
-            )
+            assert input_chars > 0, f"Expected positive input_chars, got {input_chars}"
             assert isinstance(entry.get("outcome"), str), (
                 f"Expected 'outcome' as string, got {type(entry.get('outcome'))}"
             )
@@ -695,7 +692,7 @@ class TestOllamaCallTracing:
         all contain the same 'session' value
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with disqualification enabled
+            # Given: a runner with disqualification enabled and a disqualifying response
             settings = _make_settings(tmpdir, disqualify_on_llm_flag=True)
             runner, mock_client = _make_runner_with_real_stack(settings)
             listings = [_make_listing()]
@@ -756,7 +753,7 @@ class TestOllamaCallTracing:
 class TestInferenceMetrics:
     """
     REQUIREMENT: Each run produces a summary of inference activity so the
-    operator can track efficiency and detect slow calls.
+    operator can track efficiency and detect slow calls
 
     WHO: The operator tuning prompt length and model selection;
          the operator monitoring inference time on constrained hardware
@@ -801,7 +798,7 @@ class TestInferenceMetrics:
         And it is the last entry in the file
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with one listing
+            # Given: a runner with one listing and disqualification off
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
             listings = [_make_listing()]
@@ -826,7 +823,7 @@ class TestInferenceMetrics:
         Then it contains an 'embed_calls' field with a value >= 2
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with two listings
+            # Given: a runner with two listings and disqualification enabled
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
             listings = [
@@ -844,12 +841,11 @@ class TestInferenceMetrics:
             assert "embed_calls" in summary, (
                 f"session_summary missing 'embed_calls' field: {summary}"
             )
-            assert isinstance(summary["embed_calls"], int), (
-                f"Expected 'embed_calls' as int, got {type(summary['embed_calls'])}"
+            embed_calls = summary["embed_calls"]
+            assert isinstance(embed_calls, int), (
+                f"Expected 'embed_calls' as int, got {type(embed_calls)}"
             )
-            assert summary["embed_calls"] >= 2, (  # type: ignore[operator]
-                f"Expected embed_calls >= 2, got {summary['embed_calls']}"
-            )
+            assert embed_calls >= 2, f"Expected embed_calls >= 2, got {embed_calls}"
 
     def test_session_summary_includes_llm_call_count(self) -> None:
         """
@@ -901,13 +897,12 @@ class TestInferenceMetrics:
             assert "llm_latency_ms_total" in summary, (
                 f"session_summary missing 'llm_latency_ms_total' field: {summary}"
             )
-            assert isinstance(summary["llm_latency_ms_total"], int), (
-                f"Expected 'llm_latency_ms_total' as int, "
-                f"got {type(summary['llm_latency_ms_total'])}"
+            llm_latency_ms_total = summary["llm_latency_ms_total"]
+            assert isinstance(llm_latency_ms_total, int), (
+                f"Expected 'llm_latency_ms_total' as int, got {type(llm_latency_ms_total)}"
             )
-            assert summary["llm_latency_ms_total"] >= 0, (  # type: ignore[operator]
-                f"Expected non-negative llm_latency_ms_total, "
-                f"got {summary['llm_latency_ms_total']}"
+            assert llm_latency_ms_total >= 0, (
+                f"Expected non-negative llm_latency_ms_total, got {llm_latency_ms_total}"
             )
 
     def test_session_summary_includes_embed_tokens_total(self) -> None:
@@ -919,7 +914,7 @@ class TestInferenceMetrics:
               otherwise falls back to len(text) // 4 estimate
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with two listings
+            # Given: a runner with two listings and disqualification enabled
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
             listings = [
@@ -937,11 +932,12 @@ class TestInferenceMetrics:
             assert "embed_tokens_total" in summary, (
                 f"session_summary missing 'embed_tokens_total' field: {summary}"
             )
-            assert isinstance(summary["embed_tokens_total"], int), (
-                f"Expected 'embed_tokens_total' as int, got {type(summary['embed_tokens_total'])}"
+            embed_tokens_total = summary["embed_tokens_total"]
+            assert isinstance(embed_tokens_total, int), (
+                f"Expected 'embed_tokens_total' as int, got {type(embed_tokens_total)}"
             )
-            assert summary["embed_tokens_total"] > 0, (  # type: ignore[operator]
-                f"Expected positive embed_tokens_total, got {summary['embed_tokens_total']}"
+            assert embed_tokens_total > 0, (
+                f"Expected positive embed_tokens_total, got {embed_tokens_total}"
             )
 
     def test_session_summary_includes_llm_tokens_total(self) -> None:
@@ -971,11 +967,12 @@ class TestInferenceMetrics:
             assert "llm_tokens_total" in summary, (
                 f"session_summary missing 'llm_tokens_total' field: {summary}"
             )
-            assert isinstance(summary["llm_tokens_total"], int), (
-                f"Expected 'llm_tokens_total' as int, got {type(summary['llm_tokens_total'])}"
+            llm_tokens_total = summary["llm_tokens_total"]
+            assert isinstance(llm_tokens_total, int), (
+                f"Expected 'llm_tokens_total' as int, got {type(llm_tokens_total)}"
             )
-            assert summary["llm_tokens_total"] > 0, (  # type: ignore[operator]
-                f"Expected positive llm_tokens_total, got {summary['llm_tokens_total']}"
+            assert llm_tokens_total > 0, (
+                f"Expected positive llm_tokens_total, got {llm_tokens_total}"
             )
 
     def test_slow_llm_calls_counted_when_threshold_exceeded(self) -> None:
@@ -1005,8 +1002,12 @@ class TestInferenceMetrics:
             assert "slow_llm_calls" in summary, (
                 f"session_summary missing 'slow_llm_calls' field: {summary}"
             )
-            assert summary["slow_llm_calls"] > 0, (  # type: ignore[operator]
-                f"Expected slow_llm_calls > 0 with threshold 1ms, got {summary['slow_llm_calls']}"
+            slow_llm_calls = summary["slow_llm_calls"]
+            assert isinstance(slow_llm_calls, int), (
+                f"Expected 'slow_llm_calls' as int, got {type(slow_llm_calls)}"
+            )
+            assert slow_llm_calls > 0, (
+                f"Expected slow_llm_calls > 0 with threshold 1ms, got {slow_llm_calls}"
             )
 
     def test_slow_llm_calls_is_zero_when_no_calls_exceed_threshold(self) -> None:
@@ -1090,7 +1091,7 @@ class TestInferenceMetrics:
         Then it contains a 'wall_clock_ms' field as a non-negative integer
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: a runner with one listing
+            # Given: a runner with one listing and disqualification off
             settings = _make_settings(tmpdir)
             runner, mock_client = _make_runner_with_real_stack(settings)
             listings = [_make_listing()]
@@ -1105,12 +1106,11 @@ class TestInferenceMetrics:
             assert "wall_clock_ms" in summary, (
                 f"session_summary missing 'wall_clock_ms' field: {summary}"
             )
-            assert isinstance(summary["wall_clock_ms"], int), (
-                f"Expected 'wall_clock_ms' as int, got {type(summary['wall_clock_ms'])}"
+            wall_clock_ms = summary["wall_clock_ms"]
+            assert isinstance(wall_clock_ms, int), (
+                f"Expected 'wall_clock_ms' as int, got {type(wall_clock_ms)}"
             )
-            assert summary["wall_clock_ms"] >= 0, (  # type: ignore[operator]
-                f"Expected non-negative wall_clock_ms, got {summary['wall_clock_ms']}"
-            )
+            assert wall_clock_ms >= 0, f"Expected non-negative wall_clock_ms, got {wall_clock_ms}"
 
     def test_session_summary_includes_wall_clock_ms_on_empty_run(self) -> None:
         """
@@ -1134,12 +1134,11 @@ class TestInferenceMetrics:
             assert "wall_clock_ms" in summary, (
                 f"session_summary missing 'wall_clock_ms' on empty run: {summary}"
             )
-            assert isinstance(summary["wall_clock_ms"], int), (
-                f"Expected 'wall_clock_ms' as int, got {type(summary['wall_clock_ms'])}"
+            wall_clock_ms = summary["wall_clock_ms"]
+            assert isinstance(wall_clock_ms, int), (
+                f"Expected 'wall_clock_ms' as int, got {type(wall_clock_ms)}"
             )
-            assert summary["wall_clock_ms"] >= 0, (  # type: ignore[operator]
-                f"Expected non-negative wall_clock_ms, got {summary['wall_clock_ms']}"
-            )
+            assert wall_clock_ms >= 0, f"Expected non-negative wall_clock_ms, got {wall_clock_ms}"
 
 
 # ---------------------------------------------------------------------------
@@ -1151,8 +1150,7 @@ class TestRetrievalMetrics:
     """
     REQUIREMENT: After each scoring run, the distribution of scores per
     collection is logged so the operator can detect stale indexes and
-    calibrate weights over time.
-
+    calibrate weights over time
     WHO: The operator who re-indexed and wants to confirm the change had
          the expected effect; the operator tuning collection weights
     WHAT: (1) one retrieval_summary log entry is written per collection
@@ -1323,9 +1321,11 @@ class TestRetrievalMetrics:
             )
             for summary in summaries:
                 assert "n_scored" in summary, f"retrieval_summary missing 'n_scored': {summary}"
-                assert summary["n_scored"] >= 1, (  # type: ignore[operator]
-                    f"Expected n_scored >= 1, got {summary['n_scored']}"
+                n_scored = summary["n_scored"]
+                assert isinstance(n_scored, int), (
+                    f"Expected 'n_scored' as int, got {type(n_scored)}"
                 )
+                assert n_scored >= 1, f"Expected n_scored >= 1, got {n_scored}"
                 for field in ("score_min", "score_p50", "score_p90", "score_max"):
                     assert isinstance(summary.get(field), (int, float)), (
                         f"'{field}' should be numeric in {summary.get('collection')}: {summary}"
