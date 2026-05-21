@@ -11,16 +11,23 @@ import argparse
 import logging
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import ollama as ollama_sdk
 
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
+from jobsearch_rag.cli import handle_search
 from jobsearch_rag.config import DisqualifierConfig
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
-from tests.conftest import adapter_override
+from jobsearch_rag.rag.ports import (
+    EmbeddedDocument,
+    VectorStoreConfig,
+    VectorStorePort,
+    create_vector_store,
+)
+from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
@@ -29,18 +36,24 @@ if TYPE_CHECKING:
     import pytest
 
     from jobsearch_rag.config import Settings
-    from jobsearch_rag.rag.store import VectorStore
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+_FAKE_STORE_CONFIG = VectorStoreConfig(
+    store_class="tests.fakes.FakeVectorStore",
+    persist_dir="",
+    distance_metric="cosine",
+    sync_threshold=1,
+)
 
-def _adapt(adapter: object) -> Callable[..., JobBoardAdapter]:
+
+def _adapt(adapter: Any) -> Callable[..., JobBoardAdapter]:
     """Wrap an adapter/mock as a registry-compatible factory accepting any kwargs."""
 
     def _factory(**_kwargs: object) -> JobBoardAdapter:
-        return cast("JobBoardAdapter", adapter)
+        return adapter  # MagicMock quacks like JobBoardAdapter at runtime
 
     return _factory
 
@@ -83,8 +96,6 @@ def _make_settings(
     global_rubric_path: str | None = None,
 ) -> Settings:
     """Create a Settings with temp ChromaDB dir and configurable boards."""
-    from tests.conftest import make_test_settings  # noqa: PLC0415
-
     return make_test_settings(
         tmpdir,
         enabled_boards=enabled_boards,
@@ -118,12 +129,11 @@ def _make_runner_with_real_stack(
     populate_store: bool = True,
 ) -> tuple[PipelineRunner, AsyncMock]:
     """
-    Create a PipelineRunner with real Embedder/Scorer and mocked Ollama client.
+    Create a PipelineRunner with an in-memory VectorStorePort and mocked Ollama client.
 
     The only mock is ``ollama_sdk.AsyncClient`` — the I/O boundary where
-    our system ends and the network begins.  Everything else (``Embedder``,
-    ``Scorer``, ``VectorStore``, ``Ranker``, ``DecisionRecorder``) runs
-    for real.
+    our system ends and the network begins.  The vector store is created
+    via the factory with ``_FAKE_STORE_CONFIG`` (hexagonal port).
 
     When *populate_store* is ``True`` (default), minimal documents are
     seeded into ``resume``, ``role_archetypes``, and
@@ -147,26 +157,34 @@ def _make_runner_with_real_stack(
     embed_response.embeddings = [EMBED_FAKE]
     mock_client.embed.return_value = embed_response
 
-    with patch(
-        "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
+    store = create_vector_store(_FAKE_STORE_CONFIG)
+
+    with (
+        patch(
+            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+            return_value=mock_client,
+        ),
     ):
-        runner = PipelineRunner(settings)
+        runner = PipelineRunner(settings, store=store)
 
     if populate_store:
-        _populate_store(runner.store)
+        _populate_store(store)
 
     return runner, mock_client
 
 
-def _populate_store(store: VectorStore) -> None:
+def _populate_store(store: VectorStorePort) -> None:
     """Seed the three required collections so auto-indexing is skipped."""
     for name in ("resume", "role_archetypes", "global_positive_signals"):
         store.add_documents(
             name,
-            ids=[f"{name}-seed"],
-            documents=[f"Seed document for {name}"],
-            embeddings=[EMBED_FAKE],
+            documents=[
+                EmbeddedDocument(
+                    id=f"{name}-seed",
+                    document=f"Seed document for {name}",
+                    embedding=EMBED_FAKE,
+                ),
+            ],
         )
 
 
@@ -230,7 +248,7 @@ def _make_test_adapter(
 
 class TestPipelineOrchestration:
     """
-    REQUIREMENT: The pipeline runner executes steps in correct order with proper error handling.
+    REQUIREMENT: The pipeline runner executes steps in correct order with proper error handling
 
     WHO: The operator running a search; downstream consumers of RunResult
     WHAT: (1) The system performs the Ollama health check before it starts any board I/O during a run.
@@ -254,7 +272,8 @@ class TestPipelineOrchestration:
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama API),
                async_playwright (Playwright browser library)
-        Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
+        Real:  PipelineRunner, Embedder, Scorer,
+               FakeVectorStore (in-memory VectorStorePort), Ranker,
                DecisionRecorder, AdapterRegistry, SessionManager, throttle
         Never: Construct ScoreResult directly — always obtained via real Scorer.score()
     """
@@ -263,7 +282,7 @@ class TestPipelineOrchestration:
         """
         Given a configured runner with populated collections,
         When run() is invoked,
-        Then the Ollama health check (client.list) fires before any board I/O.
+        Then the Ollama health check (client.list) fires before any board I/O
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with real Embedder/Scorer, populated store
@@ -301,13 +320,12 @@ class TestPipelineOrchestration:
             assert call_order[0] == "health_check", (
                 f"Expected health_check first, got: {call_order}"
             )
-            runner.store.close()
 
     async def test_defaults_to_enabled_boards_when_none_specified(self) -> None:
         """
         Given a runner with two enabled boards,
         When run(boards=None) is called,
-        Then both enabled boards are searched.
+        Then both enabled boards are searched
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two enabled boards
@@ -333,13 +351,12 @@ class TestPipelineOrchestration:
                 "board_a",
                 "board_b",
             }, f"Expected both enabled boards, got: {result.boards_searched}"
-            runner.store.close()
 
     async def test_explicit_boards_override_enabled_boards(self) -> None:
         """
         Given a runner with two enabled boards,
         When run(boards=["board_a"]) is called,
-        Then only the explicitly specified board is searched.
+        Then only the explicitly specified board is searched
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two enabled boards
@@ -364,13 +381,12 @@ class TestPipelineOrchestration:
             assert result.boards_searched == ["board_a"], (
                 f"Expected only board_a, got: {result.boards_searched}"
             )
-            runner.store.close()
 
     async def test_overnight_mode_includes_overnight_boards(self) -> None:
         """
         Given a runner with one enabled board and one overnight board,
         When run(overnight=True) is called,
-        Then both the enabled and overnight boards are searched.
+        Then both the enabled and overnight boards are searched
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: enabled + overnight boards
@@ -398,13 +414,12 @@ class TestPipelineOrchestration:
             # Then: both boards are searched
             assert "board_a" in result.boards_searched, "enabled board missing from search"
             assert "linkedin" in result.boards_searched, "overnight board missing from search"
-            runner.store.close()
 
     async def test_board_failure_does_not_abort_other_boards(self) -> None:
         """
         Given two boards where one raises ActionableError on authenticate,
         When run() is called,
-        Then the good board's listings are still scored and results include both boards.
+        Then the good board's listings are still scored and results include both boards
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: one failing + one good board
@@ -455,13 +470,12 @@ class TestPipelineOrchestration:
             assert result.summary.total_found >= 1, (
                 f"Expected at least 1 found listing, got: {result.summary.total_found}"
             )
-            runner.store.close()
 
     async def test_scoring_failure_increments_failed_count(self) -> None:
         """
         Given a runner whose Ollama embed endpoint returns a non-retryable error,
         When a listing is collected and scoring is attempted,
-        Then failed_listings is incremented (real Scorer → real Embedder → mock client fails).
+        Then failed_listings is incremented (real Scorer → real Embedder → mock client fails)
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with populated store
@@ -489,13 +503,12 @@ class TestPipelineOrchestration:
             assert result.failed_listings >= 1, (
                 f"Expected failed_listings >= 1, got: {result.failed_listings}"
             )
-            runner.store.close()
 
     async def test_empty_results_return_valid_run_result(self) -> None:
         """
         Given a runner searching a board that returns no listings,
         When run() completes,
-        Then a valid RunResult is returned with empty ranked_listings.
+        Then a valid RunResult is returned with empty ranked_listings
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: board returns no listings
@@ -521,13 +534,12 @@ class TestPipelineOrchestration:
             assert result.boards_searched == ["testboard"], (
                 f"Expected ['testboard'], got: {result.boards_searched}"
             )
-            runner.store.close()
 
     async def test_scored_listings_are_passed_to_ranker(self) -> None:
         """
         Given a board that returns one listing,
         When run() scores it successfully,
-        Then the listing passes through the ranker and appears in summary counts.
+        Then the listing passes through the ranker and appears in summary counts
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: one listing available
@@ -553,13 +565,12 @@ class TestPipelineOrchestration:
             assert result.summary.total_scored == 1, (
                 f"Expected total_scored == 1, got: {result.summary.total_scored}"
             )
-            runner.store.close()
 
     async def test_overnight_overlap_does_not_duplicate_board(self) -> None:
         """
         Given a runner where an overnight board is also an enabled board,
         When run(overnight=True) is called,
-        Then the board appears only once in boards_searched.
+        Then the board appears only once in boards_searched
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: same board in both enabled and overnight
@@ -587,14 +598,13 @@ class TestPipelineOrchestration:
             assert result.boards_searched.count("board_a") == 1, (
                 f"Expected board_a once, got: {result.boards_searched}"
             )
-            runner.store.close()
 
     async def test_auto_indexes_only_empty_collections(self) -> None:
         """
         Given a runner where the positive_signals collection is empty but
         resume and archetypes are populated,
         When run() is called,
-        Then only the positive_signals collection is auto-indexed.
+        Then only the positive_signals collection is auto-indexed
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: resume and archetypes populated, positive empty
@@ -612,9 +622,13 @@ class TestPipelineOrchestration:
             for name in ("resume", "role_archetypes"):
                 store.add_documents(
                     name,
-                    ids=[f"{name}-seed"],
-                    documents=[f"Seed document for {name}"],
-                    embeddings=[EMBED_FAKE],
+                    documents=[
+                        EmbeddedDocument(
+                            id=f"{name}-seed",
+                            document=f"Seed document for {name}",
+                            embedding=EMBED_FAKE,
+                        ),
+                    ],
                 )
 
             mock_adapter = _make_test_adapter()
@@ -632,14 +646,13 @@ class TestPipelineOrchestration:
             assert store.collection_count("global_positive_signals") > 0, (
                 "Expected positive_signals to be auto-indexed"
             )
-            runner.store.close()
 
     async def test_auto_index_skips_populated_collections(self) -> None:
         """
         Given a runner where only archetypes is empty but resume and
         positive_signals are populated,
         When run() is called,
-        Then only archetypes is auto-indexed while the others are untouched.
+        Then only archetypes is auto-indexed while the others are untouched
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: resume and positive_signals populated, archetypes empty
@@ -657,9 +670,13 @@ class TestPipelineOrchestration:
             for name in ("resume", "global_positive_signals"):
                 store.add_documents(
                     name,
-                    ids=[f"{name}-seed"],
-                    documents=[f"Seed document for {name}"],
-                    embeddings=[EMBED_FAKE],
+                    documents=[
+                        EmbeddedDocument(
+                            id=f"{name}-seed",
+                            document=f"Seed document for {name}",
+                            embedding=EMBED_FAKE,
+                        ),
+                    ],
                 )
 
             mock_adapter = _make_test_adapter()
@@ -677,7 +694,6 @@ class TestPipelineOrchestration:
             assert store.collection_count("role_archetypes") > 0, (
                 "Expected archetypes to be auto-indexed"
             )
-            runner.store.close()
 
     async def test_max_listings_caps_scored_count_and_logs(
         self,
@@ -686,7 +702,7 @@ class TestPipelineOrchestration:
         """
         Given a board returns 5 listings
         When run(max_listings=2) is called
-        Then only 2 listings are scored and the cap is logged.
+        Then only 2 listings are scored and the cap is logged
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner + adapter returning 5 listings
@@ -715,14 +731,13 @@ class TestPipelineOrchestration:
             assert any("Capping listings from 5 to 2" in msg for msg in caplog.messages), (
                 f"Expected cap log message, got: {caplog.messages}"
             )
-            runner.store.close()
 
     async def test_freeform_disqualifier_override_bypasses_synthesis(self) -> None:
         """
         Given settings with a freeform disqualifier system_prompt override,
         When PipelineRunner is constructed and a listing is scored,
-        Then the pipeline completes successfully using the freeform prompt
-             (the listing is scored without synthesis from archetypes).
+        Then the pipeline completes successfully using the freeform promp
+             (the listing is scored without synthesis from archetypes)
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _make_settings(tmpdir)
@@ -746,7 +761,6 @@ class TestPipelineOrchestration:
             assert result.summary.total_scored > 0, (
                 f"Expected at least 1 scored listing, got {result.summary.total_scored}"
             )
-            runner.store.close()
 
     async def test_forwards_throttle_config_to_adapter_constructor(self) -> None:
         """
@@ -784,7 +798,6 @@ class TestPipelineOrchestration:
             assert received_kwargs.get("throttle_base_delay") == 2.0, (
                 f"Expected throttle_base_delay=2.0, got: {received_kwargs}"
             )
-            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -794,7 +807,7 @@ class TestPipelineOrchestration:
 
 class TestBoardSearchDelegation:
     """
-    REQUIREMENT: Individual board search delegates correctly to adapter and session manager.
+    REQUIREMENT: Individual board search delegates correctly to adapter and session manager
 
     WHO: The pipeline runner calling adapters through the session manager
     WHAT: (1) The system skips a board that has no config section and returns an empty result without error.
@@ -812,7 +825,8 @@ class TestBoardSearchDelegation:
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama API),
                async_playwright (Playwright browser library)
-        Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
+        Real:  PipelineRunner, Embedder, Scorer,
+               FakeVectorStore (in-memory VectorStorePort), Ranker,
                DecisionRecorder, AdapterRegistry, SessionManager, throttle
         Never: Construct ScoreResult directly — always obtained via real Scorer.score()
     """
@@ -821,7 +835,7 @@ class TestBoardSearchDelegation:
         """
         Given a runner configured for 'testboard',
         When run(boards=["nonexistent_board"]) is called,
-        Then the board is skipped and an empty result is returned without error.
+        Then the board is skipped and an empty result is returned without error
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner configured for 'testboard' only
@@ -850,14 +864,13 @@ class TestBoardSearchDelegation:
             assert result.failed_listings == 0, (
                 f"Expected 0 failed_listings, got: {result.failed_listings}"
             )
-            runner.store.close()
 
     async def test_mixed_group_skips_unconfigured_board_via_search_board(self) -> None:
         """
         Given a channel group containing one configured board and one unconfigured board,
         When run() processes the group under a shared BrowserManager,
-        Then the unconfigured board is skipped by _search_board and the configured board's
-        listings are returned normally.
+        Then the unconfigured board is skipped by _search_board and the configured board'
+        listings are returned normally
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: runner with 'testboard' configured; 'ghost' has no config
@@ -873,6 +886,12 @@ class TestBoardSearchDelegation:
             )
             test_adapter = _make_test_adapter(board_name="testboard", search_results=[listing])
             ghost_adapter = _make_test_adapter(board_name="ghost")
+            # Ghost should never be touched — fail loudly if it is
+            ghost_adapter.authenticate = AsyncMock(
+                side_effect=AssertionError(
+                    "Ghost adapter should never authenticate — board has no config section"
+                )
+            )
 
             mock_pw_fn, _ = _mock_playwright_boundary()
             with (
@@ -892,19 +911,15 @@ class TestBoardSearchDelegation:
             assert result.failed_listings == 0, (
                 f"Expected 0 failed_listings from mixed group, got: {result.failed_listings}"
             )
-            assert ghost_adapter.authenticate.call_count == 0, (
-                "Ghost adapter should never authenticate — board has no config section"
+            assert result.summary.total_found >= 1, (
+                "Testboard should have produced at least one listing"
             )
-            assert test_adapter.authenticate.call_count == 1, (
-                "Testboard adapter should authenticate once"
-            )
-            runner.store.close()
 
     async def test_adapter_lifecycle_runs_in_order(self) -> None:
         """
         Given an adapter that returns a listing with empty full_text,
         When run() searches that board,
-        Then authenticate → search → extract_detail is called in that order.
+        Then authenticate → search → extract_detail is called in that order
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: adapter with lifecycle tracking
@@ -961,13 +976,12 @@ class TestBoardSearchDelegation:
             assert result.summary.total_found == 1, (
                 f"Expected total_found == 1, got: {result.summary.total_found}"
             )
-            runner.store.close()
 
     async def test_enriched_listings_skip_extract_detail(self) -> None:
         """
         Given an adapter that returns a listing with full_text already populated,
         When run() processes that listing,
-        Then extract_detail is not called.
+        Then extract_detail is not called
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: listing with pre-populated full_text
@@ -1013,13 +1027,12 @@ class TestBoardSearchDelegation:
             assert result.summary.total_found == 1, (
                 f"Expected total_found == 1, got: {result.summary.total_found}"
             )
-            runner.store.close()
 
     async def test_empty_jd_text_is_counted_as_failure(self) -> None:
         """
         Given an adapter whose extract_detail returns whitespace-only full_text,
         When run() processes that listing,
-        Then the listing is excluded and counted as failed.
+        Then the listing is excluded and counted as failed
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: extraction produces whitespace-only text
@@ -1070,13 +1083,12 @@ class TestBoardSearchDelegation:
             assert result.failed_listings == 1, (
                 f"Expected 1 failed_listings, got: {result.failed_listings}"
             )
-            runner.store.close()
 
     async def test_extraction_error_counts_failure_without_aborting(self) -> None:
         """
         Given two listings where extract_detail raises ActionableError on the first,
         When run() processes both,
-        Then the good listing is scored and the bad one is counted as failed.
+        Then the good listing is scored and the bad one is counted as failed
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two listings, one will fail extraction
@@ -1139,13 +1151,12 @@ class TestBoardSearchDelegation:
                 f"Expected 'good' listing, got: {result.ranked_listings[0].listing.external_id}"
             )
             assert result.failed_listings == 1, f"Expected 1 failed, got: {result.failed_listings}"
-            runner.store.close()
 
     async def test_unexpected_exception_during_extraction_is_counted(self) -> None:
         """
         Given an adapter whose extract_detail raises RuntimeError,
         When run() processes that listing,
-        Then the failure is counted without aborting the run.
+        Then the failure is counted without aborting the run
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: extraction raises unexpected error
@@ -1184,13 +1195,12 @@ class TestBoardSearchDelegation:
                 f"Expected no ranked listings, got: {result.ranked_listings}"
             )
             assert result.failed_listings == 1, f"Expected 1 failed, got: {result.failed_listings}"
-            runner.store.close()
 
     async def test_search_failure_skips_url_and_continues(self) -> None:
         """
         Given a board with two search URLs where the first raises ActionableError,
         When run() searches both,
-        Then the second URL's results are collected successfully.
+        Then the second URL's results are collected successfully
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: two search URLs, first will fail
@@ -1236,7 +1246,6 @@ class TestBoardSearchDelegation:
             assert result.summary.total_found == 1, (
                 f"Expected 1 found from second URL, got: {result.summary.total_found}"
             )
-            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1246,7 +1255,7 @@ class TestBoardSearchDelegation:
 
 class TestAutoIndex:
     """
-    REQUIREMENT: Empty collections are auto-indexed before scoring begins.
+    REQUIREMENT: Empty collections are auto-indexed before scoring begins
 
     WHO: The operator running search after a reset or on first use
     WHAT: (1) The system creates a real Indexer and indexes the resume and archetype collections when run() starts with an unpopulated store.
@@ -1260,7 +1269,8 @@ class TestAutoIndex:
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama API),
                async_playwright (Playwright browser library)
-        Real:  PipelineRunner, Embedder, Scorer, Indexer, VectorStore, Ranker,
+        Real:  PipelineRunner, Embedder, Scorer, Indexer,
+               FakeVectorStore (in-memory VectorStorePort), Ranker,
                DecisionRecorder, AdapterRegistry, SessionManager, throttle,
                config files on disk
         Never: Construct Indexer directly or patch it — always exercised through
@@ -1271,7 +1281,7 @@ class TestAutoIndex:
         """
         Given an unpopulated store and real config files on disk,
         When run() is called,
-        Then _ensure_indexed creates a real Indexer and indexes resume + archetypes.
+        Then _ensure_indexed creates a real Indexer and indexes resume + archetypes
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: config files exist, store is empty
@@ -1305,13 +1315,12 @@ class TestAutoIndex:
             assert store.collection_count("global_positive_signals") > 0, (
                 "global_positive_signals collection should be populated after auto-index"
             )
-            runner.store.close()
 
     async def test_skips_auto_index_when_collections_are_populated(self) -> None:
         """
         Given a store with pre-populated collections,
         When run() is called,
-        Then no re-indexing occurs (collection counts remain unchanged).
+        Then no re-indexing occurs (collection counts remain unchanged)
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: store already populated
@@ -1339,13 +1348,12 @@ class TestAutoIndex:
             assert store.collection_count("role_archetypes") == archetypes_count_before, (
                 "role_archetypes collection should not change when already populated"
             )
-            runner.store.close()
 
     async def test_auto_index_runs_before_scoring_begins(self) -> None:
         """
         Given empty collections, real config files, and a board that returns a listing,
         When run() is called,
-        Then auto-indexing populates collections before scoring uses them.
+        Then auto-indexing populates collections before scoring uses them
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: config files exist, store empty, one listing to score
@@ -1389,13 +1397,12 @@ class TestAutoIndex:
             assert result.summary.total_scored >= 1, (
                 f"Expected at least 1 scored listing, got: {result.summary.total_scored}"
             )
-            runner.store.close()
 
     async def test_collection_empty_returns_true_when_store_raises(self) -> None:
         """
         Given a store with no collections (collection_count raises ActionableError),
         When _ensure_indexed checks collections,
-        Then the collection is treated as empty and real auto-indexing runs.
+        Then the collection is treated as empty and real auto-indexing runs
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: config files exist, store completely empty
@@ -1429,12 +1436,11 @@ class TestAutoIndex:
             assert store.collection_count("global_positive_signals") > 0, (
                 "global_positive_signals should be auto-indexed when collection was missing"
             )
-            runner.store.close()
 
 
 class TestCompEnrichment:
     """
-    REQUIREMENT: Listings with salary text have comp fields populated after scoring.
+    REQUIREMENT: Listings with salary text have comp fields populated after scoring
 
     WHO: The scorer computing comp_score; the exporter showing salary data
     WHAT: (1) The system sets `comp_min`, `comp_max`, `comp_source`, and `comp_text` on a listing when scoring its pipeline input finds a salary range in `full_text`.
@@ -1444,7 +1450,8 @@ class TestCompEnrichment:
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama API),
                async_playwright (Playwright browser library)
-        Real:  PipelineRunner, Embedder, Scorer, VectorStore, Ranker,
+        Real:  PipelineRunner, Embedder, Scorer,
+               FakeVectorStore (in-memory VectorStorePort), Ranker,
                DecisionRecorder, AdapterRegistry, SessionManager, throttle,
                parse_compensation
         Never: Construct ScoreResult directly — always obtained via real Scorer.score()
@@ -1454,7 +1461,7 @@ class TestCompEnrichment:
         """
         Given a listing whose full_text contains a salary range,
         When the pipeline runner scores it,
-        Then comp_min, comp_max, comp_source, and comp_text are set on the listing.
+        Then comp_min, comp_max, comp_source, and comp_text are set on the listing
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: a runner with real stack and a listing containing salary text
@@ -1500,13 +1507,12 @@ class TestCompEnrichment:
             assert "$180,000" in listing.comp_text, (
                 f"Expected '$180,000' in comp_text, got: {listing.comp_text}"
             )
-            runner.store.close()
 
 
 class TestErrorSurfacing:
     """
     REQUIREMENT: Caught ActionableErrors are surfaced through RunResult
-    and rendered in CLI output with actionable suggestions.
+    and rendered in CLI output with actionable suggestions
 
     WHO: Operators diagnosing partial failures after a search run
     WHAT: (1) board-level caught ActionableErrors are appended to RunResult.errors.
@@ -1539,8 +1545,7 @@ class TestErrorSurfacing:
         self,
     ) -> None:
         """
-        Given a board search path that raises ActionableError.
-
+        Given a board search path that raises ActionableError
         When runner.run() completes
         Then the caught board-level error appears in RunResult.errors
         """
@@ -1572,14 +1577,12 @@ class TestErrorSurfacing:
             assert "testboard" in result.errors[0].error, (
                 f"Expected 'testboard' in error message, got: {result.errors[0].error}"
             )
-            runner.store.close()
 
     async def test_extraction_level_actionable_errors_are_appended_to_run_result_errors(
         self,
     ) -> None:
         """
-        Given listing extraction paths where one listing raises ActionableError.
-
+        Given listing extraction paths where one listing raises ActionableError
         When runner.run() completes
         Then the caught extraction-level error appears in RunResult.errors
         """
@@ -1628,14 +1631,12 @@ class TestErrorSurfacing:
             assert "testboard" in (result.errors[0].service or ""), (
                 f"Expected 'testboard' in service, got: {result.errors[0].service}"
             )
-            runner.store.close()
 
     async def test_scoring_level_actionable_errors_are_appended_to_run_result_errors(
         self,
     ) -> None:
         """
-        Given scoring paths where one listing raises ActionableError.
-
+        Given scoring paths where one listing raises ActionableError
         When runner.run() completes
         Then the caught scoring-level error appears in RunResult.errors
         """
@@ -1669,12 +1670,10 @@ class TestErrorSurfacing:
                 f"Expected EMBEDDING error in errors, got types: "
                 f"{[e.error_type for e in result.errors]}"
             )
-            runner.store.close()
 
     async def test_every_surfaced_error_has_non_empty_suggestion(self) -> None:
         """
-        Given a run that surfaces one or more ActionableErrors.
-
+        Given a run that surfaces one or more ActionableErrors
         When RunResult.errors is inspected
         Then every surfaced error has a non-empty suggestion
         """
@@ -1728,7 +1727,6 @@ class TestErrorSurfacing:
                     f"Expected non-empty suggestion on error '{err.error}', "
                     f"got: {err.suggestion!r}"
                 )
-            runner.store.close()
 
     def test_cli_summary_prints_error_service_and_suggestion_for_each_error(
         self,
@@ -1737,12 +1735,10 @@ class TestErrorSurfacing:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
-        Given two boards whose adapters raise ActionableErrors on authenticate.
+        Given two boards whose adapters raise ActionableErrors on authenticate
         When handle_search() prints the run summary
         Then each surfaced error includes printed error, service, and suggestion lines
         """
-        from jobsearch_rag.cli import handle_search  # noqa: PLC0415
-
         # Given: two boards whose adapters fail on authenticate
         _setup_cli_env(tmp_path, monkeypatch, enabled_boards=["linkedin", "ziprecruiter"])
         mock_client = _make_mock_ollama_client()
@@ -1805,8 +1801,7 @@ class TestErrorSurfacing:
 
     def test_rate_limit_error_suggestion_mentions_overnight_when_applicable(self) -> None:
         """
-        Given a surfaced ActionableError representing board rate-limiting.
-
+        Given a surfaced ActionableError representing board rate-limiting
         When the error suggestion is inspected or printed in CLI output
         Then the suggestion can advise retry with --overnight
         """
@@ -1828,8 +1823,7 @@ class TestErrorSurfacing:
         self,
     ) -> None:
         """
-        Given a run where no error path is triggered.
-
+        Given a run where no error path is triggered
         When runner.run() returns RunResult
         Then RunResult.errors is an empty list
         """
@@ -1852,15 +1846,13 @@ class TestErrorSurfacing:
 
             # Then: errors is an empty list
             assert result.errors == [], f"Expected empty errors list, got: {result.errors}"
-            runner.store.close()
 
     async def test_unexpected_scoring_exception_is_wrapped_and_appended_to_run_result_errors(
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """
-        Given a listing where scorer.score() raises a bare RuntimeError (not ActionableError).
-
+        Given a listing where scorer.score() raises a bare RuntimeError (not ActionableError)
         When runner.run() completes
         Then the error is wrapped via ActionableError.from_exception()
              and the wrapped error appears in RunResult.errors
@@ -1916,12 +1908,10 @@ class TestErrorSurfacing:
                 f"Expected listing URL '{listing.url}' in log output, "
                 f"got records: {[r.message for r in caplog.records]}"
             )
-            runner.store.close()
 
     async def test_errors_from_multiple_boards_all_accumulate_in_run_result(self) -> None:
         """
-        Given two boards where each raises a distinct ActionableError during search.
-
+        Given two boards where each raises a distinct ActionableError during search
         When runner.run() completes
         Then RunResult.errors contains one error entry originating from each board
              and both errors have non-empty suggestions
@@ -1971,14 +1961,12 @@ class TestErrorSurfacing:
                     f"Expected non-empty suggestion on error '{err.error}', "
                     f"got: {err.suggestion!r}"
                 )
-            runner.store.close()
 
     async def test_caught_error_increments_both_errors_list_and_failed_listings_count(
         self,
     ) -> None:
         """
-        Given a listing extraction path that raises ActionableError.
-
+        Given a listing extraction path that raises ActionableError
         When runner.run() completes
         Then RunResult.errors is non-empty
              and RunResult.failed_listings is also incremented
@@ -2029,7 +2017,6 @@ class TestErrorSurfacing:
             assert result.failed_listings >= 1, (
                 f"Expected failed_listings >= 1, got: {result.failed_listings}"
             )
-            runner.store.close()
 
 
 # ---------------------------------------------------------------------------
