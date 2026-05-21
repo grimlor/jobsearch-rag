@@ -14,16 +14,13 @@ import re
 import shutil
 import typing
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import chromadb
 import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
-
-    from jobsearch_rag.config import Settings
 
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
@@ -40,133 +37,29 @@ from jobsearch_rag.cli import (
     handle_review,
     handle_search,
 )
-from jobsearch_rag.config import load_settings
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.review import ReviewSession
+from jobsearch_rag.rag.ports import (
+    DocumentRecord,
+    EmbeddedDocument,
+    VectorStoreConfig,
+    VectorStorePort,
+    create_vector_store,
+)
 from jobsearch_rag.rag.scorer import ScoreResult
-from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import adapter_override, make_mock_ollama_client
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def _make_settings(  # pyright: ignore[reportUnusedFunction]  # test utility for future CLI tests
-    tmpdir: str,
-    *,
-    output_dir: str | None = None,
-    open_top_n: int = 5,
-) -> Settings:
-    """
-    Write a valid settings.toml in *tmpdir* and load it through the real parser.
-
-    The real ``load_settings`` exercises TOML parsing and field validation
-    so that tests are never silently working with an invalid ``Settings``
-    that the production code would reject at startup.
-    """
-    if output_dir is None:
-        output_dir = str(Path(tmpdir) / "output")
-
-    toml_path = Path(tmpdir) / "settings.toml"
-    toml_path.parent.mkdir(parents=True, exist_ok=True)
-    # Use forward slashes for paths embedded in TOML strings so that
-    # Windows backslashes are not interpreted as TOML escape sequences.
-    _output_posix = Path(output_dir).as_posix()
-    _chroma_posix = Path(tmpdir).as_posix()
-    toml_path.write_text(
-        f"""\
-[boards]
-enabled = ["testboard"]
-session_storage_dir = "data"
-
-[boards.testboard]
-searches = ["https://example.org/search"]
-max_pages = 2
-headless = true
-rate_limit_range = [1.5, 3.5]
-
-[scoring]
-archetype_weight = 0.5
-fit_weight = 0.3
-history_weight = 0.2
-comp_weight = 0.15
-negative_weight = 0.4
-culture_weight = 0.2
-base_salary = 220000
-disqualify_on_llm_flag = true
-min_score_threshold = 0.45
-missing_comp_score = 0.5
-chunk_overlap = 2000
-dedup_similarity_threshold = 0.95
-top_k_retrieval = 3
-salary_floor = 10.0
-salary_ceiling = 1000000.0
-hours_per_year = 2080
-
-[[scoring.comp_bands]]
-ratio = 1.0
-score = 1.0
-
-[[scoring.comp_bands]]
-ratio = 0.90
-score = 0.7
-
-[[scoring.comp_bands]]
-ratio = 0.77
-score = 0.4
-
-[[scoring.comp_bands]]
-ratio = 0.68
-score = 0.0
-
-[ollama]
-base_url = "http://localhost:11434"
-llm_model = "mistral:7b"
-embed_model = "nomic-embed-text"
-slow_llm_threshold_ms = 30000
-classify_system_prompt = "You are a job listing classifier. Respond concisely with your classification."
-max_retries = 3
-base_delay = 1.0
-max_embed_chars = 8000
-head_ratio = 0.6
-retryable_status_codes = [408, 429, 500, 502, 503, 504]
-
-[output]
-default_format = "markdown"
-output_dir = "{_output_posix}"
-open_top_n = {open_top_n}
-jd_dir = "output/jds"
-decisions_dir = "data/decisions"
-log_dir = "data/logs"
-eval_history_path = "data/eval_history.jsonl"
-max_slug_length = 80
-
-[chroma]
-persist_dir = "{_chroma_posix}"
-distance_metric = "cosine"
-sync_threshold = 1
-
-[security]
-screen_prompt = "Review the following job description text."
-
-[adapters]
-cdp_timeout = 15.0
-max_full_text_chars = 250000
-viewport_width = 1440
-viewport_height = 900
-
-[adapters.browser_paths]
-msedge = ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
-
-resume_path = "data/resume.md"
-archetypes_path = "config/role_archetypes.toml"
-global_rubric_path = "config/global_rubric.toml"
-""",
-        encoding="utf-8",
-    )
-    return load_settings(toml_path)
+_FAKE_STORE_CONFIG = VectorStoreConfig(
+    store_class="tests.fakes.FakeVectorStore",
+    persist_dir="",
+    distance_metric="cosine",
+    sync_threshold=1,
+)
 
 
 def _make_listing(
@@ -221,11 +114,11 @@ def _make_ranked(
     return ranked
 
 
-def _adapt(adapter: object) -> Callable[..., JobBoardAdapter]:
+def _adapt(adapter: Any) -> Callable[..., JobBoardAdapter]:
     """Wrap an adapter/mock as a registry-compatible factory accepting any kwargs."""
 
     def _factory(**_kwargs: object) -> JobBoardAdapter:
-        return cast("JobBoardAdapter", adapter)
+        return adapter  # MagicMock quacks like JobBoardAdapter at runtime
 
     return _factory
 
@@ -455,36 +348,37 @@ def _seed_decision(
     title: str = "Staff Architect",
     company: str = "Acme",
     jd_text: str = "Full JD text for a staff architect role.",
-) -> None:
+) -> VectorStorePort:
     """
-    Pre-populate the ChromaDB decisions collection with a test record.
+    Pre-populate the decisions collection with a test record.
 
-    Uses the same ``chroma`` directory that ``_setup_index_env`` configures
-    in settings, so that ``handle_decide`` finds the record when it
-    constructs its own VectorStore.
+    Returns the seeded VectorStorePort for injection via the
+    handler's ``store`` parameter.
     """
-    store = VectorStore(
-        persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
-    )
-    store.get_or_create_collection("decisions")
+    store = create_vector_store(_FAKE_STORE_CONFIG)
+
+    store.reset_collection("decisions")
     store.add_documents(
         collection_name="decisions",
-        ids=[f"decision-{job_id}"],
-        documents=[jd_text],
-        embeddings=[[0.1, 0.2, 0.3, 0.4, 0.5]],
-        metadatas=[
-            {
-                "job_id": job_id,
-                "verdict": verdict,
-                "board": board,
-                "title": title,
-                "company": company,
-                "scoring_signal": "false",
-                "reason": "",
-                "recorded_at": "2026-01-01T00:00:00",
-            }
+        documents=[
+            EmbeddedDocument(
+                id=f"decision-{job_id}",
+                document=jd_text,
+                embedding=[0.1, 0.2, 0.3, 0.4, 0.5],
+                metadata={
+                    "job_id": job_id,
+                    "verdict": verdict,
+                    "board": board,
+                    "title": title,
+                    "company": company,
+                    "scoring_signal": "false",
+                    "reason": "",
+                    "recorded_at": "2026-01-01T00:00:00",
+                },
+            )
         ],
     )
+    return store
 
 
 # ---------------------------------------------------------------------------
@@ -494,7 +388,7 @@ def _seed_decision(
 
 class TestParserConstruction:
     """
-    REQUIREMENT: The CLI parser defines all subcommands with correct arguments.
+    REQUIREMENT: The CLI parser defines all subcommands with correct arguments
 
     WHO: The operator invoking the tool from the command line
     WHAT: (1) The parser sets `args.command` to `index` when the `index` subcommand is provided.
@@ -756,7 +650,7 @@ class TestParserConstruction:
 
 class TestBoardsCommand:
     """
-    REQUIREMENT: The boards command lists all registered adapters for operator discovery.
+    REQUIREMENT: The boards command lists all registered adapters for operator discovery
 
     WHO: The operator checking which boards are available before running a search
     WHAT: (1) The system prints all registered board names in sorted alphabetical order when `handle_boards` runs.
@@ -848,7 +742,7 @@ class TestBoardsCommand:
 
 class TestIndexCommand:
     """
-    REQUIREMENT: The index command wires settings → embedder → indexer correctly.
+    REQUIREMENT: The index command wires settings → embedder → indexer correctly
 
     WHO: The operator running first-time setup or re-indexing after resume changes
     WHAT: (1) The system runs the Ollama health check before indexing.
@@ -860,9 +754,9 @@ class TestIndexCommand:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O)
-        Real:  load_settings, Embedder, VectorStore, Indexer, config/data file
+        Real:  load_settings, Embedder, FakeVectorStore (in-memory VectorStorePort), Indexer, config/data file
                parsing, ChromaDB storage
-        Never: Patch load_settings, Embedder, VectorStore, or Indexer
+        Never: Patch load_settings, Embedder, or Indexer
     """
 
     def test_index_runs_health_check_before_indexing(
@@ -884,7 +778,10 @@ class TestIndexCommand:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            handle_index(argparse.Namespace(resume_only=False))
+            handle_index(
+                argparse.Namespace(resume_only=False),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
+            )
 
         # Then: the health check called Ollama's list endpoint
         mock_client.list.assert_awaited_once()
@@ -909,7 +806,10 @@ class TestIndexCommand:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            handle_index(argparse.Namespace(resume_only=False))
+            handle_index(
+                argparse.Namespace(resume_only=False),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
+            )
 
         # Then: output reports both archetype and resume indexing
         output = capsys.readouterr().out
@@ -940,7 +840,9 @@ class TestIndexCommand:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            handle_index(argparse.Namespace(resume_only=True))
+            handle_index(
+                argparse.Namespace(resume_only=True), store=create_vector_store(_FAKE_STORE_CONFIG)
+            )
 
         # Then: output reports resume but not archetypes
         output = capsys.readouterr().out
@@ -971,7 +873,10 @@ class TestIndexCommand:
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
         ):
-            handle_index(argparse.Namespace(resume_only=False))
+            handle_index(
+                argparse.Namespace(resume_only=False),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
+            )
 
         # Then: all chunk counts appear in stdout
         output = capsys.readouterr().out
@@ -996,7 +901,7 @@ class TestIndexCommand:
 
 class TestSearchCommand:
     """
-    REQUIREMENT: The search command prints a structured summary and ranked listings.
+    REQUIREMENT: The search command prints a structured summary and ranked listings
 
     WHO: The operator reviewing search results in the terminal
     WHAT: (1) The search command prints all required summary fields to stdout when the pipeline returns summary statistics.
@@ -1044,7 +949,10 @@ class TestSearchCommand:
             patch("webbrowser.open"),
         ):
             handle_search(
-                argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
+                argparse.Namespace(
+                    board=None, overnight=False, open_top=None, force_rescore=False
+                ),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
             )
 
         # Then: output includes all summary fields
@@ -1085,7 +993,10 @@ class TestSearchCommand:
             patch("webbrowser.open"),
         ):
             handle_search(
-                argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
+                argparse.Namespace(
+                    board=None, overnight=False, open_top=None, force_rescore=False
+                ),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
             )
 
         # Then: output shows title, company, and a pipeline-computed score
@@ -1128,7 +1039,10 @@ class TestSearchCommand:
             patch("webbrowser.open"),
         ):
             handle_search(
-                argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
+                argparse.Namespace(
+                    board=None, overnight=False, open_top=None, force_rescore=False
+                ),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
             )
 
         # Then: the surviving listing notes the duplicate boards
@@ -1168,7 +1082,8 @@ class TestSearchCommand:
             handle_search(
                 argparse.Namespace(
                     board="indeed", overnight=False, open_top=None, force_rescore=False
-                )
+                ),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
             )
 
         # Then: only the "indeed" adapter was searched
@@ -1195,18 +1110,22 @@ class TestSearchCommand:
         mock_pw_fn, _ = _mock_playwright_boundary()
 
         # When: handle_search runs with --open-top 1
+        opened_urls: list[str] = []
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
             adapter_override({"testboard": _adapt(adapter)}),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-            patch("webbrowser.open") as mock_open,
+            patch("webbrowser.open", side_effect=opened_urls.append),
         ):
             handle_search(
-                argparse.Namespace(board=None, overnight=False, open_top=1, force_rescore=False)
+                argparse.Namespace(board=None, overnight=False, open_top=1, force_rescore=False),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
             )
 
-        # Then: webbrowser.open was called to open the top result
-        mock_open.assert_called_once()
+        # Then: the top result was opened in the browser
+        assert len(opened_urls) == 1, (
+            f"Expected browser to open exactly 1 tab, got: {len(opened_urls)}"
+        )
 
     def test_search_no_open_top_and_settings_zero_opens_no_tabs(
         self,
@@ -1226,18 +1145,22 @@ class TestSearchCommand:
         mock_pw_fn, _ = _mock_playwright_boundary()
 
         # When: handle_search runs without --open-top
+        opened_urls: list[str] = []
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
             adapter_override({"testboard": _adapt(adapter)}),
             patch("jobsearch_rag.adapters.session.async_playwright", mock_pw_fn),
-            patch("webbrowser.open") as mock_open,
+            patch("webbrowser.open", side_effect=opened_urls.append),
         ):
             handle_search(
-                argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
+                argparse.Namespace(
+                    board=None, overnight=False, open_top=None, force_rescore=False
+                ),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
             )
 
         # Then: no browser tabs were opened
-        mock_open.assert_not_called()
+        assert opened_urls == [], f"Expected no browser tabs opened, got: {opened_urls}"
 
 
 # ---------------------------------------------------------------------------
@@ -1247,7 +1170,7 @@ class TestSearchCommand:
 
 class TestDecideCommand:
     """
-    REQUIREMENT: The decide command records verdicts with appropriate error handling.
+    REQUIREMENT: The decide command records verdicts with appropriate error handling
 
     WHO: The operator recording their assessment of a scored role
     WHAT: (1) The system exits with code 1 and prints 'No job found' when no decision exists for the given job ID.
@@ -1259,9 +1182,9 @@ class TestDecideCommand:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O)
-        Real:  load_settings, Embedder, VectorStore, DecisionRecorder,
+        Real:  load_settings, Embedder, FakeVectorStore (in-memory VectorStorePort), DecisionRecorder,
                ChromaDB storage, JSONL audit log
-        Never: Patch load_settings, Embedder, VectorStore, or DecisionRecorder
+        Never: Patch load_settings, Embedder, or DecisionRecorder
         Exception: test_missing_jd_text_exits_with_error patches
             chromadb.Collection.get at the ChromaDB I/O boundary to return a
             None document — this defensive branch cannot occur with a healthy
@@ -1284,17 +1207,17 @@ class TestDecideCommand:
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
         # Create the decisions collection (empty)
-        store = VectorStore(
-            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
-        )
-        store.get_or_create_collection("decisions")
+        store = create_vector_store(_FAKE_STORE_CONFIG)
+        store.reset_collection("decisions")
 
         # When/Then: handle_decide exits with error
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
             pytest.raises(SystemExit) as exc_info,
         ):
-            handle_decide(argparse.Namespace(job_id="nonexistent", verdict="yes", reason=""))
+            handle_decide(
+                argparse.Namespace(job_id="nonexistent", verdict="yes", reason=""), store=store
+            )
 
         assert exc_info.value.code == 1, f"Expected exit code 1, got {exc_info.value.code}"
         output = capsys.readouterr().out
@@ -1314,14 +1237,18 @@ class TestDecideCommand:
         # Given: real environment with a pre-existing decision
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        _seed_decision(tmp_path, job_id="zr-123", verdict="maybe")
+        seeded_store = _seed_decision(tmp_path, job_id="zr-123", verdict="maybe")
 
         # When: handle_decide re-records the verdict
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            handle_decide(argparse.Namespace(job_id="zr-123", verdict="yes", reason=""))
+            handle_decide(
+                argparse.Namespace(job_id="zr-123", verdict="yes", reason=""), store=seeded_store
+            )
 
         # Then: confirmation is printed with the new verdict and history count
         output = capsys.readouterr().out
@@ -1344,17 +1271,20 @@ class TestDecideCommand:
         # Given: real environment with a pre-existing decision
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        _seed_decision(tmp_path, job_id="zr-123", verdict="maybe")
+        seeded_store = _seed_decision(tmp_path, job_id="zr-123", verdict="maybe")
 
         # When: handle_decide records with a reason
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
             handle_decide(
                 argparse.Namespace(
                     job_id="zr-123", verdict="no", reason="Role requires on-call rotation"
-                )
+                ),
+                store=seeded_store,
             )
 
         # Then: the reason appears in the output
@@ -1377,45 +1307,35 @@ class TestDecideCommand:
         # Given: real environment with a pre-existing decision
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        _seed_decision(tmp_path, job_id="zr-123")
+        seeded_store = _seed_decision(tmp_path, job_id="zr-123")
 
-        # Simulate corrupted ChromaDB state where the document is None.
-        # This cannot happen with a healthy ChromaDB (add_documents always
-        # stores text), so we patch at the ChromaDB I/O boundary.
-        # The first Collection.get call (from get_decision via
-        # DecisionRecorder) must return real data so handle_decide reaches
-        # the JD retrieval path; only the second call returns corrupted data.
-        _original_get = chromadb.Collection.get
+        # Simulate corrupted state: get_decision returns metadata (decision
+        # exists), but the second get_documents call returns empty document text.
+
+        _original_get_documents = seeded_store.get_documents
         _call_count = 0
 
-        def _corrupted_get_on_second_call(
-            self_collection: Any,
-            ids: list[str] | None = None,
-            where: dict[str, Any] | None = None,
-            include: list[str] | None = None,
-        ) -> dict[str, Any]:
+        def _corrupted_get_documents(
+            collection_name: str, *, ids: list[str]
+        ) -> list[DocumentRecord]:
             nonlocal _call_count
             _call_count += 1
-            if _call_count >= 2:
-                return {
-                    "documents": [None],
-                    "ids": ids or [],
-                    "metadatas": [{}],
-                }
-            return _original_get(self_collection, ids=ids, where=where, include=include)
+            if _call_count == 1:
+                # First call is from get_decision — return real data
+                return _original_get_documents(collection_name, ids=ids)
+            # Second call is for JD text retrieval — return empty doc
+            return [DocumentRecord(id=ids[0], document="", metadata={})]
 
-        monkeypatch.setattr(
-            chromadb.Collection,
-            "get",
-            _corrupted_get_on_second_call,
-        )
+        monkeypatch.setattr(seeded_store, "get_documents", _corrupted_get_documents)
 
         # When/Then: handle_decide exits with error
         with (
             patch("jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient", return_value=mock_client),
             pytest.raises(SystemExit) as exc_info,
         ):
-            handle_decide(argparse.Namespace(job_id="zr-123", verdict="yes", reason=""))
+            handle_decide(
+                argparse.Namespace(job_id="zr-123", verdict="yes", reason=""), store=seeded_store
+            )
 
         assert exc_info.value.code == 1, f"Expected exit code 1, got {exc_info.value.code}"
         output = capsys.readouterr().out
@@ -1432,7 +1352,7 @@ class TestDecideCommand:
 class TestDecisionsCommand:
     """
     REQUIREMENT: The decisions subcommand dispatches show, remove, and audit
-    correctly through the full CLI stack.
+    correctly through the full CLI stack
 
     WHO: The operator managing their decision history from the command line
     WHAT: (1) ``decisions show`` prints all metadata fields for a known decision.
@@ -1451,9 +1371,9 @@ class TestDecisionsCommand:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O)
-        Real:  load_settings, Embedder, VectorStore, DecisionRecorder,
+        Real:  load_settings, Embedder, FakeVectorStore (in-memory VectorStorePort), DecisionRecorder,
                ChromaDB storage, JSONL audit log
-        Never: Patch load_settings, Embedder, VectorStore, or DecisionRecorder
+        Never: Patch load_settings, Embedder, or DecisionRecorder
     """
 
     def test_show_prints_metadata_for_known_decision(
@@ -1465,20 +1385,23 @@ class TestDecisionsCommand:
         """
         Given a decision exists for the job ID
         When ``decisions show`` is invoked
-        Then all metadata fields are printed.
+        Then all metadata fields are printed
         """
         # Given: real environment with a seeded decision
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        _seed_decision(tmp_path, job_id="zr-100", verdict="yes")
+        seeded_store = _seed_decision(tmp_path, job_id="zr-100", verdict="yes")
 
         # When: handle_decisions dispatches to show
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
             handle_decisions(
                 argparse.Namespace(decisions_command="show", job_id="zr-100"),
+                store=seeded_store,
             )
 
         # Then: output contains the job_id and verdict
@@ -1495,23 +1418,24 @@ class TestDecisionsCommand:
         """
         Given no decision exists for the job ID
         When ``decisions show`` is invoked
-        Then 'No decision found' is printed.
+        Then 'No decision found' is printed
         """
         # Given: real environment with empty decisions collection
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        store = VectorStore(
-            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
-        )
-        store.get_or_create_collection("decisions")
+        store = create_vector_store(_FAKE_STORE_CONFIG)
+        store.reset_collection("decisions")
 
         # When: handle_decisions dispatches to show
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
             handle_decisions(
                 argparse.Namespace(decisions_command="show", job_id="nonexistent"),
+                store=store,
             )
 
         # Then: not-found message is printed
@@ -1529,20 +1453,23 @@ class TestDecisionsCommand:
         """
         Given a decision exists for the job ID
         When ``decisions remove`` is invoked
-        Then removal confirmation and JSONL audit note are printed.
+        Then removal confirmation and JSONL audit note are printed
         """
         # Given: real environment with a seeded decision
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        _seed_decision(tmp_path, job_id="zr-200", verdict="no")
+        seeded_store = _seed_decision(tmp_path, job_id="zr-200", verdict="no")
 
         # When: handle_decisions dispatches to remove
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
             handle_decisions(
                 argparse.Namespace(decisions_command="remove", job_id="zr-200"),
+                store=seeded_store,
             )
 
         # Then: confirmation and audit note are printed
@@ -1561,23 +1488,24 @@ class TestDecisionsCommand:
         """
         Given no decision exists for the job ID
         When ``decisions remove`` is invoked
-        Then 'No decision found' is printed.
+        Then 'No decision found' is printed
         """
         # Given: real environment with empty decisions collection
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        store = VectorStore(
-            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
-        )
-        store.get_or_create_collection("decisions")
+        store = create_vector_store(_FAKE_STORE_CONFIG)
+        store.reset_collection("decisions")
 
         # When: handle_decisions dispatches to remove
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
             handle_decisions(
                 argparse.Namespace(decisions_command="remove", job_id="nonexistent"),
+                store=store,
             )
 
         # Then: not-found message is printed
@@ -1595,40 +1523,42 @@ class TestDecisionsCommand:
         """
         Given a decision exists with a non-empty reason
         When ``decisions audit`` is invoked
-        Then the decision's job_id, verdict, and reason are listed.
+        Then the decision's job_id, verdict, and reason are listed
         """
         # Given: real environment with a decision that has a reason
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        store = VectorStore(
-            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
-        )
-        store.get_or_create_collection("decisions")
+        store = create_vector_store(_FAKE_STORE_CONFIG)
+        store.reset_collection("decisions")
         store.add_documents(
             collection_name="decisions",
-            ids=["decision-zr-300"],
-            documents=["Staff engineer role requiring Kubernetes expertise."],
-            embeddings=[[0.1, 0.2, 0.3, 0.4, 0.5]],
-            metadatas=[
-                {
-                    "job_id": "zr-300",
-                    "verdict": "no",
-                    "board": "ziprecruiter",
-                    "title": "Staff Engineer",
-                    "company": "K8s Corp",
-                    "scoring_signal": "false",
-                    "reason": "Requires 5 days on-site",
-                    "recorded_at": "2026-01-15T00:00:00",
-                }
+            documents=[
+                EmbeddedDocument(
+                    id="decision-zr-300",
+                    document="Staff engineer role requiring Kubernetes expertise.",
+                    embedding=[0.1, 0.2, 0.3, 0.4, 0.5],
+                    metadata={
+                        "job_id": "zr-300",
+                        "verdict": "no",
+                        "board": "ziprecruiter",
+                        "title": "Staff Engineer",
+                        "company": "K8s Corp",
+                        "scoring_signal": "false",
+                        "reason": "Requires 5 days on-site",
+                        "recorded_at": "2026-01-15T00:00:00",
+                    },
+                )
             ],
         )
 
         # When: handle_decisions dispatches to audit
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            handle_decisions(argparse.Namespace(decisions_command="audit"))
+            handle_decisions(argparse.Namespace(decisions_command="audit"), store=store)
 
         # Then: output contains the reason and verdict
         output = capsys.readouterr().out
@@ -1646,19 +1576,23 @@ class TestDecisionsCommand:
         """
         Given decisions exist but none have a non-empty reason
         When ``decisions audit`` is invoked
-        Then 'No decisions with reasons to audit' is printed.
+        Then 'No decisions with reasons to audit' is printed
         """
         # Given: real environment with a reason-less decision
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
-        _seed_decision(tmp_path, job_id="zr-400", verdict="yes")  # _seed_decision uses reason=""
+        seeded_store = _seed_decision(
+            tmp_path, job_id="zr-400", verdict="yes"
+        )  # _seed_decision uses reason=""
 
         # When: handle_decisions dispatches to audit
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            handle_decisions(argparse.Namespace(decisions_command="audit"))
+            handle_decisions(argparse.Namespace(decisions_command="audit"), store=seeded_store)
 
         # Then: empty message is printed
         output = capsys.readouterr().out
@@ -1675,16 +1609,14 @@ class TestDecisionsCommand:
         """
         Given an unrecognized decisions subcommand
         When handle_decisions is invoked
-        Then it exits with code 1 and prints usage hint.
+        Then it exits with code 1 and prints usage hint
         """
         # Given: real environment
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
         # Ensure decisions collection exists so dispatcher gets past setup
-        store = VectorStore(
-            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
-        )
-        store.get_or_create_collection("decisions")
+        store = create_vector_store(_FAKE_STORE_CONFIG)
+        store.reset_collection("decisions")
 
         # When/Then: unknown subcommand exits
         with (
@@ -1696,6 +1628,7 @@ class TestDecisionsCommand:
         ):
             handle_decisions(
                 argparse.Namespace(decisions_command="bogus", job_id="x"),
+                store=store,
             )
 
         assert exc_info.value.code == 1, f"Expected exit code 1, got {exc_info.value.code}"
@@ -1710,7 +1643,7 @@ class TestDecisionsCommand:
 
 class TestExportCommand:
     """
-    REQUIREMENT: The export command re-exports saved results.
+    REQUIREMENT: The export command re-exports saved results
 
     WHO: The operator re-viewing results after a previous search run
     WHAT: (1) The system prints the markdown results content to stdout when export is called with the markdown format.
@@ -1820,7 +1753,7 @@ class TestExportCommand:
 
 class TestLoginCommand:
     """
-    REQUIREMENT: The login command opens a headed browser for interactive authentication.
+    REQUIREMENT: The login command opens a headed browser for interactive authentication
 
     WHO: The operator establishing a session before headless search runs
     WHAT: (1) The system opens a headed browser to the board login URL, saves the session, and prints a confirmation after login completes.
@@ -1889,6 +1822,21 @@ class TestLoginCommand:
         _setup_index_env(tmp_path, enabled_boards=["ziprecruiter"])
         mock_pw, mock_page = self._mock_playwright_stack()
 
+        # Capture I/O boundary arguments
+        launch_kwargs_log: list[dict[str, object]] = []
+        navigated_urls: list[str] = []
+
+        async def _capture_launch(**kwargs: object) -> MagicMock:
+            launch_kwargs_log.append(kwargs)
+            return await mock_pw.chromium.launch.return_value  # type: ignore[no-any-return]
+
+        mock_pw.chromium.launch = AsyncMock(side_effect=_capture_launch)
+
+        def _capture_goto(url: str, **_kw: object) -> None:
+            navigated_urls.append(url)
+
+        mock_page.goto = AsyncMock(side_effect=_capture_goto)
+
         # When: handle_login runs the full real call chain
         with (
             self._patch_async_playwright(mock_pw),
@@ -1898,16 +1846,20 @@ class TestLoginCommand:
             handle_login(args)
 
         # Then: browser was launched in headed mode (headless=False)
-        mock_pw.chromium.launch.assert_awaited_once()
-        launch_kwargs = mock_pw.chromium.launch.call_args.kwargs
-        assert launch_kwargs["headless"] is False, (
-            f"Expected headless=False, got {launch_kwargs['headless']}"
+        assert len(launch_kwargs_log) == 1, (
+            f"Expected exactly 1 browser launch, got: {len(launch_kwargs_log)}"
+        )
+        assert launch_kwargs_log[0].get("headless") is False, (
+            f"Expected headless=False, got {launch_kwargs_log[0].get('headless')}"
         )
 
         # Then: navigated to the login URL
-        mock_page.goto.assert_awaited_once()
-        url_arg = mock_page.goto.call_args[0][0]
-        assert "authn/login" in url_arg, f"Expected 'authn/login' in URL, got {url_arg!r}"
+        assert len(navigated_urls) == 1, (
+            f"Expected exactly 1 navigation, got: {len(navigated_urls)}"
+        )
+        assert "authn/login" in navigated_urls[0], (
+            f"Expected 'authn/login' in URL, got {navigated_urls[0]!r}"
+        )
 
         # Then: session was saved to the board-specific path
         session_file = tmp_path / "data" / "ziprecruiter_session.json"
@@ -1931,6 +1883,14 @@ class TestLoginCommand:
         _setup_index_env(tmp_path, enabled_boards=["linkedin"])
         mock_pw, mock_page = self._mock_playwright_stack()
 
+        # Capture navigated URL at I/O boundary
+        navigated_urls: list[str] = []
+
+        def _capture_goto(url: str, **_kw: object) -> None:
+            navigated_urls.append(url)
+
+        mock_page.goto = AsyncMock(side_effect=_capture_goto)
+
         # When: handle_login runs
         with (
             self._patch_async_playwright(mock_pw),
@@ -1940,9 +1900,9 @@ class TestLoginCommand:
             handle_login(args)
 
         # Then: navigated to the linkedin login URL
-        url_arg = mock_page.goto.call_args[0][0]
-        assert "linkedin.com/login" in url_arg, (
-            f"Expected 'linkedin.com/login' in URL, got {url_arg!r}"
+        assert len(navigated_urls) >= 1, "Expected at least one navigation"
+        assert "linkedin.com/login" in navigated_urls[0], (
+            f"Expected 'linkedin.com/login' in URL, got {navigated_urls[0]!r}"
         )
 
     def test_login_prints_instructions_for_operator(
@@ -2026,7 +1986,7 @@ class TestLoginCommand:
 
 class TestSearchBrowserFailure:
     """
-    REQUIREMENT: Browser open failures are reported gracefully, not as crashes.
+    REQUIREMENT: Browser open failures are reported gracefully, not as crashes
 
     WHO: The operator running a search where webbrowser.open fails
     WHAT: (1) The system prints an error when opening the browser fails and completes the search normally.
@@ -2073,7 +2033,8 @@ class TestSearchBrowserFailure:
                     overnight=False,
                     open_top=1,
                     force_rescore=False,
-                )
+                ),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
             )
 
         # Then: the failure message is printed but the search completed
@@ -2091,7 +2052,7 @@ class TestSearchBrowserFailure:
 
 class TestExportMissing:
     """
-    REQUIREMENT: Requesting an export format with no file prints a helpful message.
+    REQUIREMENT: Requesting an export format with no file prints a helpful message
 
     WHO: The operator running 'export' before any search has been done
     WHAT: (1) The system explains that no CSV export was found when `export --format csv` is run and only markdown results exist.
@@ -2113,7 +2074,7 @@ class TestExportMissing:
         """
         GIVEN results exist as markdown but not csv
         WHEN export --format csv is run
-        THEN a message explains the format was not found.
+        THEN a message explains the format was not found
         """
         _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -2140,7 +2101,7 @@ class TestExportMissing:
 
 class TestResetCommand:
     """
-    REQUIREMENT: The reset command clears ChromaDB collections and optionally output files.
+    REQUIREMENT: The reset command clears ChromaDB collections and optionally output files
 
     WHO: The operator starting a fresh run
     WHAT: (1) The system resets all known collections and prints a completion message when no collection is specified.
@@ -2151,11 +2112,11 @@ class TestResetCommand:
          the operator into reviewing outdated results
 
     MOCK BOUNDARY:
-        Mock:  nothing — handle_reset only uses load_settings, VectorStore,
+        Mock:  nothing — handle_reset only uses load_settings, FakeVectorStore (in-memory VectorStorePort),
                and filesystem operations, all backed by tmp_path
-        Real:  load_settings (real TOML parsing), VectorStore (real ChromaDB),
+        Real:  load_settings (real TOML parsing), FakeVectorStore (in-memory VectorStorePort),
                shutil.rmtree (real filesystem via tmp_path)
-        Never: Patch load_settings, VectorStore, or shutil
+        Never: Patch load_settings or shutil
     """
 
     def test_reset_all_collections_clears_all_known_collections(
@@ -2175,7 +2136,7 @@ class TestResetCommand:
 
         # When: handle_reset runs with no --collection flag
         args = argparse.Namespace(collection=None, clear_output=False)
-        handle_reset(args)
+        handle_reset(args, store=create_vector_store(_FAKE_STORE_CONFIG))
 
         # Then: output confirms all collections were reset
         output = capsys.readouterr().out
@@ -2201,7 +2162,7 @@ class TestResetCommand:
 
         # When: handle_reset runs with --collection=resume
         args = argparse.Namespace(collection="resume", clear_output=False)
-        handle_reset(args)
+        handle_reset(args, store=create_vector_store(_FAKE_STORE_CONFIG))
 
         # Then: output confirms only the resume collection was reset
         output = capsys.readouterr().out
@@ -2233,7 +2194,7 @@ class TestResetCommand:
 
         # When: handle_reset runs with --clear-output
         args = argparse.Namespace(collection=None, clear_output=True)
-        handle_reset(args)
+        handle_reset(args, store=create_vector_store(_FAKE_STORE_CONFIG))
 
         # Then: output confirms the directory was cleared
         output = capsys.readouterr().out
@@ -2253,7 +2214,7 @@ class TestResetCommand:
         """
         Given the --clear-output flag is set but the output directory does not exist
         When handle_reset is run
-        Then the reset completes without error and does not print a clear message.
+        Then the reset completes without error and does not print a clear message
         """
         # Given: real settings environment without creating the output directory
         _setup_index_env(tmp_path)
@@ -2264,7 +2225,7 @@ class TestResetCommand:
 
         # When: handle_reset runs with --clear-output
         args = argparse.Namespace(collection=None, clear_output=True)
-        handle_reset(args)
+        handle_reset(args, store=create_vector_store(_FAKE_STORE_CONFIG))
 
         # Then: reset completes without error; no "Cleared" message (dir didn't exist)
         output = capsys.readouterr().out
@@ -2282,7 +2243,7 @@ class TestResetCommand:
 class TestReviewJdLoading:
     """
     REQUIREMENT: The review command populates each listing's full_text from
-    JD files on disk so DecisionRecorder can embed the content for history.
+    JD files on disk so DecisionRecorder can embed the content for history
 
     WHO: The review CLI handler reconstructing listings from CSV rows
     WHAT: (1) JD file content is loaded into listing full_text using external_id-based filename lookup.
@@ -2327,14 +2288,18 @@ class TestReviewJdLoading:
         )
 
         # When: open_listing is called
-        with patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_open:
+        opened_targets: list[str] = []
+        with patch(
+            "jobsearch_rag.pipeline.review.webbrowser.open", side_effect=opened_targets.append
+        ):
             session.open_listing(ranked)
-            mock_open.assert_called_once()
-            opened_path = mock_open.call_args[0][0]
 
         # Then: It opened the external_id-based JD file
-        assert slug_name in opened_path, (
-            f"Expected external_id-based filename '{slug_name}' in opened path, got: {opened_path}"
+        assert len(opened_targets) == 1, (
+            f"Expected exactly 1 browser open, got: {len(opened_targets)}"
+        )
+        assert slug_name in opened_targets[0], (
+            f"Expected external_id-based filename '{slug_name}' in opened path, got: {opened_targets[0]}"
         )
 
     def test_open_listing_falls_back_to_url_when_jd_file_missing(self, tmp_path: Path) -> None:
@@ -2358,14 +2323,18 @@ class TestReviewJdLoading:
         )
 
         # When: open_listing is called
-        with patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_open:
+        opened_targets: list[str] = []
+        with patch(
+            "jobsearch_rag.pipeline.review.webbrowser.open", side_effect=opened_targets.append
+        ):
             session.open_listing(ranked)
-            mock_open.assert_called_once()
-            opened_target = mock_open.call_args[0][0]
 
         # Then: Falls back to URL
-        assert opened_target == ranked.listing.url, (
-            f"Expected URL fallback '{ranked.listing.url}', got: {opened_target}"
+        assert len(opened_targets) == 1, (
+            f"Expected exactly 1 browser open, got: {len(opened_targets)}"
+        )
+        assert opened_targets[0] == ranked.listing.url, (
+            f"Expected URL fallback '{ranked.listing.url}', got: {opened_targets[0]}"
         )
 
 
@@ -2378,8 +2347,7 @@ class TestReviewCommandHandler:
     """
     REQUIREMENT: The review CLI handler wires dependencies, loads CSV,
     and drives the interactive loop so every operator action produces
-    the correct output and side-effect.
-
+    the correct output and side-effect
     WHO: The operator running `python -m jobsearch_rag review`
     WHAT: (1) The system prints "No results found" and returns when no `results.csv` exists in the output directory.
           (2) The system displays every reconstructed listing field from the CSV row when it rebuilds ranked listings for review.
@@ -2407,10 +2375,10 @@ class TestReviewCommandHandler:
                builtins.input (terminal I/O),
                webbrowser.open (OS browser launch)
         Real:  load_settings (real TOML parsing), Embedder (real construction),
-               VectorStore (real ChromaDB via tmp_path),
+               FakeVectorStore (in-memory VectorStorePort),
                DecisionRecorder (real recording to ChromaDB),
                ReviewSession (real orchestration)
-        Never: Patch load_settings, Embedder, VectorStore, or DecisionRecorder
+        Never: Patch load_settings, Embedder, or DecisionRecorder
     """
 
     _CSV_FIELDS: typing.ClassVar[list[str]] = [
@@ -2468,7 +2436,7 @@ class TestReviewCommandHandler:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> Iterator[dict[str, Any]]:
-        """Real settings, Embedder, VectorStore, DecisionRecorder via tmp_path."""
+        """Real settings, Embedder, FakeVectorStore (port), DecisionRecorder via tmp_path."""
         # Given: real settings environment with ollama mocked at I/O boundary
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -2477,14 +2445,14 @@ class TestReviewCommandHandler:
         (out_dir / "jds").mkdir(exist_ok=True)
 
         # Pre-create decisions collection so get_decision works before first record
-        store = VectorStore(
-            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
-        )
-        store.get_or_create_collection("decisions")
+        store = create_vector_store(_FAKE_STORE_CONFIG)
+        store.reset_collection("decisions")
 
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
             yield {
                 "out_dir": out_dir,
@@ -2503,10 +2471,9 @@ class TestReviewCommandHandler:
         When handle_review is called
         Then 'No results found' is printed and the handler returns
         """
-        # Given: no CSV file exists (default state)
-
+        # Given: no CSV file exists (default state
         # When: handle_review runs
-        handle_review(review["args"])
+        handle_review(review["args"], store=review["store"])
 
         # Then: a helpful message is printed
         output = capsys.readouterr().out
@@ -2540,7 +2507,7 @@ class TestReviewCommandHandler:
 
         # When: operator quits immediately after seeing the listing
         with patch("builtins.input", side_effect=["q"]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: all CSV fields are visible in the output
         out = capsys.readouterr().out
@@ -2567,16 +2534,30 @@ class TestReviewCommandHandler:
                 self._csv_row(external_id="done-1", url="https://example.org/done-1"),
             ],
         )
-        # Pre-seed a decision for this listing (external_id = "done-1")
-        _seed_decision(
-            review["out_dir"].parent,
-            job_id="done-1",
-            verdict="yes",
-            board="ziprecruiter",
+        # Pre-seed a decision for this listing into the fixture's store
+        review["store"].add_documents(
+            collection_name="decisions",
+            documents=[
+                EmbeddedDocument(
+                    id="decision-done-1",
+                    document="Full JD text for a staff architect role.",
+                    embedding=[0.1, 0.2, 0.3, 0.4, 0.5],
+                    metadata={
+                        "job_id": "done-1",
+                        "verdict": "yes",
+                        "board": "ziprecruiter",
+                        "title": "Staff Architect",
+                        "company": "Acme",
+                        "scoring_signal": "false",
+                        "reason": "",
+                        "recorded_at": "2026-01-01T00:00:00",
+                    },
+                )
+            ],
         )
 
         # When: handle_review runs
-        handle_review(review["args"])
+        handle_review(review["args"], store=review["store"])
 
         # Then: nothing to review
         output = capsys.readouterr().out
@@ -2603,7 +2584,7 @@ class TestReviewCommandHandler:
 
         # When: operator quits immediately
         with patch("builtins.input", side_effect=["q"]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: count is shown
         output = capsys.readouterr().out
@@ -2624,7 +2605,7 @@ class TestReviewCommandHandler:
 
         # When: operator quits
         with patch("builtins.input", side_effect=["q"]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: review stopped with 0 reviewed
         out = capsys.readouterr().out
@@ -2662,13 +2643,13 @@ class TestReviewCommandHandler:
 
         # When: operator skips first, then quits
         with patch("builtins.input", side_effect=["s", "q"]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: second listing was shown (skip advanced past first)
         out = capsys.readouterr().out
         assert "Second Job" in out, f"Expected 'Second Job' in output after skip, got: {out!r}"
-        # And: no decisions were recorded in ChromaDB
-        store: VectorStore = review["store"]
+        # And: no decisions were recorded
+        store: VectorStorePort = review["store"]
         assert store.collection_count("decisions") == 0, (
             "Expected no decisions after skip, but found some"
         )
@@ -2691,17 +2672,17 @@ class TestReviewCommandHandler:
 
         # When: operator approves with reason
         with patch("builtins.input", side_effect=["y", "Good fit"]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: confirmation is printed
         out = capsys.readouterr().out
         assert "Recorded: y" in out, f"Expected 'Recorded: y' in output, got: {out!r}"
         assert "Good fit" in out, f"Expected reason 'Good fit' in output, got: {out!r}"
         # And: decision was persisted in ChromaDB
-        store: VectorStore = review["store"]
+        store: VectorStorePort = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
-        assert len(result["ids"]) == 1, f"Expected 1 decision in ChromaDB, got: {result['ids']}"
-        meta = result["metadatas"][0]
+        assert len(result) == 1, f"Expected 1 decision in ChromaDB, got: {len(result)}"
+        meta = result[0].metadata
         assert meta["verdict"] == "yes", f"Expected verdict 'yes', got: {meta['verdict']!r}"
         assert meta["reason"] == "Good fit", f"Expected reason 'Good fit', got: {meta['reason']!r}"
 
@@ -2726,12 +2707,12 @@ class TestReviewCommandHandler:
 
         # When: handle_review is called and user approves
         with patch("builtins.input", side_effect=["y", "Good fit"]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: the JD body was stored as the document in ChromaDB
-        store: VectorStore = review["store"]
+        store: VectorStorePort = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
-        stored_doc = result["documents"][0]
+        stored_doc = result[0].document
         assert "Lead the platform team" in stored_doc, (
             f"Expected JD body in stored document, got: {stored_doc!r}"
         )
@@ -2758,10 +2739,10 @@ class TestReviewCommandHandler:
             patch("builtins.input", side_effect=["y", ""]),
             pytest.raises(ActionableError, match="empty JD text"),
         ):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: no decision was stored (empty jd_text rejected by validation)
-        store: VectorStore = review["store"]
+        store: VectorStorePort = review["store"]
         assert store.collection_count("decisions") == 0, (
             "Expected no decision when JD marker is missing (empty jd_text)"
         )
@@ -2782,7 +2763,7 @@ class TestReviewCommandHandler:
 
         # When: operator enters 'n' with empty reason
         with patch("builtins.input", side_effect=["n", ""]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: short confirmation without reason suffix
         out = capsys.readouterr().out
@@ -2802,7 +2783,7 @@ class TestReviewCommandHandler:
 
         # When: operator enters invalid input then quits
         with patch("builtins.input", side_effect=["x", "q"]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: invalid input message shown
         output = capsys.readouterr().out
@@ -2824,7 +2805,7 @@ class TestReviewCommandHandler:
 
         # When: operator approves the only listing
         with patch("builtins.input", side_effect=["y", ""]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: completion message shown
         output = capsys.readouterr().out
@@ -2845,7 +2826,7 @@ class TestReviewCommandHandler:
 
         # When: EOF occurs
         with patch("builtins.input", side_effect=EOFError):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: treated as quit
         output = capsys.readouterr().out
@@ -2868,14 +2849,19 @@ class TestReviewCommandHandler:
         )
 
         # When: operator opens then quits
+        opened_targets: list[str] = []
         with (
             patch("builtins.input", side_effect=["o", "q"]),
-            patch("jobsearch_rag.pipeline.review.webbrowser.open") as mock_wb,
+            patch(
+                "jobsearch_rag.pipeline.review.webbrowser.open", side_effect=opened_targets.append
+            ),
         ):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
-        # Then: webbrowser.open was called
-        mock_wb.assert_called_once()
+        # Then: webbrowser.open was called to open the listing
+        assert len(opened_targets) == 1, (
+            f"Expected exactly 1 browser open, got: {len(opened_targets)}"
+        )
 
     def test_eof_during_reason_prompt_records_empty_reason(
         self, review: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -2893,17 +2879,17 @@ class TestReviewCommandHandler:
 
         # When: verdict entered, then EOF on reason prompt
         with patch("builtins.input", side_effect=["y", EOFError]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: verdict recorded with empty reason
         out = capsys.readouterr().out
         assert "Recorded: y" in out, f"Expected 'Recorded: y' in output, got: {out!r}"
         assert "Recorded: y —" not in out, f"Expected no reason suffix in output, got: {out!r}"
         # And: decision was persisted in ChromaDB with empty reason
-        store: VectorStore = review["store"]
+        store: VectorStorePort = review["store"]
         result = store.get_documents(collection_name="decisions", ids=["decision-job-1"])
-        assert len(result["ids"]) == 1, f"Expected 1 decision in ChromaDB, got: {result['ids']}"
-        meta = result["metadatas"][0]
+        assert len(result) == 1, f"Expected 1 decision in ChromaDB, got: {len(result)}"
+        meta = result[0].metadata
         assert meta["reason"] == "", f"Expected empty reason, got: {meta['reason']!r}"
 
     def test_review_handler_reads_external_id_from_csv_column(
@@ -2931,15 +2917,15 @@ class TestReviewCommandHandler:
 
         # When: operator quits immediately — we just need to verify the listing was built
         with patch("builtins.input", side_effect=["y", ""]):
-            handle_review(review["args"])
+            handle_review(review["args"], store=review["store"])
 
         # Then: decision was recorded using the CSV external_id, not URL-derived
-        store: VectorStore = review["store"]
+        store: VectorStorePort = review["store"]
         result = store.get_documents(
             collection_name="decisions", ids=["decision-81cb444f00994fff"]
         )
-        assert len(result["ids"]) == 1, (
-            f"Expected decision keyed by CSV external_id '81cb444f00994fff', got: {result['ids']}"
+        assert len(result) == 1, (
+            f"Expected decision keyed by CSV external_id '81cb444f00994fff', got: {len(result)}"
         )
 
 
@@ -2950,7 +2936,7 @@ class TestReviewCommandHandler:
 
 class TestIndexArchetypesOnly:
     """
-    REQUIREMENT: --archetypes-only rebuilds archetypes and negative signals without resume.
+    REQUIREMENT: --archetypes-only rebuilds archetypes and negative signals without resume
 
     WHO: The operator tuning archetypes or the global rubric
     WHAT: (1) The system indexes archetypes, negative signals, and positive signals without indexing the resume when `handle_index` runs with `--archetypes-only`.
@@ -2961,9 +2947,9 @@ class TestIndexArchetypesOnly:
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O)
         Real:  load_settings (real TOML parsing), Embedder (real construction),
-               VectorStore (real ChromaDB via tmp_path),
+               FakeVectorStore (in-memory VectorStorePort),
                Indexer (real indexing into ChromaDB)
-        Never: Patch load_settings, Embedder, VectorStore, or Indexer
+        Never: Patch load_settings, Embedder, or Indexer
     """
 
     def test_archetypes_only_indexes_archetypes_and_negative_signals(
@@ -2975,20 +2961,23 @@ class TestIndexArchetypesOnly:
         """
         Given a valid config environment with archetypes and rubric files
         When handle_index is called with --archetypes-only
-        Then archetypes, negative signals, and positive signals are indexed
+        Then archetypes, negative signals, and positive signals are indexe
              but resume is NOT indexed
         """
         # Given: real config/data environment
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
+        store = create_vector_store(_FAKE_STORE_CONFIG)
 
         # When: handle_index with archetypes_only=True
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
             args = argparse.Namespace(archetypes_only=True, resume_only=False)
-            handle_index(args)
+            handle_index(args, store=store)
 
         # Then: stdout reports archetype and signal counts, but NOT resume
         output = capsys.readouterr().out
@@ -3005,14 +2994,9 @@ class TestIndexArchetypesOnly:
             f"Resume should NOT be mentioned with --archetypes-only, got: {output!r}"
         )
 
-        # And: ChromaDB collections contain real data
-        store = VectorStore(
-            persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
-        )
-        assert store.collection_count("role_archetypes") == 1, "Expected 1 archetype in ChromaDB"
-        assert store.collection_count("negative_signals") == 2, (
-            "Expected 2 negative signals in ChromaDB"
-        )
+        # And: collections contain real data
+        assert store.collection_count("role_archetypes") == 1, "Expected 1 archetype"
+        assert store.collection_count("negative_signals") == 2, "Expected 2 negative signals"
 
     def test_default_index_also_indexes_negative_signals(
         self,
@@ -3035,7 +3019,7 @@ class TestIndexArchetypesOnly:
             return_value=mock_client,
         ):
             args = argparse.Namespace(archetypes_only=False, resume_only=False)
-            handle_index(args)
+            handle_index(args, store=create_vector_store(_FAKE_STORE_CONFIG))
 
         # Then: stdout reports all counts including resume
         output = capsys.readouterr().out
@@ -3054,7 +3038,7 @@ class TestIndexArchetypesOnly:
 
 class TestRescoreCommand:
     """
-    REQUIREMENT: The rescore command re-scores JDs through updated collections.
+    REQUIREMENT: The rescore command re-scores JDs through updated collections
 
     WHO: The operator iterating on archetype tuning or negative signal refinement
     WHAT: (1) The system prints a rescore results summary that includes counts.
@@ -3068,9 +3052,9 @@ class TestRescoreCommand:
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (Ollama network I/O)
         Real:  load_settings (real TOML parsing), Embedder (real construction),
-               VectorStore (real ChromaDB via tmp_path), Scorer (real scoring),
+               FakeVectorStore (in-memory VectorStorePort), Scorer (real scoring),
                Ranker (real ranking), Rescorer (real rescoring from JD files)
-        Never: Patch load_settings, Embedder, VectorStore, Scorer, or Rescorer
+        Never: Patch load_settings, Embedder, Scorer, or Rescorer
     """
 
     @staticmethod
@@ -3108,7 +3092,7 @@ class TestRescoreCommand:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> Iterator[dict[str, Any]]:
-        """Real settings, Embedder, VectorStore, Scorer, Ranker, Rescorer via tmp_path."""
+        """Real settings, Embedder, VectorStorePort, Scorer, Ranker, Rescorer via tmp_path."""
         # Given: real config/data environment with ollama mocked at I/O boundary
         mock_client = _setup_index_env(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -3126,7 +3110,10 @@ class TestRescoreCommand:
             return_value=mock_client,
         ):
             # Index all collections so scorer has data to query
-            handle_index(argparse.Namespace(archetypes_only=False, resume_only=False))
+            handle_index(
+                argparse.Namespace(archetypes_only=False, resume_only=False),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
+            )
 
             jd_dir = tmp_path / "output" / "jds"
             jd_dir.mkdir(parents=True, exist_ok=True)
@@ -3152,7 +3139,7 @@ class TestRescoreCommand:
         self._write_jd(rescore["jd_dir"])
 
         # When: handle_rescore runs
-        handle_rescore(rescore["args"])
+        handle_rescore(rescore["args"], store=create_vector_store(_FAKE_STORE_CONFIG))
 
         # Then: summary is printed with correct counts
         output = capsys.readouterr().out
@@ -3165,21 +3152,17 @@ class TestRescoreCommand:
 
     def test_rescore_runs_health_check_first(self, rescore: dict[str, Any]) -> None:
         """
-        Given no JD files (empty jds/ directory)
+        Given the Ollama server is unreachable
         When handle_rescore runs
-        Then the health check is invoked (client.list is called again)
+        Then the health check failure prevents the rescore from proceeding
         """
-        # Given: no JD files — health check runs regardless
+        # Given: client.list fails — simulating unreachable server
         mock_client: AsyncMock = rescore["mock_client"]
-        list_calls_before = mock_client.list.call_count
+        mock_client.list = AsyncMock(side_effect=ConnectionError("Server unreachable"))
 
-        # When: handle_rescore runs
-        handle_rescore(rescore["args"])
-
-        # Then: health check made another client.list() call
-        assert mock_client.list.call_count > list_calls_before, (
-            "Expected health_check to call client.list() during rescore"
-        )
+        # When/Then: health check raises before any scoring work begins
+        with pytest.raises((ConnectionError, RuntimeError)):
+            handle_rescore(rescore["args"], store=create_vector_store(_FAKE_STORE_CONFIG))
 
     def test_rescore_prints_each_ranked_listing_with_score_and_details(
         self, rescore: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -3198,7 +3181,7 @@ class TestRescoreCommand:
         )
 
         # When: handle_rescore runs
-        handle_rescore(rescore["args"])
+        handle_rescore(rescore["args"], store=create_vector_store(_FAKE_STORE_CONFIG))
 
         # Then: listing details are in the output
         output = capsys.readouterr().out
@@ -3219,7 +3202,7 @@ class TestRescoreCommand:
         self._write_jd(rescore["jd_dir"])
 
         # When: handle_rescore runs
-        handle_rescore(rescore["args"])
+        handle_rescore(rescore["args"], store=create_vector_store(_FAKE_STORE_CONFIG))
 
         # Then: export files are created
         out_dir = rescore["out_dir"]
@@ -3245,7 +3228,7 @@ class TestRescoreCommand:
         self._write_jd(rescore["jd_dir"])
 
         # When: handle_rescore runs
-        handle_rescore(rescore["args"])
+        handle_rescore(rescore["args"], store=create_vector_store(_FAKE_STORE_CONFIG))
 
         # Then: JD files are re-exported
         output = capsys.readouterr().out
