@@ -3,7 +3,7 @@ Integration tests — validate external dependency contracts.
 
 These tests require **live Ollama** with ``nomic-embed-text`` and
 ``mistral:7b`` models pulled.  They are skipped by default and run
-only when explicitly requested::
+only when explicitly requested:
 
     uv run pytest -m integration          # run integration tests only
     uv run pytest -m "not integration"    # run everything else (default)
@@ -74,8 +74,13 @@ from jobsearch_rag.rag.comp_parser import compute_comp_score, parse_compensation
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
+from jobsearch_rag.rag.ports import (
+    EmbeddedDocument,
+    VectorStoreConfig,
+    VectorStorePort,
+    create_vector_store,
+)
 from jobsearch_rag.rag.scorer import Scorer
-from jobsearch_rag.rag.store import VectorStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -124,10 +129,16 @@ def embedder() -> Embedder:
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
-    """A VectorStore backed by a temporary directory."""
+def store() -> Iterator[VectorStorePort]:
+    """A VectorStorePort backed by a temporary directory."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
+        s = create_vector_store(
+            VectorStoreConfig(
+                persist_dir=tmpdir,
+                distance_metric="cosine",
+                sync_threshold=1,
+            )
+        )
         yield s
         s.close()
 
@@ -182,7 +193,7 @@ def sample_archetypes(tmp_path: Path) -> Path:
 
 class TestOllamaContract:
     """
-    REQUIREMENT: Ollama SDK responses match the shapes our code assumes.
+    REQUIREMENT: Ollama SDK responses match the shapes our code assumes
 
     WHO: Every unit test that mocks Ollama responses
     WHAT: (1) The system returns embeddings as lists of floats with consistent dimensionality across different inputs.
@@ -207,7 +218,7 @@ class TestOllamaContract:
         """
         GIVEN two different text inputs
         WHEN embed() is called on each
-        THEN both return list[float] with identical dimensionality.
+        THEN both return list[float] with identical dimensionality
         """
         # When: embed two different texts
         vec1 = await embedder.embed("distributed systems architecture")
@@ -223,7 +234,7 @@ class TestOllamaContract:
         """
         GIVEN a meaningful text input
         WHEN embed() is called
-        THEN the resulting vector is not all zeros.
+        THEN the resulting vector is not all zeros
         """
         # When: embed meaningful text
         vec = await embedder.embed("Principal platform architect role")
@@ -235,7 +246,7 @@ class TestOllamaContract:
         """
         GIVEN a simple classification prompt
         WHEN classify() is called
-        THEN the result is a non-empty string.
+        THEN the result is a non-empty string
         """
         # When: classify a simple prompt
         result = await embedder.classify("Respond with exactly one word: hello")
@@ -248,7 +259,7 @@ class TestOllamaContract:
         """
         GIVEN an Ollama instance with required models pulled
         WHEN health_check() is called
-        THEN no exception is raised.
+        THEN no exception is raised
         """
         # When/Then: should not raise
         await embedder.health_check()
@@ -257,7 +268,7 @@ class TestOllamaContract:
         """
         GIVEN an Embedder configured with a nonexistent model
         WHEN health_check() is called
-        THEN an EMBEDDING error with 'ollama pull' guidance is raised.
+        THEN an EMBEDDING error with 'ollama pull' guidance is raised
         """
         # Given: embedder with nonexistent model
         embedder = Embedder(
@@ -282,7 +293,7 @@ class TestOllamaContract:
         """
         GIVEN an Embedder configured with a nonexistent model
         WHEN embed() is called
-        THEN an EMBEDDING error with recovery guidance is raised.
+        THEN an EMBEDDING error with recovery guidance is raised
         """
         # Given: embedder with nonexistent model
         embedder = Embedder(
@@ -309,7 +320,7 @@ class TestOllamaContract:
         """
         GIVEN three texts: one query, one semantically similar, one unrelated
         WHEN all three are embedded
-        THEN the similar text has smaller cosine distance to the query than the unrelated text.
+        THEN the similar text has smaller cosine distance to the query than the unrelated text
         """
         # When: embed all three texts
         vec_arch = await embedder.embed("Staff platform architect for distributed cloud systems")
@@ -342,7 +353,7 @@ class TestOllamaContract:
 
 class TestChromaDBContract:
     """
-    REQUIREMENT: ChromaDB returns distances and results in the format we assume.
+    REQUIREMENT: ChromaDB returns distances and results in the format we assume
 
     WHO: VectorStore wrapper and Scorer distance-to-score conversion
     WHAT: (1) The system returns an approximately zero distance when it queries an indexed document with the same embedding vector.
@@ -360,21 +371,19 @@ class TestChromaDBContract:
     """
 
     async def test_identical_documents_have_near_zero_distance(
-        self, store: VectorStore, embedder: Embedder
+        self, store: VectorStorePort, embedder: Embedder
     ) -> None:
         """
         GIVEN a document indexed with its embedding
         WHEN queried with the same embedding vector
-        THEN the distance is approximately zero.
+        THEN the distance is approximately zero
         """
         # Given: index a document
         text = "Staff architect for distributed systems"
         embedding = await embedder.embed(text)
         store.add_documents(
             collection_name="test_identity",
-            ids=["doc-1"],
-            documents=[text],
-            embeddings=[embedding],
+            documents=[EmbeddedDocument(id="doc-1", document=text, embedding=embedding)],
         )
 
         # When: query with same vector
@@ -385,19 +394,18 @@ class TestChromaDBContract:
         )
 
         # Then: distance ~0
-        distances = results["distances"][0]
-        assert len(distances) == 1, f"Expected 1 result, got {len(distances)}"
-        assert distances[0] == pytest.approx(0.0, abs=1e-5), (
-            f"Identical vector should have ~0 distance, got {distances[0]}"
+        assert len(results.matches) == 1, f"Expected 1 result, got {len(results.matches)}"
+        assert results.matches[0].distance == pytest.approx(0.0, abs=1e-5), (
+            f"Identical vector should have ~0 distance, got {results.matches[0].distance}"
         )
 
     async def test_dissimilar_documents_have_higher_distance(
-        self, store: VectorStore, embedder: Embedder
+        self, store: VectorStorePort, embedder: Embedder
     ) -> None:
         """
         GIVEN an architecture doc and a cooking doc indexed together
         WHEN queried with an architecture-related embedding
-        THEN the architecture doc has lower distance than the cooking doc.
+        THEN the architecture doc has lower distance than the cooking doc
         """
         # Given: embed and index both documents
         vec_arch = await embedder.embed("Distributed systems platform architecture")
@@ -406,9 +414,10 @@ class TestChromaDBContract:
 
         store.add_documents(
             collection_name="test_distance",
-            ids=["doc-arch", "doc-cooking"],
-            documents=["architecture doc", "cooking doc"],
-            embeddings=[vec_arch, vec_cooking],
+            documents=[
+                EmbeddedDocument(id="doc-arch", document="architecture doc", embedding=vec_arch),
+                EmbeddedDocument(id="doc-cooking", document="cooking doc", embedding=vec_cooking),
+            ],
         )
 
         # When: query with architecture vector
@@ -419,31 +428,32 @@ class TestChromaDBContract:
         )
 
         # Then: architecture doc is closer
-        distances = results["distances"][0]
-        ids = results["ids"][0]
-        arch_idx = ids.index("doc-arch")
-        cooking_idx = ids.index("doc-cooking")
-        assert distances[arch_idx] < distances[cooking_idx], (
-            f"Architecture should be closer: arch={distances[arch_idx]:.4f}, "
-            f"cooking={distances[cooking_idx]:.4f}"
+        matches_by_id = {m.id: m.distance for m in results.matches}
+        assert matches_by_id["doc-arch"] < matches_by_id["doc-cooking"], (
+            f"Architecture should be closer: arch={matches_by_id['doc-arch']:.4f}, "
+            f"cooking={matches_by_id['doc-cooking']:.4f}"
         )
 
     async def test_query_results_contain_expected_keys(
-        self, store: VectorStore, embedder: Embedder
+        self, store: VectorStorePort, embedder: Embedder
     ) -> None:
         """
         GIVEN a document indexed with metadata
         WHEN query() is called
-        THEN the result contains ids, documents, metadatas, and distances keys.
+        THEN the result contains ids, documents, metadatas, and distances keys
         """
         # Given: indexed document
         embedding = await embedder.embed("test document")
         store.add_documents(
             collection_name="test_keys",
-            ids=["doc-1"],
-            documents=["test document"],
-            embeddings=[embedding],
-            metadatas=[{"source": "test"}],
+            documents=[
+                EmbeddedDocument(
+                    id="doc-1",
+                    document="test document",
+                    embedding=embedding,
+                    metadata={"source": "test"},
+                ),
+            ],
         )
 
         # When: query
@@ -453,35 +463,49 @@ class TestChromaDBContract:
             n_results=1,
         )
 
-        # Then: expected keys present with correct structure
-        assert "ids" in results, "Results should contain 'ids'"
-        assert "documents" in results, "Results should contain 'documents'"
-        assert "metadatas" in results, "Results should contain 'metadatas'"
-        assert "distances" in results, "Results should contain 'distances'"
-        assert isinstance(results["ids"][0], list), "ids[0] should be a list"
-        assert isinstance(results["distances"][0], list), "distances[0] should be a list"
+        # Then: expected structure
+        assert len(results.matches) == 1, "Should return 1 match"
+        match = results.matches[0]
+        assert match.id == "doc-1", "Match should have correct id"
+        assert match.document == "test document", "Match should have correct document"
+        assert match.metadata["source"] == "test", "Match should have correct metadata"
+        assert match.distance >= 0.0, "Distance should be non-negative"
 
     async def test_persistence_survives_client_restart(self, embedder: Embedder) -> None:
         """
-        GIVEN data indexed by one VectorStore client
+        GIVEN data indexed by one VectorStore clien
         WHEN a new VectorStore client opens the same directory
-        THEN the previously indexed data is still available.
+        THEN the previously indexed data is still available
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Given: index with first client
-            store1 = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
+            store1 = create_vector_store(
+                VectorStoreConfig(
+                    persist_dir=tmpdir,
+                    distance_metric="cosine",
+                    sync_threshold=1,
+                )
+            )
             embedding = await embedder.embed("persistence test")
             store1.add_documents(
                 collection_name="test_persist",
-                ids=["persist-1"],
-                documents=["persistence test"],
-                embeddings=[embedding],
+                documents=[
+                    EmbeddedDocument(
+                        id="persist-1", document="persistence test", embedding=embedding
+                    )
+                ],
             )
             count_before = store1.collection_count("test_persist")
             store1.close()
 
             # When: create new client against same directory
-            store2 = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
+            store2 = create_vector_store(
+                VectorStoreConfig(
+                    persist_dir=tmpdir,
+                    distance_metric="cosine",
+                    sync_threshold=1,
+                )
+            )
             count_after = store2.collection_count("test_persist")
 
             # Then: data persisted
@@ -490,7 +514,7 @@ class TestChromaDBContract:
 
             # Then: document is retrievable
             docs = store2.get_documents("test_persist", ids=["persist-1"])
-            assert docs["documents"][0] == "persistence test", (
+            assert docs[0].document == "persistence test", (
                 "Retrieved document should match original"
             )
             store2.close()
@@ -503,7 +527,7 @@ class TestChromaDBContract:
 
 class TestEndToEndScoring:
     """
-    REQUIREMENT: The full index-then-score pipeline produces valid results.
+    REQUIREMENT: The full index-then-score pipeline produces valid results
 
     WHO: The operator running the pipeline for the first time
     WHAT: (1) The system returns a valid ScoreResult with non-zero fit and archetype scores when it scores a matching JD.
@@ -523,7 +547,7 @@ class TestEndToEndScoring:
 
     async def test_index_and_score_produces_valid_result(
         self,
-        store: VectorStore,
+        store: VectorStorePort,
         embedder: Embedder,
         sample_resume: Path,
         sample_archetypes: Path,
@@ -531,7 +555,7 @@ class TestEndToEndScoring:
         """
         GIVEN a resume and archetypes indexed with real Ollama embeddings
         WHEN a matching JD is scored
-        THEN a valid ScoreResult with non-zero fit and archetype scores is returned.
+        THEN a valid ScoreResult with non-zero fit and archetype scores is returned
         """
         # Given: index resume and archetypes
         indexer = Indexer(store=store, embedder=embedder)
@@ -565,7 +589,7 @@ class TestEndToEndScoring:
 
     async def test_matching_jd_scores_higher_than_unrelated(
         self,
-        store: VectorStore,
+        store: VectorStorePort,
         embedder: Embedder,
         sample_resume: Path,
         sample_archetypes: Path,
@@ -573,7 +597,7 @@ class TestEndToEndScoring:
         """
         GIVEN indexed resume and archetypes
         WHEN a matching JD and an unrelated JD are both scored
-        THEN the matching JD has higher fit and archetype scores.
+        THEN the matching JD has higher fit and archetype scores
         """
         # Given: index resume and archetypes
         indexer = Indexer(store=store, embedder=embedder)
@@ -611,7 +635,7 @@ class TestEndToEndScoring:
 
     async def test_disqualifier_produces_parseable_json(
         self,
-        store: VectorStore,
+        store: VectorStorePort,
         embedder: Embedder,
         sample_resume: Path,
         sample_archetypes: Path,
@@ -619,7 +643,7 @@ class TestEndToEndScoring:
         """
         GIVEN indexed resume and archetypes with LLM disqualifier enabled
         WHEN a matching JD is scored
-        THEN the result has a valid boolean disqualified field.
+        THEN the result has a valid boolean disqualified field
         """
         # Given: index and configure scorer with disqualifier
         indexer = Indexer(store=store, embedder=embedder)
@@ -654,13 +678,13 @@ class TestEndToEndScoring:
 
     async def test_index_with_real_resume_file(
         self,
-        store: VectorStore,
+        store: VectorStorePort,
         embedder: Embedder,
     ) -> None:
         """
         GIVEN the actual project resume.md file
         WHEN index_resume is called
-        THEN 5 chunks are produced and the collection is queryable.
+        THEN 5 chunks are produced and the collection is queryable
         """
         # Given: real resume file
         real_resume = Path("data/resume.md")
@@ -680,18 +704,18 @@ class TestEndToEndScoring:
             query_embedding=test_vec,
             n_results=3,
         )
-        assert len(results["ids"][0]) == 3, "Should return 3 results"
-        assert all(d >= 0.0 for d in results["distances"][0]), "Distances should be non-negative"
+        assert len(results.matches) == 3, "Should return 3 results"
+        assert all(m.distance >= 0.0 for m in results.matches), "Distances should be non-negative"
 
     async def test_index_with_real_archetypes_file(
         self,
-        store: VectorStore,
+        store: VectorStorePort,
         embedder: Embedder,
     ) -> None:
         """
         GIVEN the actual project role_archetypes.toml file
         WHEN index_archetypes is called
-        THEN 4 archetypes are produced.
+        THEN 4 archetypes are produced
         """
         # Given: real archetypes file
         real_archetypes = Path("config/role_archetypes.toml")
@@ -720,7 +744,7 @@ class TestEndToEndScoring:
 @pytest.mark.live
 class TestLiveZipRecruiterPipeline:
     """
-    REQUIREMENT: The full system works end-to-end against live ZipRecruiter.
+    REQUIREMENT: The full system works end-to-end against live ZipRecruiter
 
     WHO: The operator validating the tool after installation or upgrade
     WHAT: (1) The system extracts live ZipRecruiter listings, scores them, ranks them in descending order, and exports the results when the full pipeline executes.
@@ -747,16 +771,22 @@ class TestLiveZipRecruiterPipeline:
         return Embedder(_make_integration_ollama_config())
 
     @pytest.fixture
-    def live_store(self) -> Iterator[VectorStore]:
-        """A VectorStore in a temp directory for live pipeline tests."""
+    def live_store(self) -> Iterator[VectorStorePort]:
+        """A VectorStorePort in a temp directory for live pipeline tests."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
+            s = create_vector_store(
+                VectorStoreConfig(
+                    persist_dir=tmpdir,
+                    distance_metric="cosine",
+                    sync_threshold=1,
+                )
+            )
             yield s
             s.close()
 
     async def test_live_search_score_rank_export(
         self,
-        live_store: VectorStore,
+        live_store: VectorStorePort,
         live_embedder: Embedder,
         sample_resume: Path,
         sample_archetypes: Path,
@@ -765,7 +795,7 @@ class TestLiveZipRecruiterPipeline:
         """
         GIVEN a live ZipRecruiter session, Ollama, and indexed resume/archetypes
         WHEN the full pipeline executes: search → extract → score → rank → export
-        THEN listings are extracted, scored, ranked in descending order, and exported.
+        THEN listings are extracted, scored, ranked in descending order, and exported
         """
         # Given: skip if no session file
         session_path = Path("data/ziprecruiter_session.json")
@@ -977,7 +1007,7 @@ def require_ollama() -> None:
 class TestOllamaHealthCheckSkip:
     """
     REQUIREMENT: Integration and live tests skip gracefully when Ollama is
-    not running.
+    not running
 
     WHO: Developer running ``uv run pytest -m integration`` on a machine
          without Ollama.
@@ -997,12 +1027,10 @@ class TestOllamaHealthCheckSkip:
         """
         Given Ollama is running
         When the require_ollama fixture runs
-        Then the test body executes (reaching this assertion proves it).
+        Then the test body executes (reaching this assertion proves it)
         """
         # Given: Ollama is running (or the fixture skips us)
-
         # When: fixture ran before this body
-
         # Then: we reached this point — fixture did not skip
         assert True, "Test body should execute when Ollama is reachable"
 
@@ -1010,7 +1038,7 @@ class TestOllamaHealthCheckSkip:
         """
         Given Ollama is not running at a bogus URL
         When the fixture logic runs against that URL
-        Then pytest.skip() is called with a message identifying the URL.
+        Then pytest.skip() is called with a message identifying the URL
         """
         # Given: a URL that will not respond
         bogus_url = "http://localhost:1/__nonexistent_ollama__/api/tags"
@@ -1089,7 +1117,7 @@ _SAMPLE_JDS = [
 class TestIntegrationRescoreAccumulatedJDs:
     """
     REQUIREMENT: The rescorer processes all JD files on disk using real Ollama,
-    producing a full re-scored export.
+    producing a full re-scored export
 
     WHO: Operator running ``rescore`` after accumulating JDs across multiple
          search runs.
@@ -1114,7 +1142,7 @@ class TestIntegrationRescoreAccumulatedJDs:
     async def test_rescore_discovers_and_scores_all_seeded_jd_files(
         self,
         require_ollama: None,
-        store: VectorStore,
+        store: VectorStorePort,
         embedder: Embedder,
         sample_resume: Path,
         sample_archetypes: Path,
@@ -1124,7 +1152,7 @@ class TestIntegrationRescoreAccumulatedJDs:
         Given 3 JD files on disk from a prior export
         When rescore runs with real Ollama
         Then all 3 produce valid ScoreResults with fit_score > 0 and
-        archetype_score > 0.
+             archetype_score > 0
         """
         # Given: index resume and archetypes
         indexer = Indexer(store=store, embedder=embedder)
@@ -1190,7 +1218,7 @@ class TestIntegrationRescoreAccumulatedJDs:
     async def test_rescore_produces_sorted_csv_matching_jd_count(
         self,
         require_ollama: None,
-        store: VectorStore,
+        store: VectorStorePort,
         embedder: Embedder,
         sample_resume: Path,
         sample_archetypes: Path,
@@ -1200,7 +1228,7 @@ class TestIntegrationRescoreAccumulatedJDs:
         Given JD files with varied content
         When rescored
         Then CSV row count matches JD file count, CSV is sorted by final_score
-        descending, and Markdown table row count matches CSV data row count.
+             descending, and Markdown table row count matches CSV data row count
         """
         # Given: index resume and archetypes
         indexer = Indexer(store=store, embedder=embedder)
@@ -1375,8 +1403,7 @@ class TestLiveCumulativeAccumulation:
     """
     REQUIREMENT: Two successive live searches in accumulate mode produce a
     merged result set with correct CSV upsert semantics, JD file preservation,
-    and Markdown summary totals.
-
+    and Markdown summary totals
     WHO: Operator validating the full cumulative pipeline after deployment.
     WHAT: (1)  Run 1 search produces N listings in CSV, N JD files, and a
                Markdown summary
@@ -1421,7 +1448,7 @@ class TestLiveCumulativeAccumulation:
         When a second search runs without --fresh
         Then the merged CSV has >= N rows with no duplicate external_ids,
         scores are valid and descending, JD files from run 1 are preserved,
-        and Markdown table rows match CSV data rows.
+        and Markdown table rows match CSV data rows
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
@@ -1523,7 +1550,7 @@ class TestLiveCumulativeAccumulation:
         """
         Given the board is configured with max_pages > 1
         When a live search runs with no listing cap
-        Then the result set is larger than a single-page search.
+        Then the result set is larger than a single-page search
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
@@ -1570,7 +1597,7 @@ class TestLiveCumulativeAccumulation:
 class TestLiveFreshModeReset:
     """
     REQUIREMENT: The ``--fresh`` flag discards all prior accumulated results
-    in a live run, restoring replace-on-write behavior.
+    in a live run, restoring replace-on-write behavior
 
     WHO: Operator starting a clean search cycle.
     WHAT: (1) After accumulated results exist, ``search --fresh`` produces CSV
@@ -1599,7 +1626,7 @@ class TestLiveFreshModeReset:
         Given prior accumulated results exist
         When search runs with --fresh
         Then CSV contains only current-run listings, stale JD files are
-        removed, and Markdown table rows match the fresh CSV.
+        removed, and Markdown table rows match the fresh CSV
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
@@ -1673,7 +1700,7 @@ class TestLiveFreshModeReset:
 class TestLiveDecisionExclusionAcrossRuns:
     """
     REQUIREMENT: A listing decided in a prior run is excluded from the next
-    accumulate-mode search's exports, while its JD file is preserved.
+    accumulate-mode search's exports, while its JD file is preserved
 
     WHO: Operator verifying that decision filtering works across accumulated
          runs.
@@ -1715,7 +1742,7 @@ class TestLiveDecisionExclusionAcrossRuns:
         Given listing X has a recorded "no" decision from a prior run
         When a new accumulate-mode search runs
         Then X does not appear in CSV or Markdown, X's JD file is preserved,
-        and session_summary shows the decision exclusion count.
+        and session_summary shows the decision exclusion count
         """
         # Given: skip if no session or Ollama
         if not Path("data/ziprecruiter_session.json").exists():
