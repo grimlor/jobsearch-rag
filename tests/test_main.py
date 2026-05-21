@@ -11,12 +11,92 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from typing import TYPE_CHECKING, Any, Self
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from jobsearch_rag.__main__ import HANDLERS, main
 from jobsearch_rag.errors import ActionableError, ErrorType
+
+if TYPE_CHECKING:
+    from pathlib import Path
+    from types import TracebackType
+
+    from jobsearch_rag.rag.ports import (
+        DocumentRecord,
+        EmbeddedDocument,
+        MetadataFilter,
+        QueryResults,
+    )
+
+# ---------------------------------------------------------------------------
+# Sentinel store — raises on first real use, proving the composition root
+# created it and passed it to the handler.
+# ---------------------------------------------------------------------------
+
+_SENTINEL_MSG = "SentinelStore: composition root delivered the store to the handler"
+
+
+class _SentinelStore:
+    """
+    VectorStorePort implementation that raises immediately on any domain method.
+
+    Proves the store was created by the composition root (via factory/config)
+    and delivered to the handler. The handler calls a method → raises →
+    main() catches the exception → test asserts on stderr.
+    """
+
+    def __init__(self, **_kwargs: Any) -> None:
+        """Accept and ignore factory kwargs (persist_dir, etc.)."""
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    # Every domain method raises the sentinel
+    def collection_count(self, name: str) -> int:
+        raise RuntimeError(_SENTINEL_MSG)
+
+    def reset_collection(self, name: str) -> None:
+        raise RuntimeError(_SENTINEL_MSG)
+
+    def add_documents(self, collection_name: str, *, documents: list[EmbeddedDocument]) -> None:
+        raise RuntimeError(_SENTINEL_MSG)
+
+    def get_documents(self, collection_name: str, *, ids: list[str]) -> list[DocumentRecord]:
+        raise RuntimeError(_SENTINEL_MSG)
+
+    def get_all_documents(self, collection_name: str) -> list[DocumentRecord]:
+        raise RuntimeError(_SENTINEL_MSG)
+
+    def get_by_metadata(
+        self, collection_name: str, *, where: MetadataFilter
+    ) -> list[DocumentRecord]:
+        raise RuntimeError(_SENTINEL_MSG)
+
+    def delete_by_id(self, collection_name: str, *, ids: list[str]) -> None:
+        raise RuntimeError(_SENTINEL_MSG)
+
+    def query(
+        self,
+        collection_name: str,
+        *,
+        query_embedding: list[float],
+        n_results: int,
+    ) -> QueryResults:
+        raise RuntimeError(_SENTINEL_MSG)
+
 
 # ---------------------------------------------------------------------------
 # TestMainDispatch
@@ -25,66 +105,221 @@ from jobsearch_rag.errors import ActionableError, ErrorType
 
 class TestMainDispatch:
     """
-    REQUIREMENT: main() dispatches each CLI subcommand to the correct handler.
+    REQUIREMENT: main() dispatches each CLI subcommand to the correct handler
 
     WHO: The operator invoking ``python -m jobsearch_rag <command>``
-    WHAT: (1) I invoke the corresponding handle_* function for the provided subcommand.
+    WHAT: (1) Store-independent commands (boards, login, export) are dispatched
+              directly without creating a store.
+          (2) Store-dependent commands (index, search, decide, decisions,
+              review, rescore, eval, reset) receive a VectorStorePort
+              created by the composition root.
     WHY: The shim is the only coupling between argparse and handler
-         functions — incorrect wiring silently runs the wrong command
+         functions — incorrect wiring silently runs the wrong command.
+         ``main()`` is the single composition root: it creates the store
+         once and passes it to every handler that needs it.
 
     MOCK BOUNDARY:
-        Mock: handle_* functions (CLI handler I/O), sys.argv (process state)
-        Real: main(), build_parser() argument parsing
-        Never: Patch build_parser internals or argparse
+        Mock: sys.argv (process state), filesystem (config file — temp dir)
+        Real: main(), build_parser(), load_settings(), create_vector_store(),
+              handler functions (run until first store method call)
+        Never: Patch our own functions (load_settings, create_vector_store,
+               handlers); never assert on mock call_args
     """
 
     @pytest.mark.parametrize(
-        ("command", "handler_name", "extra_argv"),
+        ("command", "extra_argv"),
         [
-            ("boards", "handle_boards", []),
-            ("index", "handle_index", []),
-            ("search", "handle_search", ["--board", "ziprecruiter"]),
-            ("decide", "handle_decide", ["job-42", "--verdict", "yes"]),
-            ("review", "handle_review", []),
-            ("export", "handle_export", []),
-            ("rescore", "handle_rescore", []),
-            ("login", "handle_login", ["--board", "ziprecruiter"]),
-            ("reset", "handle_reset", []),
+            ("boards", []),
+            ("export", []),
+            ("login", ["--board", "ziprecruiter"]),
         ],
-        ids=[
-            "boards",
-            "index",
-            "search",
-            "decide",
-            "review",
-            "export",
-            "rescore",
-            "login",
-            "reset",
-        ],
+        ids=["boards", "export", "login"],
     )
-    def test_subcommand_dispatches_to_correct_handler(
+    def test_store_independent_command_dispatches_without_store(
         self,
         command: str,
-        handler_name: str,
         extra_argv: list[str],
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
-        Given a CLI invocation with a subcommand
+        Given a CLI invocation with a store-independent subcommand
         When main() is called
-        Then the corresponding handle_* function is invoked.
+        Then the corresponding handler runs without creating a store
         """
-        # Given: sys.argv set to the subcommand
-        mock_handler = MagicMock()
-        with (
-            patch("sys.argv", ["jobsearch_rag", command, *extra_argv]),
-            patch.dict(HANDLERS, {command: mock_handler}),
-        ):
-            # When: main() dispatches
-            main()
+        # Given: sys.argv set to the subcommand, cwd at tmp_path with config
+        monkeypatch.chdir(tmp_path)
+        _write_test_config(tmp_path)
+        monkeypatch.setattr("sys.argv", ["jobsearch_rag", command, *extra_argv])
 
-        # Then: the correct handler was called
-        mock_handler.assert_called_once()
+        # When: main() dispatches (store-independent commands complete without store)
+        main()
+
+        # Then: observable output proves the handler ran
+        captured = capsys.readouterr()
+        assert captured.err == "", f"Expected no error output for {command}, got: {captured.err!r}"
+
+    @pytest.mark.parametrize(
+        ("command", "extra_argv"),
+        [
+            ("index", []),
+            ("search", ["--board", "ziprecruiter"]),
+            ("decide", ["job-42", "--verdict", "yes"]),
+            ("decisions", ["show", "job-1"]),
+            ("review", []),
+            ("rescore", []),
+            ("eval", []),
+            ("reset", []),
+        ],
+        ids=["index", "search", "decide", "decisions", "review", "rescore", "eval", "reset"],
+    )
+    def test_store_dependent_command_receives_store_from_composition_root(
+        self,
+        command: str,
+        extra_argv: list[str],
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Given a CLI invocation with a store-dependent subcommand
+        When main() is called
+        Then the composition root creates a store via config and the handler
+             uses it (proven by the sentinel store's error reaching stderr)
+        """
+        # Given: config pointing to _SentinelStore, cwd at tmp_path
+        monkeypatch.chdir(tmp_path)
+        _write_test_config(tmp_path)
+        monkeypatch.setattr("sys.argv", ["jobsearch_rag", command, *extra_argv])
+
+        # When: main() creates _SentinelStore via factory, passes to handler,
+        # handler calls a store method → raises → main() catches and prints
+        main()
+
+        # Then: stderr contains the sentinel message, proving the store reached
+        # the handler through the composition root
+        captured = capsys.readouterr()
+        assert _SENTINEL_MSG in captured.err, (
+            f"Expected sentinel message in stderr for {command}, "
+            f"proving store was delivered to handler. Got: {captured.err!r}"
+        )
+
+
+def _write_test_config(tmp_path: Path) -> None:
+    """
+    Write a minimal settings.toml with store_class pointing to _SentinelStore.
+
+    Also creates the global_rubric.toml required by config validation.
+    Uses ``monkeypatch.chdir(tmp_path)`` so ``load_settings()`` finds the
+    relative ``config/settings.toml`` path.
+    """
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    store_class = f"{_SentinelStore.__module__}.{_SentinelStore.__qualname__}"
+    (config_dir / "settings.toml").write_text(
+        _MINIMAL_SETTINGS_TOML.format(store_class=store_class),
+        encoding="utf-8",
+    )
+    (config_dir / "global_rubric.toml").write_text(
+        "# empty rubric for tests\n",
+        encoding="utf-8",
+    )
+
+
+_MINIMAL_SETTINGS_TOML = """\
+resume_path = "data/resume.md"
+archetypes_path = "config/role_archetypes.toml"
+global_rubric_path = "config/global_rubric.toml"
+
+[boards]
+enabled = ["testboard"]
+session_storage_dir = "."
+
+[boards.testboard]
+searches = ["https://testboard.com/search"]
+max_pages = 1
+headless = true
+rate_limit_range = [1.5, 3.5]
+
+[scoring]
+archetype_weight = 0.5
+fit_weight = 0.3
+history_weight = 0.2
+comp_weight = 0.15
+negative_weight = 0.4
+culture_weight = 0.2
+base_salary = 220000
+disqualify_on_llm_flag = true
+min_score_threshold = 0.45
+missing_comp_score = 0.5
+chunk_overlap = 2000
+dedup_similarity_threshold = 0.95
+top_k_retrieval = 3
+salary_floor = 10.0
+salary_ceiling = 1000000.0
+hours_per_year = 2080
+
+[[scoring.comp_bands]]
+ratio = 1.0
+score = 1.0
+
+[[scoring.comp_bands]]
+ratio = 0.90
+score = 0.7
+
+[[scoring.comp_bands]]
+ratio = 0.77
+score = 0.4
+
+[[scoring.comp_bands]]
+ratio = 0.68
+score = 0.0
+
+[ollama]
+base_url = "http://localhost:11434"
+llm_model = "mistral:7b"
+embed_model = "nomic-embed-text"
+slow_llm_threshold_ms = 30000
+classify_system_prompt = "You are a classifier."
+max_retries = 1
+base_delay = 0.0
+max_embed_chars = 8000
+head_ratio = 0.6
+retryable_status_codes = [408, 429, 500, 502, 503, 504]
+
+[output]
+default_format = "markdown"
+output_dir = "./output"
+open_top_n = 5
+jd_dir = "output/jds"
+decisions_dir = "decisions"
+log_dir = "logs"
+eval_history_path = "data/eval_history.jsonl"
+max_slug_length = 80
+
+[chroma]
+persist_dir = "./chroma"
+distance_metric = "cosine"
+sync_threshold = 1
+
+[vectorstore]
+persist_dir = "./chroma"
+distance_metric = "cosine"
+sync_threshold = 1
+store_class = "{store_class}"
+
+[security]
+screen_prompt = "Review the following job description text."
+
+[adapters]
+cdp_timeout = 15.0
+max_full_text_chars = 250000
+viewport_width = 1440
+viewport_height = 900
+
+[adapters.browser_paths]
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +329,7 @@ class TestMainDispatch:
 
 class TestMainErrorDisplay:
     """
-    REQUIREMENT: main() formats errors with rich context for the operator.
+    REQUIREMENT: main() formats errors with rich context for the operator
 
     WHO: The operator seeing a CLI failure in their terminal
     WHAT: (1) The system prints the actionable error type, message, and suggestion to stderr when main() catches an ActionableError with a suggestion.
@@ -116,7 +351,7 @@ class TestMainErrorDisplay:
         """
         Given a handler that raises an ActionableError with a suggestion
         When main() catches it
-        Then error_type, message, and suggestion are printed to stderr.
+        Then error_type, message, and suggestion are printed to stderr
         """
         # Given: handle_boards raises an ActionableError
         err = ActionableError(
@@ -128,10 +363,13 @@ class TestMainErrorDisplay:
         with (
             patch("sys.argv", ["jobsearch_rag", "boards"]),
             patch.dict(HANDLERS, {"boards": MagicMock(side_effect=err)}),
-            patch("sys.exit") as mock_exit,
+            pytest.raises(SystemExit) as exc_info,
         ):
             # When: main() runs
             main()
+
+        # Then: process exits with code 1
+        assert exc_info.value.code == 1, f"Expected exit code 1, got: {exc_info.value.code}"
 
         # Then: stderr contains error type, message, and suggestion
         captured = capsys.readouterr().err
@@ -142,7 +380,6 @@ class TestMainErrorDisplay:
         assert "Re-authenticate in headed mode" in captured, (
             f"Expected suggestion in stderr, got: {captured!r}"
         )
-        mock_exit.assert_called_once_with(1)
 
     def test_actionable_error_without_suggestion_omits_suggestion_line(
         self, capsys: pytest.CaptureFixture[str]
@@ -150,7 +387,7 @@ class TestMainErrorDisplay:
         """
         Given a handler that raises an ActionableError without a suggestion
         When main() catches it
-        Then only error_type and message are printed (no Suggestion line).
+        Then only error_type and message are printed (no Suggestion line)
         """
         # Given: ActionableError with no suggestion
         err = ActionableError(
@@ -161,7 +398,7 @@ class TestMainErrorDisplay:
         with (
             patch("sys.argv", ["jobsearch_rag", "boards"]),
             patch.dict(HANDLERS, {"boards": MagicMock(side_effect=err)}),
-            patch("sys.exit"),
+            pytest.raises(SystemExit),
         ):
             # When: main() runs
             main()
@@ -181,7 +418,7 @@ class TestMainErrorDisplay:
         """
         Given a handler that raises a non-ActionableError exception
         When main() catches it
-        Then 'Unexpected error' and the message are printed to stderr.
+        Then 'Unexpected error' and the message are printed to stderr
         """
         # Given: handle_boards raises a generic RuntimeError
         with (
@@ -190,10 +427,13 @@ class TestMainErrorDisplay:
                 HANDLERS,
                 {"boards": MagicMock(side_effect=RuntimeError("Something broke"))},
             ),
-            patch("sys.exit") as mock_exit,
+            pytest.raises(SystemExit) as exc_info,
         ):
             # When: main() runs
             main()
+
+        # Then: process exits with code 1
+        assert exc_info.value.code == 1, f"Expected exit code 1, got: {exc_info.value.code}"
 
         # Then: stderr contains 'Unexpected error' message
         captured = capsys.readouterr().err
@@ -203,7 +443,6 @@ class TestMainErrorDisplay:
         assert "Something broke" in captured, (
             f"Expected exception message in stderr, got: {captured!r}"
         )
-        mock_exit.assert_called_once_with(1)
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +452,7 @@ class TestMainErrorDisplay:
 
 class TestMainModuleEntryPoint:
     """
-    REQUIREMENT: ``python -m jobsearch_rag`` invokes main() via the __main__ guard.
+    REQUIREMENT: ``python -m jobsearch_rag`` invokes main() via the __main__ guard
 
     WHO: The operator running the package as a module
     WHAT: (1) Running the package as ``python -m jobsearch_rag <cmd>`` executes main()
@@ -230,7 +469,7 @@ class TestMainModuleEntryPoint:
         """
         Given the package is invoked as ``python -m jobsearch_rag boards``
         When Python executes __main__.py with __name__ set to "__main__"
-        Then main() dispatches the subcommand and the handler runs.
+        Then main() dispatches the subcommand and the handler runs
         """
         # Given: the boards subcommand requires no config or external services
         # When: the package is executed as a module in a fresh process
