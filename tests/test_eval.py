@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from jobsearch_rag.cli import build_parser
+from jobsearch_rag.cli import build_parser, handle_eval
 from jobsearch_rag.config import load_settings
 from jobsearch_rag.pipeline.eval import (
     EvalDecision,
@@ -38,8 +38,13 @@ from jobsearch_rag.pipeline.eval import (
 )
 from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.rag.embedder import Embedder
+from jobsearch_rag.rag.ports import (
+    EmbeddedDocument,
+    VectorStoreConfig,
+    VectorStorePort,
+    create_vector_store,
+)
 from jobsearch_rag.rag.scorer import Scorer
-from jobsearch_rag.rag.store import VectorStore
 from tests.conftest import make_test_ollama_config, make_test_settings
 from tests.constants import EMBED_FAKE
 
@@ -47,7 +52,7 @@ if TYPE_CHECKING:
     from jobsearch_rag.config import Settings
 
 # Public API surface (from src/jobsearch_rag/pipeline/eval):
-#   EvalRunner(scorer: Scorer, ranker: Ranker, store: VectorStore)
+#   EvalRunner(scorer: Scorer, ranker: Ranker, store: VectorStorePort)
 #   async EvalRunner.evaluate() -> EvalResult
 #
 #   EvalResult:
@@ -243,16 +248,22 @@ def _make_mock_embedder(
     return embedder, mock_client
 
 
+_FAKE_STORE_CONFIG = VectorStoreConfig(
+    store_class="tests.fakes.FakeVectorStore",
+    persist_dir="",
+    distance_metric="cosine",
+    sync_threshold=1,
+)
+
+
 def _make_eval_stack(
     settings: Settings,
     *,
     embed_return: list[float] | None = None,
-) -> tuple[EvalRunner, Scorer, Ranker, VectorStore, AsyncMock]:
-    """Build a full eval stack: EvalRunner + Scorer + Ranker + real VectorStore."""
+) -> tuple[EvalRunner, Scorer, Ranker, VectorStorePort, AsyncMock]:
+    """Build a full eval stack: EvalRunner + Scorer + Ranker + VectorStorePort."""
     embedder, mock_client = _make_mock_embedder(embed_return=embed_return)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
-    )
+    store = create_vector_store(_FAKE_STORE_CONFIG)
     scorer = Scorer(
         store=store,
         embedder=embedder,
@@ -276,19 +287,23 @@ def _make_eval_stack(
     return runner, scorer, ranker, store, mock_client
 
 
-def _seed_required_collections(store: VectorStore, embedding: list[float]) -> None:
+def _seed_required_collections(store: VectorStorePort, embedding: list[float]) -> None:
     """Seed resume and role_archetypes so the scorer doesn't raise on empty."""
     for name in ("resume", "role_archetypes"):
         store.add_documents(
             name,
-            ids=[f"{name}-seed"],
-            documents=[f"Seed document for {name}"],
-            embeddings=[embedding],
+            documents=[
+                EmbeddedDocument(
+                    id=f"{name}-seed",
+                    document=f"Seed document for {name}",
+                    embedding=embedding,
+                )
+            ],
         )
 
 
 def _seed_decision(
-    store: VectorStore,
+    store: VectorStorePort,
     *,
     job_id: str,
     verdict: str,
@@ -298,20 +313,22 @@ def _seed_decision(
     """Seed a single decision into the decisions collection."""
     store.add_documents(
         "decisions",
-        ids=[f"decision-{job_id}"],
-        documents=[jd_text],
-        embeddings=[embedding or EMBED_FAKE],
-        metadatas=[
-            {
-                "job_id": job_id,
-                "verdict": verdict,
-                "board": "testboard",
-                "title": f"Role {job_id}",
-                "company": "TestCorp",
-                "scoring_signal": "true" if verdict == "yes" else "false",
-                "reason": "",
-                "recorded_at": "2026-03-27T00:00:00+00:00",
-            }
+        documents=[
+            EmbeddedDocument(
+                id=f"decision-{job_id}",
+                document=jd_text,
+                embedding=embedding or EMBED_FAKE,
+                metadata={
+                    "job_id": job_id,
+                    "verdict": verdict,
+                    "board": "testboard",
+                    "title": f"Role {job_id}",
+                    "company": "TestCorp",
+                    "scoring_signal": "true" if verdict == "yes" else "false",
+                    "reason": "",
+                    "recorded_at": "2026-03-27T00:00:00+00:00",
+                },
+            )
         ],
     )
 
@@ -319,7 +336,7 @@ def _seed_decision(
 class TestEvalCommand:
     """
     REQUIREMENT: The ``eval`` CLI subcommand loads settings, instantiates the
-    eval pipeline, runs evaluation, and prints summary metrics to stdout.
+    eval pipeline, runs evaluation, and prints summary metrics to stdout
 
     WHO: The operator running ``python -m jobsearch_rag eval`` after a config
          change
@@ -334,7 +351,7 @@ class TestEvalCommand:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (embedding + LLM calls)
-        Real:  EvalRunner, Scorer, Ranker, VectorStore (ChromaDB), metric
+        Real:  EvalRunner, Scorer, Ranker, FakeVectorStore, metric
                computation
         Never: Mock the metric computation or decision loading
     """
@@ -376,7 +393,6 @@ class TestEvalCommand:
             assert result.agreement_rate is not None, "agreement_rate should be set"
             assert result.precision is not None, "precision should be set"
             assert result.recall is not None, "recall should be set"
-            store.close()
 
     def test_handle_eval_with_no_decisions_exits_cleanly(self) -> None:
         """
@@ -397,7 +413,6 @@ class TestEvalCommand:
             assert result.decisions_evaluated == 0, (
                 f"Expected 0 decisions_evaluated, got {result.decisions_evaluated}"
             )
-            store.close()
 
     def test_evaluate_returns_eval_result_with_correct_types(self) -> None:
         """
@@ -435,13 +450,12 @@ class TestEvalCommand:
             assert isinstance(result.spearman, float), (
                 f"spearman should be float, got {type(result.spearman)}"
             )
-            store.close()
 
 
 class TestEvalMetrics:
     """
     REQUIREMENT: ``EvalRunner.evaluate()`` re-scores each decision's JD,
-    computes agreement rate, precision, and recall against the human verdicts.
+    computes agreement rate, precision, and recall against the human verdicts
 
     WHO: The operator tuning scoring weights who needs to know whether the
          change improved pipeline-human agreement
@@ -465,7 +479,7 @@ class TestEvalMetrics:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (embedding + LLM calls)
-        Real:  EvalRunner, Scorer, Ranker, VectorStore (ChromaDB), metric
+        Real:  EvalRunner, Scorer, Ranker, FakeVectorStore, metric
                computation
         Never: Mock the metric computation; never mock scorer/ranker internals
     """
@@ -499,7 +513,6 @@ class TestEvalMetrics:
                 f"Expected precision 1.0, got {result.precision}"
             )
             assert result.recall == pytest.approx(1.0), f"Expected recall 1.0, got {result.recall}"
-            store.close()
 
     def test_all_no_below_threshold_produces_full_agreement(self) -> None:
         """
@@ -529,7 +542,6 @@ class TestEvalMetrics:
             assert result.agreement_rate == pytest.approx(1.0), (
                 f"Expected agreement_rate 1.0, got {result.agreement_rate}"
             )
-            store.close()
 
     def test_total_disagreement_produces_zero_rates(self) -> None:
         """
@@ -572,7 +584,6 @@ class TestEvalMetrics:
             assert result.precision == pytest.approx(0.0), (
                 f"Expected precision 0.0, got {result.precision}"
             )
-            store.close()
 
     def test_maybe_verdicts_treated_as_positive(self) -> None:
         """
@@ -598,7 +609,6 @@ class TestEvalMetrics:
                 f"Expected agreement_rate 1.0 (maybe=positive, above threshold), "
                 f"got {result.agreement_rate}"
             )
-            store.close()
 
     def test_per_decision_entries_have_correct_fields(self) -> None:
         """
@@ -631,7 +641,6 @@ class TestEvalMetrics:
                     f"per_decision entry missing 'above_threshold': {entry}"
                 )
                 assert hasattr(entry, "agreed"), f"per_decision entry missing 'agreed': {entry}"
-            store.close()
 
     def test_precision_and_recall_computed_correctly(self) -> None:
         """
@@ -640,7 +649,7 @@ class TestEvalMetrics:
         Then precision and recall are computed correctly against the definitions
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Given: EMBED_FAKE → score ~1.0 (above threshold).
+            # Given: EMBED_FAKE → score ~1.0 (above threshold)
             # 2 yes (above → agree), 1 no (above → disagree), 1 maybe (above → agree)
             # Pipeline says "above" for all 4.
             # Human positive: yes + maybe = 3. Human negative: no = 1.
@@ -662,7 +671,6 @@ class TestEvalMetrics:
                 f"Expected precision 0.75, got {result.precision}"
             )
             assert result.recall == pytest.approx(1.0), f"Expected recall 1.0, got {result.recall}"
-            store.close()
 
     def test_no_decisions_returns_zero_metrics(self) -> None:
         """
@@ -686,7 +694,6 @@ class TestEvalMetrics:
             )
             assert result.precision == pytest.approx(0.0), f"Expected 0.0, got {result.precision}"
             assert result.recall == pytest.approx(0.0), f"Expected 0.0, got {result.recall}"
-            store.close()
 
     def test_yes_verdict_below_threshold_is_recall_miss(self) -> None:
         """
@@ -721,13 +728,12 @@ class TestEvalMetrics:
             assert not yes_decisions[0].agreed, (
                 "yes-decision below threshold should disagree with pipeline"
             )
-            store.close()
 
 
 class TestSpearmanCorrelation:
     """
     REQUIREMENT: Spearman rank correlation is computed between pipeline final
-    scores and human verdict ordering without external dependencies.
+    scores and human verdict ordering without external dependencies
 
     WHO: The eval harness computing correlation between pipeline scores and
          human judgment
@@ -837,7 +843,7 @@ class TestSpearmanCorrelation:
 class TestEvalReport:
     """
     REQUIREMENT: A Markdown eval report is written to
-    ``output/eval_YYYY-MM-DD.md`` summarizing the evaluation run.
+    ``output/eval_YYYY-MM-DD.md`` summarizing the evaluation run
 
     WHO: The operator reviewing evaluation results after a configuration change.
 
@@ -1170,7 +1176,7 @@ class TestEvalHistory:
 class TestEvalIntegration:
     """
     REQUIREMENT: ``handle_eval`` writes both the report and history after
-    evaluation completes.
+    evaluation completes
 
     WHO: The operator running ``python -m jobsearch_rag eval``.
 
@@ -1183,7 +1189,7 @@ class TestEvalIntegration:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (embedding + LLM calls)
-        Real:  EvalRunner, Scorer, Ranker, VectorStore, EvalReport, EvalHistory,
+        Real:  EvalRunner, Scorer, Ranker, FakeVectorStore, EvalReport, EvalHistory,
                load_settings (reads a real TOML file from tmp_path)
         Never: mock the report generation or history append
     """
@@ -1202,9 +1208,7 @@ class TestEvalIntegration:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(
-            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
-        )
+        store = create_vector_store(_FAKE_STORE_CONFIG)
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="eval-1", verdict="yes")
         _seed_decision(store, job_id="eval-2", verdict="no", embedding=_EMBED_DISTANT)
@@ -1212,15 +1216,15 @@ class TestEvalIntegration:
         _, mock_client = _make_mock_embedder()
 
         # When: handle_eval is invoked (reads real settings.toml)
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
-
             args = MagicMock()
             args.compare_models = None
-            handle_eval(args)
+            handle_eval(args, store=store)
 
         # Then: report file exists in output_dir
         output_dir = Path(settings.output.output_dir)
@@ -1232,7 +1236,6 @@ class TestEvalIntegration:
         assert history_path.exists(), "eval_history.jsonl should exist"
         lines = history_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1, f"Expected 1 history line, found {len(lines)}"
-        store.close()
 
     def test_eval_result_has_spearman_field(self, tmp_path: Path) -> None:
         """
@@ -1254,13 +1257,12 @@ class TestEvalIntegration:
         assert isinstance(result.spearman, float), (
             f"Expected spearman to be float, got {type(result.spearman).__name__}"
         )
-        store.close()
 
 
 class TestModelComparisonResult:
     """
     REQUIREMENT: ``ModelComparisonResult`` computes correct deltas between two
-    EvalResult instances.
+    EvalResult instances
 
     WHO: The eval harness comparing two LLM models' disqualification accuracy.
 
@@ -1416,7 +1418,7 @@ class TestModelComparisonResult:
 class TestCompareModelsFlag:
     """
     REQUIREMENT: The ``eval`` subparser accepts ``--compare-models MODEL_A MODEL_B``
-    and ``handle_eval`` uses the two model names to run dual evaluations.
+    and ``handle_eval`` uses the two model names to run dual evaluations
 
     WHO: The operator deciding between LLM models for disqualification.
 
@@ -1474,30 +1476,27 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(
-            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
-        )
+        store = create_vector_store(_FAKE_STORE_CONFIG)
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
         _, mock_client = _make_mock_embedder()
 
         # When: handle_eval runs
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
-
             args = MagicMock()
             args.compare_models = None
-            handle_eval(args)
+            handle_eval(args, store=store)
 
         # Then: report file exists (normal flow writes report)
         output_dir = Path(settings.output.output_dir)
         report_files = list(output_dir.glob("eval_*.md"))
         assert len(report_files) == 1, f"Expected 1 report (normal flow), found {report_files}"
-        store.close()
 
     def test_compare_models_present_runs_dual_eval(
         self,
@@ -1514,11 +1513,9 @@ class TestCompareModelsFlag:
         # Given: a store with decisions and --compare-models mistral:7b llama3:8b
         monkeypatch.chdir(tmp_path)
         _write_test_settings_toml(tmp_path)
-        settings = load_settings()
+        load_settings()  # side-effect: validates config file
 
-        store = VectorStore(
-            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
-        )
+        store = create_vector_store(_FAKE_STORE_CONFIG)
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
         _seed_decision(store, job_id="cmp-2", verdict="no", embedding=_EMBED_DISTANT)
@@ -1530,15 +1527,15 @@ class TestCompareModelsFlag:
         mock_client.list.return_value.models.append(model_b)
 
         # When: handle_eval runs
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
-
             args = MagicMock()
             args.compare_models = ["mistral:7b", "llama3:8b"]
-            handle_eval(args)
+            handle_eval(args, store=store)
 
         # Then: stdout contains both model names and delta
         captured = capsys.readouterr()
@@ -1547,7 +1544,6 @@ class TestCompareModelsFlag:
         assert "delta" in captured.out.lower() or "Δ" in captured.out, (
             "Expected delta label in comparison output"
         )
-        store.close()
 
     def test_compare_models_skips_report_and_history(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1563,9 +1559,7 @@ class TestCompareModelsFlag:
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(
-            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
-        )
+        store = create_vector_store(_FAKE_STORE_CONFIG)
         _seed_required_collections(store, EMBED_FAKE)
         _seed_decision(store, job_id="cmp-1", verdict="yes")
 
@@ -1576,15 +1570,15 @@ class TestCompareModelsFlag:
         mock_client.list.return_value.models.append(model_b)
 
         # When: handle_eval runs
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
-
             args = MagicMock()
             args.compare_models = ["mistral:7b", "llama3:8b"]
-            handle_eval(args)
+            handle_eval(args, store=store)
 
         # Then: no report written
         output_dir = Path(settings.output.output_dir)
@@ -1594,13 +1588,12 @@ class TestCompareModelsFlag:
         # And: no history file
         history_path = tmp_path / "data" / "eval_history.jsonl"
         assert not history_path.exists(), "Expected no history file in compare mode"
-        store.close()
 
 
 class TestLoadDecisionsResilience:
     """
     REQUIREMENT: ``_load_decisions`` gracefully handles corrupt or missing
-    decision data in ChromaDB without crashing the eval pipeline.
+    decision data in ChromaDB without crashing the eval pipeline
 
     WHO: The operator running ``eval`` against a decisions collection that
          may contain data quality issues from prior runs.
@@ -1614,9 +1607,9 @@ class TestLoadDecisionsResilience:
          all other valid decisions — the pipeline must degrade gracefully.
 
     MOCK BOUNDARY:
-        Mock:  ``store._client.get_or_create_collection`` (for exception test
-               only, at the ChromaDB PersistentClient I/O boundary)
-        Real:  EvalRunner, VectorStore (real ChromaDB for data-quality tests)
+        Mock:  FakeVectorStore subclass that raises from get_all_documents
+               (for exception test only, at the port boundary)
+        Real:  EvalRunner, FakeVectorStore (for data-quality tests)
         Never: mock ``_load_decisions`` itself
     """
 
@@ -1626,26 +1619,39 @@ class TestLoadDecisionsResilience:
         When evaluate() is called
         Then the result has 0 decisions and no crash
         """
-        # Given: a real store with the ChromaDB client patched to raise
+        # Given: a store configured to fail on the decisions collection
         settings = _make_settings(str(tmp_path))
-        runner, _scorer, _ranker, store, _mock = _make_eval_stack(settings)
+        store = create_vector_store(_FAKE_STORE_CONFIG, fail_on_collections={"decisions"})
+        embedder, _mock_client = _make_mock_embedder()
+        scorer = Scorer(
+            store=store,
+            embedder=embedder,
+            disqualify_on_llm_flag=settings.scoring.disqualify_on_llm_flag,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
+        ranker = Ranker(
+            archetype_weight=settings.scoring.archetype_weight,
+            fit_weight=settings.scoring.fit_weight,
+            history_weight=settings.scoring.history_weight,
+            comp_weight=settings.scoring.comp_weight,
+            negative_weight=settings.scoring.negative_weight,
+            culture_weight=settings.scoring.culture_weight,
+            min_score_threshold=settings.scoring.min_score_threshold,
+            dedup_similarity_threshold=0.85,
+        )
+        runner = EvalRunner(scorer=scorer, ranker=ranker, store=store)
         _seed_required_collections(store, EMBED_FAKE)
 
-        # Patch at the ChromaDB I/O boundary (the PersistentClient instance)
-        chroma_client = store._client  # pyright: ignore[reportPrivateUsage]  # reaching through to the I/O boundary; VectorStore has no public client accessor
-        with patch.object(
-            chroma_client,
-            "get_or_create_collection",
-            side_effect=RuntimeError("db locked"),
-        ):
-            # When: evaluate() is called
-            result = asyncio.run(runner.evaluate())
+        # When: evaluate() is called
+        result = asyncio.run(runner.evaluate())
 
         # Then: graceful degradation — 0 decisions, not a crash
         assert result.decisions_evaluated == 0, (
             f"Expected 0 decisions, got {result.decisions_evaluated}"
         )
-        store.close()
 
     def test_decision_with_missing_metadata_is_skipped(self, tmp_path: Path) -> None:
         """
@@ -1661,12 +1667,15 @@ class TestLoadDecisionsResilience:
         _seed_decision(store, job_id="valid-1", verdict="yes")
 
         # And: seed a bare document with no metadata via low-level API
-        collection = store.get_or_create_collection("decisions")
-        collection.add(
-            ids=["decision-corrupt-1"],
-            documents=["A job with missing metadata"],
-            embeddings=[EMBED_FAKE],
-            # no metadatas — ChromaDB stores None for this entry
+        store.add_documents(
+            collection_name="decisions",
+            documents=[
+                EmbeddedDocument(
+                    id="decision-corrupt-1",
+                    document="A job with missing metadata",
+                    embedding=EMBED_FAKE,
+                ),
+            ],
         )
 
         # When: evaluate() is called
@@ -1676,7 +1685,6 @@ class TestLoadDecisionsResilience:
         assert result.decisions_evaluated == 1, (
             f"Expected 1 decision (skipped corrupt), got {result.decisions_evaluated}"
         )
-        store.close()
 
     def test_decision_with_empty_verdict_is_skipped(self, tmp_path: Path) -> None:
         """
@@ -1701,13 +1709,12 @@ class TestLoadDecisionsResilience:
         assert result.decisions_evaluated == 1, (
             f"Expected 1 decision (skipped empty verdict), got {result.decisions_evaluated}"
         )
-        store.close()
 
 
 class TestEvalSinglePath:
     """
     REQUIREMENT: ``_handle_eval_single`` prints a guidance message and skips
-    report/history writing when the decisions collection is empty.
+    report/history writing when the decisions collection is empty
 
     WHO: The operator running ``eval`` before recording any decisions.
 
@@ -1721,7 +1728,7 @@ class TestEvalSinglePath:
 
     MOCK BOUNDARY:
         Mock:  ollama_sdk.AsyncClient (embedding + LLM calls)
-        Real:  handle_eval, _handle_eval_single, EvalRunner, VectorStore,
+        Real:  handle_eval, _handle_eval_single, EvalRunner, FakeVectorStore (in-memory port),
                load_settings (reads a real TOML file from tmp_path)
         Never: mock the early-return guard itself
     """
@@ -1737,30 +1744,28 @@ class TestEvalSinglePath:
         When handle_eval runs in single-model mode
         Then stdout contains a "no decisions" message
         And no report file is written
-        And no history file is written
+        And no history file is written.
         """
         # Given: pre-seed required collections but NO decisions
         monkeypatch.chdir(tmp_path)
         _write_test_settings_toml(tmp_path)
         settings = load_settings()
 
-        store = VectorStore(
-            persist_dir=settings.chroma.persist_dir, distance_metric="cosine", sync_threshold=1
-        )
+        store = create_vector_store(_FAKE_STORE_CONFIG)
         _seed_required_collections(store, EMBED_FAKE)
 
         _, mock_client = _make_mock_embedder()
 
         # When: handle_eval runs in single-model mode
-        with patch(
-            "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-            return_value=mock_client,
+        with (
+            patch(
+                "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
+                return_value=mock_client,
+            ),
         ):
-            from jobsearch_rag.cli import handle_eval  # noqa: PLC0415
-
             args = MagicMock()
             args.compare_models = None
-            handle_eval(args)
+            handle_eval(args, store=store)
 
         # Then: guidance message printed
         captured = capsys.readouterr()
@@ -1778,4 +1783,3 @@ class TestEvalSinglePath:
         # And: no history file
         history_path = tmp_path / "data" / "eval_history.jsonl"
         assert not history_path.exists(), "Expected no history file when decisions are empty"
-        store.close()
