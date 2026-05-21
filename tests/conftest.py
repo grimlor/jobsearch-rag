@@ -8,8 +8,8 @@ This conftest provides:
 
 2. **Shared I/O-boundary fixtures** — ``mock_embedder`` (real Embedder with
    ollama client stubbed at the I/O boundary), ``mock_ollama_client`` (the
-   raw mock), ``vector_store`` (real ChromaDB backed by ``tmp_path``), and
-   ``decision_recorder`` (real recorder wired to the above).  Individual
+   raw mock), ``vector_store`` (in-memory FakeVectorStore via the port),
+   and ``decision_recorder`` (real recorder wired to the above).  Individual
    test files may shadow these with local fixtures that use different
    return values.
 
@@ -46,13 +46,14 @@ from jobsearch_rag.config import (
 )
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.ports import VectorStoreConfig, create_vector_store
 from tests.constants import EMBED_FAKE as EMBED_FAKE  # re-export for fixtures below
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterator, Mapping
 
     from jobsearch_rag.adapters.ports import JobBoardPort
+    from jobsearch_rag.rag.ports import VectorStorePort
 
 _PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
 
@@ -70,24 +71,22 @@ _PROJECT_OUTPUT = Path(__file__).resolve().parent.parent / "output"
 if sys.platform == "win32":
     _OriginalTemporaryDirectory = _tempfile.TemporaryDirectory
 
-    class _WinSafeTemporaryDirectory(_OriginalTemporaryDirectory):  # type: ignore[type-arg]
+    class _WinSafeTemporaryDirectory(_tempfile.TemporaryDirectory[str]):
         """TemporaryDirectory that tolerates cleanup errors on Windows."""
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             kwargs.setdefault("ignore_cleanup_errors", True)
             super().__init__(*args, **kwargs)
 
-    _tempfile.TemporaryDirectory = _WinSafeTemporaryDirectory  # type: ignore[misc]
+    _tempfile.TemporaryDirectory = _WinSafeTemporaryDirectory
 
 
 # ---------------------------------------------------------------------------
 # Adapter registry override — test infrastructure
 # ---------------------------------------------------------------------------
-# Moved from AdapterRegistry (production code) because the method has zero
-# production callers.  Accessing _registry directly is intentional: the
-# registry exposes no public snapshot/restore API, and adding one would be
-# equally test-only.
-_REGISTRY = AdapterRegistry._registry  # pyright: ignore[reportPrivateUsage]
+# Patches the public API (get / list_registered) rather than reaching into
+# the private _registry dict.  This keeps tests coupled only to the
+# observable boundary that production code actually calls.
 
 
 @contextmanager
@@ -97,30 +96,43 @@ def adapter_override(
     clear: bool = False,
 ) -> Generator[None, None, None]:
     """
-    Context manager that temporarily replaces AdapterRegistry entries.
+    Context manager that temporarily overrides AdapterRegistry lookups.
 
-    Saves the current registry state, applies *factories* (merging by
-    default), yields, then restores the original state on exit.
+    Patches ``AdapterRegistry.get`` and ``AdapterRegistry.list_registered``
+    so that production code sees *factories* without touching private state.
 
     Parameters
     ----------
     factories:
         Board-name → factory mappings to add/overwrite.
     clear:
-        If ``True``, remove all pre-existing entries before merging.
-        Useful for test isolation when no production adapters should
-        be visible.
+        If ``True``, only *factories* are visible — any real registered
+        adapters are hidden for the duration of the block.
 
     """
-    saved = dict(_REGISTRY)
-    if clear:
-        _REGISTRY.clear()
-    _REGISTRY.update(factories)  # type: ignore[arg-type]  # test factories may return mock subtypes
+    original_get = AdapterRegistry.get.__func__  # unwrap classmethod
+    original_list = AdapterRegistry.list_registered.__func__
+
+    def _patched_get(cls: type[AdapterRegistry], board_name: str, **kwargs: Any) -> JobBoardPort:
+        if board_name in factories:
+            return factories[board_name](**kwargs)
+        if clear:
+            msg = f"No adapter registered for board: '{board_name}'"
+            raise ValueError(msg)
+        return original_get(cls, board_name, **kwargs)
+
+    def _patched_list(cls: type[AdapterRegistry]) -> list[str]:
+        if clear:
+            return list(factories.keys())
+        return list({*original_list(cls), *factories.keys()})
+
+    AdapterRegistry.get = classmethod(_patched_get)
+    AdapterRegistry.list_registered = classmethod(_patched_list)
     try:
         yield
     finally:
-        _REGISTRY.clear()
-        _REGISTRY.update(saved)
+        AdapterRegistry.get = classmethod(original_get)
+        AdapterRegistry.list_registered = classmethod(original_list)
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +333,7 @@ def make_mock_ollama_client(
 
 
 @pytest.fixture
-def mock_ollama_client() -> AsyncMock:  # pyright: ignore[reportUnusedFunction]
+def mock_ollama_client() -> AsyncMock:
     """Stubbed ollama.AsyncClient — the I/O boundary."""
     return make_mock_ollama_client()
 
@@ -342,28 +354,31 @@ def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
 
 
 @pytest.fixture
-def vector_store(tmp_path: Path) -> Iterator[VectorStore]:
-    """Real ChromaDB VectorStore backed by a per-test temp directory."""
-    store = VectorStore(
-        persist_dir=str(tmp_path / "chroma"), distance_metric="cosine", sync_threshold=1
+def vector_store() -> VectorStorePort:
+    """In-memory fake for all unit tests. No I/O, no cleanup needed."""
+    return create_vector_store(
+        VectorStoreConfig(
+            store_class="tests.fakes.FakeVectorStore",
+            persist_dir="",
+            distance_metric="cosine",
+            sync_threshold=1,
+        )
     )
-    yield store
-    store.close()
 
 
 @pytest.fixture
 def decision_recorder(
-    vector_store: VectorStore,
+    vector_store: VectorStorePort,
     mock_embedder: Embedder,
     tmp_path: Path,
 ) -> DecisionRecorder:
     """
-    Real DecisionRecorder with real ChromaDB and stubbed Embedder.
+    Real DecisionRecorder with in-memory VectorStorePort and stubbed Embedder.
 
-    The ``decisions`` collection is pre-created so ``get_decision``
+    The ``decisions`` collection is reset so ``get_decision``
     works even before the first ``record()`` call.
     """
-    vector_store.get_or_create_collection("decisions")
+    vector_store.reset_collection("decisions")
     return DecisionRecorder(
         store=vector_store,
         embedder=mock_embedder,
@@ -377,7 +392,7 @@ def decision_recorder(
 
 
 @pytest.fixture(autouse=True, scope="session")
-def _guard_real_output_dir() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]  # autouse fixture
+def guard_real_output_dir() -> Iterator[None]:
     """
     Make the real output/ directory read-only during tests.
 
