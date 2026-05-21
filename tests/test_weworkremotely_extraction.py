@@ -61,7 +61,7 @@ def _make_listing(
 
 class TestWeWorkRemotelyAuthenticate:
     """
-    REQUIREMENT: WeWorkRemotely session verification handles auth and access.
+    REQUIREMENT: WeWorkRemotely session verification handles auth and access
 
     WHO: The pipeline runner during the authenticate step
     WHAT: (1) The system completes authentication without error when WeWorkRemotely loads without blocking.
@@ -81,7 +81,7 @@ class TestWeWorkRemotelyAuthenticate:
         """
         Given a mock page that loads WeWorkRemotely without blocking
         When authenticate is called
-        Then it completes without error.
+        Then it completes without error
         """
         # Given: valid access page
         adapter = WeWorkRemotelyAdapter()
@@ -98,7 +98,7 @@ class TestWeWorkRemotelyAuthenticate:
         """
         Given a page showing a rate-limit or block response
         When authenticate is called
-        Then an ActionableError with wait/retry guidance is raised.
+        Then an ActionableError with wait/retry guidance is raised
         """
         # Given: rate-limited page
         adapter = WeWorkRemotelyAdapter()
@@ -121,7 +121,7 @@ class TestWeWorkRemotelyAuthenticate:
 
 class TestWeWorkRemotelySearch:
     """
-    REQUIREMENT: search() navigates WeWorkRemotely and extracts remote listings.
+    REQUIREMENT: search() navigates WeWorkRemotely and extracts remote listings
 
     WHO: The pipeline runner collecting listings from WeWorkRemotely
     WHAT: (1) The system returns a list of JobListing objects when it searches WeWorkRemotely results.
@@ -142,7 +142,7 @@ class TestWeWorkRemotelySearch:
         """
         Given a mock page with WeWorkRemotely search results
         When search is called
-        Then a list of JobListings is returned.
+        Then a list of JobListings is returned
         """
         # Given: adapter + mock page
         adapter = WeWorkRemotelyAdapter()
@@ -164,7 +164,7 @@ class TestWeWorkRemotelySearch:
         """
         Given a mock page with WeWorkRemotely job results
         When search returns listings
-        Then each listing has board, title, company, and url populated.
+        Then each listing has board, title, company, and url populated
         """
         # Given: adapter + mock page
         adapter = WeWorkRemotelyAdapter()
@@ -190,7 +190,7 @@ class TestWeWorkRemotelySearch:
         """
         Given a search with max_pages=1
         When search is called
-        Then only the first page of results is processed.
+        Then only the first page of results is processed
         """
         # Given: adapter + mock page
         adapter = WeWorkRemotelyAdapter()
@@ -214,7 +214,7 @@ class TestWeWorkRemotelySearch:
 
 class TestWeWorkRemotelyExtractDetail:
     """
-    REQUIREMENT: extract_detail navigates to a listing and populates full_text.
+    REQUIREMENT: extract_detail navigates to a listing and populates full_text
 
     WHO: The pipeline runner enriching shallow listings with full JD text
     WHAT: (1) The system populates full_text with the job description body when it extracts details for a listing whose full_text is empty.
@@ -235,7 +235,7 @@ class TestWeWorkRemotelyExtractDetail:
         """
         Given a shallow listing with empty full_text
         When extract_detail is called
-        Then full_text is populated with the JD body.
+        Then full_text is populated with the JD body
         """
         # Given: shallow listing
         adapter = WeWorkRemotelyAdapter()
@@ -254,7 +254,7 @@ class TestWeWorkRemotelyExtractDetail:
         """
         Given a listing with full_text already populated
         When extract_detail is called
-        Then it returns the listing unchanged.
+        Then it returns the listing unchanged
         """
         # Given: listing with full_text
         adapter = WeWorkRemotelyAdapter()
@@ -275,7 +275,7 @@ class TestWeWorkRemotelyExtractDetail:
         """
         Given a listing object
         When extract_detail is called
-        Then the same object is returned (mutated in place).
+        Then the same object is returned (mutated in place)
         """
         # Given: adapter + listing
         adapter = WeWorkRemotelyAdapter()

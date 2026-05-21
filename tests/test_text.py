@@ -15,7 +15,7 @@ _DEFAULT_MAX_SLUG_LEN = 80
 class TestSlugify:
     """
     REQUIREMENT: Text is converted to filesystem-safe slugs consistently
-    across CLI, export, and pipeline layers.
+    across CLI, export, and pipeline layers
 
     WHO: Any module that builds file paths from human-readable text
          (JD exporter, review session, CLI read_jd_text)
@@ -45,7 +45,6 @@ class TestSlugify:
         Then the result is lowercase with hyphens replacing spaces
         """
         # Given: a mixed-case title with spaces
-
         # When: the title is slugified
         result = slugify("Senior Staff Engineer", max_len=80)
 
@@ -61,7 +60,6 @@ class TestSlugify:
         Then non-alphanumeric characters (except hyphens) are removed
         """
         # Given: text containing parentheses, em-dashes, and punctuation
-
         # When: the text is slugified
         result = slugify("Senior Staff Engineer — Platform (Remote)", max_len=80)
 
@@ -77,7 +75,6 @@ class TestSlugify:
         Then they are replaced with hyphens like whitespace
         """
         # Given: text containing underscores
-
         # When: the text is slugified
         result = slugify("some_company_name", max_len=80)
 
@@ -91,7 +88,6 @@ class TestSlugify:
         Then the run collapses to a single hyphen
         """
         # Given: text with multiple consecutive spaces
-
         # When: the text is slugified
         result = slugify("too   many   spaces", max_len=80)
 
@@ -105,7 +101,6 @@ class TestSlugify:
         Then those hyphens are removed
         """
         # Given: text that produces leading and trailing hyphens
-
         # When: the text is slugified
         result = slugify("--leading and trailing--", max_len=80)
 
@@ -136,7 +131,6 @@ class TestSlugify:
         Then the result is truncated to that length instead of the default
         """
         # Given: a long slug and a custom max_len of 10
-
         # When: slugified with the custom limit
         result = slugify("this-is-a-long-slug-that-should-be-truncated", max_len=10)
 
@@ -151,7 +145,6 @@ class TestSlugify:
         Then the result is an empty string
         """
         # Given: an empty string
-
         # When: slugified
         result = slugify("", max_len=80)
 
@@ -165,7 +158,6 @@ class TestSlugify:
         Then the result is identical to the input (lowercased)
         """
         # Given: text that is already a valid slug
-
         # When: slugified
         result = slugify("already-clean", max_len=80)
 

@@ -52,6 +52,7 @@ from jobsearch_rag.adapters.session import (
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner
 from tests.conftest import adapter_override, make_test_settings
+from tests.constants import EMBED_FAKE
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -117,7 +118,7 @@ def _patch_playwright(mock_pw: MagicMock) -> Any:
 class TestBrowserManager:
     """
     REQUIREMENT: BrowserManager owns the Playwright instance and browser
-    process lifecycle, shared across multiple BoardSessions.
+    process lifecycle, shared across multiple BoardSessions
 
     WHO: The pipeline runner needing a long-lived browser process that
          outlives individual board sessions
@@ -1229,8 +1230,6 @@ def _make_runner_with_real_stack(
     settings: Any,
 ) -> tuple[PipelineRunner, AsyncMock]:
     """Build a PipelineRunner with a mocked Ollama client; everything else real."""
-    from tests.constants import EMBED_FAKE  # noqa: PLC0415
-
     mock_client = AsyncMock()
 
     # health_check calls client.list()
@@ -1342,7 +1341,7 @@ def _cdp_patches() -> contextlib.ExitStack:
 class TestSharedBrowserOrchestration:
     """
     REQUIREMENT: The pipeline runner groups boards by browser channel and
-    shares a BrowserManager across boards in each group.
+    shares a BrowserManager across boards in each group
 
     WHO: The operator running multi-board searches without repeated browser
          launches and focus-stealing events
@@ -1371,8 +1370,8 @@ class TestSharedBrowserOrchestration:
         Mock:  ollama_sdk.AsyncClient (Ollama API),
                async_playwright (Playwright browser library)
         Real:  PipelineRunner, BrowserManager, BoardSession, SessionManager,
-               Embedder, Scorer, VectorStore, Ranker, DecisionRecorder,
-               AdapterRegistry, throttle
+               Embedder, Scorer, FakeVectorStore (in-memory VectorStorePort),
+               Ranker, DecisionRecorder, AdapterRegistry, throttle
         Never: Construct ScoreResult directly; mock BrowserManager or
                BoardSession internals
     """

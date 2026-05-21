@@ -80,7 +80,7 @@ def _patch_playwright(mock_pw: MagicMock) -> Any:
 
 class TestSessionConfigCDP:
     """
-    REQUIREMENT: SessionConfig carries CDP channel selection through to launch.
+    REQUIREMENT: SessionConfig carries CDP channel selection through to launch
 
     WHO: The operator choosing between Playwright-managed and CDP mode
     WHAT: (1) The system defaults browser_channel to None when it creates a SessionConfig without a specified browser_channel.
@@ -98,7 +98,7 @@ class TestSessionConfigCDP:
         """
         GIVEN a SessionConfig with no browser_channel specified
         WHEN the config is created
-        THEN browser_channel defaults to None (Playwright-managed mode).
+        THEN browser_channel defaults to None (Playwright-managed mode)
         """
         # Given/When: config with no channel
         config = SessionConfig(board_name="test", viewport_width=1440, viewport_height=900)
@@ -110,7 +110,7 @@ class TestSessionConfigCDP:
         """
         GIVEN a SessionConfig with browser_channel='msedge'
         WHEN the config is created
-        THEN browser_channel is set to 'msedge' (CDP launch mode).
+        THEN browser_channel is set to 'msedge' (CDP launch mode)
         """
         # Given/When: config with msedge channel
         config = SessionConfig(
@@ -128,7 +128,7 @@ class TestSessionConfigCDP:
 
 class TestSessionManagerCDP:
     """
-    REQUIREMENT: CDP mode launches a system browser and connects via DevTools Protocol.
+    REQUIREMENT: CDP mode launches a system browser and connects via DevTools Protocol
 
     WHO: The pipeline runner needing a Cloudflare-safe browser session
     WHAT: (1) The session manager launches the browser through CDP and connects Playwright over the CDP endpoint.
@@ -189,7 +189,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a CDP config with a valid browser binary
         WHEN SessionManager is entered
-        THEN the browser is launched via CDP and Playwright connects over CDP.
+        THEN the browser is launched via CDP and Playwright connects over CDP
         """
         # Given: fake binary and mock Playwright
         fake_binary = tmp_path / "edge"
@@ -231,7 +231,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a CDP config with headless=False
         WHEN the browser subprocess is launched
-        THEN the command includes --remote-debugging-port, --user-data-dir, --no-first-run.
+        THEN the command includes --remote-debugging-port, --user-data-dir, --no-first-run
         """
         # Given: fake binary and mock Playwright
         fake_binary = tmp_path / "edge"
@@ -275,7 +275,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a CDP config with headless=True
         WHEN the browser subprocess is launched
-        THEN --headless=new is added to the subprocess args.
+        THEN --headless=new is added to the subprocess args
         """
         # Given: headless CDP config
         config = SessionConfig(
@@ -318,7 +318,7 @@ class TestSessionManagerCDP:
         """
         GIVEN no match in _BROWSER_PATHS for the channel
         WHEN shutil.which finds the binary on PATH
-        THEN the which-resolved binary is used for the subprocess.
+        THEN the which-resolved binary is used for the subprocess
         """
         # Given: shutil.which returns a valid binary
         which_binary = str(tmp_path / "msedge")
@@ -358,7 +358,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a config with no browser_channel set
         WHEN SessionManager is entered
-        THEN standard Playwright launch is used instead of CDP.
+        THEN standard Playwright launch is used instead of CDP
         """
         # Given: mock Playwright
         mock_pw = _mock_playwright(connect_over_cdp=True)
@@ -380,7 +380,7 @@ class TestSessionManagerCDP:
         """
         GIVEN no browser binary found for the configured channel
         WHEN SessionManager is entered
-        THEN an ActionableError tells the operator which browser to install.
+        THEN an ActionableError tells the operator which browser to install
         """
         # Given: no binary available
         mock_pw = _mock_playwright()
@@ -405,7 +405,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a running CDP subprocess
         WHEN SessionManager __aexit__ is called
-        THEN SIGTERM is sent and the temp directory is cleaned up.
+        THEN SIGTERM is sent and the temp directory is cleaned up
         """
         # Given: config and mock subprocess
         config = SessionConfig(
@@ -457,7 +457,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a CDP subprocess that doesn't respond to SIGTERM
         WHEN __aexit__ is called and SIGTERM times out
-        THEN the process is escalated to SIGKILL.
+        THEN the process is escalated to SIGKILL
         """
         # Given: config and mock subprocess that ignores SIGTERM
         config = SessionConfig(
@@ -509,7 +509,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a CDP subprocess that has already exited
         WHEN __aexit__ is called
-        THEN no signals are sent to the process.
+        THEN no signals are sent to the process
         """
         # Given: config and mock subprocess that already exited
         config = SessionConfig(
@@ -557,7 +557,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a CDP endpoint that never responds
         WHEN SessionManager is entered and _wait_for_cdp exhausts its deadline
-        THEN a TimeoutError is raised.
+        THEN a TimeoutError is raised
         """
         # Given: config and mock where CDP never starts
         config = SessionConfig(
@@ -616,7 +616,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a CDP endpoint that never becomes available
         WHEN _wait_for_cdp retries and the deadline expires
-        THEN a TimeoutError is raised with the CDP URL in the message.
+        THEN a TimeoutError is raised with the CDP URL in the message
         """
         # Given: CDP config with urlopen always failing and a clock that
         #        expires the deadline on the second poll
@@ -675,7 +675,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a SessionManager that has not been entered as a context manager
         WHEN new_page is called
-        THEN an ActionableError is raised.
+        THEN an ActionableError is raised
         """
         # Given: uninitialised manager
         config = SessionConfig(
@@ -691,7 +691,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a SessionManager that has not been entered as a context manager
         WHEN save_storage_state is called
-        THEN an ActionableError is raised.
+        THEN an ActionableError is raised
         """
         # Given: uninitialised manager
         config = SessionConfig(
@@ -707,7 +707,7 @@ class TestSessionManagerCDP:
         """
         GIVEN an active session with cookies
         WHEN save_storage_state is called
-        THEN cookies are written to the storage state path as JSON.
+        THEN cookies are written to the storage state path as JSON
         """
         # Given: mock Playwright with cookie data
         config = SessionConfig(
@@ -739,7 +739,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a persisted session file exists on disk
         WHEN has_storage_state is called
-        THEN it returns True.
+        THEN it returns True
         """
         # Given: session file exists on disk
         config = SessionConfig(
@@ -760,7 +760,7 @@ class TestSessionManagerCDP:
         """
         GIVEN no persisted session file exists
         WHEN has_storage_state is called
-        THEN it returns False.
+        THEN it returns False
         """
         # Given/When: no session file on disk
         config = SessionConfig(
@@ -780,7 +780,7 @@ class TestSessionManagerCDP:
         """
         GIVEN stealth mode is enabled in the config
         WHEN the session is entered
-        THEN playwright-stealth patches are applied to the context.
+        THEN playwright-stealth patches are applied to the context
         """
         # Given: stealth config with mock stealth module
         config = SessionConfig(
@@ -815,7 +815,7 @@ class TestSessionManagerCDP:
         """
         GIVEN stealth mode is enabled but playwright-stealth is not installed
         WHEN the session is entered
-        THEN the session still starts and a warning is logged.
+        THEN the session still starts and a warning is logged
         """
         # Given: stealth config with playwright_stealth import rigged to fail
         config = SessionConfig(
@@ -847,7 +847,7 @@ class TestSessionManagerCDP:
         """
         GIVEN a SessionManager that has been entered as a context manager
         WHEN new_page is called
-        THEN a new page is returned from the browser context.
+        THEN a new page is returned from the browser context
         """
         # Given: mock Playwright with a new page stub
         config = SessionConfig(
@@ -871,7 +871,7 @@ class TestSessionManagerCDP:
 
 class TestSessionManagerEdgeCases:
     """
-    REQUIREMENT: SessionManager handles edge cases gracefully.
+    REQUIREMENT: SessionManager handles edge cases gracefully
 
     WHO: The pipeline runner encountering unusual states
     WHAT: (1) The system treats calling `__aexit__` on an uninitialised `SessionManager` as a graceful no-op that raises no error.
@@ -890,7 +890,7 @@ class TestSessionManagerEdgeCases:
         """
         GIVEN a SessionManager that was never entered
         WHEN __aexit__ is called
-        THEN no error is raised (graceful no-op).
+        THEN no error is raised (graceful no-op)
         """
         # Given: uninitialised manager
         config = SessionConfig(
@@ -905,7 +905,7 @@ class TestSessionManagerEdgeCases:
         """
         GIVEN _BROWSER_PATHS with a non-existent first path and a valid second
         WHEN SessionManager is entered
-        THEN the non-existent path is skipped and the second binary is used.
+        THEN the non-existent path is skipped and the second binary is used
         """
         # Given: second binary exists, first does not
         second = tmp_path / "edge-second"
@@ -947,7 +947,7 @@ class TestSessionManagerEdgeCases:
 
 class TestThrottle:
     """
-    REQUIREMENT: Rate-limiting sleeps for a random duration within configured bounds.
+    REQUIREMENT: Rate-limiting sleeps for a random duration within configured bounds
 
     WHO: The pipeline runner calling throttle between requests
     WHAT: (1) The system sleeps for a duration between 0.5 and 1.0 seconds when throttle is called with rate limit bounds of 0.5 and 1.0 seconds.
@@ -963,7 +963,7 @@ class TestThrottle:
         """
         GIVEN an adapter with rate_limit_seconds = (0.5, 1.0)
         WHEN throttle is called
-        THEN asyncio.sleep is called with a duration between 0.5 and 1.0.
+        THEN asyncio.sleep is called with a duration between 0.5 and 1.0
         """
         # Given: adapter with rate limit bounds
         mock_adapter = MagicMock()
