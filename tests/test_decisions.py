@@ -20,22 +20,28 @@ import pytest
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.ports import VectorStoreConfig, create_vector_store
 from tests.conftest import make_mock_ollama_client, make_test_ollama_config
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from jobsearch_rag.rag.ports import VectorStorePort
+
 EMBED_TEST = [0.5, 0.5, 0.5, 0.5, 0.5]
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
-    """Yield a temporary VectorStore for test isolation."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
-        yield s
-        s.close()
+def store() -> VectorStorePort:
+    """In-memory VectorStorePort for test isolation."""
+    return create_vector_store(
+        VectorStoreConfig(
+            store_class="tests.fakes.FakeVectorStore",
+            persist_dir="",
+            distance_metric="cosine",
+            sync_threshold=1,
+        )
+    )
 
 
 @pytest.fixture
@@ -50,17 +56,17 @@ def mock_embedder() -> Embedder:
 
 
 @pytest.fixture
-def recorder(store: VectorStore, mock_embedder: Embedder) -> Iterator[DecisionRecorder]:
-    """Yield a DecisionRecorder backed by temporary storage."""
+def recorder(store: VectorStorePort, mock_embedder: Embedder) -> Iterator[DecisionRecorder]:
+    """Yield a DecisionRecorder backed by FakeVectorStore."""
     with tempfile.TemporaryDirectory() as decisions_dir:
         # Ensure decisions collection exists
-        store.get_or_create_collection("decisions")
+        store.reset_collection("decisions")
         yield DecisionRecorder(store=store, embedder=mock_embedder, decisions_dir=decisions_dir)
 
 
 class TestDecisionRecording:
     """
-    REQUIREMENT: User decisions are recorded and build the history signal over time.
+    REQUIREMENT: User decisions are recorded and build the history signal over time
 
     WHO: The scorer computing history_score on future runs
     WHAT: (1) The system persists a recorded yes verdict and includes it in the history signal for future scoring.
@@ -97,7 +103,7 @@ class TestDecisionRecording:
         """
         Given a recorder with an empty history
         When a 'yes' verdict is recorded
-        Then the decision is persisted and becomes part of the history signal for future scoring.
+        Then the decision is persisted and becomes part of the history signal for future scoring
         """
         # When: record a yes verdict
         await recorder.record(
@@ -119,7 +125,7 @@ class TestDecisionRecording:
         """
         Given a verdict with an explicit reason
         When the decision is recorded
-        Then the reason is persisted alongside the verdict so the operator's reasoning is preserved.
+        Then the reason is persisted alongside the verdict so the operator's reasoning is preserved
         """
         # When: record a verdict with a reason
         await recorder.record(
@@ -143,7 +149,7 @@ class TestDecisionRecording:
         """
         Given a verdict with no reason provided
         When the decision is recorded
-        Then an empty string is stored — the field is always present.
+        Then an empty string is stored — the field is always present
         """
         # When: record a verdict without a reason
         await recorder.record(
@@ -166,7 +172,7 @@ class TestDecisionRecording:
         """
         Given a verdict with a reason
         When the decision is recorded
-        Then the embedder receives JD text + reason so the vector captures operator intent.
+        Then the embedder receives JD text + reason so the vector captures operator intent
         """
         # Given: a JD and an explicit reason
         jd = "Staff Platform Architect role at Acme Corp."
@@ -192,7 +198,7 @@ class TestDecisionRecording:
         """
         Given a verdict with no reason
         When the decision is recorded
-        Then the embedder receives only the bare JD text — no enrichment suffix.
+        Then the embedder receives only the bare JD text — no enrichment suffix
         """
         # Given: a JD with no reason
         jd = "Staff Platform Architect role at Acme Corp."
@@ -215,7 +221,7 @@ class TestDecisionRecording:
         """
         Given a 'no' verdict
         When the decision is recorded
-        Then it is stored for audit but excluded from history_score — rejections have confounding reasons.
+        Then it is stored for audit but excluded from history_score — rejections have confounding reasons
         """
         # When: record a 'no' verdict
         await recorder.record(
@@ -239,7 +245,7 @@ class TestDecisionRecording:
         """
         Given a 'maybe' verdict
         When the decision is recorded
-        Then it is stored but excluded from scoring — only clear 'yes' signals are useful.
+        Then it is stored but excluded from scoring — only clear 'yes' signals are useful
         """
         # When: record a 'maybe' verdict
         await recorder.record(
@@ -265,7 +271,7 @@ class TestDecisionRecording:
         """
         Given an invalid verdict value
         When the decision is recorded
-        Then a DECISION error is raised naming the ID and suggesting the operator check the latest output.
+        Then a DECISION error is raised naming the ID and suggesting the operator check the latest output
         """
         # When/Then: invalid verdict raises ActionableError
         with pytest.raises(ActionableError) as exc_info:
@@ -288,7 +294,7 @@ class TestDecisionRecording:
         """
         Given an empty history collection
         When decisions are recorded
-        Then the history count increases by one for each decision.
+        Then the history count increases by one for each decision
         """
         # Given: initial count
         initial = recorder.history_count()
@@ -325,7 +331,7 @@ class TestDecisionRecording:
         """
         Given a decision already recorded for a job_id
         When the same job_id is recorded again with a different verdict
-        Then the previous decision is overwritten rather than duplicated.
+        Then the previous decision is overwritten rather than duplicated
         """
         # Given: initial decision recorded
         await recorder.record(
@@ -358,7 +364,7 @@ class TestDecisionRecording:
         """
         Given a verdict with whitespace-only JD text
         When the decision is recorded
-        Then a VALIDATION error is raised telling the operator to provide content.
+        Then a VALIDATION error is raised telling the operator to provide content
         """
         # When/Then: empty JD text raises ActionableError
         with pytest.raises(ActionableError) as exc_info:
@@ -376,16 +382,16 @@ class TestDecisionRecording:
         assert err.troubleshooting is not None, "Error should include troubleshooting steps"
 
     async def test_reason_is_written_to_jsonl_audit_log(
-        self, store: VectorStore, mock_embedder: Embedder
+        self, store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a verdict with a reason
         When the decision is recorded
-        Then the reason field appears in the daily JSONL audit file alongside the verdict.
+        Then the reason field appears in the daily JSONL audit file alongside the verdict
         """
         with tempfile.TemporaryDirectory() as decisions_dir:
             # Given: a recorder with a fresh decisions directory
-            store.get_or_create_collection("decisions")
+            store.reset_collection("decisions")
             rec = DecisionRecorder(
                 store=store, embedder=mock_embedder, decisions_dir=decisions_dir
             )
@@ -419,20 +425,23 @@ class TestDecisionRecording:
         """
         Given a store with no decisions collection
         When get_decision() is called
-        Then None is returned instead of raising.
+        Then None is returned instead of raising
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(
-                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
+        empty_store = create_vector_store(
+            VectorStoreConfig(
+                store_class="tests.fakes.FakeVectorStore",
+                persist_dir="",
+                distance_metric="cosine",
+                sync_threshold=1,
             )
-            recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
+        )
+        recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
-            # When/Then: get_decision returns None gracefully
-            assert recorder.get_decision("nonexistent-job") is None, (
-                "Should return None when collection is missing"
-            )
-            empty_store.close()
+        # When/Then: get_decision returns None gracefully
+        assert recorder.get_decision("nonexistent-job") is None, (
+            "Should return None when collection is missing"
+        )
 
     def test_get_decision_returns_none_when_no_results_found(
         self, mock_embedder: Embedder
@@ -440,19 +449,24 @@ class TestDecisionRecording:
         """
         Given a decisions collection that exists but has no matching document
         When get_decision() is called
-        Then None is returned.
+        Then None is returned
         """
         # Given: a store with an empty decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
-            store = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
-            store.get_or_create_collection("decisions")
-            recorder = DecisionRecorder(store=store, embedder=mock_embedder)
-
-            # When/Then: get_decision returns None
-            assert recorder.get_decision("unknown-id") is None, (
-                "Should return None when no matching document exists"
+        store = create_vector_store(
+            VectorStoreConfig(
+                store_class="tests.fakes.FakeVectorStore",
+                persist_dir="",
+                distance_metric="cosine",
+                sync_threshold=1,
             )
-            store.close()
+        )
+        store.reset_collection("decisions")
+        recorder = DecisionRecorder(store=store, embedder=mock_embedder)
+
+        # When/Then: get_decision returns None
+        assert recorder.get_decision("unknown-id") is None, (
+            "Should return None when no matching document exists"
+        )
 
     def test_history_count_returns_zero_when_collection_missing(
         self, mock_embedder: Embedder
@@ -460,18 +474,21 @@ class TestDecisionRecording:
         """
         Given a store where the decisions collection does not exist
         When history_count() is called
-        Then 0 is returned instead of raising.
+        Then 0 is returned instead of raising
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(
-                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
+        empty_store = create_vector_store(
+            VectorStoreConfig(
+                store_class="tests.fakes.FakeVectorStore",
+                persist_dir="",
+                distance_metric="cosine",
+                sync_threshold=1,
             )
-            recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
+        )
+        recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
-            # When/Then: history_count returns 0 gracefully
-            assert recorder.history_count() == 0, "Should return 0 when collection is missing"
-            empty_store.close()
+        # When/Then: history_count returns 0 gracefully
+        assert recorder.history_count() == 0, "Should return 0 when collection is missing"
 
     def test_audit_decisions_returns_empty_list_when_collection_missing(
         self, mock_embedder: Embedder
@@ -479,20 +496,23 @@ class TestDecisionRecording:
         """
         Given a store where the decisions collection does not exist
         When audit_decisions() is called
-        Then an empty list is returned instead of raising.
+        Then an empty list is returned instead of raising
         """
         # Given: a fresh store with no decisions collection
-        with tempfile.TemporaryDirectory() as tmpdir:
-            empty_store = VectorStore(
-                persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1
+        empty_store = create_vector_store(
+            VectorStoreConfig(
+                store_class="tests.fakes.FakeVectorStore",
+                persist_dir="",
+                distance_metric="cosine",
+                sync_threshold=1,
             )
-            recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
+        )
+        recorder = DecisionRecorder(store=empty_store, embedder=mock_embedder)
 
-            # When: audit_decisions is called
-            results = recorder.audit_decisions()
+        # When: audit_decisions is called
+        results = recorder.audit_decisions()
 
-            # Then: empty list returned gracefully
-            assert results == [], (
-                f"Should return empty list when collection is missing, got: {results}"
-            )
-            empty_store.close()
+        # Then: empty list returned gracefully
+        assert results == [], (
+            f"Should return empty list when collection is missing, got: {results}"
+        )
