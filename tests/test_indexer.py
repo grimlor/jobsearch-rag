@@ -12,7 +12,6 @@ Spec classes:
 
 from __future__ import annotations
 
-import tempfile
 import textwrap
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -22,12 +21,13 @@ import pytest
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer, build_archetype_embedding_text
-from jobsearch_rag.rag.store import VectorStore
+from jobsearch_rag.rag.ports import VectorStoreConfig, create_vector_store
 from tests.conftest import make_mock_ollama_client, make_test_ollama_config
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from pathlib import Path
+
+    from jobsearch_rag.rag.ports import VectorStorePort
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -137,12 +137,16 @@ SAMPLE_RUBRIC_TOML = textwrap.dedent("""\
 
 
 @pytest.fixture
-def store() -> Iterator[VectorStore]:
-    """A VectorStore backed by a temporary directory."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        s = VectorStore(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
-        yield s
-        s.close()
+def store() -> VectorStorePort:
+    """In-memory VectorStorePort for test isolation."""
+    return create_vector_store(
+        VectorStoreConfig(
+            store_class="tests.fakes.FakeVectorStore",
+            persist_dir="",
+            distance_metric="cosine",
+            sync_threshold=1,
+        )
+    )
 
 
 @pytest.fixture
@@ -157,8 +161,8 @@ def mock_embedder() -> Embedder:
 
 
 @pytest.fixture
-def indexer(store: VectorStore, mock_embedder: Embedder) -> Indexer:
-    """An Indexer wired to a real VectorStore and a mocked Embedder."""
+def indexer(store: VectorStorePort, mock_embedder: Embedder) -> Indexer:
+    """An Indexer wired to a FakeVectorStore and a mocked Embedder."""
     return Indexer(store=store, embedder=mock_embedder)
 
 
@@ -201,7 +205,7 @@ def rubric_path(tmp_path: Path) -> Path:
 
 class TestResumeChunking:
     """
-    REQUIREMENT: Resume is chunked by ## headings for semantic coherence.
+    REQUIREMENT: Resume is chunked by ## headings for semantic coherence
 
     WHO: The indexer preparing resume content for embedding
     WHAT: (1) The system produces one chunk for each ## section heading in a resume.
@@ -227,7 +231,7 @@ class TestResumeChunking:
         """
         Given a resume with 4 ## section headings
         When index_resume is called
-        Then 4 chunks are produced (one per section).
+        Then 4 chunks are produced (one per section)
         """
         # When: index the resume
         count = await indexer.index_resume(str(resume_path))
@@ -236,12 +240,12 @@ class TestResumeChunking:
         assert count == 4, f"Expected 4 chunks, got {count}"
 
     async def test_each_chunk_starts_with_section_heading(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: VectorStorePort, resume_path: Path
     ) -> None:
         """
         Given a resume indexed into chunks
         When a chunk is retrieved by ID
-        Then it starts with its ## heading for semantic context.
+        Then it starts with its ## heading for semantic context
         """
         # Given: indexed resume
         await indexer.index_resume(str(resume_path))
@@ -250,36 +254,36 @@ class TestResumeChunking:
         result = store.get_documents("resume", ids=["resume-summary"])
 
         # Then: chunk starts with its heading
-        assert result["documents"][0].startswith("## Summary"), (
-            f"Expected chunk to start with '## Summary', got: {result['documents'][0][:30]!r}"
+        assert result[0].document.startswith("## Summary"), (
+            f"Expected chunk to start with '## Summary', got: {result[0].document[:30]!r}"
         )
 
     async def test_nested_headings_stay_with_parent_section(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: VectorStorePort, resume_path: Path
     ) -> None:
         """
         Given a resume with ### sub-headings under ## Experience
         When the Experience chunk is retrieved
-        Then ### sub-headings are included in the parent section's chunk.
+        Then ### sub-headings are included in the parent section's chunk
         """
         # Given: indexed resume
         await indexer.index_resume(str(resume_path))
 
         # When: retrieve the experience chunk
         result = store.get_documents("resume", ids=["resume-experience"])
-        doc = result["documents"][0]
+        doc = result[0].document
 
         # Then: nested headings present
         assert "### Acme Corp" in doc, "Sub-heading '### Acme Corp' should be in experience chunk"
         assert "### Beta Inc" in doc, "Sub-heading '### Beta Inc' should be in experience chunk"
 
     async def test_chunk_ids_are_derived_from_heading(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: VectorStorePort, resume_path: Path
     ) -> None:
         """
         Given a resume indexed into chunks
         When chunks are retrieved by slugified heading IDs
-        Then both chunks are found (stable, readable identifiers).
+        Then both chunks are found (stable, readable identifiers)
         """
         # Given: indexed resume
         await indexer.index_resume(str(resume_path))
@@ -287,37 +291,35 @@ class TestResumeChunking:
         # When: retrieve by predictable IDs
         result = store.get_documents("resume", ids=["resume-summary", "resume-core-strengths"])
 
-        # Then: both chunks found
-        assert len(result["documents"]) == 2, (
-            f"Expected 2 chunks by ID, got {len(result['documents'])}"
-        )
+        # Then: both chunks foun
+        assert len(result) == 2, f"Expected 2 chunks by ID, got {len(result)}"
 
     async def test_chunks_contain_at_least_one_complete_sentence(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: VectorStorePort, resume_path: Path
     ) -> None:
         """
         Given a resume section with multiple sentences
         When the section chunk is retrieved
-        Then all sentences are present (no mid-sentence truncation).
+        Then all sentences are present (no mid-sentence truncation)
         """
         # Given: indexed resume
         await indexer.index_resume(str(resume_path))
 
         # When: retrieve the summary chunk
         result = store.get_documents("resume", ids=["resume-summary"])
-        doc = result["documents"][0]
+        doc = result[0].document
 
         # Then: both sentences preserved
         assert "distributed systems" in doc, "First sentence content should be present"
         assert "cloud architectures" in doc, "Second sentence content should be present"
 
     async def test_title_line_is_excluded_from_chunks(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: VectorStorePort, resume_path: Path
     ) -> None:
         """
         Given a resume with a # Name title line
         When index_resume is called
-        Then only ## section chunks are created (title excluded).
+        Then only ## section chunks are created (title excluded)
         """
         # When: index the resume
         count = await indexer.index_resume(str(resume_path))
@@ -326,12 +328,12 @@ class TestResumeChunking:
         assert count == 4, f"Expected 4 chunks (title excluded), got {count}"
 
     async def test_resume_with_no_section_headings_returns_zero_chunks(
-        self, indexer: Indexer, store: VectorStore, tmp_path: Path
+        self, indexer: Indexer, store: VectorStorePort, tmp_path: Path
     ) -> None:
         """
         Given a resume with no ## headings
         When index_resume is called
-        Then zero chunks are produced.
+        Then zero chunks are produced
         """
         # Given: flat resume with no sections
         flat_resume = tmp_path / "flat.md"
@@ -351,7 +353,7 @@ class TestResumeChunking:
 
 class TestResumeIndexing:
     """
-    REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed.
+    REQUIREMENT: Resume is indexed into ChromaDB before scoring can proceed
 
     WHO: The scorer computing fit_score; the operator running first-time setup
     WHAT: (1) The system stores one document per chunk in the resume collection when it indexes a resume.
@@ -370,12 +372,12 @@ class TestResumeIndexing:
     """
 
     async def test_embedder_is_called_for_each_chunk(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: VectorStorePort, resume_path: Path
     ) -> None:
         """
         Given a resume with multiple sections
         When index_resume is called
-        Then the returned count matches the number of documents stored.
+        Then the returned count matches the number of documents stored
         """
         # When: index the resume
         count = await indexer.index_resume(str(resume_path))
@@ -387,12 +389,12 @@ class TestResumeIndexing:
         )
 
     async def test_reindex_replaces_previous_content(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: VectorStorePort, resume_path: Path
     ) -> None:
         """
         Given a resume already indexed
         When index_resume is called again
-        Then previous content is replaced, not duplicated.
+        Then previous content is replaced, not duplicated
         """
         # Given: first index
         await indexer.index_resume(str(resume_path))
@@ -408,7 +410,7 @@ class TestResumeIndexing:
         """
         Given a valid resume file
         When index_resume is called
-        Then it returns the number of chunks created as an integer.
+        Then it returns the number of chunks created as an integer
         """
         # When: index the resume
         count = await indexer.index_resume(str(resume_path))
@@ -418,12 +420,12 @@ class TestResumeIndexing:
         assert count > 0, "Should produce at least one chunk"
 
     async def test_chunk_metadata_records_source(
-        self, indexer: Indexer, store: VectorStore, resume_path: Path
+        self, indexer: Indexer, store: VectorStorePort, resume_path: Path
     ) -> None:
         """
         Given a resume indexed into chunks
         When chunk metadata is inspected
-        Then the source field records 'resume' for traceability.
+        Then the source field records 'resume' for traceability
         """
         # Given: indexed resume
         await indexer.index_resume(str(resume_path))
@@ -432,15 +434,15 @@ class TestResumeIndexing:
         result = store.get_documents("resume", ids=["resume-summary"])
 
         # Then: source is 'resume'
-        assert result["metadatas"][0]["source"] == "resume", (
-            f"Expected source='resume', got {result['metadatas'][0].get('source')!r}"
+        assert result[0].metadata["source"] == "resume", (
+            f"Expected source='resume', got {result[0].metadata.get('source')!r}"
         )
 
     async def test_missing_resume_file_tells_operator_to_create_it(self, indexer: Indexer) -> None:
         """
         Given a nonexistent resume file path
         When index_resume is called
-        Then a CONFIG error with actionable guidance is raised.
+        Then a CONFIG error with actionable guidance is raised
         """
         # When/Then: missing file raises CONFIG error
         with pytest.raises(ActionableError) as exc_info:
@@ -461,7 +463,7 @@ class TestResumeIndexing:
 
 class TestArchetypeIndexing:
     """
-    REQUIREMENT: Role archetypes are loaded from TOML and embedded correctly.
+    REQUIREMENT: Role archetypes are loaded from TOML and embedded correctly
 
     WHO: The scorer computing archetype_score
     WHAT: (1) The system creates exactly one ChromaDB document for each archetype entry in the TOML file.
@@ -483,12 +485,12 @@ class TestArchetypeIndexing:
     """
 
     async def test_each_toml_archetype_produces_one_chroma_document(
-        self, indexer: Indexer, store: VectorStore, archetypes_path: Path
+        self, indexer: Indexer, store: VectorStorePort, archetypes_path: Path
     ) -> None:
         """
         Given a TOML file with two archetype entries
         When index_archetypes is called
-        Then each entry produces exactly one ChromaDB document.
+        Then each entry produces exactly one ChromaDB document
         """
         # When: index archetypes
         count = await indexer.index_archetypes(str(archetypes_path))
@@ -500,12 +502,12 @@ class TestArchetypeIndexing:
         )
 
     async def test_archetype_name_is_stored_as_document_metadata(
-        self, indexer: Indexer, store: VectorStore, archetypes_path: Path
+        self, indexer: Indexer, store: VectorStorePort, archetypes_path: Path
     ) -> None:
         """
         Given an indexed archetype collection
         When a document is retrieved by ID
-        Then the archetype name is stored in metadata for debugging.
+        Then the archetype name is stored in metadata for debugging
         """
         # Given: indexed archetypes
         await indexer.index_archetypes(str(archetypes_path))
@@ -514,24 +516,24 @@ class TestArchetypeIndexing:
         result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
 
         # Then: name in metadata
-        assert result["metadatas"][0]["name"] == "Staff Platform Architect", (
-            f"Expected name='Staff Platform Architect', got {result['metadatas'][0].get('name')!r}"
+        assert result[0].metadata["name"] == "Staff Platform Architect", (
+            f"Expected name='Staff Platform Architect', got {result[0].metadata.get('name')!r}"
         )
 
     async def test_archetype_description_is_the_document_text(
-        self, indexer: Indexer, store: VectorStore, archetypes_path: Path
+        self, indexer: Indexer, store: VectorStorePort, archetypes_path: Path
     ) -> None:
         """
         Given an indexed archetype
         When the document text is retrieved
-        Then the normalized description is stored as document content.
+        Then the normalized description is stored as document content
         """
         # Given: indexed archetypes
         await indexer.index_archetypes(str(archetypes_path))
 
         # When: retrieve document text
         result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
-        doc = result["documents"][0]
+        doc = result[0].document
 
         # Then: description content present
         assert "distributed systems" in doc, "Description should contain 'distributed systems'"
@@ -543,7 +545,7 @@ class TestArchetypeIndexing:
         """
         Given archetype descriptions with extra whitespace
         When index_archetypes embeds them
-        Then no leading/trailing whitespace or double spaces remain.
+        Then no leading/trailing whitespace or double spaces remain
         """
         # When: index archetypes
         await indexer.index_archetypes(str(archetypes_path))
@@ -561,7 +563,7 @@ class TestArchetypeIndexing:
         """
         Given a TOML file with invalid syntax
         When index_archetypes is called
-        Then a PARSE error with actionable guidance is raised.
+        Then a PARSE error with actionable guidance is raised
         """
         # Given: malformed TOML
         bad_toml = tmp_path / "bad.toml"
@@ -583,7 +585,7 @@ class TestArchetypeIndexing:
         """
         Given an empty archetypes TOML file
         When index_archetypes is called
-        Then a VALIDATION error with actionable guidance is raised.
+        Then a VALIDATION error with actionable guidance is raised
         """
         # Given: empty file
         empty = tmp_path / "empty.toml"
@@ -607,7 +609,7 @@ class TestArchetypeIndexing:
         """
         Given a nonexistent archetypes file path
         When index_archetypes is called
-        Then a CONFIG error with actionable guidance is raised.
+        Then a CONFIG error with actionable guidance is raised
         """
         # When/Then: raises CONFIG error
         with pytest.raises(ActionableError) as exc_info:
@@ -620,12 +622,12 @@ class TestArchetypeIndexing:
         assert err.troubleshooting is not None, "Should include troubleshooting"
 
     async def test_reindex_replaces_previous_archetypes(
-        self, indexer: Indexer, store: VectorStore, archetypes_path: Path
+        self, indexer: Indexer, store: VectorStorePort, archetypes_path: Path
     ) -> None:
         """
         Given archetypes already indexed
         When index_archetypes is called again
-        Then previous content is replaced, not duplicated.
+        Then previous content is replaced, not duplicated
         """
         # Given: first index
         await indexer.index_archetypes(str(archetypes_path))
@@ -647,7 +649,7 @@ class TestArchetypeIndexing:
 
 class TestArchetypeEmbeddingSynthesis:
     """
-    REQUIREMENT: Archetype embeddings synthesize description + positive signals.
+    REQUIREMENT: Archetype embeddings synthesize description + positive signals
 
     WHO: The indexer preparing archetype documents for embedding
     WHAT: (1) The system includes the archetype description and every positive signal in the synthesized embedding text.
@@ -670,7 +672,7 @@ class TestArchetypeEmbeddingSynthesis:
         """
         Given an archetype dict with description and positive signals
         When build_archetype_embedding_text is called
-        Then the result includes both description and all signals.
+        Then the result includes both description and all signals
         """
         # Given: archetype with description and signals
         archetype: dict[str, object] = {
@@ -696,7 +698,7 @@ class TestArchetypeEmbeddingSynthesis:
         """
         Given an archetype description with extra whitespace
         When build_archetype_embedding_text is called
-        Then the description whitespace is normalized before synthesis.
+        Then the description whitespace is normalized before synthesis
         """
         # Given: archetype with messy whitespace
         archetype: dict[str, object] = {
@@ -716,7 +718,7 @@ class TestArchetypeEmbeddingSynthesis:
         """
         Given an archetype with no signals_positive key
         When build_archetype_embedding_text is called
-        Then only the normalized description is returned.
+        Then only the normalized description is returned
         """
         # Given: archetype without signals
         archetype: dict[str, object] = {"description": "  A simple role.  "}
@@ -731,7 +733,7 @@ class TestArchetypeEmbeddingSynthesis:
         """
         Given an archetype with an empty signals_positive list
         When build_archetype_embedding_text is called
-        Then only the description is returned.
+        Then only the description is returned
         """
         # Given: archetype with empty signals list
         archetype: dict[str, object] = {"description": "A role.", "signals_positive": []}
@@ -743,19 +745,19 @@ class TestArchetypeEmbeddingSynthesis:
         assert result == "A role.", f"Expected description only for empty signals, got: {result!r}"
 
     async def test_index_archetypes_uses_synthesized_text(
-        self, indexer: Indexer, store: VectorStore, archetypes_with_signals_path: Path
+        self, indexer: Indexer, store: VectorStorePort, archetypes_with_signals_path: Path
     ) -> None:
         """
         Given archetypes with positive signals defined
         When index_archetypes stores documents
-        Then the stored text includes both description and signal content.
+        Then the stored text includes both description and signal content
         """
         # When: index archetypes with signals
         await indexer.index_archetypes(str(archetypes_with_signals_path))
 
         # Then: stored document includes synthesized content
         result = store.get_documents("role_archetypes", ids=["archetype-staff-platform-architect"])
-        doc = result["documents"][0]
+        doc = result[0].document
         assert "Cross-team architecture ownership" in doc, (
             f"Positive signal missing from stored document: {doc!r}"
         )
@@ -771,7 +773,7 @@ class TestArchetypeEmbeddingSynthesis:
 
 class TestGlobalRubricLoading:
     """
-    REQUIREMENT: Global rubric TOML is loaded and parsed for negative signal extraction.
+    REQUIREMENT: Global rubric TOML is loaded and parsed for negative signal extraction
 
     WHO: The indexer building the negative_signals collection
     WHAT: (1) The system indexes all negative signals from both the global rubric and the archetypes into the collection.
@@ -791,14 +793,14 @@ class TestGlobalRubricLoading:
     async def test_rubric_signals_are_loaded_and_indexed(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: VectorStorePort,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
         """
         Given a rubric with 4 negative signals and archetypes with 4
         When index_negative_signals is called
-        Then all 8 signals are indexed into the collection.
+        Then all 8 signals are indexed into the collection
         """
         # When: index negative signals
         count = await indexer.index_negative_signals(
@@ -817,7 +819,7 @@ class TestGlobalRubricLoading:
         """
         Given a nonexistent rubric file path
         When index_negative_signals is called
-        Then a CONFIG error with actionable guidance is raised.
+        Then a CONFIG error with actionable guidance is raised
         """
         # When/Then: raises CONFIG error
         with pytest.raises(ActionableError) as exc_info:
@@ -837,7 +839,7 @@ class TestGlobalRubricLoading:
         """
         Given a rubric TOML file with invalid syntax
         When index_negative_signals is called
-        Then a PARSE error with actionable guidance is raised.
+        Then a PARSE error with actionable guidance is raised
         """
         # Given: malformed rubric
         bad_rubric = tmp_path / "bad_rubric.toml"
@@ -862,7 +864,7 @@ class TestGlobalRubricLoading:
 
 class TestNegativeSignalIndexing:
     """
-    REQUIREMENT: Negative signals from rubric and archetypes are indexed for penalty scoring.
+    REQUIREMENT: Negative signals from rubric and archetypes are indexed for penalty scoring
 
     WHO: The scorer computing negative_score for each listing
     WHAT: (1) The system indexes negative signals from both the rubric and the archetypes into the collection.
@@ -887,14 +889,14 @@ class TestNegativeSignalIndexing:
     async def test_rubric_and_archetype_negatives_are_combined(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: VectorStorePort,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
         """
         Given a rubric and archetypes with negative signals
         When index_negative_signals is called
-        Then both sources contribute to the collection.
+        Then both sources contribute to the collection
         """
         # When: index negative signals
         count = await indexer.index_negative_signals(
@@ -910,14 +912,14 @@ class TestNegativeSignalIndexing:
     async def test_each_signal_is_individually_embedded(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: VectorStorePort,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
         """
         Given a rubric and archetypes with negative signals
         When index_negative_signals is called
-        Then the returned count matches the number of documents stored.
+        Then the returned count matches the number of documents stored
         """
         # When: index negative signals
         count = await indexer.index_negative_signals(
@@ -933,27 +935,25 @@ class TestNegativeSignalIndexing:
     async def test_signal_metadata_records_source(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: VectorStorePort,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
         """
         Given indexed negative signals from rubric and archetypes
         When signal metadata is inspected
-        Then each source starts with 'rubric:' or 'archetype:'.
+        Then each source starts with 'rubric:' or 'archetype:'
         """
         # Given: indexed signals
         await indexer.index_negative_signals(str(rubric_path), str(archetypes_with_signals_path))
 
-        # When: retrieve all metadata
-        collection = store.get_or_create_collection("negative_signals")
-        result = collection.get(include=["metadatas"])
-        metadatas = result["metadatas"]
+        # When: retrieve all documents
+        docs = store.get_all_documents("negative_signals")
 
         # Then: each has correct source prefix
-        assert metadatas is not None, "Expected metadatas in collection result"
-        for meta in metadatas:
-            source = str(meta.get("source", ""))
+        assert len(docs) > 0, "Expected documents in collection"
+        for doc in docs:
+            source = doc.metadata.get("source", "")
             assert source.startswith(("rubric:", "archetype:")), (
                 f"Signal source should start with 'rubric:' or 'archetype:', got: {source!r}"
             )
@@ -961,14 +961,14 @@ class TestNegativeSignalIndexing:
     async def test_reindex_replaces_previous_signals(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: VectorStorePort,
         rubric_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
         """
         Given negative signals already indexed
         When index_negative_signals is called again
-        Then previous content is replaced, not appended.
+        Then previous content is replaced, not appended
         """
         # Given: first index
         count1 = await indexer.index_negative_signals(
@@ -989,14 +989,14 @@ class TestNegativeSignalIndexing:
     async def test_empty_rubric_dimensions_indexes_only_archetype_negatives(
         self,
         indexer: Indexer,
-        store: VectorStore,
+        store: VectorStorePort,
         tmp_path: Path,
         archetypes_with_signals_path: Path,
     ) -> None:
         """
         Given a rubric with no dimensions
         When index_negative_signals is called
-        Then only archetype negative signals are indexed.
+        Then only archetype negative signals are indexed
         """
         # Given: empty rubric
         empty_rubric = tmp_path / "empty_rubric.toml"
@@ -1016,7 +1016,7 @@ class TestNegativeSignalIndexing:
         """
         Given a nonexistent archetypes file path
         When index_negative_signals is called
-        Then a CONFIG error with actionable guidance is raised.
+        Then a CONFIG error with actionable guidance is raised
         """
         # When/Then: raises CONFIG error
         with pytest.raises(ActionableError) as exc_info:
@@ -1032,7 +1032,7 @@ class TestNegativeSignalIndexing:
         """
         Given an archetypes file with invalid TOML syntax
         When index_negative_signals is called
-        Then a PARSE error is raised naming the file and suggesting a fix.
+        Then a PARSE error is raised naming the file and suggesting a fix
         """
         # Given: malformed archetypes TOML
         bad_toml = tmp_path / "bad_archetypes.toml"
@@ -1052,12 +1052,12 @@ class TestNegativeSignalIndexing:
         )
 
     async def test_zero_signals_from_both_sources_returns_empty_collection(
-        self, indexer: Indexer, store: VectorStore, tmp_path: Path
+        self, indexer: Indexer, store: VectorStorePort, tmp_path: Path
     ) -> None:
         """
         Given a rubric and archetypes with no negative signals
         When index_negative_signals is called
-        Then the method returns 0 and the collection is empty.
+        Then the method returns 0 and the collection is empty
         """
         # Given: rubric with dimensions but no negative signals
         empty_rubric = tmp_path / "no_neg_rubric.toml"
