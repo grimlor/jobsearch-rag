@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.rag.embedder import Embedder
+    from jobsearch_rag.rag.ports import VectorStorePort
 
 import pytest
 
@@ -22,6 +23,7 @@ from jobsearch_rag.pipeline.rescorer import (
     RescoreResult,
     load_jd_files,
 )
+from jobsearch_rag.rag.ports import EmbeddedDocument
 from jobsearch_rag.rag.scorer import Scorer
 from tests.constants import EMBED_FAKE
 
@@ -73,7 +75,7 @@ def jd_dir(tmp_path: Path) -> Path:
 class TestJdFileLoading:
     """
     REQUIREMENT: The rescore command faithfully reconstructs JobListing objects
-    from JD markdown files.
+    from JD markdown files
 
     WHO: The rescorer rebuilding listings from disk
     WHAT: (1) metadata headers populate reconstructed JobListing fields.
@@ -96,7 +98,7 @@ class TestJdFileLoading:
         """
         Given a directory with a well-formed JD markdown file
         When load_jd_files() reads the directory
-        Then a JobListing is returned with all metadata fields populated.
+        Then a JobListing is returned with all metadata fields populated
         """
         # When: load JD files
         listings = load_jd_files(
@@ -124,7 +126,7 @@ class TestJdFileLoading:
         """
         Given a JD file with a Job Description section
         When load_jd_files() parses it
-        Then the listing's full_text contains the JD body text.
+        Then the listing's full_text contains the JD body text
         """
         # When: load the listing
         listings = load_jd_files(
@@ -167,7 +169,7 @@ class TestJdFileLoading:
         """
         Given a path that does not exist
         When load_jd_files() is called
-        Then an empty list is returned.
+        Then an empty list is returned
         """
         # When: load from non-existent path
         listings = load_jd_files(
@@ -185,7 +187,7 @@ class TestJdFileLoading:
         """
         Given a JD file missing the '## Job Description' section
         When load_jd_files() reads it
-        Then the file is silently skipped.
+        Then the file is silently skipped
         """
         # Given: a JD file with no body section
         d = tmp_path / "jds"
@@ -208,7 +210,7 @@ class TestJdFileLoading:
         """
         Given a JD file with only a body and no metadata headers
         When load_jd_files() parses it
-        Then default values are used for missing fields.
+        Then default values are used for missing fields
         """
         # Given: minimal JD with no metadata
         d = tmp_path / "jds"
@@ -218,6 +220,7 @@ class TestJdFileLoading:
 
             Some job description text here.
         """)
+
         (d / "minimal.md").write_text(content)
 
         # When: load JD files
@@ -242,7 +245,7 @@ class TestJdFileLoading:
         """
         Given a directory with multiple JD files using external_id prefixes
         When load_jd_files() reads the directory
-        Then listings are returned in filename-sorted order.
+        Then listings are returned in filename-sorted order
         """
         # Given: three JD files with external_id prefixes
         d = tmp_path / "jds"
@@ -263,6 +266,7 @@ class TestJdFileLoading:
 
                 Description for {title}.
             """)
+
             (d / f"{ext_id}_{company.lower()}_{title.lower().replace(' ', '-')}.md").write_text(
                 content
             )
@@ -308,6 +312,7 @@ class TestJdFileLoading:
 
             A legacy JD file without External ID metadata.
         """)
+
         (d / "legacy_oldcorp_legacy-role.md").write_text(content)
 
         # When: load JD files
@@ -346,6 +351,7 @@ class TestJdFileLoading:
 
             Build the platform.
         """)
+
         (d / "fn-ext-99_techco_platform-engineer.md").write_text(content)
 
         # When: load JD files
@@ -383,6 +389,7 @@ class TestJdFileLoading:
 
             A legacy file with numeric rank prefix.
         """)
+
         (d / "001_oldco_legacy-ranked-role.md").write_text(content)
 
         # When: load JD files
@@ -411,7 +418,7 @@ class TestJdFileLoading:
 
 class TestRescoreWorkflow:
     """
-    REQUIREMENT: The rescore pipeline re-scores JDs through updated RAG collections.
+    REQUIREMENT: The rescore pipeline re-scores JDs through updated RAG collections
 
     WHO: The operator iterating on archetype tuning or negative signal refinement
     WHAT: (1) The system returns ranked listings without failures when it rescoring a directory of valid JD files with a populated scoring stack.
@@ -430,11 +437,11 @@ class TestRescoreWorkflow:
     """
 
     @staticmethod
-    def _make_scorer(store: VectorStore, mock_embedder: object) -> Scorer:
+    def _make_scorer(store: VectorStorePort, mock_embedder: Embedder) -> Scorer:
         """Create a real Scorer wired to a populated store and I/O-stubbed embedder."""
         return Scorer(
             store=store,
-            embedder=mock_embedder,  # type: ignore[arg-type]
+            embedder=mock_embedder,
             disqualify_on_llm_flag=False,
             disqualifier_prompt="test disqualifier prompt",
             screen_prompt="test screen prompt",
@@ -443,21 +450,29 @@ class TestRescoreWorkflow:
         )
 
     @staticmethod
-    def _populate_store(store: VectorStore) -> None:
-        """Seed a VectorStore with resume and archetype collections."""
+    def _populate_store(store: VectorStorePort) -> None:
+        """Seed a VectorStorePort with resume and archetype collections."""
         store.add_documents(
             collection_name="resume",
-            ids=["resume-summary"],
-            documents=["Principal architect specializing in distributed systems."],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"source": "resume", "section": "Summary"}],
+            documents=[
+                EmbeddedDocument(
+                    id="resume-summary",
+                    document="Principal architect specializing in distributed systems.",
+                    embedding=EMBED_FAKE,
+                    metadata={"source": "resume", "section": "Summary"},
+                ),
+            ],
         )
         store.add_documents(
             collection_name="role_archetypes",
-            ids=["archetype-staff"],
-            documents=["Staff Platform Architect: distributed systems."],
-            embeddings=[EMBED_FAKE],
-            metadatas=[{"name": "Staff Platform Architect", "source": "role_archetypes"}],
+            documents=[
+                EmbeddedDocument(
+                    id="archetype-staff",
+                    document="Staff Platform Architect: distributed systems.",
+                    embedding=EMBED_FAKE,
+                    metadata={"name": "Staff Platform Architect", "source": "role_archetypes"},
+                ),
+            ],
         )
 
     @staticmethod
@@ -475,12 +490,12 @@ class TestRescoreWorkflow:
         )
 
     async def test_rescore_returns_ranked_listings(
-        self, jd_dir: Path, vector_store: VectorStore, mock_embedder: object
+        self, jd_dir: Path, vector_store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a directory with valid JD files and a populated scoring stack
         When the Rescorer processes the directory
-        Then it returns ranked listings with no failures.
+        Then it returns ranked listings with no failures
         """
         # Given: store populated with resume + archetypes
         self._populate_store(vector_store)
@@ -508,12 +523,12 @@ class TestRescoreWorkflow:
         assert result.failed_listings == 0, f"Expected 0 failures, got {result.failed_listings}"
 
     async def test_rescore_empty_directory_returns_empty_result(
-        self, tmp_path: Path, vector_store: VectorStore, mock_embedder: object
+        self, tmp_path: Path, vector_store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a non-existent JD directory
         When the Rescorer processes it
-        Then an empty RescoreResult is returned.
+        Then an empty RescoreResult is returned
         """
         # Given: scorer with populated store (irrelevant — no JDs to score)
         self._populate_store(vector_store)
@@ -540,12 +555,12 @@ class TestRescoreWorkflow:
         )
 
     async def test_rescore_counts_failed_listings(
-        self, jd_dir: Path, vector_store: VectorStore, mock_embedder: object
+        self, jd_dir: Path, vector_store: VectorStorePort, mock_embedder: Embedder
     ) -> None:
         """
         Given a Scorer whose store lacks the required resume collection
         When the Rescorer attempts to score JD files
-        Then failures are counted and the run completes without crashing.
+        Then failures are counted and the run completes without crashing
         """
         # Given: empty store (no resume collection) → Scorer.score raises ActionableError
         scorer = self._make_scorer(vector_store, mock_embedder)
@@ -575,7 +590,7 @@ class TestRescoreWorkflow:
         """
         Given no arguments
         When a fresh RescoreResult is created
-        Then all fields have sensible zero/empty defaults.
+        Then all fields have sensible zero/empty defaults
         """
         # When: create a default RescoreResult
         result = RescoreResult()

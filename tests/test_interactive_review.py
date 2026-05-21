@@ -16,12 +16,13 @@ import pytest
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.pipeline.ranker import RankedListing
 from jobsearch_rag.pipeline.review import ReviewSession
+from jobsearch_rag.rag.ports import EmbeddedDocument
 from jobsearch_rag.rag.scorer import ScoreResult
 from tests.constants import EMBED_FAKE
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.decisions import DecisionRecorder
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.rag.ports import VectorStorePort
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,28 +70,29 @@ def _make_ranked(
 
 
 def _seed_decisions(
-    store: VectorStore,
+    store: VectorStorePort,
     decided_ids: set[str],
 ) -> None:
     """Pre-populate the decisions collection so ``get_decision`` finds them."""
-    store.get_or_create_collection("decisions")
     for jid in decided_ids:
         store.add_documents(
             collection_name="decisions",
-            ids=[f"decision-{jid}"],
-            documents=["Seeded JD text."],
-            embeddings=[EMBED_FAKE],
-            metadatas=[
-                {
-                    "job_id": jid,
-                    "verdict": "yes",
-                    "board": "test",
-                    "title": "Seeded",
-                    "company": "Test Corp",
-                    "scoring_signal": "true",
-                    "reason": "",
-                    "recorded_at": "2024-01-01T00:00:00+00:00",
-                }
+            documents=[
+                EmbeddedDocument(
+                    id=f"decision-{jid}",
+                    document="Seeded JD text.",
+                    embedding=EMBED_FAKE,
+                    metadata={
+                        "job_id": jid,
+                        "verdict": "yes",
+                        "board": "test",
+                        "title": "Seeded",
+                        "company": "Test Corp",
+                        "scoring_signal": "true",
+                        "reason": "",
+                        "recorded_at": "2024-01-01T00:00:00+00:00",
+                    },
+                ),
             ],
         )
 
@@ -98,7 +100,7 @@ def _seed_decisions(
 class TestInteractiveReview:
     """
     REQUIREMENT: The operator can review and decide on all undecided
-    listings in a single interactive session.
+    listings in a single interactive session
 
     WHO: The operator reviewing search results after a pipeline run
     WHAT: (1) The review session orders undecided listings by descending score when it loads the latest results.
@@ -134,7 +136,7 @@ class TestInteractiveReview:
         """
         GIVEN listings with different scores
         WHEN a ReviewSession is created
-        THEN undecided listings are in descending score order.
+        THEN undecided listings are in descending score order
         """
         # Given: three listings with different scores
         high = _make_ranked(title="High Score", final_score=0.95, external_id="h1")
@@ -158,13 +160,13 @@ class TestInteractiveReview:
 
     def test_already_decided_listings_are_excluded(
         self,
-        vector_store: VectorStore,
+        vector_store: VectorStorePort,
         decision_recorder: DecisionRecorder,
     ) -> None:
         """
         GIVEN listings where some already have decisions
         WHEN undecided_listings() is called
-        THEN only undecided listings are returned.
+        THEN only undecided listings are returned
         """
         # Given: one decided, one undecided
         r1 = _make_ranked(external_id="decided-1")
@@ -188,7 +190,7 @@ class TestInteractiveReview:
         """
         GIVEN a ranked listing
         WHEN format_listing() is called
-        THEN the output includes rank, title, company, and score.
+        THEN the output includes rank, title, company, and score
         """
         # Given: a ranked listing
         ranked = _make_ranked(title="Staff Architect", company="TechCo", final_score=0.88)
@@ -212,7 +214,7 @@ class TestInteractiveReview:
         """
         GIVEN a ranked listing with individual component scores
         WHEN format_listing() is called
-        THEN all component scores appear in the output.
+        THEN all component scores appear in the output
         """
         # Given: listing with specific component scores
         ranked = _make_ranked(fit=0.85, archetype=0.90, history=0.50, comp=0.60)
@@ -236,7 +238,7 @@ class TestInteractiveReview:
         """
         GIVEN a listing with compensation data
         WHEN format_listing() is called
-        THEN the compensation range appears in the output.
+        THEN the compensation range appears in the output
         """
         # Given: listing with comp range
         ranked = _make_ranked(comp_min=180_000, comp_max=250_000)
@@ -259,7 +261,7 @@ class TestInteractiveReview:
         """
         GIVEN a review session with a listing
         WHEN 'y' verdict is recorded
-        THEN the decision is persisted with verdict='yes'.
+        THEN the decision is persisted with verdict='yes'
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="job-1")
@@ -284,7 +286,7 @@ class TestInteractiveReview:
         """
         GIVEN a review session with a listing
         WHEN a 'no' verdict with a reason is recorded
-        THEN the reason is persisted alongside the verdict.
+        THEN the reason is persisted alongside the verdict
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="job-reason")
@@ -311,7 +313,7 @@ class TestInteractiveReview:
         """
         GIVEN a review session with a listing
         WHEN a verdict is recorded without a reason
-        THEN an empty string is stored as the reason.
+        THEN an empty string is stored as the reason
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="job-noreason")
@@ -335,7 +337,7 @@ class TestInteractiveReview:
         """
         GIVEN a review session with a listing
         WHEN 'n' verdict is recorded
-        THEN the decision is persisted with verdict='no'.
+        THEN the decision is persisted with verdict='no'
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="job-2")
@@ -359,7 +361,7 @@ class TestInteractiveReview:
         """
         GIVEN a review session with a listing
         WHEN 'm' verdict is recorded
-        THEN the decision is persisted with verdict='maybe'.
+        THEN the decision is persisted with verdict='maybe'
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="job-3")
@@ -382,7 +384,7 @@ class TestInteractiveReview:
         """
         GIVEN a review session
         WHEN the operator enters 's' (skip)
-        THEN no verdict is recorded and the listing remains undecided.
+        THEN no verdict is recorded and the listing remains undecided
         """
         # Given: session with one listing
         ranked = _make_ranked(external_id="skip-me")
@@ -404,7 +406,7 @@ class TestInteractiveReview:
         """
         GIVEN a listing with a JD file
         WHEN 'o' (open) is invoked
-        THEN the system default viewer is launched via webbrowser.open.
+        THEN the system default viewer is launched via webbrowser.open
         """
         # Given: session with jd_dir configured
         ranked = _make_ranked(external_id="open-me")
@@ -430,7 +432,7 @@ class TestInteractiveReview:
         """
         GIVEN verdicts recorded during a review session
         WHEN the operator quits mid-review
-        THEN all previously recorded verdicts are preserved.
+        THEN all previously recorded verdicts are preserved
         """
         # Given: session with three listings
         r1 = _make_ranked(external_id="keep-1")
@@ -461,7 +463,7 @@ class TestInteractiveReview:
         """
         GIVEN a review session with 28 listings
         WHEN format_progress(current=3, total=28) is called
-        THEN the output contains '[3/28]'.
+        THEN the output contains '[3/28]'
         """
         # Given: session with 28 listings
         session = ReviewSession(
@@ -478,13 +480,13 @@ class TestInteractiveReview:
 
     def test_no_undecided_listings_prints_message_and_exits(
         self,
-        vector_store: VectorStore,
+        vector_store: VectorStorePort,
         decision_recorder: DecisionRecorder,
     ) -> None:
         """
         GIVEN all listings already have decisions
         WHEN undecided_listings() is called
-        THEN an empty list is returned.
+        THEN an empty list is returned
         """
         # Given: all listings decided
         r1 = _make_ranked(external_id="done-1")
@@ -506,7 +508,7 @@ class TestInteractiveReview:
         """
         GIVEN no ranked listings exist
         WHEN undecided_listings() is called
-        THEN an empty list is returned.
+        THEN an empty list is returned
         """
         # Given: empty session
         session = ReviewSession(ranked_listings=[], recorder=decision_recorder, max_slug_length=80)
@@ -526,7 +528,7 @@ class TestInteractiveReview:
 class TestListingDisplayDisqualified:
     """
     REQUIREMENT: Disqualified listings show a visible warning in the
-    review display.
+    review display
 
     WHO: The operator reviewing a listing that was auto-disqualified
     WHAT: (1) The system includes a '⚠ DISQUALIFIED' warning with the reason in the formatted listing output for a disqualified listing.
@@ -546,7 +548,7 @@ class TestListingDisplayDisqualified:
         """
         GIVEN a listing with disqualified=True and a reason
         WHEN format_listing() is called
-        THEN the output includes a '⚠ DISQUALIFIED' warning with the reason.
+        THEN the output includes a '⚠ DISQUALIFIED' warning with the reason
         """
         # Given: disqualified listing
         ranked = _make_ranked(
