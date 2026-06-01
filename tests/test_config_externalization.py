@@ -92,7 +92,7 @@ from jobsearch_rag.pipeline.ranker import Ranker
 from jobsearch_rag.pipeline.runner import PipelineRunner
 from jobsearch_rag.rag.comp_parser import compute_comp_score
 from jobsearch_rag.rag.embedder import Embedder
-from jobsearch_rag.rag.ports import EmbeddedDocument
+from jobsearch_rag.rag.ports import EmbeddedDocument, VectorStoreConfig, create_vector_store
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
 from tests.conftest import adapter_override, make_mock_ollama_client, make_test_settings
 
@@ -200,7 +200,7 @@ log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
-[chroma]
+[vector_store]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
 sync_threshold = 1
@@ -2373,11 +2373,18 @@ class TestStealthConfig:
 
             # Given: a real PipelineRunner with mocked Ollama client
             mock_client = make_mock_ollama_client()
+            store = create_vector_store(
+                VectorStoreConfig(
+                    persist_dir=settings.vector_store.persist_dir,
+                    distance_metric=settings.vector_store.distance_metric,
+                    sync_threshold=settings.vector_store.sync_threshold,
+                )
+            )
             with patch(
                 "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
                 return_value=mock_client,
             ):
-                runner = PipelineRunner(settings)
+                runner = PipelineRunner(settings, store=store)
 
             # Seed store so auto-indexing is skipped
             for name in ("resume", "role_archetypes", "global_positive_signals"):

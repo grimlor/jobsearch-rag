@@ -21,7 +21,7 @@
          ▼
   ┌──────────────┐
   │   Scorer     │──▶ Embedder ──▶ Ollama (nomic-embed-text)
-  │              │──▶ VectorStore ──▶ ChromaDB (6 collections)
+  │              │──▶ VectorStorePort ──▶ ChromaDB (6 collections)
   │              │──▶ CompParser (regex)
   │              │──▶ Disqualifier ──▶ Ollama (mistral:7b)
   └──────┬───────┘

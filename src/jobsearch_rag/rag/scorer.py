@@ -13,7 +13,7 @@ The Scorer bridges two RAG concerns:
    staffing agency chain).  The response is expected as JSON; malformed
    responses fall back to *not disqualified* (safe default).
 
-ChromaDB returns *distances* (cosine distance = 1 - cosine_similarity).
+The vector store returns cosine *distances* (1 - cosine_similarity).
 The ``_distance_to_score`` helper converts the closest distance to a
 similarity score clamped to [0.0, 1.0].
 
@@ -34,10 +34,11 @@ from typing import TYPE_CHECKING
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import log_event
+from jobsearch_rag.rag.ports import MetadataFilter
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.embedder import Embedder
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.rag.ports import VectorStorePort
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ class Scorer:
     def __init__(
         self,
         *,
-        store: VectorStore,
+        store: VectorStorePort,
         embedder: Embedder,
         disqualify_on_llm_flag: bool,
         disqualifier_prompt: str,
@@ -363,10 +364,12 @@ class Scorer:
         Raises ``ActionableError.index`` if the collection is empty or
         does not exist.
         """
-        count = self._store.collection_count(collection_name)
+        try:
+            count = self._store.collection_count(collection_name)
+        except ActionableError:
+            raise ActionableError.index(collection_name) from None
         if count == 0:
-            msg = f"Collection '{collection_name}' is empty. Run the indexer before scoring."
-            raise ActionableError.index(msg)
+            raise ActionableError.index(collection_name)
 
         n_results = min(count, self._top_k_retrieval)
         results = self._store.query(
@@ -374,7 +377,7 @@ class Scorer:
             query_embedding=embedding,
             n_results=n_results,
         )
-        distances: list[float] = results.get("distances", [[]])[0]
+        distances = [m.distance for m in results.matches]
         return _distance_to_score(distances)
 
     def _query_archetypes(self, embedding: list[float]) -> tuple[float, str | None]:
@@ -384,10 +387,12 @@ class Scorer:
         The best archetype is the document with the smallest cosine distance.
         Falls back to ``None`` if metadata lacks a ``name`` key.
         """
-        count = self._store.collection_count("role_archetypes")
+        try:
+            count = self._store.collection_count("role_archetypes")
+        except ActionableError:
+            raise ActionableError.index("role_archetypes") from None
         if count == 0:
-            msg = "Collection 'role_archetypes' is empty. Run the indexer before scoring."
-            raise ActionableError.index(msg)
+            raise ActionableError.index("role_archetypes")
 
         n_results = min(count, self._top_k_retrieval)
         results = self._store.query(
@@ -395,19 +400,15 @@ class Scorer:
             query_embedding=embedding,
             n_results=n_results,
         )
-        distances: list[float] = results.get("distances", [[]])[0]
+        distances = [m.distance for m in results.matches]
         score = _distance_to_score(distances)
 
         # Extract best archetype name from the closest match's metadata.
         # The count > 0 guard above ensures the query returns non-empty,
-        # consistently-shaped results. ChromaDB returns None for entries added
-        # without metadata, so guard against non-dict items.
-        metadatas_raw: list[dict[str, str] | None] = results.get("metadatas", [[]])[0]
+        # consistently-shaped results.
         best_name: str | None = None
-        best_idx = distances.index(min(distances))
-        meta = metadatas_raw[best_idx]
-        if meta is not None:
-            best_name = meta.get("name")
+        best_match = min(results.matches, key=lambda m: m.distance)
+        best_name = best_match.metadata.get("name")
 
         return score, best_name
 
@@ -425,7 +426,7 @@ class Scorer:
             query_embedding=embedding,
             n_results=n_results,
         )
-        distances: list[float] = results.get("distances", [[]])[0]
+        distances = [m.distance for m in results.matches]
         return _distance_to_score(distances)
 
     def _get_rejection_reasons(self) -> list[str]:
@@ -442,12 +443,12 @@ class Scorer:
         try:
             results = self._store.get_by_metadata(
                 "decisions",
-                where={"verdict": "no"},
-                include=["metadatas"],
+                where=MetadataFilter(field="verdict", operator="eq", value="no"),
             )
-            for meta in results.get("metadatas", []):
-                if meta and meta.get("reason"):
-                    reasons.append(str(meta["reason"]))
+            for record in results:
+                reason = record.metadata.get("reason")
+                if reason:
+                    reasons.append(str(reason))
         except ActionableError:
             pass  # No decisions collection yet — normal on first run
 

@@ -13,7 +13,9 @@ Spec classes:
 
 from __future__ import annotations
 
+import re
 import tempfile
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -93,7 +95,7 @@ log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
-[chroma]
+[vector_store]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
 sync_threshold = 1
@@ -275,7 +277,7 @@ history_weight = 0.2
 [ollama]
 base_url = "http://localhost:11434"
 
-[chroma]
+[vector_store]
 persist_dir = "./data/chroma_db"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -351,8 +353,8 @@ persist_dir = "./data/chroma_db"
             assert settings.ollama.base_url == "http://localhost:11434", (
                 f"Expected base_url='http://localhost:11434', got {settings.ollama.base_url}"
             )
-            assert settings.chroma.persist_dir == "./data/chroma_db", (
-                f"Expected persist_dir='./data/chroma_db', got {settings.chroma.persist_dir}"
+            assert settings.vector_store.persist_dir == "./data/chroma_db", (
+                f"Expected persist_dir='./data/chroma_db', got {settings.vector_store.persist_dir}"
             )
 
     def test_minimal_toml_raises_actionable_error_for_missing_required_section(self) -> None:
@@ -750,18 +752,18 @@ rate_limit_range = [1.5, 3.5]
                 f"Error should name missing section. Got: {exc_info.value}"
             )
 
-    def test_chroma_section_non_dict_raises_actionable_error(self) -> None:
+    def test_vector_store_section_non_dict_raises_actionable_error(self) -> None:
         """
-        Given chroma is a scalar instead of a table
+        Given vector_store is a scalar instead of a table
         When load_settings is called
         Then ActionableError is raised naming the missing section
         """
-        # Given: replace [chroma] section with a scalar
+        # Given: replace [vector_store] section with a scalar
         bad_toml = _VALID_SETTINGS.replace(
-            '[chroma]\npersist_dir = "./data/chroma_db"\ndistance_metric = "cosine"\nsync_threshold = 1\n',
+            '[vector_store]\npersist_dir = "./data/chroma_db"\ndistance_metric = "cosine"\nsync_threshold = 1\n',
             "",
         )
-        bad_toml = 'chroma = "not a dict"\n' + bad_toml
+        bad_toml = 'vector_store = "not a dict"\n' + bad_toml
         with tempfile.TemporaryDirectory() as tmpdir:
             path = _write_settings(tmpdir, bad_toml)
 
@@ -769,7 +771,7 @@ rate_limit_range = [1.5, 3.5]
             with pytest.raises(ActionableError) as exc_info:
                 load_settings(path)
 
-            assert "chroma" in str(exc_info.value).lower(), (
+            assert "vector_store" in str(exc_info.value).lower(), (
                 f"Error should name missing section. Got: {exc_info.value}"
             )
 
@@ -1271,7 +1273,7 @@ log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
-[chroma]
+[vector_store]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
 sync_threshold = 1
@@ -1330,8 +1332,6 @@ class TestCommittedConfigCompleteness:
         Then every required scoring field is present
         """
         # Given: the real committed settings file
-        import tomllib  # noqa: PLC0415
-
         settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
         data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
 
@@ -1364,8 +1364,6 @@ class TestCommittedConfigCompleteness:
         Then every required ollama field is present
         """
         # Given: the real committed settings file
-        import tomllib  # noqa: PLC0415
-
         settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
         data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
 
@@ -1393,8 +1391,6 @@ class TestCommittedConfigCompleteness:
         Then every required output field is present
         """
         # Given: the real committed settings file
-        import tomllib  # noqa: PLC0415
-
         settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
         data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
 
@@ -1409,21 +1405,21 @@ class TestCommittedConfigCompleteness:
                 f"add it to config/settings.toml"
             )
 
-    def test_committed_config_contains_chroma_persist_dir(self) -> None:
+    def test_committed_config_contains_vector_store_persist_dir(self) -> None:
         """
         Given the committed config/settings.toml
         When parsed as TOML
-        Then [chroma].persist_dir is present
+        Then [vector_store].persist_dir is present
         """
         # Given: the real committed settings file
-        import tomllib  # noqa: PLC0415
-
         settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
         data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
 
         # When / Then
-        chroma = data.get("chroma", {})
-        assert "persist_dir" in chroma, "Committed settings.toml is missing [chroma].persist_dir"
+        vector_store = data.get("vector_store", {})
+        assert "persist_dir" in vector_store, (
+            "Committed settings.toml is missing [vector_store].persist_dir"
+        )
 
     def test_committed_config_contains_security_screen_prompt(self) -> None:
         """
@@ -1432,8 +1428,6 @@ class TestCommittedConfigCompleteness:
         Then [security].screen_prompt is present and non-empty
         """
         # Given: the real committed settings file
-        import tomllib  # noqa: PLC0415
-
         settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
         data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
 
@@ -1453,8 +1447,6 @@ class TestCommittedConfigCompleteness:
         Then [scoring].comp_bands has at least 2 breakpoints
         """
         # Given: the real committed settings file
-        import tomllib  # noqa: PLC0415
-
         settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
         data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
 
@@ -1473,8 +1465,6 @@ class TestCommittedConfigCompleteness:
         Then resume_path, archetypes_path, and global_rubric_path are present
         """
         # Given: the real committed settings file
-        import tomllib  # noqa: PLC0415
-
         settings_path = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
         data = tomllib.loads(settings_path.read_text(encoding="utf-8"))
 
@@ -1541,9 +1531,9 @@ class TestCommittedConfigCompleteness:
                 f"Error should name the missing field. Got: {exc_info.value}"
             )
 
-    def test_missing_chroma_persist_dir_raises_actionable_error(self) -> None:
+    def test_missing_vector_store_persist_dir_raises_actionable_error(self) -> None:
         """
-        Given settings.toml omits [chroma].persist_dir
+        Given settings.toml omits [vector_store].persist_dir
         When load_settings() is called
         Then ActionableError is raised naming the missing field
         """
@@ -1590,8 +1580,6 @@ class TestCommittedConfigCompleteness:
         """
         # Given: TOML with no comp_bands
         # Remove all comp_bands entries from _COMPLETE_SETTINGS
-        import re  # noqa: PLC0415
-
         incomplete = re.sub(
             r"\[\[scoring\.comp_bands\]\]\nratio = [\d.]+\nscore = [\d.]+\n*",
             "",

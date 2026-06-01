@@ -2,7 +2,7 @@
 Hexagonal port for vector storage.
 
 Defines the domain types and protocol that callers depend on.
-The concrete adapter (ChromaVectorStore in store.py) implements this protocol.
+Concrete adapters live in sibling modules and are resolved via the factory.
 """
 
 from __future__ import annotations

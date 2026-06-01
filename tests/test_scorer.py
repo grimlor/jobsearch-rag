@@ -467,6 +467,47 @@ class TestSemanticScoring:
         assert err.troubleshooting is not None, "Error should include troubleshooting"
         assert len(err.troubleshooting.steps) > 0, "Troubleshooting should have at least one step"
 
+    async def test_missing_archetypes_collection_tells_operator_to_run_index(
+        self, mock_embedder: Embedder
+    ) -> None:
+        """
+        Given a resume collection exists but no role_archetypes collection
+        When score() is called
+        Then an ActionableError of type INDEX is raised mentioning role_archetypes
+        """
+        # Given: store with resume but no role_archetypes
+        store: VectorStorePort = create_vector_store(_FAKE_STORE_CONFIG)
+        store.add_documents(
+            collection_name="resume",
+            documents=[
+                EmbeddedDocument(
+                    id="r-1", document="Resume chunk", embedding=EMBED_ARCHITECT, metadata={}
+                ),
+            ],
+        )
+        scorer = Scorer(
+            store=store,
+            embedder=mock_embedder,
+            disqualify_on_llm_flag=False,
+            disqualifier_prompt="test disqualifier prompt",
+            screen_prompt="test screen prompt",
+            chunk_overlap=50,
+            top_k_retrieval=3,
+        )
+
+        # When: a JD is scored
+        with pytest.raises(ActionableError) as exc_info:
+            await scorer.score("Any JD text")
+
+        # Then: the error mentions role_archetypes
+        err = exc_info.value
+        assert err.error_type == ErrorType.INDEX, (
+            f"Expected INDEX error type, got {err.error_type}"
+        )
+        assert "role_archetypes" in (err.suggestion or ""), (
+            f"Expected suggestion to mention role_archetypes, got: {err.suggestion}"
+        )
+
     async def test_existing_but_empty_decisions_returns_zero_history(
         self, populated_store: VectorStorePort, mock_embedder: Embedder
     ) -> None:

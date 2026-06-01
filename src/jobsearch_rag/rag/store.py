@@ -1,42 +1,42 @@
 """
-ChromaDB collection management.
+Concrete VectorStorePort adapter backed by ChromaDB.
 
-Provides a thin wrapper around ChromaDB's client, adding:
-- Consistent error handling via ActionableError
-- Collection lifecycle (create, count, reset, query)
-- Input validation for document operations
-
-ChromaDB is an **embedded** vector database — like SQLite for vectors.
-It stores documents alongside their embedding vectors and supports
-similarity queries: "give me the N documents most similar to this vector."
-
-Three collections serve distinct scoring purposes:
-
-  - ``resume``         — resume chunks for fit_score
-  - ``role_archetypes`` — ideal role descriptions for archetype_score
-  - ``decisions``       — past accept/reject choices for history_score
+See :mod:`jobsearch_rag.rag.ports` for the protocol definition and factory.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, Self
 
 import chromadb
 
 from jobsearch_rag.errors import ActionableError
 from jobsearch_rag.logging import logger
+from jobsearch_rag.rag.ports import (
+    DocumentRecord,
+    EmbeddedDocument,
+    MetadataFilter,
+    QueryResults,
+    ScoredMatch,
+)
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 
-class VectorStore:
+class ChromaVectorStore:
     """
-    Manages ChromaDB collections for resume, archetypes, and decisions.
+    ChromaDB adapter implementing VectorStorePort.
 
-    Usage:
+    Instantiated via the factory in :mod:`jobsearch_rag.rag.ports`::
 
-        store = VectorStore(persist_dir="./data/chroma_db")
-        store.get_or_create_collection("resume")
-        store.add_documents("resume", ids=[...], documents=[...], embeddings=[...])
-        results = store.query("resume", query_embedding=[...], n_results=5)
+        from jobsearch_rag.rag.ports import VectorStoreConfig, create_vector_store
+
+        store = create_vector_store(VectorStoreConfig(
+            persist_dir="./data/chroma_db",
+            distance_metric="cosine",
+            sync_threshold=1000,
+        ))
     """
 
     def __init__(self, persist_dir: str, distance_metric: str, sync_threshold: int) -> None:
@@ -46,6 +46,19 @@ class VectorStore:
         self._sync_threshold = sync_threshold
         self._client = chromadb.PersistentClient(path=persist_dir)
         logger.debug("ChromaDB client initialized at %s", persist_dir)
+
+    def __enter__(self) -> Self:
+        """Enter the runtime context."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the runtime context, releasing resources."""
+        self.close()
 
     def close(self) -> None:
         """
@@ -58,12 +71,11 @@ class VectorStore:
 
     # -- Collection lifecycle ------------------------------------------------
 
-    def get_or_create_collection(self, name: str) -> chromadb.Collection:
+    def _get_or_create_collection(self, name: str) -> chromadb.Collection:
         """
         Return the named ChromaDB collection, creating if necessary.
 
-        Uses cosine similarity as the distance function — the natural
-        choice for comparing text embeddings.
+        Uses the configured distance metric as the distance function.
         """
         collection = self._client.get_or_create_collection(
             name=name,
@@ -100,7 +112,7 @@ class VectorStore:
         except chromadb.errors.NotFoundError:
             logger.debug("Collection '%s' does not exist — nothing to reset", name)
         # Recreate empty so callers can immediately use the collection
-        self.get_or_create_collection(name)
+        self._get_or_create_collection(name)
         logger.debug("Collection '%s' recreated empty", name)
 
     # -- Document operations -------------------------------------------------
@@ -109,41 +121,32 @@ class VectorStore:
         self,
         collection_name: str,
         *,
-        ids: list[str],
-        documents: list[str],
-        embeddings: list[list[float]],
-        metadatas: list[dict[str, Any]] | None = None,
+        documents: list[EmbeddedDocument],
     ) -> None:
         """
         Add (or update) documents with pre-computed embeddings.
 
-        All list arguments must have the same length. Documents with
-        existing IDs are **upserted** (updated in place).
+        Documents with existing IDs are **upserted** (updated in place).
 
         Args:
             collection_name: Target collection (created if absent).
-            ids: Unique document identifiers.
-            documents: Raw text content.
-            embeddings: Pre-computed embedding vectors.
-            metadatas: Optional per-document metadata dicts.
+            documents: Documents with embeddings ready for storage.
 
         """
-        # Validate lengths match
-        lengths = {"ids": len(ids), "documents": len(documents), "embeddings": len(embeddings)}
-        if metadatas is not None:
-            lengths["metadatas"] = len(metadatas)
-        unique_lengths = set(lengths.values())
-        if len(unique_lengths) > 1:
-            raise ActionableError.validation(
-                field_name="input_lengths",
-                reason=f"Mismatched input lengths: {lengths}",
-                suggestion="Ensure ids, documents, embeddings, and metadatas all have the same length",
-            )
+        ids = [doc.id for doc in documents]
+        texts = [doc.document for doc in documents]
+        embeddings: list[list[float]] = [doc.embedding for doc in documents]
 
-        collection = self.get_or_create_collection(collection_name)
+        # ChromaDB rejects empty dicts; use None for docs without metadata
+        raw_metas = [doc.metadata if doc.metadata else None for doc in documents]
+        metadatas: list[dict[str, Any] | None] | None = (
+            None if all(m is None for m in raw_metas) else raw_metas
+        )
+
+        collection = self._get_or_create_collection(collection_name)
         collection.upsert(
             ids=ids,
-            documents=documents,
+            documents=texts,
             embeddings=embeddings,
             metadatas=metadatas,
         )
@@ -159,41 +162,87 @@ class VectorStore:
         collection_name: str,
         *,
         ids: list[str],
-    ) -> dict[str, Any]:
+    ) -> list[DocumentRecord]:
         """
         Retrieve documents by ID from a collection.
-
-        Returns a dict with ``ids``, ``documents``, ``metadatas`` keys
-        matching ChromaDB's native format.
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection does not exist.
         """
         collection = self._get_existing_collection(collection_name)
         result = collection.get(ids=ids, include=["documents", "metadatas"])
-        return dict(result)
+        return [
+            DocumentRecord(
+                id=rid,
+                document=doc or "",
+                metadata=meta or {},
+            )
+            for rid, doc, meta in zip(
+                result["ids"],
+                result["documents"] or [],
+                result["metadatas"] or [],
+                strict=True,
+            )
+        ]
 
-    def get_by_metadata(
+    def get_all_documents(
         self,
         collection_name: str,
-        *,
-        where: dict[str, Any],
-        include: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> list[DocumentRecord]:
         """
-        Retrieve documents matching a metadata filter.
-
-        Uses ChromaDB's ``where`` filter syntax (e.g.
-        ``{"verdict": "no"}``).  Returns a dict with keys matching
-        ChromaDB's native format (``ids``, ``metadatas``, etc.).
+        Retrieve all documents in the named collection.
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection does not exist.
         """
         collection = self._get_existing_collection(collection_name)
-        include = include or ["metadatas"]
-        result = collection.get(where=where, include=include)
-        return dict(result)
+        result = collection.get(include=["documents", "metadatas"])
+        return [
+            DocumentRecord(
+                id=rid,
+                document=doc or "",
+                metadata=meta or {},
+            )
+            for rid, doc, meta in zip(
+                result["ids"],
+                result["documents"] or [],
+                result["metadatas"] or [],
+                strict=True,
+            )
+        ]
+
+    def get_by_metadata(
+        self,
+        collection_name: str,
+        *,
+        where: MetadataFilter,
+    ) -> list[DocumentRecord]:
+        """
+        Retrieve documents matching a metadata filter.
+
+        Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
+        if the collection does not exist.
+        """
+        collection = self._get_existing_collection(collection_name)
+        # Convert domain filter to ChromaDB where clause
+        if where.operator == "eq":
+            chroma_where = {where.field: where.value}
+        else:  # "ne"
+            chroma_where = {where.field: {"$ne": where.value}}
+        result = collection.get(where=chroma_where, include=["documents", "metadatas"])
+        return [
+            DocumentRecord(
+                id=rid,
+                document=doc or "",
+                metadata=meta or {},
+            )
+            for rid, doc, meta in zip(
+                result["ids"],
+                result["documents"] or [],
+                result["metadatas"] or [],
+                strict=True,
+            )
+        ]
 
     # -- Similarity query ----------------------------------------------------
 
@@ -228,13 +277,12 @@ class VectorStore:
         *,
         query_embedding: list[float],
         n_results: int,
-    ) -> dict[str, Any]:
+    ) -> QueryResults:
         """
         Find the *n_results* most similar documents to *query_embedding*.
 
-        Returns a dict with ``ids``, ``documents``, ``metadatas``,
-        ``distances`` keys. Distances are cosine distances (lower = more
-        similar; 0.0 = identical direction).
+        Distances are cosine distances (lower = more similar;
+        0.0 = identical direction).
 
         Raises :class:`~jobsearch_rag.errors.ActionableError` (INDEX)
         if the collection does not exist.
@@ -244,7 +292,7 @@ class VectorStore:
         # ChromaDB raises if n_results > count; clamp to available
         count = collection.count()
         if count == 0:
-            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+            return QueryResults(matches=[])
 
         effective_n = min(n_results, count)
         result = collection.query(
@@ -252,7 +300,24 @@ class VectorStore:
             n_results=effective_n,
             include=["documents", "metadatas", "distances"],
         )
-        return dict(result)
+
+        matches: list[ScoredMatch] = []
+        ids_list: list[str] = result["ids"][0] if result["ids"] else []
+        docs_list: list[str] = result["documents"][0] if result["documents"] else []
+        metas_list: list[dict[str, Any]] = result["metadatas"][0] if result["metadatas"] else []
+        dists_list: list[float] = result["distances"][0] if result["distances"] else []
+
+        for rid, doc, meta, dist in zip(ids_list, docs_list, metas_list, dists_list, strict=True):
+            matches.append(
+                ScoredMatch(
+                    id=rid,
+                    document=doc or "",
+                    metadata=meta or {},
+                    distance=dist,
+                )
+            )
+
+        return QueryResults(matches=matches)
 
     # -- Internal helpers ----------------------------------------------------
 

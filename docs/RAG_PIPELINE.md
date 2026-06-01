@@ -111,8 +111,8 @@ Metrics are accumulated per run and emitted in the `session_summary` event.
 
 ## ChromaDB Collections
 
-All collections use cosine distance. The `VectorStore` class wraps ChromaDB's
-client with typed methods.
+All collections use cosine distance. The `VectorStorePort` protocol defines typed
+methods; `ChromaVectorStore` implements them.
 
 | Collection | Documents | ID Pattern | Key Metadata |
 |---|---|---|---|

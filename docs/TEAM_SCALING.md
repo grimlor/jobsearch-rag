@@ -31,7 +31,7 @@ a team:
 - **Upgrade to ChromaDB server mode** — run ChromaDB as a separate service
   with an HTTP API
 - **Or replace** with a managed vector store (Pinecone, Weaviate, PGVector)
-- **Connection string** replaces `persist_dir` in `ChromaConfig`
+- **Connection string** replaces `persist_dir` in `VectorStoreConfig`
 - **Multi-tenancy** — each user's decisions go into partitioned
   sub-collections or use metadata filtering. Shared collections (resume,
   archetypes, rubric) remain common.

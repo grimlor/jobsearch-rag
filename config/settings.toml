@@ -107,7 +107,7 @@ decisions_dir = "data/decisions"
 log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
 
-[chroma]
+[vector_store]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
 # Flush HNSW index to disk after every N writes.

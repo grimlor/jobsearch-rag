@@ -284,7 +284,7 @@ log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
-[chroma]
+[vector_store]
 persist_dir = "{(tmp_path / "chroma").as_posix()}"
 distance_metric = "cosine"
 sync_threshold = 1
@@ -1826,9 +1826,11 @@ class TestLoginCommand:
         launch_kwargs_log: list[dict[str, object]] = []
         navigated_urls: list[str] = []
 
+        mock_browser = mock_pw.chromium.launch.return_value
+
         async def _capture_launch(**kwargs: object) -> MagicMock:
             launch_kwargs_log.append(kwargs)
-            return await mock_pw.chromium.launch.return_value  # type: ignore[no-any-return]
+            return mock_browser  # type: ignore[return-value]
 
         mock_pw.chromium.launch = AsyncMock(side_effect=_capture_launch)
 
@@ -3105,6 +3107,8 @@ class TestRescoreCommand:
         )
         settings_path.write_text(content, encoding="utf-8")
 
+        store = create_vector_store(_FAKE_STORE_CONFIG)
+
         with patch(
             "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
             return_value=mock_client,
@@ -3112,7 +3116,7 @@ class TestRescoreCommand:
             # Index all collections so scorer has data to query
             handle_index(
                 argparse.Namespace(archetypes_only=False, resume_only=False),
-                store=create_vector_store(_FAKE_STORE_CONFIG),
+                store=store,
             )
 
             jd_dir = tmp_path / "output" / "jds"
@@ -3123,6 +3127,7 @@ class TestRescoreCommand:
                 "out_dir": tmp_path / "output",
                 "args": argparse.Namespace(),
                 "mock_client": mock_client,
+                "store": store,
             }
 
     # -- Tests ---------------------------------------------------------------
@@ -3139,7 +3144,7 @@ class TestRescoreCommand:
         self._write_jd(rescore["jd_dir"])
 
         # When: handle_rescore runs
-        handle_rescore(rescore["args"], store=create_vector_store(_FAKE_STORE_CONFIG))
+        handle_rescore(rescore["args"], store=rescore["store"])
 
         # Then: summary is printed with correct counts
         output = capsys.readouterr().out
@@ -3161,8 +3166,8 @@ class TestRescoreCommand:
         mock_client.list = AsyncMock(side_effect=ConnectionError("Server unreachable"))
 
         # When/Then: health check raises before any scoring work begins
-        with pytest.raises((ConnectionError, RuntimeError)):
-            handle_rescore(rescore["args"], store=create_vector_store(_FAKE_STORE_CONFIG))
+        with pytest.raises(ActionableError):
+            handle_rescore(rescore["args"], store=rescore["store"])
 
     def test_rescore_prints_each_ranked_listing_with_score_and_details(
         self, rescore: dict[str, Any], capsys: pytest.CaptureFixture[str]
@@ -3181,7 +3186,7 @@ class TestRescoreCommand:
         )
 
         # When: handle_rescore runs
-        handle_rescore(rescore["args"], store=create_vector_store(_FAKE_STORE_CONFIG))
+        handle_rescore(rescore["args"], store=rescore["store"])
 
         # Then: listing details are in the output
         output = capsys.readouterr().out
@@ -3202,7 +3207,7 @@ class TestRescoreCommand:
         self._write_jd(rescore["jd_dir"])
 
         # When: handle_rescore runs
-        handle_rescore(rescore["args"], store=create_vector_store(_FAKE_STORE_CONFIG))
+        handle_rescore(rescore["args"], store=rescore["store"])
 
         # Then: export files are created
         out_dir = rescore["out_dir"]
@@ -3228,7 +3233,7 @@ class TestRescoreCommand:
         self._write_jd(rescore["jd_dir"])
 
         # When: handle_rescore runs
-        handle_rescore(rescore["args"], store=create_vector_store(_FAKE_STORE_CONFIG))
+        handle_rescore(rescore["args"], store=rescore["store"])
 
         # Then: JD files are re-exported
         output = capsys.readouterr().out
@@ -3239,4 +3244,26 @@ class TestRescoreCommand:
         jd_files = list(jd_dir.glob("*.md"))
         assert len(jd_files) >= 1, (
             f"Expected at least 1 JD file after re-export, found {len(jd_files)}"
+        )
+
+    def test_rescore_empty_jd_directory_skips_export(
+        self, rescore: dict[str, Any], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """
+        Given no JD files in output/jds/
+        When handle_rescore runs
+        Then no export files are written and summary shows zero counts
+        """
+        # Given: empty JD directory (no files written)
+
+        # When: handle_rescore runs
+        handle_rescore(rescore["args"], store=rescore["store"])
+
+        # Then: no export confirmation printed
+        output = capsys.readouterr().out
+        assert "Exported Markdown" not in output, (
+            f"Expected no Markdown export for empty rescore, got: {output!r}"
+        )
+        assert "JDs loaded:     0" in output, (
+            f"Expected 'JDs loaded: 0' in output, got: {output!r}"
         )

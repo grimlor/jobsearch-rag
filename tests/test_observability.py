@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from jobsearch_rag.adapters.base import JobListing
 from jobsearch_rag.pipeline.runner import PipelineRunner
-from jobsearch_rag.rag.ports import EmbeddedDocument
+from jobsearch_rag.rag.ports import EmbeddedDocument, VectorStoreConfig, create_vector_store
 from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
 
@@ -124,7 +124,14 @@ def _make_runner_with_real_stack(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=mock_client,
     ):
-        runner = PipelineRunner(settings)
+        store = create_vector_store(
+            VectorStoreConfig(
+                persist_dir=settings.vector_store.persist_dir,
+                distance_metric=settings.vector_store.distance_metric,
+                sync_threshold=settings.vector_store.sync_threshold,
+            )
+        )
+        runner = PipelineRunner(settings, store=store)
 
     _populate_store(runner.store)
 
@@ -207,7 +214,14 @@ def _make_runner_with_distant_store(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=mock_client,
     ):
-        runner = PipelineRunner(settings)
+        store = create_vector_store(
+            VectorStoreConfig(
+                persist_dir=settings.vector_store.persist_dir,
+                distance_metric=settings.vector_store.distance_metric,
+                sync_threshold=settings.vector_store.sync_threshold,
+            )
+        )
+        runner = PipelineRunner(settings, store=store)
 
     _populate_store_with_distant_embeddings(runner.store)
 

@@ -51,6 +51,7 @@ from jobsearch_rag.adapters.session import (
 )
 from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.pipeline.runner import PipelineRunner
+from jobsearch_rag.rag.ports import create_vector_store
 from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
 
@@ -1250,7 +1251,8 @@ def _make_runner_with_real_stack(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=mock_client,
     ):
-        runner = PipelineRunner(settings)
+        store = create_vector_store(settings.vector_store)
+        runner = PipelineRunner(settings, store=store)
 
     return runner, mock_client
 

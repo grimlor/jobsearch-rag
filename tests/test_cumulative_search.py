@@ -322,7 +322,7 @@ log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
-[chroma]
+[vector_store]
 persist_dir = "{(tmp_path / "chroma").as_posix()}"
 distance_metric = "cosine"
 sync_threshold = 1

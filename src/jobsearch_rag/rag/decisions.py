@@ -2,24 +2,24 @@
 Decision history recording and retrieval.
 
 Records user verdicts (yes / no / maybe) on scored job listings and
-stores them in the ``decisions`` ChromaDB collection.  Only ``yes``
+stores them in the ``decisions`` vector store collection.  Only ``yes``
 verdicts contribute to ``history_score`` — rejected roles have too
 many confounding reasons to be a useful negative signal.
 
 Decisions are persisted in two forms:
 
-1. **ChromaDB** — the ``decisions`` collection stores the JD embedding
+1. **Vector store** — the ``decisions`` collection stores the JD embedding
    alongside metadata (verdict, job_id, board) so it can be queried
    for ``history_score`` on future runs.
 
 2. **JSONL on disk** — a daily append-only ``data/decisions/YYYY-MM-DD.jsonl``
    file for audit and debugging.  The JSONL file contains the full JD text
-   (which is too large for ChromaDB metadata) plus all scoring data.
+   (which is too large for vector store metadata) plus all scoring data.
 
-The ChromaDB ``decisions`` collection filters on ``verdict == "yes"``
-during scoring queries.  No/maybe verdicts are stored in ChromaDB too
-(for auditability) but carry metadata ``{"scoring_signal": "false"}``
-so the scorer can exclude them without deleting data.
+The ``decisions`` collection filters on ``verdict == "yes"`` during
+scoring queries.  No/maybe verdicts are stored too (for auditability)
+but carry metadata ``{"scoring_signal": "false"}`` so the scorer can
+exclude them without deleting data.
 """
 
 from __future__ import annotations
@@ -31,10 +31,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from jobsearch_rag.errors import ActionableError, AIGuidance, ErrorType, Troubleshooting
+from jobsearch_rag.rag.ports import EmbeddedDocument, MetadataFilter
 
 if TYPE_CHECKING:
     from jobsearch_rag.rag.embedder import Embedder
-    from jobsearch_rag.rag.store import VectorStore
+    from jobsearch_rag.rag.ports import VectorStorePort
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class DecisionRecorder:
     def __init__(
         self,
         *,
-        store: VectorStore,
+        store: VectorStorePort,
         embedder: Embedder,
         decisions_dir: str | Path = _DECISIONS_DIR,
     ) -> None:
@@ -147,20 +148,22 @@ class DecisionRecorder:
         # Upsert into ChromaDB decisions collection
         self._store.add_documents(
             collection_name="decisions",
-            ids=[f"decision-{job_id}"],
-            documents=[jd_text],
-            embeddings=[embedding],
-            metadatas=[
-                {
-                    "job_id": job_id,
-                    "verdict": verdict,
-                    "board": board,
-                    "title": title,
-                    "company": company,
-                    "scoring_signal": scoring_signal,
-                    "reason": reason,
-                    "recorded_at": datetime.now(UTC).isoformat(),
-                }
+            documents=[
+                EmbeddedDocument(
+                    id=f"decision-{job_id}",
+                    document=jd_text,
+                    embedding=embedding,
+                    metadata={
+                        "job_id": job_id,
+                        "verdict": verdict,
+                        "board": board,
+                        "title": title,
+                        "company": company,
+                        "scoring_signal": scoring_signal,
+                        "reason": reason,
+                        "recorded_at": datetime.now(UTC).isoformat(),
+                    },
+                )
             ],
         )
 
@@ -199,12 +202,10 @@ class DecisionRecorder:
         except ActionableError:
             return None
 
-        ids = results.get("ids", [])
-        metadatas = results.get("metadatas", [])
-        if not ids or not metadatas:
+        if not results:
             return None
 
-        return dict(metadatas[0]) if metadatas[0] else None
+        return dict(results[0].metadata) if results[0].metadata else None
 
     def history_count(self) -> int:
         """Return the number of decisions in the history collection."""
@@ -224,21 +225,19 @@ class DecisionRecorder:
         try:
             results = self._store.get_by_metadata(
                 "decisions",
-                where={"reason": {"$ne": ""}},
-                include=["metadatas"],
+                where=MetadataFilter(field="reason", operator="ne", value=""),
             )
         except ActionableError:
             return []
 
-        metadatas: list[dict[str, str]] = results.get("metadatas", [])
         return [
             {
-                "job_id": m.get("job_id", ""),
-                "verdict": m.get("verdict", ""),
-                "reason": m.get("reason", ""),
+                "job_id": record.metadata.get("job_id", ""),
+                "verdict": record.metadata.get("verdict", ""),
+                "reason": record.metadata.get("reason", ""),
             }
-            for m in metadatas
-            if m and m.get("reason")
+            for record in results
+            if record.metadata.get("reason")
         ]
 
     def remove_decision(self, job_id: str) -> bool:

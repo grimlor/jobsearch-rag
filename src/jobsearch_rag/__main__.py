@@ -1,7 +1,9 @@
 """
 CLI entry point for the Job Search RAG Assistant.
 
-This module is a thin shim — all command logic lives in :mod:`jobsearch_rag.cli`.
+This module is the single composition root — it creates the vector store
+and passes it to handler functions.  All command logic lives in
+:mod:`jobsearch_rag.cli`.
 """
 
 from __future__ import annotations
@@ -23,22 +25,28 @@ from jobsearch_rag.cli import (
     handle_review,
     handle_search,
 )
+from jobsearch_rag.config import load_settings
 from jobsearch_rag.errors import ActionableError
+from jobsearch_rag.rag.ports import create_vector_store
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+# Handlers that do NOT require a vector store
+_NO_STORE_COMMANDS = frozenset({"boards", "login", "export"})
+
+# Public dispatch tables — used by tests for error-handling verification
 HANDLERS: dict[str, Callable[..., None]] = {
     "boards": handle_boards,
+    "login": handle_login,
+    "export": handle_export,
     "index": handle_index,
     "search": handle_search,
     "decide": handle_decide,
     "decisions": handle_decisions,
     "review": handle_review,
-    "export": handle_export,
     "rescore": handle_rescore,
     "eval": handle_eval,
-    "login": handle_login,
     "reset": handle_reset,
 }
 
@@ -50,12 +58,20 @@ def main() -> None:
 
     try:
         handler = HANDLERS[args.command]
+
         if args.command == "boards":
             handler()
-        else:
+            return
+
+        if args.command in _NO_STORE_COMMANDS:
             handler(args)
+            return
+
+        # Composition root: create store once, pass to every handler
+        settings = load_settings()
+        with create_vector_store(settings.vector_store) as store:
+            handler(args, store=store)
     except Exception as exc:
-        # ActionableError instances have rich context
         if isinstance(exc, ActionableError):
             print(f"\nError [{exc.error_type}]: {exc.error}", file=sys.stderr)
             if exc.suggestion:

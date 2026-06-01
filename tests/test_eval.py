@@ -164,7 +164,7 @@ log_dir = "logs"
 eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
-[chroma]
+[vector_store]
 persist_dir = "./chroma"
 distance_metric = "cosine"
 sync_threshold = 1
@@ -342,10 +342,10 @@ class TestEvalCommand:
          change
     WHAT: (1) ``eval`` subcommand is registered and calls ``handle_eval``
           (2) ``handle_eval`` loads settings, creates scorer/ranker/store,
-              runs ``EvalRunner.evaluate()``
-          (3) stdout output includes agreement_rate, precision, recall
-          (4) when no decisions exist, prints a message and exits cleanly
-          (5) ``EvalRunner`` is instantiated with scorer, ranker, and store
+              runs ``EvalRunner.evaluate()``, and prints agreement_rate,
+              precision, recall to stdout
+          (3) when no decisions exist, prints a message and exits cleanly
+          (4) ``EvalRunner`` is instantiated with scorer, ranker, and store
     WHY: The operator needs a single command to measure whether a config
          change improved or degraded pipeline quality
 

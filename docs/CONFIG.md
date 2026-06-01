@@ -108,7 +108,7 @@ multipliers in the fusion formula (see [SCORING_ENGINE.md](SCORING_ENGINE.md)).
 | `log_dir` | `str` | `"data/logs"` | Directory for structured JSONL session logs |
 | `eval_history_path` | `str` | `"data/eval_history.jsonl"` | Append-only file for eval run metrics |
 
-### `[chroma]`
+### `[vector_store]`
 
 | Key | Type | Default | Description |
 |---|---|---|---|

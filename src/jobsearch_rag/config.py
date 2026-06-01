@@ -8,7 +8,7 @@ startup validation failure.
 
 The validated config is exposed as a :class:`Settings` dataclass with
 typed fields for each section: ``boards``, ``scoring``, ``ollama``,
-``output``, and ``chroma``.
+``output``, and ``vector_store``.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from jobsearch_rag.errors import ActionableError
+from jobsearch_rag.rag.ports import VectorStoreConfig
 
 # Type alias for TOML-parsed dicts — values are heterogeneous.
 _TOMLDict = dict[str, Any]
@@ -131,15 +132,6 @@ class AdaptersConfig:
 
 
 @dataclass
-class ChromaConfig:
-    """ChromaDB settings from ``[chroma]``."""
-
-    persist_dir: str
-    distance_metric: str
-    sync_threshold: int
-
-
-@dataclass
 class Settings:
     """Top-level validated configuration."""
 
@@ -149,7 +141,7 @@ class Settings:
     scoring: ScoringConfig
     ollama: OllamaConfig
     output: OutputConfig
-    chroma: ChromaConfig
+    vector_store: VectorStoreConfig
     security: SecurityConfig
     resume_path: str
     archetypes_path: str
@@ -456,33 +448,34 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
             suggestion="Set [output].max_slug_length to a positive integer (e.g. 80)",
         )
 
-    # -- chroma section ------------------------------------------------------
-    chroma_data = _require_section(data, "chroma", filepath)
+    # -- vector_store section ------------------------------------------------
+    vs_data = _require_section(data, "vector_store", filepath)
 
-    chroma = ChromaConfig(
-        persist_dir=str(_require_field(chroma_data, "persist_dir", "chroma")),
-        distance_metric=str(_require_field(chroma_data, "distance_metric", "chroma")),
-        sync_threshold=int(_require_field(chroma_data, "sync_threshold", "chroma")),
+    vector_store = VectorStoreConfig(
+        persist_dir=str(_require_field(vs_data, "persist_dir", "vector_store")),
+        distance_metric=str(_require_field(vs_data, "distance_metric", "vector_store")),
+        sync_threshold=int(_require_field(vs_data, "sync_threshold", "vector_store")),
+        store_class=str(vs_data.get("store_class", "jobsearch_rag.rag.store.ChromaVectorStore")),
     )
 
     # Validate sync_threshold
-    if chroma.sync_threshold < 1:
+    if vector_store.sync_threshold < 1:
         raise ActionableError.validation(
-            field_name="chroma.sync_threshold",
-            reason=f"is {chroma.sync_threshold} — must be >= 1",
-            suggestion="Set [chroma].sync_threshold to a positive integer (e.g. 1)",
+            field_name="vector_store.sync_threshold",
+            reason=f"is {vector_store.sync_threshold} — must be >= 1",
+            suggestion="Set [vector_store].sync_threshold to a positive integer (e.g. 1)",
         )
 
     # Validate distance_metric
     valid_metrics = {"cosine", "l2", "ip"}
-    if chroma.distance_metric not in valid_metrics:
+    if vector_store.distance_metric not in valid_metrics:
         raise ActionableError.validation(
-            field_name="chroma.distance_metric",
+            field_name="vector_store.distance_metric",
             reason=(
-                f"is '{chroma.distance_metric}' — must be one of: "
+                f"is '{vector_store.distance_metric}' — must be one of: "
                 f"{', '.join(sorted(valid_metrics))}"
             ),
-            suggestion="Set [chroma].distance_metric to 'cosine', 'l2', or 'ip'",
+            suggestion="Set [vector_store].distance_metric to 'cosine', 'l2', or 'ip'",
         )
 
     # -- shared file paths --------------------------------------------------
@@ -602,7 +595,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
         scoring=scoring,
         ollama=ollama,
         output=output,
-        chroma=chroma,
+        vector_store=vector_store,
         adapters=adapters,
         disqualifier=disqualifier,
         security=security,

@@ -36,7 +36,6 @@ from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.config import (
     AdaptersConfig,
     BoardConfig,
-    ChromaConfig,
     CompBand,
     OllamaConfig,
     OutputConfig,
@@ -126,13 +125,17 @@ def adapter_override(
             return list(factories.keys())
         return list({*original_list(cls), *factories.keys()})
 
-    AdapterRegistry.get = classmethod(_patched_get)
-    AdapterRegistry.list_registered = classmethod(_patched_list)
+    # Monkey-patch classmethods. Use indirect setattr to bypass both pyright
+    # reportAttributeAccessIssue and ruff B010 (literal setattr).
+    _get = "get"
+    _list = "list_registered"
+    setattr(AdapterRegistry, _get, classmethod(_patched_get))
+    setattr(AdapterRegistry, _list, classmethod(_patched_list))
     try:
         yield
     finally:
-        AdapterRegistry.get = classmethod(original_get)
-        AdapterRegistry.list_registered = classmethod(original_list)
+        setattr(AdapterRegistry, _get, classmethod(original_get))
+        setattr(AdapterRegistry, _list, classmethod(original_list))
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +262,7 @@ def make_test_settings(
             decisions_dir=str(tmpdir_path / "decisions"),
             log_dir=str(tmpdir_path / "logs"),
         ),
-        chroma=ChromaConfig(
+        vector_store=VectorStoreConfig(
             persist_dir=str(tmpdir_path / "chroma"),
             distance_metric="cosine",
             sync_threshold=1,

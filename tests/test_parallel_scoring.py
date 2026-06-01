@@ -20,7 +20,7 @@ Public API surface (from src/jobsearch_rag/rag/scorer):
     scorer.collection_scores -> dict[str, list[float]]
 
 Public API surface (from src/jobsearch_rag/config):
-    Settings, ScoringConfig, OllamaConfig, OutputConfig, ChromaConfig, BoardConfig
+    Settings, ScoringConfig, OllamaConfig, OutputConfig, VectorStoreConfig, BoardConfig
 
 Public API surface (from src/jobsearch_rag/logging):
     log_event(event, **data) -> None
@@ -41,7 +41,7 @@ import pytest
 from jobsearch_rag.adapters.base import JobBoardAdapter, JobListing
 from jobsearch_rag.logging import log_event as _real_log_event
 from jobsearch_rag.pipeline.runner import PipelineRunner, RunResult
-from jobsearch_rag.rag.ports import EmbeddedDocument
+from jobsearch_rag.rag.ports import EmbeddedDocument, VectorStoreConfig, create_vector_store
 from tests.conftest import adapter_override, make_test_settings
 from tests.constants import EMBED_FAKE
 
@@ -135,14 +135,21 @@ def _make_runner_with_real_stack(
 
     mock_client.embed = AsyncMock(side_effect=_embed_side_effect)
 
+    store = create_vector_store(
+        VectorStoreConfig(
+            persist_dir=settings.vector_store.persist_dir,
+            distance_metric=settings.vector_store.distance_metric,
+            sync_threshold=settings.vector_store.sync_threshold,
+        )
+    )
+
     with patch(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
         return_value=mock_client,
     ):
-        runner = PipelineRunner(settings)
+        runner = PipelineRunner(settings, store=store)
 
     # Populate required collections so auto-indexing is skipped
-    store = runner.store
     for name in ("resume", "role_archetypes", "global_positive_signals"):
         store.add_documents(
             name,

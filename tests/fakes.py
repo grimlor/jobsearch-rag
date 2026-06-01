@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Self
 if TYPE_CHECKING:
     from types import TracebackType
 
+from jobsearch_rag.errors import ActionableError, ErrorType
 from jobsearch_rag.rag.ports import (
     DocumentRecord,
     EmbeddedDocument,
@@ -72,7 +73,14 @@ class FakeVectorStore:
 
     def collection_count(self, name: str) -> int:
         """Return document count for the named collection."""
-        return len(self._collections.get(name, []))
+        if name not in self._collections:
+            raise ActionableError(
+                error_type=ErrorType.INDEX,
+                error=f"Collection '{name}' does not exist",
+                service="vector_store",
+                suggestion=f"Run indexing to create the '{name}' collection.",
+            )
+        return len(self._collections[name])
 
     def reset_collection(self, name: str) -> None:
         """Drop all documents in the named collection."""
@@ -107,7 +115,14 @@ class FakeVectorStore:
         ids: list[str],
     ) -> list[DocumentRecord]:
         """Retrieve documents by ID."""
-        collection = self._collections.get(collection_name, [])
+        if collection_name not in self._collections:
+            raise ActionableError(
+                error_type=ErrorType.INDEX,
+                error=f"Collection '{collection_name}' does not exist",
+                service="vector_store",
+                suggestion=f"Run indexing to create the '{collection_name}' collection.",
+            )
+        collection = self._collections[collection_name]
         id_set = set(ids)
         return [
             DocumentRecord(id=d.id, document=d.document, metadata=d.metadata)
@@ -134,7 +149,14 @@ class FakeVectorStore:
         where: MetadataFilter,
     ) -> list[DocumentRecord]:
         """Filter documents by a single metadata predicate."""
-        collection = self._collections.get(collection_name, [])
+        if collection_name not in self._collections:
+            raise ActionableError(
+                error_type=ErrorType.INDEX,
+                error=f"Collection '{collection_name}' does not exist",
+                service="vector_store",
+                suggestion=f"Run indexing to create the '{collection_name}' collection.",
+            )
+        collection = self._collections[collection_name]
         results: list[DocumentRecord] = []
         for d in collection:
             value = d.metadata.get(where.field)

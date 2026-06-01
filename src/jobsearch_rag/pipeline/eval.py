@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from jobsearch_rag.logging import logger
 
@@ -20,8 +20,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from jobsearch_rag.pipeline.ranker import Ranker
+    from jobsearch_rag.rag.ports import VectorStorePort
     from jobsearch_rag.rag.scorer import Scorer
-    from jobsearch_rag.rag.store import VectorStore
 
 
 _VERDICT_ORDINAL: dict[str, float] = {"no": 0.0, "maybe": 1.0, "yes": 2.0}
@@ -197,7 +197,7 @@ class EvalRunner:
         self,
         scorer: Scorer,
         ranker: Ranker,
-        store: VectorStore,
+        store: VectorStorePort,
     ) -> None:
         """Initialize with a scorer, ranker, and vector store."""
         self._scorer = scorer
@@ -287,28 +287,22 @@ class EvalRunner:
     def _load_decisions(self) -> list[tuple[str, str, str]]:
         """Load all decisions from the store as (job_id, verdict, jd_text) tuples."""
         try:
-            collection = self._store.get_or_create_collection("decisions")
+            records = self._store.get_all_documents("decisions")
         except Exception:
             logger.debug("Decisions collection not accessible.")
             return []
 
-        result = collection.get(include=["documents", "metadatas"])
-
-        ids: list[str] = result["ids"]
-        documents: list[Any] = result.get("documents") or []
-        metadatas: list[Any] = result.get("metadatas") or []
-
         decisions: list[tuple[str, str, str]] = []
-        for i, doc_id in enumerate(ids):
-            meta = metadatas[i] if metadatas and i < len(metadatas) else None
-            doc = documents[i] if documents and i < len(documents) else None
-            if meta is None or doc is None:
-                logger.warning("Skipping decision %s — missing metadata or document.", doc_id)
+        for record in records:
+            meta = record.metadata
+            doc = record.document
+            if not meta or not doc:
+                logger.warning("Skipping decision %s — missing metadata or document.", record.id)
                 continue
-            job_id = str(meta.get("job_id", doc_id))
+            job_id = str(meta.get("job_id", record.id))
             verdict = str(meta.get("verdict", ""))
             if not verdict:
-                logger.warning("Skipping decision %s — no verdict.", doc_id)
+                logger.warning("Skipping decision %s — no verdict.", record.id)
                 continue
             decisions.append((job_id, verdict, doc))
 

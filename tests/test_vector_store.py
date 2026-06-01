@@ -237,7 +237,7 @@ class TestDocumentOperations:
     WHAT: (1) The system returns the matching document when get_documents is called with a specific ID.
           (2) The system preserves and returns the correct metadata when a document is retrieved by ID.
           (3) The system updates an existing document instead of creating a duplicate when add_documents is called with the same ID.
-          (4) The system raises a validation error that identifies the mismatch when add_documents is called with mismatched ID and document lengths.
+          (4) The system stores and returns documents when add_documents is called with a list of EmbeddedDocument objects.
     WHY: Duplicate documents inflate similarity results; lost metadata
          prevents score explanation and debugging
 
@@ -665,6 +665,212 @@ class TestMetadataQuery:
         err = exc_info.value
         assert err.error_type == ErrorType.INDEX, "Error type should be INDEX"
         assert err.suggestion is not None, "Should include a suggestion"
+
+
+# ---------------------------------------------------------------------------
+# TestContextManager
+# ---------------------------------------------------------------------------
+
+
+class TestContextManager:
+    """
+    REQUIREMENT: ChromaVectorStore supports context manager protocol
+
+    WHO: Any caller that uses `with create_vector_store(...)` syntax
+    WHAT: (1) The system returns the store instance when entering the context.
+          (2) The system closes gracefully when exiting the context.
+    WHY: Resource leaks on Windows if file handles are not released
+
+    MOCK BOUNDARY:
+        Mock: nothing — uses real ChromaDB via tmpdir (adapter test)
+        Real: ChromaVectorStore.__enter__, __exit__, close
+        Never: Patch ChromaDB internals
+    """
+
+    def test_context_manager_returns_self_on_enter(self) -> None:
+        """
+        GIVEN a ChromaVectorStore
+        WHEN used as a context manager
+        THEN __enter__ returns the store itself
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = create_vector_store(
+                VectorStoreConfig(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
+            )
+            with store as ctx:
+                assert ctx is store, "Context manager should return self"
+
+    def test_context_manager_closes_on_exit(self) -> None:
+        """
+        GIVEN a ChromaVectorStore used as a context manager
+        WHEN the context exits
+        THEN the store is closed without error
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = create_vector_store(
+                VectorStoreConfig(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
+            )
+            with store:
+                store.reset_collection("ctx_test")
+                assert store.collection_count("ctx_test") == 0
+
+
+# ---------------------------------------------------------------------------
+# TestGetAll
+# ---------------------------------------------------------------------------
+
+
+class TestGetAll:
+    """
+    REQUIREMENT: All documents in a collection can be retrieved
+
+    WHO: The CLI exporting full collection contents
+    WHAT: (1) The system returns all documents with their metadata.
+          (2) The system raises an actionable INDEX error for nonexistent collections.
+    WHY: Bulk retrieval is required for export and audit operations
+
+    MOCK BOUNDARY:
+        Mock: nothing — uses real ChromaDB via tmpdir (adapter test)
+        Real: ChromaVectorStore.get_all, add_documents
+        Never: Patch ChromaDB internals
+    """
+
+    def test_get_all_returns_all_documents(self, populated_store: VectorStorePort) -> None:
+        """
+        GIVEN a collection with 3 documents
+        WHEN get_all is called
+        THEN all 3 documents are returned with correct metadata
+        """
+        results = populated_store.get_all_documents("test_collection")
+
+        assert len(results) == 3, "Should return all 3 documents"
+        returned_ids = {r.id for r in results}
+        assert returned_ids == {"doc-1", "doc-2", "doc-3"}, "All IDs should be present"
+
+    def test_get_all_nonexistent_collection_raises_index_error(
+        self, store: VectorStorePort
+    ) -> None:
+        """
+        GIVEN a nonexistent collection
+        WHEN get_all is called
+        THEN an actionable INDEX error is raised
+        """
+        with pytest.raises(ActionableError) as exc_info:
+            store.get_all_documents("nonexistent_collection")
+
+        err = exc_info.value
+        assert err.error_type == ErrorType.INDEX, "Error type should be INDEX"
+
+
+# ---------------------------------------------------------------------------
+# TestDeleteById
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteById:
+    """
+    REQUIREMENT: Documents can be deleted by ID
+
+    WHO: The rescore pipeline removing stale entries
+    WHAT: (1) The system removes the specified documents from the collection.
+          (2) The system raises an actionable INDEX error for nonexistent collections.
+    WHY: Stale entries must be purged before re-indexing to avoid ghost scores
+
+    MOCK BOUNDARY:
+        Mock: nothing — uses real ChromaDB via tmpdir (adapter test)
+        Real: ChromaVectorStore.delete_by_id, collection_count
+        Never: Patch ChromaDB internals
+    """
+
+    def test_delete_by_id_removes_documents(self, populated_store: VectorStorePort) -> None:
+        """
+        GIVEN a collection with 3 documents
+        WHEN delete_by_id is called with 2 IDs
+        THEN only 1 document remains
+        """
+        populated_store.delete_by_id("test_collection", ids=["doc-1", "doc-2"])
+
+        assert populated_store.collection_count("test_collection") == 1, (
+            "Should have 1 document remaining"
+        )
+
+    def test_delete_by_id_nonexistent_collection_raises_index_error(
+        self, store: VectorStorePort
+    ) -> None:
+        """
+        GIVEN a nonexistent collection
+        WHEN delete_by_id is called
+        THEN an actionable INDEX error is raised
+        """
+        with pytest.raises(ActionableError) as exc_info:
+            store.delete_by_id("nonexistent_collection", ids=["doc-1"])
+
+        err = exc_info.value
+        assert err.error_type == ErrorType.INDEX, "Error type should be INDEX"
+
+
+# ---------------------------------------------------------------------------
+# TestMetadataQueryNe
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataQueryNe:
+    """
+    REQUIREMENT: Documents can be filtered by metadata not-equal operator
+
+    WHO: The decisions module filtering out empty reason fields
+    WHAT: (1) The system returns only documents whose metadata does NOT match the filter value.
+    WHY: The audit_decisions function requires "ne" filtering to exclude empty reasons
+
+    MOCK BOUNDARY:
+        Mock: nothing — uses real ChromaDB via tmpdir (adapter test)
+        Real: ChromaVectorStore.get_by_metadata with ne operator
+        Never: Patch ChromaDB internals
+    """
+
+    def test_get_by_metadata_ne_returns_non_matching_documents(
+        self, store: VectorStorePort
+    ) -> None:
+        """
+        GIVEN a collection with documents having different metadata values
+        WHEN get_by_metadata filters with operator "ne"
+        THEN only documents NOT matching the value are returned
+        """
+        # Given: documents with mixed verdict values
+        store.add_documents(
+            collection_name="filter_test",
+            documents=[
+                EmbeddedDocument(
+                    id="d-1",
+                    document="Yes role",
+                    embedding=EMBED_1,
+                    metadata={"verdict": "yes", "reason": "good fit"},
+                ),
+                EmbeddedDocument(
+                    id="d-2",
+                    document="No role",
+                    embedding=EMBED_2,
+                    metadata={"verdict": "no", "reason": ""},
+                ),
+                EmbeddedDocument(
+                    id="d-3",
+                    document="Another yes",
+                    embedding=EMBED_3,
+                    metadata={"verdict": "yes", "reason": "great team"},
+                ),
+            ],
+        )
+
+        # When: filter by reason != ""
+        results = store.get_by_metadata(
+            "filter_test",
+            where=MetadataFilter(field="reason", operator="ne", value=""),
+        )
+
+        # Then: only documents with non-empty reason returned
+        assert len(results) == 2, "Should return 2 documents with non-empty reason"
+        returned_ids = {r.id for r in results}
+        assert returned_ids == {"d-1", "d-3"}, "Should include d-1 and d-3"
 
 
 # ---------------------------------------------------------------------------

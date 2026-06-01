@@ -15,6 +15,7 @@ import sys
 import webbrowser
 from dataclasses import replace as _dc_replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from jobsearch_rag.adapters import AdapterRegistry
 from jobsearch_rag.adapters.base import JobListing
@@ -36,8 +37,10 @@ from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer, ScoreResult
-from jobsearch_rag.rag.store import VectorStore
 from jobsearch_rag.text import slugify
+
+if TYPE_CHECKING:
+    from jobsearch_rag.rag.ports import VectorStorePort
 
 
 def _read_jd_text(
@@ -211,15 +214,10 @@ def handle_boards() -> None:
         print(f"  - {name}")
 
 
-def handle_index(args: argparse.Namespace) -> None:
+def handle_index(args: argparse.Namespace, *, store: VectorStorePort) -> None:
     """Index resume and/or archetypes into ChromaDB."""
     settings = load_settings()
     embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
-    )
     indexer = Indexer(store=store, embedder=embedder)
 
     archetypes_only = getattr(args, "archetypes_only", False)
@@ -255,14 +253,14 @@ def handle_index(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
-def handle_search(args: argparse.Namespace) -> None:
+def handle_search(args: argparse.Namespace, *, store: VectorStorePort) -> None:
     """Run search across enabled boards."""
     settings = load_settings()
 
     log_dir = settings.output.log_dir
     configure_file_logging(log_dir)
 
-    runner = PipelineRunner(settings)
+    runner = PipelineRunner(settings, store=store)
 
     boards = [args.board] if args.board else None
 
@@ -329,7 +327,11 @@ def handle_search(args: argparse.Namespace) -> None:
                         dec_results = runner.store.get_documents(
                             collection_name="decisions", ids=decision_ids
                         )
-                        decided_set = {m["job_id"] for m in dec_results.get("metadatas", []) if m}
+                        decided_set = {
+                            rec.metadata["job_id"]
+                            for rec in dec_results
+                            if rec.metadata.get("job_id")
+                        }
                     except Exception:  # decisions collection may not exist
                         decided_set: set[str] = set()
                     export_list = [
@@ -370,15 +372,10 @@ def handle_search(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
-def handle_decide(args: argparse.Namespace) -> None:
+def handle_decide(args: argparse.Namespace, *, store: VectorStorePort) -> None:
     """Record a verdict on a job listing."""
     settings = load_settings()
     embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
-    )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
     )
@@ -392,9 +389,8 @@ def handle_decide(args: argparse.Namespace) -> None:
             collection_name="decisions",
             ids=[f"decision-{args.job_id}"],
         )
-        documents = results.get("documents", [])
-        if documents and documents[0]:
-            jd_text = documents[0]
+        if results and results[0].document:
+            jd_text = results[0].document
         else:
             print(f"Error: Could not retrieve JD text for job '{args.job_id}'")
             sys.exit(1)
@@ -425,15 +421,10 @@ def handle_decide(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
-def handle_decisions(args: argparse.Namespace) -> None:
+def handle_decisions(args: argparse.Namespace, *, store: VectorStorePort) -> None:
     """Dispatch decisions subcommands: show, remove, audit."""
     settings = load_settings()
     embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
-    )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
     )
@@ -484,7 +475,7 @@ def _handle_decisions_audit(recorder: DecisionRecorder) -> None:
         print(f"  {entry['job_id']}  [{entry['verdict']}]  {entry['reason']}")
 
 
-def handle_review(args: argparse.Namespace) -> None:
+def handle_review(args: argparse.Namespace, *, store: VectorStorePort) -> None:
     """
     Interactively review undecided listings from the latest search.
 
@@ -494,11 +485,6 @@ def handle_review(args: argparse.Namespace) -> None:
     """
     settings = load_settings()
     embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
-    )
     recorder = DecisionRecorder(
         store=store, embedder=embedder, decisions_dir=settings.output.decisions_dir
     )
@@ -609,7 +595,7 @@ def handle_review(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
-def handle_rescore(args: argparse.Namespace) -> None:
+def handle_rescore(args: argparse.Namespace, *, store: VectorStorePort) -> None:
     """
     Re-score existing JDs through updated collections without browser automation.
 
@@ -619,11 +605,6 @@ def handle_rescore(args: argparse.Namespace) -> None:
     """
     settings = load_settings()
     embedder = Embedder(settings.ollama)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
-    )
     scorer = Scorer(
         store=store,
         embedder=embedder,
@@ -705,11 +686,11 @@ def handle_rescore(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
-def handle_eval(args: argparse.Namespace) -> None:
+def handle_eval(args: argparse.Namespace, *, store: VectorStorePort) -> None:
     """
     Evaluate the scoring pipeline against stored human decisions.
 
-    Loads all decisions from ChromaDB, re-scores each JD through the
+    Loads all decisions from the vector store, re-scores each JD through the
     current scorer/ranker configuration, and prints agreement rate,
     precision, recall, and Spearman correlation.
 
@@ -720,24 +701,22 @@ def handle_eval(args: argparse.Namespace) -> None:
     compare_models: list[str] | None = getattr(args, "compare_models", None)
 
     if compare_models:
-        _handle_eval_compare(settings, compare_models)
+        _handle_eval_compare(settings, compare_models, store=store)
     else:
-        _handle_eval_single(settings)
+        _handle_eval_single(settings, store=store)
 
 
 def _build_eval_stack(
-    settings: Settings, *, llm_model: str | None = None
+    settings: Settings,
+    *,
+    llm_model: str | None = None,
+    store: VectorStorePort,
 ) -> tuple[Embedder, EvalRunner]:
     """Construct an Embedder + EvalRunner from settings."""
     ollama_cfg = settings.ollama
     if llm_model is not None:
         ollama_cfg = _dc_replace(ollama_cfg, llm_model=llm_model)
     embedder = Embedder(ollama_cfg)
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
-    )
     scorer = Scorer(
         store=store,
         embedder=embedder,
@@ -765,9 +744,9 @@ def _build_eval_stack(
     return embedder, runner
 
 
-def _handle_eval_single(settings: Settings) -> None:
+def _handle_eval_single(settings: Settings, *, store: VectorStorePort) -> None:
     """Run a single-model evaluation."""
-    embedder, runner = _build_eval_stack(settings)
+    embedder, runner = _build_eval_stack(settings, store=store)
 
     async def _run() -> None:
         await embedder.health_check()
@@ -796,11 +775,11 @@ def _handle_eval_single(settings: Settings) -> None:
     asyncio.run(_run())
 
 
-def _handle_eval_compare(settings: Settings, models: list[str]) -> None:
+def _handle_eval_compare(settings: Settings, models: list[str], *, store: VectorStorePort) -> None:
     """Run dual-model evaluation and print comparison table."""
     model_a, model_b = models
-    embedder_a, runner_a = _build_eval_stack(settings, llm_model=model_a)
-    embedder_b, runner_b = _build_eval_stack(settings, llm_model=model_b)
+    embedder_a, runner_a = _build_eval_stack(settings, llm_model=model_a, store=store)
+    embedder_b, runner_b = _build_eval_stack(settings, llm_model=model_b, store=store)
 
     async def _run() -> None:
         await embedder_a.health_check()
@@ -882,14 +861,9 @@ def handle_export(args: argparse.Namespace) -> None:
 _COLLECTIONS = ["resume", "role_archetypes", "negative_signals", "decisions"]
 
 
-def handle_reset(args: argparse.Namespace) -> None:
+def handle_reset(args: argparse.Namespace, *, store: VectorStorePort) -> None:
     """Reset ChromaDB collections and optionally clear output files."""
     settings = load_settings()
-    store = VectorStore(
-        persist_dir=settings.chroma.persist_dir,
-        distance_metric=settings.chroma.distance_metric,
-        sync_threshold=settings.chroma.sync_threshold,
-    )
 
     collections = [args.collection] if args.collection else list(_COLLECTIONS)
 

@@ -16,7 +16,7 @@ All tests are expected to FAIL until Phase 3 implementation is complete.
 #   load_settings(path: str | Path) -> Settings
 #   ScoringConfig(..., top_k_retrieval: int, salary_floor: float,
 #                 salary_ceiling: float, hours_per_year: int)
-#   ChromaConfig(persist_dir: str, distance_metric: str, sync_threshold: int)
+#   VectorStoreConfig(persist_dir: str, distance_metric: str, sync_threshold: int)
 #   OutputConfig(..., max_slug_length: int)
 #   AdaptersConfig(..., max_full_text_chars: int, viewport_width: int,
 #                  viewport_height: int)
@@ -141,7 +141,7 @@ log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
-[chroma]
+[vector_store]
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
 sync_threshold = 1
@@ -383,7 +383,7 @@ class TestDistanceMetricConfig:
 
     WHO: Power users experimenting with distance functions for different
          embedding models.
-    WHAT: (1) load_settings() loads distance_metric from [chroma].
+    WHAT: (1) load_settings() loads distance_metric from [vector_store].
           (2) Missing distance_metric raises ActionableError naming the field.
           (3) Invalid distance_metric (not in {"cosine", "l2", "ip"}) raises
               ActionableError listing the valid options.
@@ -398,9 +398,9 @@ class TestDistanceMetricConfig:
 
     def test_distance_metric_loaded_from_settings(self, tmp_path: Path) -> None:
         """
-        Given settings.toml has [chroma] distance_metric = "l2"
+        Given settings.toml has [vector_store] distance_metric = "l2"
         When load_settings() is called
-        Then ChromaConfig.distance_metric is "l2"
+        Then VectorStoreConfig.distance_metric is "l2"
         """
         # Given: settings with distance_metric = "l2"
         toml = _replace_value(_BASE_SETTINGS, "distance_metric", '"l2"')
@@ -410,15 +410,15 @@ class TestDistanceMetricConfig:
         settings = load_settings(path)
 
         # Then: value is loaded
-        assert settings.chroma.distance_metric == "l2", (
-            f"Expected distance_metric='l2', got '{settings.chroma.distance_metric}'"
+        assert settings.vector_store.distance_metric == "l2", (
+            f"Expected distance_metric='l2', got '{settings.vector_store.distance_metric}'"
         )
 
     def test_missing_distance_metric_raises_actionable_error(self, tmp_path: Path) -> None:
         """
-        Given settings.toml [chroma] has no distance_metric field
+        Given settings.toml [vector_store] has no distance_metric field
         When load_settings() is called
-        Then ActionableError is raised naming 'chroma.distance_metric'
+        Then ActionableError is raised naming 'vector_store.distance_metric'
         """
         # Given: settings without distance_metric
         toml = _remove_line(_BASE_SETTINGS, "distance_metric")
@@ -427,13 +427,13 @@ class TestDistanceMetricConfig:
         # When / Then: load_settings raises ActionableError
         with pytest.raises(ActionableError, match="distance_metric") as exc_info:
             load_settings(path)
-        assert "chroma" in str(exc_info.value).lower(), (
-            f"Error should name the [chroma] section, got: {exc_info.value}"
+        assert "vector_store" in str(exc_info.value).lower(), (
+            f"Error should name the [vector_store] section, got: {exc_info.value}"
         )
 
     def test_invalid_distance_metric_raises_actionable_error(self, tmp_path: Path) -> None:
         """
-        Given settings.toml has [chroma] distance_metric = "euclidean"
+        Given settings.toml has [vector_store] distance_metric = "euclidean"
         When load_settings() is called
         Then ActionableError is raised listing the valid options
         """
@@ -460,7 +460,7 @@ class TestSyncThresholdConfig:
 
     def test_sync_threshold_below_one_raises_actionable_error(self, tmp_path: Path) -> None:
         """
-        Given settings.toml has [chroma] sync_threshold = 0
+        Given settings.toml has [vector_store] sync_threshold = 0
         When load_settings() is called
         Then ActionableError is raised naming the field and constraint
         """

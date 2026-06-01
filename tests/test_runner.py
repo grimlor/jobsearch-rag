@@ -1779,7 +1779,10 @@ class TestErrorSurfacing:
             ),
         ):
             handle_search(
-                argparse.Namespace(board=None, overnight=False, open_top=None, force_rescore=False)
+                argparse.Namespace(
+                    board=None, overnight=False, open_top=None, force_rescore=False
+                ),
+                store=create_vector_store(_FAKE_STORE_CONFIG),
             )
 
         # Then: output contains error, service, and suggestion for each error
@@ -2085,7 +2088,7 @@ def _setup_cli_env(
         'log_dir = "data/logs"\n'
         'eval_history_path = "data/eval_history.jsonl"\n'
         "max_slug_length = 80\n"
-        f'\n[chroma]\npersist_dir = "{(tmp_path / "chroma").as_posix()}"\n'
+        f'\n[vector_store]\npersist_dir = "{(tmp_path / "chroma").as_posix()}"\n'
         'distance_metric = "cosine"\n'
         "sync_threshold = 1\n"
         '\n[security]\nscreen_prompt = "Review the following job description text."\n'

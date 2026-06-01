@@ -57,7 +57,6 @@ from jobsearch_rag.adapters.ziprecruiter import ZipRecruiterAdapter
 from jobsearch_rag.cli import handle_search
 from jobsearch_rag.config import (
     BoardConfig,
-    ChromaConfig,
     OllamaConfig,
     OutputConfig,
     Settings,
@@ -1343,7 +1342,9 @@ def _make_live_settings(tmp_path: Path, *, max_pages: int = 1) -> Settings:
     return dataclasses.replace(
         real,
         boards=narrowed_boards,
-        chroma=ChromaConfig(persist_dir=chroma_dir, distance_metric="cosine", sync_threshold=1),
+        vector_store=VectorStoreConfig(
+            persist_dir=chroma_dir, distance_metric="cosine", sync_threshold=1
+        ),
         output=OutputConfig(
             default_format=real.output.default_format,
             output_dir=output_dir,
@@ -1462,6 +1463,7 @@ class TestLiveCumulativeAccumulation:
         # Given: settings redirected to tmp_path
         live_settings = _make_live_settings(tmp_path)
         monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
+        live_store = create_vector_store(live_settings.vector_store)
 
         out_dir = Path(live_settings.output.output_dir)
         csv_path = out_dir / "results.csv"
@@ -1469,7 +1471,7 @@ class TestLiveCumulativeAccumulation:
         md_path = out_dir / "results.md"
 
         # When: run 1 -- initial search
-        handle_search(_make_search_args(board="ziprecruiter"))
+        handle_search(_make_search_args(board="ziprecruiter"), store=live_store)
 
         # Then: run 1 produces results (WHAT 1)
         assert csv_path.exists(), "Run 1 should produce results.csv"
@@ -1481,7 +1483,7 @@ class TestLiveCumulativeAccumulation:
         assert len(run1_jd_files) >= 1, "Run 1 should produce JD files"
 
         # When: run 2 -- accumulate (no --fresh)
-        handle_search(_make_search_args(board="ziprecruiter"))
+        handle_search(_make_search_args(board="ziprecruiter"), store=live_store)
 
         # Then: CSV has >= run 1 count (WHAT 2)
         run2_rows = _read_csv_rows(csv_path)
@@ -1566,8 +1568,9 @@ class TestLiveCumulativeAccumulation:
         single_page_dir.mkdir()
         single_settings = _make_live_settings(single_page_dir, max_pages=1)
         monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: single_settings)
+        single_store = create_vector_store(single_settings.vector_store)
 
-        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
+        handle_search(_make_search_args(board="ziprecruiter", max_listings=0), store=single_store)
         single_csv = Path(single_settings.output.output_dir) / "results.csv"
         single_count = len(_read_csv_rows(single_csv))
         assert single_count >= 1, "Single-page search should produce at least 1 listing"
@@ -1577,8 +1580,9 @@ class TestLiveCumulativeAccumulation:
         multi_page_dir.mkdir()
         multi_settings = _make_live_settings(multi_page_dir, max_pages=2)
         monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: multi_settings)
+        multi_store = create_vector_store(multi_settings.vector_store)
 
-        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
+        handle_search(_make_search_args(board="ziprecruiter", max_listings=0), store=multi_store)
         multi_csv = Path(multi_settings.output.output_dir) / "results.csv"
         multi_count = len(_read_csv_rows(multi_csv))
 
@@ -1640,6 +1644,7 @@ class TestLiveFreshModeReset:
         # Given: settings redirected to tmp_path
         live_settings = _make_live_settings(tmp_path)
         monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
+        live_store = create_vector_store(live_settings.vector_store)
 
         out_dir = Path(live_settings.output.output_dir)
         csv_path = out_dir / "results.csv"
@@ -1647,7 +1652,7 @@ class TestLiveFreshModeReset:
         md_path = out_dir / "results.md"
 
         # Given: run 1 produces accumulated results
-        handle_search(_make_search_args(board="ziprecruiter"))
+        handle_search(_make_search_args(board="ziprecruiter"), store=live_store)
         assert csv_path.exists(), "Run 1 should produce results.csv"
         run1_rows = _read_csv_rows(csv_path)
         assert len(run1_rows) >= 1, (
@@ -1658,7 +1663,7 @@ class TestLiveFreshModeReset:
         assert run1_jd_count >= 1, "Run 1 should produce JD files"
 
         # When: run 2 with --fresh
-        handle_search(_make_search_args(board="ziprecruiter", fresh=True))
+        handle_search(_make_search_args(board="ziprecruiter", fresh=True), store=live_store)
 
         # Then: CSV contains only current-run listings (WHAT 1)
         fresh_rows = _read_csv_rows(csv_path)
@@ -1756,13 +1761,14 @@ class TestLiveDecisionExclusionAcrossRuns:
         # Given: settings redirected to tmp_path
         live_settings = _make_live_settings(tmp_path)
         monkeypatch.setattr("jobsearch_rag.cli.load_settings", lambda: live_settings)
+        live_store = create_vector_store(live_settings.vector_store)
 
         out_dir = Path(live_settings.output.output_dir)
         csv_path = out_dir / "results.csv"
         jd_dir = out_dir / "jds"
 
         # Given: run 1 -- uncapped so we score the full page
-        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
+        handle_search(_make_search_args(board="ziprecruiter", max_listings=0), store=live_store)
         capsys.readouterr()  # discard run 1 output so run 2 parsing is unambiguous
         run1_rows = _read_csv_rows(csv_path)
         assert len(run1_rows) >= 2, (
@@ -1824,7 +1830,7 @@ class TestLiveDecisionExclusionAcrossRuns:
             )
 
         monkeypatch.setattr(PipelineRunner, "run", _run_with_decisions)
-        handle_search(_make_search_args(board="ziprecruiter", max_listings=0))
+        handle_search(_make_search_args(board="ziprecruiter", max_listings=0), store=live_store)
         captured = capsys.readouterr()
 
         # Then: decided listing excluded from CSV (WHAT 2)

@@ -41,7 +41,6 @@ from jobsearch_rag.rag.decisions import DecisionRecorder
 from jobsearch_rag.rag.embedder import Embedder
 from jobsearch_rag.rag.indexer import Indexer
 from jobsearch_rag.rag.scorer import Scorer
-from jobsearch_rag.rag.store import VectorStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -50,6 +49,7 @@ if TYPE_CHECKING:
 
     from jobsearch_rag.adapters.base import JobListing
     from jobsearch_rag.config import Settings
+    from jobsearch_rag.rag.ports import VectorStorePort
     from jobsearch_rag.rag.scorer import ScoreResult
 
 from jobsearch_rag.config import synthesize_disqualifier_prompt
@@ -77,15 +77,11 @@ class PipelineRunner:
     the RAG scorer, and hands off to the ranker.
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, *, store: VectorStorePort) -> None:
         """Initialize pipeline components from application settings."""
         self._settings = settings
         self._embedder = Embedder(settings.ollama)
-        self._store = VectorStore(
-            persist_dir=settings.chroma.persist_dir,
-            distance_metric=settings.chroma.distance_metric,
-            sync_threshold=settings.chroma.sync_threshold,
-        )
+        self._store = store
         # Resolve disqualifier prompt: freeform override takes precedence,
         # otherwise synthesize from archetypes.
         disqualifier_prompt: str | None = None
@@ -121,7 +117,7 @@ class PipelineRunner:
         )
 
     @property
-    def store(self) -> VectorStore:
+    def store(self) -> VectorStorePort:
         """Public access to the pipeline's vector store."""
         return self._store
 
