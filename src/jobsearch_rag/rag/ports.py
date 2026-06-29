@@ -165,7 +165,7 @@ class VectorStoreConfig:
     persist_dir: str
     distance_metric: str
     sync_threshold: int
-    store_class: str = "jobsearch_rag.rag.store.ChromaVectorStore"
+    store_class: str
 
 
 # ---------------------------------------------------------------------------

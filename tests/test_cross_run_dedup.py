@@ -97,6 +97,7 @@ def _make_runner_with_real_stack(
     ):
         store = create_vector_store(
             VectorStoreConfig(
+                store_class=settings.vector_store.store_class,
                 persist_dir=settings.vector_store.persist_dir,
                 distance_metric=settings.vector_store.distance_metric,
                 sync_threshold=settings.vector_store.sync_threshold,

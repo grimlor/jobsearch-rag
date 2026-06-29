@@ -455,7 +455,7 @@ def _validate(data: _TOMLDict, filepath: Path) -> Settings:
         persist_dir=str(_require_field(vs_data, "persist_dir", "vector_store")),
         distance_metric=str(_require_field(vs_data, "distance_metric", "vector_store")),
         sync_threshold=int(_require_field(vs_data, "sync_threshold", "vector_store")),
-        store_class=str(vs_data.get("store_class", "jobsearch_rag.rag.store.ChromaVectorStore")),
+        store_class=str(_require_field(vs_data, "store_class", "vector_store")),
     )
 
     # Validate sync_threshold

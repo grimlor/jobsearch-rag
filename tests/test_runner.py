@@ -2088,7 +2088,8 @@ def _setup_cli_env(
         'log_dir = "data/logs"\n'
         'eval_history_path = "data/eval_history.jsonl"\n'
         "max_slug_length = 80\n"
-        f'\n[vector_store]\npersist_dir = "{(tmp_path / "chroma").as_posix()}"\n'
+        f'\n[vector_store]\nstore_class = "tests.fakes.FakeVectorStore"\n'
+        f'persist_dir = "{(tmp_path / "chroma").as_posix()}"\n'
         'distance_metric = "cosine"\n'
         "sync_threshold = 1\n"
         '\n[security]\nscreen_prompt = "Review the following job description text."\n'

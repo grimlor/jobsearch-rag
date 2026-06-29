@@ -263,6 +263,7 @@ def make_test_settings(
             log_dir=str(tmpdir_path / "logs"),
         ),
         vector_store=VectorStoreConfig(
+            store_class="tests.fakes.FakeVectorStore",
             persist_dir=str(tmpdir_path / "chroma"),
             distance_metric="cosine",
             sync_threshold=1,

@@ -96,6 +96,7 @@ eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
 [vector_store]
+store_class = "jobsearch_rag.rag.store.ChromaVectorStore"
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
 sync_threshold = 1
@@ -760,7 +761,7 @@ rate_limit_range = [1.5, 3.5]
         """
         # Given: replace [vector_store] section with a scalar
         bad_toml = _VALID_SETTINGS.replace(
-            '[vector_store]\npersist_dir = "./data/chroma_db"\ndistance_metric = "cosine"\nsync_threshold = 1\n',
+            '[vector_store]\nstore_class = "jobsearch_rag.rag.store.ChromaVectorStore"\npersist_dir = "./data/chroma_db"\ndistance_metric = "cosine"\nsync_threshold = 1\n',
             "",
         )
         bad_toml = 'vector_store = "not a dict"\n' + bad_toml
@@ -1274,6 +1275,7 @@ eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
 [vector_store]
+store_class = "jobsearch_rag.rag.store.ChromaVectorStore"
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
 sync_threshold = 1

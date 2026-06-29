@@ -201,6 +201,7 @@ eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
 [vector_store]
+store_class = "jobsearch_rag.rag.store.ChromaVectorStore"
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
 sync_threshold = 1
@@ -2375,6 +2376,7 @@ class TestStealthConfig:
             mock_client = make_mock_ollama_client()
             store = create_vector_store(
                 VectorStoreConfig(
+                    store_class=settings.vector_store.store_class,
                     persist_dir=settings.vector_store.persist_dir,
                     distance_metric=settings.vector_store.distance_metric,
                     sync_threshold=settings.vector_store.sync_threshold,

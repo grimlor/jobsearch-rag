@@ -82,6 +82,7 @@ def store() -> Iterator[VectorStorePort]:
     with tempfile.TemporaryDirectory() as tmpdir:
         s = create_vector_store(
             VectorStoreConfig(
+                store_class="jobsearch_rag.rag.store.ChromaVectorStore",
                 persist_dir=tmpdir,
                 distance_metric="cosine",
                 sync_threshold=1,
@@ -194,6 +195,7 @@ class TestCollectionLifecycle:
         with tempfile.TemporaryDirectory() as tmpdir_l2:
             store_l2 = create_vector_store(
                 VectorStoreConfig(
+                    store_class="jobsearch_rag.rag.store.ChromaVectorStore",
                     persist_dir=tmpdir_l2,
                     distance_metric="l2",
                     sync_threshold=1,
@@ -206,6 +208,7 @@ class TestCollectionLifecycle:
         with tempfile.TemporaryDirectory() as tmpdir_cos:
             store_cos = create_vector_store(
                 VectorStoreConfig(
+                    store_class="jobsearch_rag.rag.store.ChromaVectorStore",
                     persist_dir=tmpdir_cos,
                     distance_metric="cosine",
                     sync_threshold=1,
@@ -695,7 +698,12 @@ class TestContextManager:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             store = create_vector_store(
-                VectorStoreConfig(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
+                VectorStoreConfig(
+                    store_class="jobsearch_rag.rag.store.ChromaVectorStore",
+                    persist_dir=tmpdir,
+                    distance_metric="cosine",
+                    sync_threshold=1,
+                )
             )
             with store as ctx:
                 assert ctx is store, "Context manager should return self"
@@ -708,7 +716,12 @@ class TestContextManager:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             store = create_vector_store(
-                VectorStoreConfig(persist_dir=tmpdir, distance_metric="cosine", sync_threshold=1)
+                VectorStoreConfig(
+                    store_class="jobsearch_rag.rag.store.ChromaVectorStore",
+                    persist_dir=tmpdir,
+                    distance_metric="cosine",
+                    sync_threshold=1,
+                )
             )
             with store:
                 store.reset_collection("ctx_test")

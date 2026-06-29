@@ -33,6 +33,7 @@ class ChromaVectorStore:
         from jobsearch_rag.rag.ports import VectorStoreConfig, create_vector_store
 
         store = create_vector_store(VectorStoreConfig(
+            store_class="jobsearch_rag.rag.store.ChromaVectorStore",
             persist_dir="./data/chroma_db",
             distance_metric="cosine",
             sync_threshold=1000,

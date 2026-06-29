@@ -133,6 +133,7 @@ def store() -> Iterator[VectorStorePort]:
     with tempfile.TemporaryDirectory() as tmpdir:
         s = create_vector_store(
             VectorStoreConfig(
+                store_class="jobsearch_rag.rag.store.ChromaVectorStore",
                 persist_dir=tmpdir,
                 distance_metric="cosine",
                 sync_threshold=1,
@@ -480,6 +481,7 @@ class TestChromaDBContract:
             # Given: index with first client
             store1 = create_vector_store(
                 VectorStoreConfig(
+                    store_class="jobsearch_rag.rag.store.ChromaVectorStore",
                     persist_dir=tmpdir,
                     distance_metric="cosine",
                     sync_threshold=1,
@@ -500,6 +502,7 @@ class TestChromaDBContract:
             # When: create new client against same directory
             store2 = create_vector_store(
                 VectorStoreConfig(
+                    store_class="jobsearch_rag.rag.store.ChromaVectorStore",
                     persist_dir=tmpdir,
                     distance_metric="cosine",
                     sync_threshold=1,
@@ -775,6 +778,7 @@ class TestLiveZipRecruiterPipeline:
         with tempfile.TemporaryDirectory() as tmpdir:
             s = create_vector_store(
                 VectorStoreConfig(
+                    store_class="jobsearch_rag.rag.store.ChromaVectorStore",
                     persist_dir=tmpdir,
                     distance_metric="cosine",
                     sync_threshold=1,
@@ -1343,7 +1347,10 @@ def _make_live_settings(tmp_path: Path, *, max_pages: int = 1) -> Settings:
         real,
         boards=narrowed_boards,
         vector_store=VectorStoreConfig(
-            persist_dir=chroma_dir, distance_metric="cosine", sync_threshold=1
+            store_class="jobsearch_rag.rag.store.ChromaVectorStore",
+            persist_dir=chroma_dir,
+            distance_metric="cosine",
+            sync_threshold=1,
         ),
         output=OutputConfig(
             default_format=real.output.default_format,

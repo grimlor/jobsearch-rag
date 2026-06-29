@@ -108,6 +108,7 @@ log_dir = "data/logs"
 eval_history_path = "data/eval_history.jsonl"
 
 [vector_store]
+store_class = "jobsearch_rag.rag.store.ChromaVectorStore"
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
 # Flush HNSW index to disk after every N writes.

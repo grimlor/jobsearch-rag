@@ -142,6 +142,7 @@ eval_history_path = "data/eval_history.jsonl"
 max_slug_length = 80
 
 [vector_store]
+store_class = "jobsearch_rag.rag.store.ChromaVectorStore"
 persist_dir = "./data/chroma_db"
 distance_metric = "cosine"
 sync_threshold = 1

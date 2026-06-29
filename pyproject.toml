@@ -72,8 +72,8 @@ type       = "uv run pyright src/ tests/"
 test       = "uv run pytest tests/ -v"
 cov        = "uv run pytest tests/ --cov=jobsearch_rag --cov-report=term-missing"
 live       = "uv run pytest tests/ -m \"live or integration\" -v"
-no-pragmas = "! grep -rn 'noqa' -rn 'pyright' src/ tests/"
-check      = "task format && task lint && task type && task cov"
+no-pragmas = "grep -rn 'noqa:' src/ tests/ || grep -rn 'pyright:' src/ tests/"
+check      = "task type && task format && task lint && task cov"
 
 # ---------------------------------------------------------------------------
 # Ruff
