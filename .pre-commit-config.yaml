@@ -9,7 +9,7 @@ repos:
     hooks:
       - id: pyright
         name: pyright
-        entry: uv run pyright
+        entry: /Users/admin/.local/bin/uv run pyright
         language: system
         types: [python]
         args: [src/, tests/]

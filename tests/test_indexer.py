@@ -540,7 +540,10 @@ class TestArchetypeIndexing:
         assert "Cloud-native" in doc, "Description should contain 'Cloud-native'"
 
     async def test_archetype_description_whitespace_is_normalized(
-        self, indexer: Indexer, mock_embedder: Embedder, archetypes_path: Path
+        self,
+        indexer: Indexer,
+        store: VectorStorePort,
+        archetypes_path: Path,
     ) -> None:
         """
         Given archetype descriptions with extra whitespace
@@ -550,9 +553,9 @@ class TestArchetypeIndexing:
         # When: index archetypes
         await indexer.index_archetypes(str(archetypes_path))
 
-        # Then: all embedded texts are normalized
-        for call in mock_embedder._client.embed.call_args_list:  # type: ignore[union-attr]
-            text = str(call.kwargs.get("input", ""))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        # Then: all stored archetype documents are normalized
+        for record in store.get_all_documents("role_archetypes"):
+            text = record.document
             assert text == text.strip(), f"Leading/trailing whitespace found: {text!r}"
             assert "  " not in text, f"Double spaces found: {text!r}"
             assert "\n\n" not in text, f"Double newlines found: {text!r}"

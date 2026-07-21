@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import csv
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -72,17 +72,17 @@ EMBED_UNRELATED_JD = [0.0, 0.0, 0.1, 0.9, 0.9]  # far from everything
 # ---------------------------------------------------------------------------
 
 
-def _set_embed_response(embedder: Embedder, vector: list[float]) -> None:
+def _set_embed_response(mock_ollama_client: AsyncMock, vector: list[float]) -> None:
     """Change the embedding vector returned by the mock ollama client."""
     response = MagicMock()
     response.embeddings = [vector]
     response.prompt_eval_count = 42
-    embedder._client.embed.return_value = response  # type: ignore[union-attr]
+    mock_ollama_client.embed.return_value = response
 
 
-def _set_embed_side_effect(embedder: Embedder, vectors: list[list[float]]) -> None:
+def _set_embed_side_effect(mock_ollama_client: AsyncMock, vectors: list[list[float]]) -> None:
     """Set a sequence of different embedding vectors for successive embed calls."""
-    embedder._client.embed.side_effect = [  # type: ignore[union-attr]
+    mock_ollama_client.embed.side_effect = [
         MagicMock(embeddings=[v], prompt_eval_count=42) for v in vectors
     ]
 
@@ -174,15 +174,20 @@ def store() -> VectorStorePort:
 
 
 @pytest.fixture
-def mock_embedder() -> Embedder:
-    """Real Embedder with ollama client stubbed at the I/O boundary."""
-    mock_client = make_mock_ollama_client(
+def mock_ollama_client() -> AsyncMock:
+    """Stubbed ollama.AsyncClient at the HTTP boundary."""
+    return make_mock_ollama_client(
         embed_vector=EMBED_ARCH_JD,
         classify_response='{"disqualified": false, "reason": null}',
     )
+
+
+@pytest.fixture
+def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
+    """Real Embedder with ollama client stubbed at the I/O boundary."""
     with patch(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
+        return_value=mock_ollama_client,
     ):
         return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
@@ -287,7 +292,7 @@ class TestBestArchetypeMatch:
     # --- Scorer: best_archetype surfaces through scorer.score() ---
 
     async def test_score_result_includes_best_archetype_name(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_ollama_client: AsyncMock
     ) -> None:
         """
         Given a role_archetypes collection with 'AI Systems Engineer' and 'Data Platform Lead'
@@ -295,7 +300,7 @@ class TestBestArchetypeMatch:
         Then the returned ScoreResult.best_archetype equals 'AI Systems Engineer'
         """
         # Given: a scorer with two archetypes; JD embedding close to AI Systems Engineer
-        _set_embed_response(mock_embedder, EMBED_ARCH_JD)
+        _set_embed_response(mock_ollama_client, EMBED_ARCH_JD)
 
         # When: a JD is scored
         result = await scorer.score(
@@ -308,7 +313,7 @@ class TestBestArchetypeMatch:
         )
 
     async def test_best_archetype_is_closest_match_when_multiple_exist(
-        self, scorer: Scorer, mock_embedder: Embedder
+        self, scorer: Scorer, mock_ollama_client: AsyncMock
     ) -> None:
         """
         Given a role_archetypes collection with multiple archetypes
@@ -316,7 +321,7 @@ class TestBestArchetypeMatch:
         Then best_archetype is 'Data Platform Lead' (smallest distance)
         """
         # Given: a JD embedding close to the Data Platform Lead archetype
-        _set_embed_response(mock_embedder, EMBED_DATA_JD)
+        _set_embed_response(mock_ollama_client, EMBED_DATA_JD)
 
         # When: a JD is scored
         result = await scorer.score(
@@ -329,7 +334,10 @@ class TestBestArchetypeMatch:
         )
 
     async def test_multi_chunk_jd_selects_archetype_from_best_scoring_chunk(
-        self, populated_store: VectorStorePort, mock_embedder: Embedder
+        self,
+        populated_store: VectorStorePort,
+        mock_embedder: Embedder,
+        mock_ollama_client: AsyncMock,
     ) -> None:
         """
         Given a JD that is long enough to be split into multiple chunks
@@ -351,7 +359,7 @@ class TestBestArchetypeMatch:
 
         # Chunk 1 produces DATA_JD embedding (closer to Data Platform Lead, score ~0.996)
         # Chunk 2 produces ARCH_JD_CLOSER embedding (closer to AI Systems Engineer, score ~0.9998)
-        _set_embed_side_effect(mock_embedder, [EMBED_DATA_JD, EMBED_ARCH_JD_CLOSER])
+        _set_embed_side_effect(mock_ollama_client, [EMBED_DATA_JD, EMBED_ARCH_JD_CLOSER])
 
         # When: a 2-chunk JD is scored (61-120 chars at 60 char chunk_size)
         long_jd = "A" * 61 + " " + "B" * 57  # total = 119 chars → 2 chunks
@@ -364,7 +372,10 @@ class TestBestArchetypeMatch:
         )
 
     async def test_single_archetype_collection_always_selects_that_archetype(
-        self, store: VectorStorePort, mock_embedder: Embedder
+        self,
+        store: VectorStorePort,
+        mock_embedder: Embedder,
+        mock_ollama_client: AsyncMock,
     ) -> None:
         """
         Given a role_archetypes collection with exactly one archetype
@@ -403,7 +414,7 @@ class TestBestArchetypeMatch:
             chunk_overlap=50,
             top_k_retrieval=3,
         )
-        _set_embed_response(mock_embedder, EMBED_UNRELATED_JD)
+        _set_embed_response(mock_ollama_client, EMBED_UNRELATED_JD)
 
         # When: any JD is scored
         result = await scorer.score("Completely unrelated role description")
@@ -610,7 +621,10 @@ class TestBestArchetypeMatch:
     # --- Archetype without metadata falls back ---
 
     async def test_archetype_without_metadata_falls_back_to_none(
-        self, store: VectorStorePort, mock_embedder: Embedder
+        self,
+        store: VectorStorePort,
+        mock_embedder: Embedder,
+        mock_ollama_client: AsyncMock,
     ) -> None:
         """
         Given a role_archetypes document was added without metadata
@@ -648,7 +662,7 @@ class TestBestArchetypeMatch:
             chunk_overlap=50,
             top_k_retrieval=3,
         )
-        _set_embed_response(mock_embedder, EMBED_ARCH_JD)
+        _set_embed_response(mock_ollama_client, EMBED_ARCH_JD)
 
         # When: a JD is scored
         result = await scorer.score("Design ML inference pipelines")

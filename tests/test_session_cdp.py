@@ -332,9 +332,10 @@ class TestSessionManagerCDP:
             browser_channel="msedge",
         )
         mock_pw = _mock_playwright()
+        empty_browser_paths: dict[str, list[str]] = {}
 
         with (
-            patch("jobsearch_rag.adapters.session._BROWSER_PATHS", {}),
+            patch("jobsearch_rag.adapters.session._BROWSER_PATHS", empty_browser_paths),
             patch("shutil.which", return_value=which_binary),
             patch("jobsearch_rag.adapters.session.subprocess.Popen") as mock_popen,
             patch("urllib.request.urlopen"),
@@ -384,9 +385,10 @@ class TestSessionManagerCDP:
         """
         # Given: no binary available
         mock_pw = _mock_playwright()
+        empty_browser_paths: dict[str, list[str]] = {}
 
         with (
-            patch("jobsearch_rag.adapters.session._BROWSER_PATHS", {}),
+            patch("jobsearch_rag.adapters.session._BROWSER_PATHS", empty_browser_paths),
             patch("shutil.which", return_value=None),
             _patch_playwright(mock_pw),
         ):

@@ -458,12 +458,13 @@ class TestDisqualifierPromptConfig:
         self,
         tmp_path: Path,
         mock_embedder: Embedder,
+        mock_ollama_client: AsyncMock,
         vector_store: VectorStorePort,
     ) -> None:
         """
         Given a Scorer constructed with a synthesized prompt from archetypes
         When disqualify() is called on a JD
-        Then the LLM classify call contains the synthesized prompt text
+        Then disqualify() returns a disqualified verdict because the synthesized prompt reached the classifier
         """
         # Given: synthesize a prompt from archetypes
         arch_path = tmp_path / "role_archetypes.toml"
@@ -483,30 +484,37 @@ class TestDisqualifierPromptConfig:
             top_k_retrieval=3,
         )
 
-        # When: disqualify is called
-        await scorer.disqualify("Some JD text")
+        # Given: boundary behavior that only disqualifies when the synthesized prompt is present
+        async def _chat_response(*_args: object, **kwargs: object) -> MagicMock:
+            messages = cast("list[dict[str, str]]", kwargs.get("messages", []))
+            user_content = ""
+            for message in messages:
+                if message.get("role") == "user":
+                    user_content = message.get("content", "")
+                    break
 
-        # Then: the disqualifier classify call (2nd call — after screening)
-        # contains the synthesized prompt in the user message
-        assert mock_embedder._client.chat.call_count >= 2, (  # type: ignore[union-attr]
-            f"Expected at least 2 classify calls (screen + disqualify), "
-            f"got {mock_embedder._client.chat.call_count}"  # type: ignore[union-attr]
+            response = MagicMock()
+            response.prompt_eval_count = 100
+            response.eval_count = 20
+            msg = MagicMock()
+            if prompt in user_content:
+                msg.content = '{"disqualified": true, "reason": "matched synthesized prompt"}'
+            else:
+                msg.content = '{"suspicious": false}'
+            response.message = msg
+            return response
+
+        mock_ollama_client.chat.side_effect = _chat_response
+
+        # When: disqualify is called
+        disqualified, reason = await scorer.disqualify("Some JD text")
+
+        # Then: prompt wiring is observable through the disqualification result
+        assert disqualified is True, (
+            "Expected disqualify() to return True when prompt wiring succeeds"
         )
-        disqualify_call = mock_embedder._client.chat.call_args_list[1]  # type: ignore[union-attr]
-        call_kwargs = cast("dict[str, Any]", disqualify_call.kwargs)  # type: ignore[reportUnknownMemberType]
-        call_args = cast("tuple[Any, ...]", disqualify_call.args)  # type: ignore[reportUnknownMemberType]
-        messages: list[dict[str, Any]] = call_kwargs.get(
-            "messages",
-            cast("dict[str, Any]", call_args[1]).get("messages", []) if len(call_args) > 1 else [],
-        )
-        user_messages: list[dict[str, Any]] = [m for m in messages if m["role"] == "user"]
-        assert len(user_messages) == 1, (
-            f"Expected 1 user message in disqualify call, got {len(user_messages)}"
-        )
-        user_content: str = user_messages[0]["content"]
-        assert prompt in user_content, (
-            f"User message should contain the synthesized prompt.\n"
-            f"Expected to find: {prompt[:100]}...\nGot: {user_content[:200]}..."
+        assert reason == "matched synthesized prompt", (
+            "Expected reason from prompt-sensitive classifier response"
         )
 
 
@@ -586,12 +594,13 @@ class TestScreenPromptConfig:
         self,
         tmp_path: Path,
         mock_embedder: Embedder,
+        mock_ollama_client: AsyncMock,
         vector_store: VectorStorePort,
     ) -> None:
         """
         Given a Scorer constructed with a custom screen_prompt from config
-        When _screen_jd_for_injection() is called on a JD
-        Then the LLM classify call contains the custom screen prompt text
+        When disqualify() is called on a JD
+        Then screening passes and disqualification proceeds because the custom prompt reached the screener
         """
         # Given: a Scorer with a custom screen prompt
         custom_prompt = "Custom injection screening prompt with examples"
@@ -605,26 +614,39 @@ class TestScreenPromptConfig:
             top_k_retrieval=3,
         )
 
-        # When: screening is invoked (via disqualify which calls screening first)
-        await scorer.disqualify("Some JD text to screen")
+        # Given: boundary behavior that only passes screening when custom prompt is present
+        async def _chat_response(*_args: object, **kwargs: object) -> MagicMock:
+            messages = cast("list[dict[str, str]]", kwargs.get("messages", []))
+            user_content = ""
+            for message in messages:
+                if message.get("role") == "user":
+                    user_content = message.get("content", "")
+                    break
 
-        # Then: the first classify call (screening) contains the custom prompt
-        # in the user message
-        first_call_args = mock_embedder._client.chat.call_args_list[0]  # type: ignore[union-attr]
-        call_kwargs = cast("dict[str, Any]", first_call_args.kwargs)  # type: ignore[reportUnknownMemberType]
-        call_args = cast("tuple[Any, ...]", first_call_args.args)  # type: ignore[reportUnknownMemberType]
-        messages: list[dict[str, Any]] = call_kwargs.get(
-            "messages",
-            cast("dict[str, Any]", call_args[1]).get("messages", []) if len(call_args) > 1 else [],
+            response = MagicMock()
+            response.prompt_eval_count = 100
+            response.eval_count = 20
+            msg = MagicMock()
+            if custom_prompt in user_content:
+                msg.content = '{"suspicious": false}'
+            elif "test disqualifier prompt" in user_content:
+                msg.content = '{"disqualified": true, "reason": "screened and evaluated"}'
+            else:
+                msg.content = '{"suspicious": true, "reason": "screen prompt mismatch"}'
+            response.message = msg
+            return response
+
+        mock_ollama_client.chat.side_effect = _chat_response
+
+        # When: screening is invoked (via disqualify which calls screening first)
+        disqualified, reason = await scorer.disqualify("Some JD text to screen")
+
+        # Then: prompt wiring is observable through screening + disqualifier outcome
+        assert disqualified is True, (
+            "Expected disqualify() to proceed past screening and return disqualified=True"
         )
-        user_messages: list[dict[str, Any]] = [m for m in messages if m["role"] == "user"]
-        assert len(user_messages) == 1, (
-            f"Expected 1 user message in screening call, got {len(user_messages)}"
-        )
-        user_content: str = user_messages[0]["content"]
-        assert custom_prompt in user_content, (
-            f"User message should contain the custom screen prompt.\n"
-            f"Expected to find: {custom_prompt}\nGot: {user_content[:200]}"
+        assert reason == "screened and evaluated", (
+            "Expected reason from the disqualifier response after successful screening"
         )
 
 
@@ -1769,11 +1791,12 @@ class TestScoringTunablesConfig:
             )
 
         # When: score a 200-char JD (should produce 4 chunks with step=50)
+        initial_embed_calls = mock_embedder.metrics.embed_calls
         text = "A" * 200
         await scorer.score(text)
 
-        # Then: embedder.embed was called 4 times (once per chunk)
-        embed_calls = mock_embedder._client.embed.call_count  # type: ignore[union-attr]
+        # Then: public embed metrics show one embed call per chunk
+        embed_calls = mock_embedder.metrics.embed_calls - initial_embed_calls
         assert embed_calls == 4, (
             f"Expected 4 embed calls (200 chars / step 50 = 4 chunks), got {embed_calls}"
         )

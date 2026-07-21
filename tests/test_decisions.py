@@ -13,7 +13,7 @@ import json as json_mod
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -45,12 +45,17 @@ def store() -> VectorStorePort:
 
 
 @pytest.fixture
-def mock_embedder() -> Embedder:
+def mock_ollama_client() -> AsyncMock:
+    """Stubbed ollama.AsyncClient at the HTTP boundary."""
+    return make_mock_ollama_client(embed_vector=EMBED_TEST)
+
+
+@pytest.fixture
+def mock_embedder(mock_ollama_client: AsyncMock) -> Embedder:
     """Real Embedder with ollama client stubbed at the I/O boundary."""
-    mock_client = make_mock_ollama_client(embed_vector=EMBED_TEST)
     with patch(
         "jobsearch_rag.rag.embedder.ollama_sdk.AsyncClient",
-        return_value=mock_client,
+        return_value=mock_ollama_client,
     ):
         return Embedder(make_test_ollama_config(max_retries=1, base_delay=0.0))
 
@@ -167,18 +172,36 @@ class TestDecisionRecording:
         assert decision["reason"] == "", "Reason should default to empty string when not provided"
 
     async def test_reason_enriches_embedding_vector(
-        self, recorder: DecisionRecorder, mock_embedder: Embedder
+        self,
+        recorder: DecisionRecorder,
+        store: VectorStorePort,
+        mock_ollama_client: AsyncMock,
     ) -> None:
         """
         Given a verdict with a reason
         When the decision is recorded
         Then the embedder receives JD text + reason so the vector captures operator intent
         """
+
+        # Given: an embedding boundary that emits distinct vectors for enriched vs bare text
+        async def _embed_response(*_args: object, **kwargs: object) -> MagicMock:
+            text = str(kwargs.get("input", ""))
+            response = MagicMock()
+            response.prompt_eval_count = 42
+            response.embeddings = (
+                [[1.0, 0.0, 0.0, 0.0, 0.0]]
+                if "Operator reasoning:" in text
+                else [[0.0, 1.0, 0.0, 0.0, 0.0]]
+            )
+            return response
+
+        mock_ollama_client.embed.side_effect = _embed_response
+
         # Given: a JD and an explicit reason
         jd = "Staff Platform Architect role at Acme Corp."
         reason = "Fully remote with architecture leadership"
 
-        # When: record is called with both
+        # When: two decisions are recorded for the same JD, with and without reason
         await recorder.record(
             job_id="zr-enrich",
             verdict="yes",
@@ -186,24 +209,6 @@ class TestDecisionRecording:
             board="ziprecruiter",
             reason=reason,
         )
-
-        # Then: embedder receives enriched text
-        embed_input = mock_embedder._client.embed.call_args.kwargs["input"]  # type: ignore[union-attr]
-        expected = f"{jd}\n\nOperator reasoning: {reason}"
-        assert embed_input == expected, f"Expected enriched text {expected!r}, got {embed_input!r}"
-
-    async def test_empty_reason_does_not_enrich_embedding(
-        self, recorder: DecisionRecorder, mock_embedder: Embedder
-    ) -> None:
-        """
-        Given a verdict with no reason
-        When the decision is recorded
-        Then the embedder receives only the bare JD text — no enrichment suffix
-        """
-        # Given: a JD with no reason
-        jd = "Staff Platform Architect role at Acme Corp."
-
-        # When: record is called without a reason
         await recorder.record(
             job_id="zr-bare",
             verdict="yes",
@@ -211,9 +216,69 @@ class TestDecisionRecording:
             board="ziprecruiter",
         )
 
-        # Then: embedder receives bare JD text only
-        embed_input = mock_embedder._client.embed.call_args.kwargs["input"]  # type: ignore[union-attr]
-        assert embed_input == jd, f"Expected bare JD text {jd!r}, got {embed_input!r}"
+        # Then: querying by the enriched vector returns the reasoned decision first
+        results = store.query(
+            collection_name="decisions",
+            query_embedding=[1.0, 0.0, 0.0, 0.0, 0.0],
+            n_results=1,
+        )
+        assert results.matches[0].id == "decision-zr-enrich", (
+            "Expected enriched decision to be closest to the enriched-vector query"
+        )
+
+    async def test_empty_reason_does_not_enrich_embedding(
+        self,
+        recorder: DecisionRecorder,
+        store: VectorStorePort,
+        mock_ollama_client: AsyncMock,
+    ) -> None:
+        """
+        Given a verdict with no reason
+        When the decision is recorded
+        Then the embedder receives only the bare JD text — no enrichment suffix
+        """
+
+        # Given: an embedding boundary that emits distinct vectors for enriched vs bare text
+        async def _embed_response(*_args: object, **kwargs: object) -> MagicMock:
+            text = str(kwargs.get("input", ""))
+            response = MagicMock()
+            response.prompt_eval_count = 42
+            response.embeddings = (
+                [[1.0, 0.0, 0.0, 0.0, 0.0]]
+                if "Operator reasoning:" in text
+                else [[0.0, 1.0, 0.0, 0.0, 0.0]]
+            )
+            return response
+
+        mock_ollama_client.embed.side_effect = _embed_response
+
+        # Given: a JD with no reason
+        jd = "Staff Platform Architect role at Acme Corp."
+
+        # When: two decisions are recorded for the same JD, with and without reason
+        await recorder.record(
+            job_id="zr-bare",
+            verdict="yes",
+            jd_text=jd,
+            board="ziprecruiter",
+        )
+        await recorder.record(
+            job_id="zr-enrich",
+            verdict="yes",
+            jd_text=jd,
+            board="ziprecruiter",
+            reason="Fully remote with architecture leadership",
+        )
+
+        # Then: querying by the bare vector returns the no-reason decision first
+        results = store.query(
+            collection_name="decisions",
+            query_embedding=[0.0, 1.0, 0.0, 0.0, 0.0],
+            n_results=1,
+        )
+        assert results.matches[0].id == "decision-zr-bare", (
+            "Expected bare decision to be closest to the bare-vector query"
+        )
 
     async def test_no_verdict_is_stored_but_excluded_from_scoring_signal(
         self, recorder: DecisionRecorder
